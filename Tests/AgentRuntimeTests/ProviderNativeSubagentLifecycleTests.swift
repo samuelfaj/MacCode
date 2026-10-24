@@ -466,6 +466,64 @@ final class ProviderNativeSubagentLifecycleTests: XCTestCase {
         )
     }
 
+    func testDistillSubagentLifecycleProjectsChildWithDistillProvider() {
+        // WHY: Distill subagents must reach the Subagents badge ledger; the
+        // receipt provider must match the event provider, not a hard-coded .grok.
+        let childID = UUID()
+        let spawn = runtimeEvent(
+            provider: .distill,
+            update: ["sessionUpdate": "subagent_spawned", "child_session_id": childID.uuidString],
+            method: "x.ai/session_notification"
+        )
+        let finish = runtimeEvent(
+            provider: .distill,
+            update: [
+                "sessionUpdate": "subagent_finished",
+                "child_session_id": childID.uuidString,
+                "status": "completed",
+            ],
+            method: "x.ai/session_notification"
+        )
+        XCTAssertTrue(ProviderNativeSubagentLifecycle.isPotentialLifecycleEvent(spawn))
+        let active = ProviderNativeSubagentLifecycle.updates(from: spawn, parentProvider: .distill)
+        XCTAssertEqual(active.count, 1)
+        XCTAssertEqual(active.first?.provider, .distill)
+        XCTAssertEqual(active.first?.phase, .active)
+        XCTAssertEqual(
+            ProviderNativeSubagentLifecycle.updates(from: finish, parentProvider: .distill).first?.phase,
+            .completed
+        )
+    }
+
+    func testClaudeRuntimeEventProjectsNoSubagentChild() {
+        // WHY: only Grok-family ACP carriers are parsed here; other providers
+        // must not write Subagents receipts from the same method name.
+        let childID = UUID()
+        let event = runtimeEvent(
+            provider: .claude,
+            update: ["sessionUpdate": "subagent_spawned", "child_session_id": childID.uuidString],
+            method: "x.ai/session_notification"
+        )
+        XCTAssertFalse(ProviderNativeSubagentLifecycle.isPotentialLifecycleEvent(event))
+        XCTAssertTrue(ProviderNativeSubagentLifecycle.updates(from: event, parentProvider: .claude).isEmpty)
+    }
+
+    private func runtimeEvent(
+        provider: AgentProvider,
+        update: [String: Any],
+        method: String
+    ) -> AssistantEvent {
+        let payload: [String: Any] = ["sessionId": "parent-session", "update": update]
+        let data = try! JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        return .providerRuntime(ProviderRuntimeEvent(
+            provider: provider,
+            source: "test.acp",
+            method: method,
+            payloadJSON: String(decoding: data, as: UTF8.self),
+            receivedAtMs: 1
+        ))
+    }
+
     private func grokRuntimeEvent(
         update: [String: Any],
         isReplay: Bool = false,
