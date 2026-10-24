@@ -750,6 +750,11 @@ nonisolated func changedLineRanges(oldText: String, newText: String) -> [NSRange
     return [NSRange(location: rangeStart, length: length)]
 }
 
+nonisolated func editorHex(_ rgb: UInt32) -> NSColor {
+    NSColor(srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255,
+            blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
+}
+
 // MARK: - Editor color palette (no AppKit environment needed; tested in EditorColorPaletteTests)
 
 /// Color set for the code editor and its line-number gutter. Chosen per appearance so the editor
@@ -764,6 +769,11 @@ struct EditorColorPalette: Equatable {
     let insertionPoint: NSColor
     let lineNumberBackground: NSColor
     let lineNumberText: NSColor
+    let lineNumberActiveText: NSColor
+    let selection: NSColor
+    let currentLineBorder: NSColor
+    let indentGuide: NSColor
+    let indentGuideActive: NSColor
 
     static func == (lhs: EditorColorPalette, rhs: EditorColorPalette) -> Bool {
         lhs.isDark == rhs.isDark
@@ -777,9 +787,14 @@ struct EditorColorPalette: Equatable {
                 isDark:              true,
                 background:          NSColor(red: 0.122, green: 0.122, blue: 0.122, alpha: 1),
                 text:                NSColor(red: 0.8, green: 0.8, blue: 0.8, alpha: 1),
-                insertionPoint:      .white,
+                insertionPoint:      editorHex(0xAEAFAD), // vscode: editorColorRegistry.ts editorCursor.foreground
                 lineNumberBackground: NSColor(red: 0.122, green: 0.122, blue: 0.122, alpha: 1),
-                lineNumberText:      NSColor(red: 0.431, green: 0.463, blue: 0.502, alpha: 1)
+                lineNumberText:      editorHex(0x6E7681), // vscode: dark_modern.json editorLineNumber.foreground
+                lineNumberActiveText: editorHex(0xCCCCCC), // vscode: dark_modern.json editorLineNumber.activeForeground
+                selection:           editorHex(0x264F78), // vscode: dark_vs.json editor.selectionBackground
+                currentLineBorder:   editorHex(0x282828), // vscode: editorColorRegistry.ts editor.lineHighlightBorder
+                indentGuide:         editorHex(0x404040), // vscode: dark_vs.json editorIndentGuide.background1
+                indentGuideActive:   editorHex(0x707070)  // vscode: dark_vs.json editorIndentGuide.activeBackground1
             )
         } else {
             return EditorColorPalette(
@@ -788,7 +803,12 @@ struct EditorColorPalette: Equatable {
                 text:                NSColor(red: 0.13, green: 0.13, blue: 0.13, alpha: 1),
                 insertionPoint:      .black,
                 lineNumberBackground: NSColor(red: 0.91, green: 0.91, blue: 0.91, alpha: 1),
-                lineNumberText:      NSColor(red: 0.42, green: 0.44, blue: 0.47, alpha: 1)
+                lineNumberText:      NSColor(red: 0.42, green: 0.44, blue: 0.47, alpha: 1),
+                lineNumberActiveText: NSColor(red: 0.13, green: 0.13, blue: 0.13, alpha: 1),
+                selection:           editorHex(0xADD6FF),
+                currentLineBorder:   editorHex(0xEEEEEE),
+                indentGuide:         editorHex(0xD3D3D3),
+                indentGuideActive:   editorHex(0x939393)
             )
         }
     }
@@ -3558,13 +3578,9 @@ private struct CodeTextEditor: NSViewRepresentable {
         let textView = CodeEditorTextView()
         textView.configureForEditing()
         textView.delegate = context.coordinator
-        textView.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         let palette = EditorColorPalette.resolve(isDark: NSApp.effectiveAppearance.isDark)
-        textView.backgroundColor = palette.background
-        textView.textColor = palette.text
-        textView.insertionPointColor = palette.insertionPoint
+        textView.applyEditorStyle(palette)
         context.coordinator.currentPalette = palette
-        textView.textContainerInset = NSSize(width: 12, height: 12)
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -3620,9 +3636,7 @@ private struct CodeTextEditor: NSViewRepresentable {
         let newPalette = EditorColorPalette.resolve(isDark: NSApp.effectiveAppearance.isDark)
         if newPalette != context.coordinator.currentPalette {
             context.coordinator.currentPalette = newPalette
-            textView.backgroundColor = newPalette.background
-            textView.textColor = newPalette.text
-            textView.insertionPointColor = newPalette.insertionPoint
+            (textView as? CodeEditorTextView)?.applyEditorStyle(newPalette)
             context.coordinator.lineNumberRuler?.currentPalette = newPalette
             context.coordinator.applyHighlight(to: textView)
             return
@@ -4143,7 +4157,44 @@ final class CodeEditorTextView: NSTextView {
     private lazy var hoverPanel = EditorHoverPanel()
     private static let ghostColor = NSColor(srgbRed: 0.8, green: 0.8, blue: 0.8, alpha: 0.45)
 
-    private var monoFont: NSFont { font ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular) }
+    private var monoFont: NSFont { font ?? EditorMetrics.font }
+
+    /// TextKit 2 stack so `textLayoutManager` stays non-nil. Any `layoutManager` access would
+    /// silently downgrade the view to TextKit 1, so this type never touches it.
+    convenience init() {
+        let content = NSTextContentStorage()
+        let layout = NSTextLayoutManager()
+        content.addTextLayoutManager(layout)
+        let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        layout.textContainer = container
+        self.init(frame: .zero, textContainer: container)
+    }
+
+    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+        super.init(frame: frameRect, textContainer: container)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    /// Dark Modern look: Menlo 12 on an 18pt line, small left padding next to the gutter.
+    func applyEditorStyle(_ palette: EditorColorPalette) {
+        font = EditorMetrics.font
+        defaultParagraphStyle = EditorMetrics.paragraphStyle
+        typingAttributes = [
+            .font: EditorMetrics.font,
+            .foregroundColor: palette.text,
+            .paragraphStyle: EditorMetrics.paragraphStyle,
+        ]
+        backgroundColor = palette.background
+        textColor = palette.text
+        insertionPointColor = palette.insertionPoint
+        selectedTextAttributes = [.backgroundColor: palette.selection]
+        textContainerInset = NSSize(width: 0, height: 0)
+        textContainer?.lineFragmentPadding = EditorMetrics.leftPadding
+        needsDisplay = true
+    }
 
     /// Code-editor behaviour shared by every mount: plain text, no smart
     /// substitutions, undo, and the native incremental find bar.
@@ -4245,9 +4296,7 @@ final class CodeEditorTextView: NSTextView {
     }
 
     private func caretRect(at index: Int) -> NSRect {
-        let origin = caretOrigin(at: index) ?? .zero
-        let height = layoutManager?.defaultLineHeight(for: monoFont) ?? 14
-        return NSRect(x: origin.x, y: origin.y, width: 1, height: height)
+        textKit2InsertionRect(at: index)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -4364,27 +4413,45 @@ final class CodeEditorTextView: NSTextView {
         reapplyDiagnostics()
     }
 
-    /// Temporary attributes do not survive every storage edit, so highlight passes call this again.
+    /// Recomputes diagnostic ranges against the current text and repaints. Squiggles are drawn in
+    /// `draw(_:)` from TextKit 2 segment frames, so storage edits cannot drop them.
     func reapplyDiagnostics() {
-        guard let layoutManager else { return }
         guard !lastDiagnostics.isEmpty || !diagnostics.isEmpty else { return }
         let text = string
         let length = (text as NSString).length
-        let full = NSRange(location: 0, length: length)
-        layoutManager.removeTemporaryAttribute(.underlineStyle, forCharacterRange: full)
-        layoutManager.removeTemporaryAttribute(.underlineColor, forCharacterRange: full)
         diagnostics = []
         let lineStarts = buildLineStartOffsets(text: text)
         for item in lastDiagnostics {
-            guard let color = Self.underlineColor(forSeverity: item.severity) else { continue }
+            guard Self.underlineColor(forSeverity: item.severity) != nil else { continue }
             var range = diagnosticNSRange(item.range, lineStarts: lineStarts, length: length)
             if range.length == 0 { range.length = min(1, length - range.location) }
             guard range.length > 0 else { continue }
             diagnostics.append((range, item))
-            layoutManager.addTemporaryAttributes([
-                .underlineStyle: NSUnderlineStyle.single.rawValue | NSUnderlineStyle.patternDot.rawValue,
-                .underlineColor: color,
-            ], forCharacterRange: range)
+        }
+        needsDisplay = true
+    }
+
+    /// Dotted-underline rectangles (text-view coordinates) for each painted diagnostic.
+    func diagnosticUnderlineRects() -> [(rect: NSRect, color: NSColor)] {
+        var result: [(NSRect, NSColor)] = []
+        for (range, item) in diagnostics {
+            guard let color = Self.underlineColor(forSeverity: item.severity) else { continue }
+            for rect in textKit2SegmentRects(for: range) {
+                result.append((NSRect(x: rect.minX, y: rect.maxY - 3, width: rect.width, height: 2), color))
+            }
+        }
+        return result
+    }
+
+    private func drawDiagnosticUnderlines(in dirtyRect: NSRect) {
+        for (rect, color) in diagnosticUnderlineRects() where rect.intersects(dirtyRect) {
+            color.setStroke()
+            let path = NSBezierPath()
+            path.lineWidth = 1
+            path.setLineDash([2, 2], count: 2, phase: 0)
+            path.move(to: NSPoint(x: rect.minX, y: rect.midY))
+            path.line(to: NSPoint(x: rect.maxX, y: rect.midY))
+            path.stroke()
         }
     }
 
@@ -4399,14 +4466,15 @@ final class CodeEditorTextView: NSTextView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        drawDiagnosticUnderlines(in: dirtyRect)
         guard let ghostText, let origin = caretOrigin(at: ghostCaret) else { return }
         let parts = GhostTextLayout.split(ghostText)
         let attrs: [NSAttributedString.Key: Any] = [.font: monoFont, .foregroundColor: Self.ghostColor]
         if !parts.inline.isEmpty {
             (parts.inline as NSString).draw(at: origin, withAttributes: attrs)
         }
-        guard let layoutManager, !parts.lines.isEmpty else { return }
-        let lineHeight = layoutManager.defaultLineHeight(for: monoFont)
+        guard !parts.lines.isEmpty else { return }
+        let lineHeight = EditorMetrics.lineHeight
         let x = textContainerOrigin.x
         let width = max(0, visibleRect.maxX - x)
         var y = origin.y + lineHeight
@@ -4419,24 +4487,8 @@ final class CodeEditorTextView: NSTextView {
     }
 
     private func caretOrigin(at index: Int) -> NSPoint? {
-        guard let layoutManager, let textContainer else { return nil }
-        let ns = string as NSString
-        let caret = max(0, min(index, ns.length))
-        let inset = textContainerOrigin
-        if caret < ns.length {
-            let glyph = layoutManager.glyphIndexForCharacter(at: caret)
-            guard glyph < layoutManager.numberOfGlyphs else { return nil }
-            let rect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: textContainer)
-            return NSPoint(x: rect.minX + inset.x, y: rect.minY + inset.y)
-        }
-        if ns.length > 0 {
-            let glyph = layoutManager.glyphIndexForCharacter(at: ns.length - 1)
-            guard glyph < layoutManager.numberOfGlyphs else { return nil }
-            let rect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: textContainer)
-            return NSPoint(x: rect.maxX + inset.x, y: rect.minY + inset.y)
-        }
-        let rect = layoutManager.extraLineFragmentRect
-        return NSPoint(x: rect.minX + inset.x, y: rect.minY + inset.y)
+        let rect = textKit2InsertionRect(at: index)
+        return NSPoint(x: rect.minX, y: rect.minY)
     }
 }
 
@@ -4569,99 +4621,6 @@ nonisolated func lineIndex(forCharOffset charOffset: Int, in offsets: [Int]) -> 
     return max(0, lo - 1)
 }
 
-private final class CodeLineNumberRulerView: NSRulerView {
-    private weak var textView: NSTextView?
-    private var lastVisibleGlyphRange = NSRange(location: NSNotFound, length: 0)
-    /// Mutable so `updateNSView` can push a new palette when appearance changes.
-    var currentPalette: EditorColorPalette = EditorColorPalette.resolve(isDark: true) {
-        didSet { needsDisplay = true }
-    }
-    /// Cached line-start offsets (UTF-16) rebuilt whenever the document text changes.
-    /// Allows O(log n) first-visible-line lookup instead of O(document) substring+filter.
-    private var cachedLineStartOffsets: [Int] = []
-    private var cachedOffsetText: String = ""
-
-    private var lineNumberAttributes: [NSAttributedString.Key: Any] {
-        [.font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
-         .foregroundColor: currentPalette.lineNumberText]
-    }
-
-    init(textView: NSTextView) {
-        self.textView = textView
-        super.init(scrollView: textView.enclosingScrollView, orientation: .verticalRuler)
-        clientView = textView
-        ruleThickness = 46
-        NotificationCenter.default.addObserver(self, selector: #selector(boundsChanged), name: NSView.boundsDidChangeNotification, object: textView.enclosingScrollView?.contentView)
-        textView.enclosingScrollView?.contentView.postsBoundsChangedNotifications = true
-        // Build initial index so the first paint doesn't fall back to O(document) scan.
-        invalidateLineStartCache()
-    }
-
-    required init(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    /// Rebuild the line-start offset cache from the current textView string.
-    /// Must be called whenever the document text changes (keystroke, remote patch, file load).
-    /// O(n) rebuild cost is paid once per edit; subsequent scroll paints are O(log n).
-    func invalidateLineStartCache() {
-        let text = textView?.string ?? ""
-        guard text != cachedOffsetText else { return }
-        cachedLineStartOffsets = buildLineStartOffsets(text: text)
-        cachedOffsetText = text
-    }
-
-    // Coalesce scroll-driven redraws: only repaint when the set of visible lines actually changes,
-    // not on every bounds tick (e.g. horizontal scroll, sub-pixel jitter) (PERF-MAC_FILES-012).
-    @objc private func boundsChanged() {
-        guard let textView,
-              let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer,
-              let clipView = textView.enclosingScrollView?.contentView else {
-            needsDisplay = true
-            return
-        }
-        let glyphRange = layoutManager.glyphRange(forBoundingRect: clipView.bounds, in: textContainer)
-        guard !NSEqualRanges(glyphRange, lastVisibleGlyphRange) else { return }
-        lastVisibleGlyphRange = glyphRange
-        needsDisplay = true
-    }
-
-    override func drawHashMarksAndLabels(in rect: NSRect) {
-        guard let textView,
-              let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer,
-              let clipView = textView.enclosingScrollView?.contentView else { return }
-        currentPalette.lineNumberBackground.setFill()
-        bounds.fill()
-
-        let attrs = lineNumberAttributes
-        let visibleRect = clipView.bounds
-        let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
-        guard glyphRange.location < layoutManager.numberOfGlyphs else { return }
-        let firstCharIndex = layoutManager.characterIndexForGlyph(at: glyphRange.location)
-        // O(log n): binary-search the cached line-start offsets instead of scanning the document.
-        // Falls back to 0 (line 1) when the cache is empty (stale between init and first invalidation).
-        let offsets = cachedLineStartOffsets.isEmpty ? buildLineStartOffsets(text: textView.string) : cachedLineStartOffsets
-        var lineNumber = lineIndex(forCharOffset: firstCharIndex, in: offsets) + 1
-        var glyphIndex = glyphRange.location
-        while glyphIndex < NSMaxRange(glyphRange) {
-            var lineRange = NSRange()
-            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &lineRange, withoutAdditionalLayout: true)
-            let y = lineRect.minY + textView.textContainerOrigin.y - visibleRect.minY
-            let value = "\(lineNumber)" as NSString
-            let size = value.size(withAttributes: attrs)
-            value.draw(at: NSPoint(x: ruleThickness - size.width - 8, y: y + 1), withAttributes: attrs)
-            glyphIndex = NSMaxRange(lineRange)
-            lineNumber += 1
-        }
-    }
-}
-
 private func highlightedHTML(text: String, language: String?) -> String {
     let html = text
         .components(separatedBy: "\n")
@@ -4688,9 +4647,9 @@ private func highlightedHTML(text: String, language: String?) -> String {
 /// Build NSAttributedString base attributes from a resolved palette so the editor and gutter
 /// use consistent colors when the appearance changes (P2).
 private func codeBaseAttributes(for palette: EditorColorPalette) -> [NSAttributedString.Key: Any] {
-    [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+    [.font: EditorMetrics.font,
      .foregroundColor: palette.text,
-     .backgroundColor: palette.background]
+     .paragraphStyle: EditorMetrics.paragraphStyle]
 }
 
 func highlightedCodeAttributedString(_ text: String, palette: EditorColorPalette) -> NSMutableAttributedString {
