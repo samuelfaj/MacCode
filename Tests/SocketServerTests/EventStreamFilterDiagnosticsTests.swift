@@ -92,6 +92,35 @@ final class EventStreamFilterDiagnosticsTests: XCTestCase {
         XCTAssertEqual(delivered, ["agent.item.started", "agent.run.started"])
     }
 
+    func test_deviceStreamsAdmitDistillLiveStatusCarriersOnly() {
+        // WHY: the iOS chat strip (running tool, subagents, Linux VM stage) folds
+        // the same Distill runtime events the Mac strip folds. Before this the
+        // default device filter dropped every one, so the phone showed only a
+        // generic working line while the Mac listed subagents and tool phases.
+        // Other providers' traces and non-carrier methods stay diagnostics-only.
+        func runtime(provider: String, method: String) -> EventBus.Event {
+            EventBus.Event(seq: 1, kind: "agent.provider_runtime.event", payload: .object([
+                "thread_id": .string("t1"),
+                "provider": .string(provider),
+                "method": .string(method),
+                "payload_json": .string("{}")
+            ]), ts: 0)
+        }
+        let carriers = [
+            runtime(provider: "distill", method: "_remotecode/operation"),
+            runtime(provider: "distill", method: "x.ai/session_notification"),
+            runtime(provider: "distill", method: "remotecode/guest_stage"),
+        ]
+        for event in carriers {
+            XCTAssertTrue(EventStreamFilter.full.allows(event))
+            XCTAssertTrue(EventStreamFilter.cellularSafe(interestThreadIds: ["t1"]).allows(event))
+        }
+        XCTAssertFalse(EventStreamFilter.full.allows(runtime(provider: "distill", method: "available_commands_update")))
+        XCTAssertFalse(EventStreamFilter.full.allows(runtime(provider: "claude", method: "x.ai/session_notification")))
+        XCTAssertFalse(EventStreamFilter.agentThreadAndQueue.allows(carriers[0]),
+                       "in-process prefix subscribers keep their own admission")
+    }
+
     private func event(_ kind: String) -> EventBus.Event {
         EventBus.Event(seq: 1, kind: kind, payload: .object([:]), ts: 0)
     }

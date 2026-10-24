@@ -965,7 +965,7 @@ final class PersistenceTests: XCTestCase {
         let thread = AgentThread(title: "bounded history", provider: .codex, model: "m")
         try threads.upsert(thread)
 
-        let run = AgentRun(threadId: thread.id, provider: .codex, model: "m", startedAt: Date(timeIntervalSince1970: 1))
+        let run = AgentRun(threadId: thread.id, provider: .codex, model: "m", status: .completed, startedAt: Date(timeIntervalSince1970: 1))
         try runs.upsert(run)
         for index in 0..<650 {
             try runs.appendStreamEvent(
@@ -994,8 +994,8 @@ final class PersistenceTests: XCTestCase {
         let thread = AgentThread(title: "retention", provider: .codex, model: "m")
         try threads.upsert(thread)
 
-        let firstRun = AgentRun(threadId: thread.id, provider: .codex, model: "m", startedAt: Date(timeIntervalSince1970: 1))
-        let secondRun = AgentRun(threadId: thread.id, provider: .codex, model: "m", startedAt: Date(timeIntervalSince1970: 2))
+        let firstRun = AgentRun(threadId: thread.id, provider: .codex, model: "m", status: .completed, startedAt: Date(timeIntervalSince1970: 1))
+        let secondRun = AgentRun(threadId: thread.id, provider: .codex, model: "m", status: .completed, startedAt: Date(timeIntervalSince1970: 2))
         try runs.upsert(firstRun)
         try runs.upsert(secondRun)
         for index in 0..<8 {
@@ -1033,7 +1033,7 @@ final class PersistenceTests: XCTestCase {
         let threads = AgentThreadRepository(db: db)
         let runs = AgentRunRepository(db: db)
         let thread = AgentThread(title: "provider logs", provider: .codex, model: "m")
-        let run = AgentRun(threadId: thread.id, provider: .codex, model: "m", startedAt: Date(timeIntervalSince1970: 1))
+        let run = AgentRun(threadId: thread.id, provider: .codex, model: "m", status: .completed, startedAt: Date(timeIntervalSince1970: 1))
         try threads.upsert(thread)
         try runs.upsert(run)
 

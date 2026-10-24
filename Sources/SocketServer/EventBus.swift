@@ -1,4 +1,5 @@
 import Foundation
+import CoreModel
 import RemoteCodeTreaty
 
 /// In-process event bus that the dispatcher writes to when mutations
@@ -1795,7 +1796,7 @@ public enum EventStreamFilter: Sendable, Equatable {
 
     public func map(_ event: EventBus.Event) -> EventBus.Event? {
         if event.kind == RemoteCodeEventKind.agentProviderRuntimeEvent.rawValue,
-           !admitsProviderRuntimeEvent {
+           !admitsProviderRuntimeEvent(payload: event.payload.objectValue ?? [:]) {
             return nil
         }
         guard let known = event.knownEvent else {
@@ -1821,7 +1822,7 @@ public enum EventStreamFilter: Sendable, Equatable {
     }
 
     public func map(_ event: EventBus.KnownEvent) -> EventBus.KnownEvent? {
-        if event.kind == .agentProviderRuntimeEvent, !admitsProviderRuntimeEvent {
+        if event.kind == .agentProviderRuntimeEvent, !admitsProviderRuntimeEvent(payload: event.payload) {
             return nil
         }
         switch self {
@@ -1859,10 +1860,22 @@ public enum EventStreamFilter: Sendable, Equatable {
     }
 
     /// `agent.provider_runtime.event` is diagnostics-only so Pet/Bots and the
-    /// default iOS WS filter do not hop for ~5 Hz provider traces.
-    private var admitsProviderRuntimeEvent: Bool {
-        if case .diagnostics = self { return true }
-        return false
+    /// default iOS WS filter do not hop for ~5 Hz provider traces. The Distill
+    /// live status carriers are the exception on device streams: the Mac strip
+    /// (running tool, subagents, Linux VM stage) folds them live, and the iOS
+    /// strip folds the same methods, so without them the phone only shows a
+    /// generic working line until the next full thread read.
+    private func admitsProviderRuntimeEvent(payload: [String: JSONValue]) -> Bool {
+        switch self {
+        case .diagnostics:
+            return true
+        case .full, .cellularSafe:
+            guard payload["provider"]?.stringValue == AgentProvider.distill.rawValue,
+                  let method = payload["method"]?.stringValue else { return false }
+            return ProviderRuntimeEvent.isLiveStatusCarrier(method: method)
+        case .kindPrefixes:
+            return false
+        }
     }
 
     private static func isGeometryOnlyTerminalOutput(_ event: EventBus.KnownEvent) -> Bool {

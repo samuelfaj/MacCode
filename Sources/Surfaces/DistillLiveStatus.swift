@@ -186,15 +186,8 @@ public struct DistillLiveStatus: Equatable, Sendable {
         return scaled(Double(n) / 1_000_000, "M")
     }
 
-    private static let kinds: [String] = [
-        "auto_compact_", "subagent_", "model_changed", "goal_updated", "scheduled_task_"
-    ]
-
     public static func isCarrierMethod(_ method: String) -> Bool {
-        method == "_remotecode/operation" || method == DistillGuestStage.runtimeMethod
-            || method == "x.ai/session_notification" || method == "x.ai/session/update"
-            || method == "_x.ai/session_notification" || method == "_x.ai/session/update"
-            || kinds.contains(where: { method.hasPrefix($0) })
+        ProviderRuntimeEvent.isLiveStatusCarrier(method: method)
     }
 
     /// Fold one Distill runtime event. Unrelated methods/kinds are ignored.

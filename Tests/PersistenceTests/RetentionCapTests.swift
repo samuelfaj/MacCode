@@ -29,6 +29,13 @@ final class RetentionCapTests: XCTestCase {
         return run
     }
 
+    /// The per-thread row cap applies to finished runs; a running run is bound by bytes only.
+    private func makeFinishedRun(db: SQLiteDB, threadId: AgentThreadID) throws -> AgentRun {
+        let run = AgentRun(threadId: threadId, provider: .codex, model: "m", status: .completed)
+        try AgentRunRepository(db: db).upsert(run)
+        return run
+    }
+
     private func appendEvent(runs: AgentRunRepository, run: AgentRun, index: Int) throws {
         let event = ProviderRuntimeEvent(
             id: "evt-\(index)",
@@ -218,7 +225,7 @@ final class RetentionCapTests: XCTestCase {
         let db = try makeDB()
         let runs = AgentRunRepository(db: db)
         let thread = try makeThread(db: db)
-        let run = try makeRun(db: db, threadId: thread.id)
+        let run = try makeFinishedRun(db: db, threadId: thread.id)
 
         // Caps chosen small but exceeded by a wide margin (heavy load relative to cap),
         // so the assertion proves the bound regardless of how long the session runs.
@@ -700,7 +707,7 @@ final class RetentionCapTests: XCTestCase {
         let db = try makeDB()
         let runs = AgentRunRepository(db: db)
         let thread = try makeThread(db: db)
-        let run = try makeRun(db: db, threadId: thread.id)
+        let run = try makeFinishedRun(db: db, threadId: thread.id)
         let items = (1...20).map { index in
             AgentRunRepository.StreamWriteIntent(
                 seq: index,
@@ -782,5 +789,31 @@ final class RetentionCapTests: XCTestCase {
         XCTAssertFalse(sawWindowDelete,
                        "under-cap provider prune must not run ROW_NUMBER window DELETE")
         XCTAssertEqual(try runs.countProviderEventLogs(threadId: thread.id), 4)
+    }
+
+    func test_runningRunKeepsToolItemsPastRowCapUntilItFinishes() throws {
+        // WHY: paired devices rebuild a running turn from these rows. With a
+        // 100-row cap a long run kept only its newest chatter, so the phone lost
+        // the tool items the Mac still listed. Bytes still bound the running run,
+        // and the cap applies again once it is no longer running.
+        let db = try makeDB()
+        let runs = AgentRunRepository(db: db)
+        let thread = try makeThread(db: db)
+        let run = try makeRun(db: db, threadId: thread.id)
+        for i in 0..<250 {
+            try runs.appendStreamEvent(runId: run.id, seq: i, kind: "k", payloadJSON: #"{"i":\#(i)}"#)
+        }
+        XCTAssertEqual(try runs.countStreamEvents(threadId: thread.id), 250,
+                       "the running run must keep its rows past the row cap")
+
+        try runs.pruneStreamEvents(threadId: thread.id, keepLatest: 100, maxPayloadBytes: 200)
+        XCTAssertLessThan(try runs.countStreamEvents(threadId: thread.id), 250,
+                          "the byte budget still bounds a running run")
+
+        var finished = run
+        finished.status = .completed
+        try runs.upsert(finished)
+        try runs.pruneStreamEvents(threadId: thread.id, keepLatest: 10)
+        XCTAssertEqual(try runs.countStreamEvents(threadId: thread.id), 10)
     }
 }
