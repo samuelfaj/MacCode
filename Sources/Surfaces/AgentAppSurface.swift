@@ -15971,9 +15971,13 @@ public struct AgentAppView: View {
                     orchestrateActive: vm.routingMode == .auto
                 )
             }
-            DSIconButton("list.bullet.rectangle", help: "Toggle plan") {
-                planSidebarIntent = vm.showPlanSidebar ? .forcedHidden : .forcedVisible
-                vm.showPlanSidebar.toggle()
+            // Same action as `/side`; hidden where no host can open a side pane.
+            if vm.onRequestSideChat != nil, !vm.selectedThreadIsEphemeral {
+                DSIconButton("rectangle.split.2x1", help: "Side chat (/side)") {
+                    vm.requestSideChat(text: "")
+                }
+                .disabled(vm.selectedThreadId == nil)
+                .accessibilityIdentifier("agent.header.sideChat")
             }
         }
         .padding(.horizontal, DS.Space.lg).padding(.vertical, DS.Space.sm)
