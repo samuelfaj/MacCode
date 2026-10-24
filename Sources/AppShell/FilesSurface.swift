@@ -4178,6 +4178,121 @@ final class CodeEditorTextView: NSTextView {
         super.init(coder: coder)
     }
 
+    /// Matching bracket pair for the caret, drawn as boxes behind the text.
+    private(set) var bracketPair: (NSRange, NSRange)?
+    private var palette = EditorColorPalette.resolve(isDark: true)
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
+        refreshBracketPair()
+        needsDisplay = true
+    }
+
+    private func refreshBracketPair() {
+        let selection = selectedRange()
+        bracketPair = selection.length == 0
+            ? EditorBracketMatcher.pair(in: string as NSString, caret: selection.location) : nil
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        refreshBracketPair()
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        drawCurrentLineBox()
+        drawIndentGuides(in: rect)
+        drawBracketBoxes()
+    }
+
+    /// vscode: editorColorRegistry.ts editor.lineHighlightBorder — a 2px border box, not for selections.
+    private func drawCurrentLineBox() {
+        guard selectedRange().length == 0 else { return }
+        let ns = string as NSString
+        let caret = min(selectedRange().location, ns.length)
+        let paragraph = ns.paragraphRange(for: NSRange(location: min(caret, max(0, ns.length - 1)), length: 0))
+        var rects = ns.length == 0 || caret == ns.length && (ns.length == 0 || ns.character(at: ns.length - 1) == 0x0A)
+            ? [textKit2InsertionRect(at: caret)]
+            : textKit2SegmentRects(for: NSRange(location: paragraph.location, length: max(1, paragraph.length)))
+        guard let first = rects.first else { return }
+        rects = rects.map { $0 }
+        let top = first.minY
+        let bottom = rects.map(\.maxY).max() ?? first.maxY
+        let box = NSRect(x: 0, y: top, width: bounds.width, height: bottom - top)
+        palette.currentLineBorder.setStroke()
+        let path = NSBezierPath(rect: box.insetBy(dx: 1, dy: 1))
+        path.lineWidth = 2
+        path.stroke()
+    }
+
+    /// Indent guides for the visible lines: one 1px line per tab stop of leading whitespace.
+    /// vscode: dark_vs.json editorIndentGuide.background1 / activeBackground1.
+    private func drawIndentGuides(in rect: NSRect) {
+        guard let layout = textLayoutManager, let content = layout.textContentManager else { return }
+        let ns = string as NSString
+        let charWidth = ("0" as NSString).size(withAttributes: [.font: monoFont]).width
+        let step = charWidth * CGFloat(EditorMetrics.tabWidth)
+        let baseX = textContainerOrigin.x + (textContainer?.lineFragmentPadding ?? 0)
+        let docStart = content.documentRange.location
+        let startPoint = CGPoint(x: 0, y: max(0, rect.minY - textContainerOrigin.y))
+        let start = layout.textLayoutFragment(for: startPoint)?.rangeInElement.location ?? docStart
+        var lines: [(frame: NSRect, indent: Int)] = []
+        layout.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
+            let frame = fragment.layoutFragmentFrame.offsetBy(dx: 0, dy: self.textContainerOrigin.y)
+            if frame.minY > rect.maxY { return false }
+            let offset = content.offset(from: docStart, to: fragment.rangeInElement.location)
+            var columns = 0
+            var i = offset
+            while i < ns.length {
+                let c = ns.character(at: i)
+                if c == 0x20 { columns += 1 } else if c == 0x09 { columns += EditorMetrics.tabWidth - columns % EditorMetrics.tabWidth } else { break }
+                i += 1
+            }
+            let blank = i >= ns.length || ns.character(at: i) == 0x0A || ns.character(at: i) == 0x0D
+            lines.append((frame, blank ? -1 : columns))
+            return true
+        }
+        // Blank lines continue the guides of the surrounding code.
+        for index in lines.indices where lines[index].indent < 0 {
+            let before = lines[..<index].last(where: { $0.indent >= 0 })?.indent ?? 0
+            let after = lines[(index + 1)...].first(where: { $0.indent >= 0 })?.indent ?? 0
+            lines[index].indent = min(before, after)
+        }
+        let caretLine = lines.firstIndex { $0.frame.minY <= caretRect().midY && caretRect().midY < $0.frame.maxY }
+        var activeLevel = -1
+        var activeRange = 0..<0
+        if let caretLine {
+            let level = lines[caretLine].indent / EditorMetrics.tabWidth - 1
+            if level >= 0 {
+                activeLevel = level
+                var lo = caretLine, hi = caretLine
+                while lo > 0, lines[lo - 1].indent / EditorMetrics.tabWidth > level { lo -= 1 }
+                while hi + 1 < lines.count, lines[hi + 1].indent / EditorMetrics.tabWidth > level { hi += 1 }
+                activeRange = lo..<(hi + 1)
+            }
+        }
+        for (index, line) in lines.enumerated() {
+            for level in 0..<(line.indent / EditorMetrics.tabWidth) {
+                let isActive = level == activeLevel && activeRange.contains(index)
+                (isActive ? palette.indentGuideActive : palette.indentGuide).setFill()
+                NSRect(x: (baseX + CGFloat(level) * step).rounded(), y: line.frame.minY, width: 1, height: line.frame.height).fill()
+            }
+        }
+    }
+
+    /// vscode: editorColorRegistry.ts editorBracketMatch.background (#0064001a) / border (#888888).
+    private func drawBracketBoxes() {
+        guard let pair = bracketPair else { return }
+        for range in [pair.0, pair.1] {
+            guard let rect = textKit2SegmentRects(for: range).first else { continue }
+            editorHex(0x006400).withAlphaComponent(0x1A / 255.0).setFill()
+            rect.fill()
+            editorHex(0x888888).setStroke()
+            NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5)).stroke()
+        }
+    }
+
     /// Dark Modern look: Menlo 12 on an 18pt line, small left padding next to the gutter.
     func applyEditorStyle(_ palette: EditorColorPalette) {
         font = EditorMetrics.font
@@ -4187,6 +4302,7 @@ final class CodeEditorTextView: NSTextView {
             .foregroundColor: palette.text,
             .paragraphStyle: EditorMetrics.paragraphStyle,
         ]
+        self.palette = palette
         backgroundColor = palette.background
         textColor = palette.text
         insertionPointColor = palette.insertionPoint
