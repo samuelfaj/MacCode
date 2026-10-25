@@ -176,9 +176,11 @@ final class FilesViewModelRoutingTests: XCTestCase {
             "directory load must persist current_directory for restore/mirror clients")
     }
 
-    func test_loadInitialStateDerivesParentDirectoryAndOpensSelectedFile() {
+    func test_loadInitialStateKeepsWorkspaceRootAndExpandsToSelectedFile() {
         let router = FakeFilesRouter()
         router.state["selected_path"] = .string("a/b/c.txt")
+        router.listings[""] = [FakeFilesRouter.fileEntry("a", isDirectory: true)]
+        router.listings["a"] = [FakeFilesRouter.fileEntry("a/b", isDirectory: true)]
         router.listings["a/b"] = [FakeFilesRouter.fileEntry("a/b/c.txt")]
         router.contents["a/b/c.txt"] = "selected"
         let model = makeModel(router: router)
@@ -186,8 +188,10 @@ final class FilesViewModelRoutingTests: XCTestCase {
 
         model.loadInitialState()
 
-        XCTAssertEqual(model.currentDirectory, "a/b",
-            "empty current_directory must restore from selected_path parent")
+        XCTAssertEqual(model.currentDirectory, "",
+            "the explorer stays rooted at the workspace like VS Code")
+        XCTAssertEqual(model.expandedPaths, ["a", "a/b"],
+            "restoring a selected file expands its ancestor folders instead of navigating into them")
         XCTAssertEqual(model.selectedPath, "a/b/c.txt",
             "initial state must select the restored file entry")
         XCTAssertEqual(model.draftText, "selected",

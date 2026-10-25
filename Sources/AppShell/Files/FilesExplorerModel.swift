@@ -160,6 +160,24 @@ extension FilesViewModel {
         return parent == "." ? "" : parent
     }
 
+    /// Expands every folder above `relativePath` (lazily listing each) and returns its entry.
+    @discardableResult
+    func expandAncestors(of relativePath: String) -> FileEntry? {
+        let parts = relativePath.split(separator: "/").map(String.init)
+        guard !parts.isEmpty else { return nil }
+        var level = entries
+        var path = ""
+        for (index, part) in parts.enumerated() {
+            path = path.isEmpty ? part : path + "/" + part
+            guard let match = level.first(where: { $0.relativePath == path }) else { return nil }
+            if index == parts.count - 1 { return match }
+            guard match.isDirectory else { return nil }
+            expandedPaths.insert(path)
+            level = treeStore.children(at: path)
+        }
+        return nil
+    }
+
     /// Re-list loaded directories without losing expansion or selection. `directories` limits the
     /// refresh to those paths (and the root); nil refreshes everything loaded.
     func refreshTree(directories: Set<String>? = nil) {

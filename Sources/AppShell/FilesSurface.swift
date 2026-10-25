@@ -1228,8 +1228,9 @@ final class FilesViewModel: ObservableObject {
             var initialSelectedPath: String?
             if let state = try router?.filesStateGet(surface: surfaceID).objectValue {
                 initialSelectedPath = state["selected_path"]?.stringValue
-                let stateDirectory = state["current_directory"]?.stringValue ?? ""
-                currentDirectory = initialFilesDirectory(stateDirectory: stateDirectory, selectedPath: initialSelectedPath)
+                // VS Code keeps the workspace root as the tree root; the selected file's
+                // folders are expanded instead of navigated into.
+                currentDirectory = ""
                 readerMode = state["reader_mode"]?.stringValue ?? "source"
                 dirtyPaths = Self.dirtyPaths(from: state)
                 if case .array(let tabs) = state["open_tabs"] ?? .array([]) {
@@ -1243,7 +1244,7 @@ final class FilesViewModel: ObservableObject {
             restoreExpansion(restoredExpansion)
             startExplorerWatching()
             if let initialSelectedPath,
-               let entry = entries.first(where: { !$0.isDirectory && $0.relativePath == initialSelectedPath }) {
+               let entry = expandAncestors(of: initialSelectedPath), !entry.isDirectory {
                 selectedEntry = entry
                 openFileInTab(entry)
             }
@@ -1278,12 +1279,13 @@ final class FilesViewModel: ObservableObject {
     /// already listed, otherwise navigate to its parent directory and select the
     /// entry there (a directory path opens the directory itself).
     func reveal(relativePath: String) {
-        if let known = allKnownEntry(relativePath: relativePath) {
-            select(known)
-            return
-        }
-        loadDirectory((relativePath as NSString).deletingLastPathComponent)
-        if let entry = entries.first(where: { $0.relativePath == relativePath }) {
+        guard let entry = expandAncestors(of: relativePath) else { return }
+        if entry.isDirectory {
+            expandedPaths.insert(entry.relativePath)
+            _ = childEntries(for: entry)
+            selectedEntry = entry
+            treeRevision &+= 1
+        } else {
             select(entry)
         }
     }
@@ -1358,7 +1360,7 @@ final class FilesViewModel: ObservableObject {
         selectedEntry = entry
         errorText = nil
         if entry.isDirectory {
-            loadDirectory(entry.relativePath)
+            toggleExpand(entry)
             return
         }
         openFileInTab(entry)
