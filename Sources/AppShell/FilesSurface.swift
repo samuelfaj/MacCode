@@ -3558,7 +3558,7 @@ private struct WebFileView: NSViewRepresentable {
     }
 }
 
-private struct CodeTextEditor: NSViewRepresentable {
+struct CodeTextEditor: NSViewRepresentable {
     @Binding var text: String
     let language: String?
     let filePath: String
@@ -3623,10 +3623,12 @@ private struct CodeTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView ?? scroll.documentView as? NSTextView else { return }
+        let languageChanged = context.coordinator.language != language
         context.coordinator.language = language
         context.coordinator.filePath = filePath
         context.coordinator.inlineProvider = inlineCompletionProvider
         (textView as? CodeEditorTextView)?.language = language
+        if languageChanged, textView.string == text { context.coordinator.applyHighlight(to: textView) }
         if absolutePath != context.coordinator.absolutePath || rootPath != context.coordinator.rootPath {
             context.coordinator.absolutePath = absolutePath
             context.coordinator.rootPath = rootPath
@@ -3708,6 +3710,14 @@ private struct CodeTextEditor: NSViewRepresentable {
         deinit {
             inlineTask?.cancel()
             inlineDebounceTimer?.invalidate()
+        }
+
+        /// New-text range of the edit about to happen, consumed by `highlightEditedRange`.
+        private var pendingEdit: NSRange?
+
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            pendingEdit = NSRange(location: affectedCharRange.location, length: (replacementString as NSString?)?.length ?? 0)
+            return true
         }
 
         func textDidChange(_ notification: Notification) {
@@ -4047,52 +4057,50 @@ private struct CodeTextEditor: NSViewRepresentable {
 
         /// Re-highlight only the paragraph(s) touched by the last edit instead of the whole
         /// document, keeping per-keystroke cost bounded for large files (PERF-MAC_FILES-001).
+        /// Attribute-only storage edits: no undo entry, selection and marked text stay untouched.
         private func highlightEditedRange(in textView: NSTextView) {
-            guard !applyingHighlight, let storage = textView.textStorage else { return }
+            guard !applyingHighlight, !textView.hasMarkedText(), let storage = textView.textStorage else { return }
             applyingHighlight = true
             defer { applyingHighlight = false }
             let nsText = storage.string as NSString
-            let edited = storage.editedRange.location == NSNotFound
-                ? NSRange(location: 0, length: nsText.length)
-                : storage.editedRange
+            // Edited range recorded in `shouldChangeTextIn`; otherwise the caret's paragraph, never the whole document.
+            let edited = pendingEdit ?? textView.selectedRange()
+            pendingEdit = nil
             let clampedLocation = min(edited.location, nsText.length)
-            let safeEdited = NSRange(location: clampedLocation,
-                                     length: min(edited.length, nsText.length - clampedLocation))
-            let paragraphRange = nsText.paragraphRange(for: safeEdited)
-            let baseAttrs = codeBaseAttributes(for: currentPalette)
-            storage.beginEditing()
-            storage.setAttributes(baseAttrs, range: paragraphRange)
-            nsText.enumerateSubstrings(in: paragraphRange, options: [.byLines, .substringNotRequired]) { _, range, _, _ in
-                let lineText = nsText.substring(with: range)
-                applyHighlightSpans(highlightCodeLine(lineText), lineRange: range, to: storage)
+            var target = NSRange(location: clampedLocation, length: min(edited.length, nsText.length - clampedLocation))
+            let paragraph = nsText.paragraphRange(for: target)
+            let line = nsText.substring(with: paragraph)
+            // A block-comment delimiter changes the color of the lines after it.
+            if line.contains("/*") || line.contains("*/") || line.contains("<!--") || line.contains("-->") || line.contains("```") {
+                let end = min(nsText.length, NSMaxRange(paragraph) + SyntaxHighlighter.contextLimit)
+                target = NSRange(location: paragraph.location, length: end - paragraph.location)
             }
+            storage.beginEditing()
+            SyntaxHighlighter.highlight(storage, range: target, language: language, palette: currentPalette, resetBase: true)
             storage.endEditing()
             (textView as? CodeEditorTextView)?.reapplyDiagnostics()
         }
 
+        /// Full pass for load and appearance changes. Rewrites attributes in place, so the text,
+        /// selection, scroll position and undo stack are never replaced.
         func applyHighlight(to textView: NSTextView) {
-            guard !applyingHighlight else { return }
+            guard !applyingHighlight, !textView.hasMarkedText(), let storage = textView.textStorage else { return }
             applyingHighlight = true
-            let selectedRanges = textView.selectedRanges
-            let scrollOrigin = textView.enclosingScrollView?.contentView.bounds.origin
-            let text = textView.string
-            let attributed = highlightedCodeAttributedString(text, palette: currentPalette)
-            textView.textStorage?.setAttributedString(attributed)
-            textView.selectedRanges = selectedRanges
-            if let scrollOrigin {
-                textView.enclosingScrollView?.contentView.scroll(to: scrollOrigin)
-                textView.enclosingScrollView?.reflectScrolledClipView(textView.enclosingScrollView!.contentView)
-            }
+            defer { applyingHighlight = false }
+            storage.beginEditing()
+            let full = NSRange(location: 0, length: storage.length)
+            storage.setAttributes(codeBaseAttributes(for: currentPalette), range: full)
+            SyntaxHighlighter.highlight(storage, range: full, language: language, palette: currentPalette)
+            storage.endEditing()
             (textView as? CodeEditorTextView)?.reapplyDiagnostics()
             lineNumberRuler?.invalidateLineStartCache()
             lineNumberRuler?.needsDisplay = true
-            applyingHighlight = false
         }
 
         /// Re-highlight only the lines that changed between `oldText` and the current textView
         /// content (PERF-MAC_FILES-014). Never moves the selection or scroll offset.
         func applyHighlightIncremental(oldText: String, to textView: NSTextView) {
-            guard !applyingHighlight else { return }
+            guard !applyingHighlight, !textView.hasMarkedText() else { return }
             let ranges = changedLineRanges(oldText: oldText, newText: textView.string)
             guard !ranges.isEmpty else { return }
             let nsNew = textView.string as NSString
@@ -4104,14 +4112,9 @@ private struct CodeTextEditor: NSViewRepresentable {
             guard let storage = textView.textStorage else { return }
             applyingHighlight = true
             defer { applyingHighlight = false }
-            let baseAttrs = codeBaseAttributes(for: currentPalette)
             storage.beginEditing()
             for range in ranges {
-                storage.setAttributes(baseAttrs, range: range)
-                nsNew.enumerateSubstrings(in: range, options: [.byLines, .substringNotRequired]) { _, lineRange, _, _ in
-                    let lineText = nsNew.substring(with: lineRange)
-                    applyHighlightSpans(highlightCodeLine(lineText), lineRange: lineRange, to: storage)
-                }
+                SyntaxHighlighter.highlight(storage, range: range, language: language, palette: currentPalette, resetBase: true)
             }
             storage.endEditing()
             lineNumberRuler?.invalidateLineStartCache()
@@ -4740,7 +4743,7 @@ nonisolated func lineIndex(forCharOffset charOffset: Int, in offsets: [Int]) -> 
 private func highlightedHTML(text: String, language: String?) -> String {
     let html = text
         .components(separatedBy: "\n")
-        .map(highlightCodeLine)
+        .map { highlightCodeLine($0) }
         .joined(separator: "\n")
     let css = """
     body { margin:0; background:#1e1e1e; color:#d4d4d4; font:12px ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -4762,27 +4765,19 @@ private func highlightedHTML(text: String, language: String?) -> String {
 
 /// Build NSAttributedString base attributes from a resolved palette so the editor and gutter
 /// use consistent colors when the appearance changes (P2).
-private func codeBaseAttributes(for palette: EditorColorPalette) -> [NSAttributedString.Key: Any] {
+func codeBaseAttributes(for palette: EditorColorPalette) -> [NSAttributedString.Key: Any] {
     [.font: EditorMetrics.font,
      .foregroundColor: palette.text,
      .paragraphStyle: EditorMetrics.paragraphStyle]
 }
 
-func highlightedCodeAttributedString(_ text: String, palette: EditorColorPalette) -> NSMutableAttributedString {
+func highlightedCodeAttributedString(_ text: String, palette: EditorColorPalette, language: String? = nil) -> NSMutableAttributedString {
     let attributed = NSMutableAttributedString(string: text, attributes: codeBaseAttributes(for: palette))
-    highlightCode(text, in: attributed)
+    SyntaxHighlighter.highlight(attributed, range: NSRange(location: 0, length: attributed.length), language: language, palette: palette)
     return attributed
 }
 
-private func highlightCode(_ text: String, in attributed: NSMutableAttributedString) {
-    let nsText = text as NSString
-    nsText.enumerateSubstrings(in: NSRange(location: 0, length: nsText.length), options: [.byLines, .substringNotRequired]) { _, range, _, _ in
-        let line = nsText.substring(with: range)
-        applyHighlightSpans(highlightCodeLine(line), lineRange: range, to: attributed)
-    }
-}
-
-private func applyHighlightSpans(_ html: String, lineRange: NSRange, to attributed: NSMutableAttributedString) {
+func applyHighlightSpans(_ html: String, lineRange: NSRange, to attributed: NSMutableAttributedString) {
     var sourceIndex = html.startIndex
     var plainOffset = 0
     var activeClass: String?
@@ -4825,33 +4820,41 @@ private func applyHighlightSpans(_ html: String, lineRange: NSRange, to attribut
     }
 }
 
-private func codeColor(for tokenClass: String) -> NSColor? {
+/// vscode: extensions/theme-defaults/themes/dark_plus.json / dark_vs.json token colors.
+func codeColor(for tokenClass: String) -> NSColor? {
     switch tokenClass {
-    case "comment": return NSColor(red: 0.42, green: 0.60, blue: 0.33, alpha: 1)
-    case "kw", "tag": return NSColor(red: 0.34, green: 0.61, blue: 0.84, alpha: 1)
-    case "control": return NSColor(red: 0.77, green: 0.53, blue: 0.75, alpha: 1)
-    case "type": return NSColor(red: 0.31, green: 0.79, blue: 0.69, alpha: 1)
-    case "str": return NSColor(red: 0.81, green: 0.57, blue: 0.47, alpha: 1)
-    case "num": return NSColor(red: 0.71, green: 0.81, blue: 0.66, alpha: 1)
-    case "attr", "prop": return NSColor(red: 0.61, green: 0.86, blue: 1.0, alpha: 1)
-    case "selector": return NSColor(red: 0.84, green: 0.73, blue: 0.49, alpha: 1)
-    case "punct": return NSColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1)
+    case "comment": return editorHex(0x6A9955)
+    case "kw", "tag": return editorHex(0x569CD6)
+    case "control": return editorHex(0xC586C0)
+    case "type": return editorHex(0x4EC9B0)
+    case "str": return editorHex(0xCE9178)
+    case "num": return editorHex(0xB5CEA8)
+    case "attr", "prop": return editorHex(0x9CDCFE)
+    case "selector": return editorHex(0xD7BA7D)
+    case "fn": return editorHex(0xDCDCAA)
+    case "heading": return editorHex(0x569CD6)
+    case "punct": return editorHex(0x808080)
     default: return nil
     }
 }
 
-private let codeKeywords = Set(["class", "struct", "enum", "func", "let", "var", "import", "public", "private", "final", "async", "await", "throws", "try", "catch", "do", "in", "extension", "protocol", "init", "self", "static", "const", "function", "def", "from", "as", "nil", "null", "true", "false"])
-private let controlKeywords = Set(["return", "if", "else", "for", "while", "guard", "case", "switch", "break", "continue", "throw"])
+let codeKeywords = Set(["class", "struct", "enum", "func", "let", "var", "public", "private", "internal", "fileprivate", "open", "final", "async", "throws", "extension", "protocol", "init", "self", "super", "static", "const", "function", "def", "as", "nil", "null", "undefined", "true", "false", "in", "is", "typealias", "where", "some", "any", "override", "mutating", "lazy", "weak", "interface", "type", "new", "typeof", "extends", "implements", "this", "void", "readonly", "abstract", "package", "namespace", "instanceof", "delete"])
+let controlKeywords = Set(["return", "if", "else", "for", "while", "guard", "case", "switch", "break", "continue", "throw", "try", "catch", "do", "import", "from", "export", "default", "await", "yield", "defer", "repeat", "finally", "elif", "raise", "except", "with", "pass"])
+let pythonKeywords = Set(["lambda", "None", "True", "False", "and", "or", "not", "global", "nonlocal", "del", "assert"])
 
-private func highlightCodeLine(_ line: String) -> String {
+func highlightCodeLine(_ line: String, language: String? = nil) -> String {
     let trimmed = line.trimmingCharacters(in: .whitespaces)
-    if trimmed.hasPrefix("<") {
+    let lang = (language ?? "").lowercased()
+    // The markup/style line heuristics only apply where they make sense; `{` in Swift or JS is code.
+    let markupLanguages: Set<String> = ["", "html", "xml", "svg", "vue", "markdown"]
+    let styleLanguages: Set<String> = ["", "css", "scss", "less"]
+    if trimmed.hasPrefix("<"), markupLanguages.contains(lang) {
         return highlightMarkupLine(line)
     }
-    if looksLikeStyleLine(line) {
+    if styleLanguages.contains(lang), looksLikeStyleLine(line) {
         return highlightStyleLine(line)
     }
-    return highlightGeneralLine(line, hashStartsComment: true)
+    return highlightGeneralLine(line, hash: hashComment(for: language), language: language)
 }
 
 private func highlightMarkupLine(_ line: String) -> String {
@@ -4924,62 +4927,90 @@ private func highlightStyleLine(_ line: String) -> String {
     if let colon = line.firstIndex(of: ":") {
         let before = String(line[..<colon])
         let after = String(line[line.index(after: colon)...])
-        return "<span class=\"prop\">\(htmlEscape(before))</span><span class=\"punct\">:</span>\(highlightGeneralLine(after, hashStartsComment: false))"
+        return "<span class=\"prop\">\(htmlEscape(before))</span><span class=\"punct\">:</span>\(highlightGeneralLine(after, hash: .none))"
     }
-    return highlightGeneralLine(line, hashStartsComment: false)
+    return highlightGeneralLine(line, hash: .none)
 }
 
-private func highlightGeneralLine(_ line: String, hashStartsComment: Bool) -> String {
+enum HashComment { case none, lineStart, anywhere }
+
+/// `#` starts a comment anywhere in scripting languages, only at line start for unknown files
+/// (the long-standing default), and never in C-family languages.
+func hashComment(for language: String?) -> HashComment {
+    switch (language ?? "").lowercased() {
+    case "python", "shell script", "shellscript", "shell", "bash", "zsh", "sh", "yaml", "yml", "ruby", "toml", "makefile", "dockerfile": return .anywhere
+    case "swift", "javascript", "typescript", "json", "css", "html", "c", "cpp", "java", "go", "rust": return .none
+    default: return .lineStart
+    }
+}
+
+private func highlightGeneralLine(_ line: String, hash: HashComment, language: String? = nil) -> String {
+    let lang = (language ?? "").lowercased()
+    let isPython = lang == "python"
+    let isJSON = lang == "json"
     var output = ""
     var index = line.startIndex
     var sawNonWhitespace = false
+    var previous: Character?
 
     while index < line.endIndex {
         let char = line[index]
         let next = line.index(after: index)
-        if char == "/" && next < line.endIndex && line[next] == "/" {
+        if char == "/" && next < line.endIndex && line[next] == "/" && lang != "python" {
             output += "<span class=\"comment\">\(htmlEscape(String(line[index...])))</span>"
             break
         }
-        if hashStartsComment, char == "#" && !sawNonWhitespace {
+        if char == "#" && (hash == .anywhere || (hash == .lineStart && !sawNonWhitespace)) {
             output += "<span class=\"comment\">\(htmlEscape(String(line[index...])))</span>"
             break
         }
-        if char == "\"" || char == "'" {
+        if char == "\"" || char == "'" || char == "`" {
             let end = stringEnd(in: line, from: index, quote: char)
-            output += "<span class=\"str\">\(htmlEscape(String(line[index..<end])))</span>"
+            // vscode: JSON property names use the property color.
+            let rest = line[end...].drop(while: { $0 == " " || $0 == "\t" })
+            let cls = isJSON && char == "\"" && rest.first == ":" ? "prop" : "str"
+            output += "<span class=\"\(cls)\">\(htmlEscape(String(line[index..<end])))</span>"
             index = end
             sawNonWhitespace = true
+            previous = "\""
             continue
         }
         if isIdentifierStart(char) {
             let end = scanIdentifier(in: line, from: index)
             let word = String(line[index..<end])
+            let isCall = end < line.endIndex && line[end] == "("
             if controlKeywords.contains(word) {
                 output += "<span class=\"control\">\(word)</span>"
-            } else if codeKeywords.contains(word) {
+            } else if codeKeywords.contains(word) || (isPython && pythonKeywords.contains(word)) {
                 output += "<span class=\"kw\">\(word)</span>"
             } else if word.first?.isUppercase == true {
                 output += "<span class=\"type\">\(word)</span>"
+            } else if isCall {
+                output += "<span class=\"fn\">\(word)</span>"
+            } else if previous == "." {
+                output += "<span class=\"prop\">\(word)</span>"
             } else {
                 output += htmlEscape(word)
             }
             index = end
             sawNonWhitespace = true
+            previous = "a"
             continue
         }
         if char.isNumber {
             var end = next
-            while end < line.endIndex && (line[end].isNumber || line[end] == "." || line[end] == "_") {
+            let isHex = char == "0" && end < line.endIndex && (line[end] == "x" || line[end] == "X")
+            while end < line.endIndex && (line[end].isNumber || line[end] == "." || line[end] == "_" || (isHex && (line[end].isHexDigit || line[end] == "x" || line[end] == "X"))) {
                 end = line.index(after: end)
             }
             output += "<span class=\"num\">\(htmlEscape(String(line[index..<end])))</span>"
             index = end
             sawNonWhitespace = true
+            previous = "0"
             continue
         }
         output += htmlEscape(String(char))
-        if !char.isWhitespace { sawNonWhitespace = true }
+        if !char.isWhitespace { sawNonWhitespace = true; previous = char }
         index = next
     }
     return output

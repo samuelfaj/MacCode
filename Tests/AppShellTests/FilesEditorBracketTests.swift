@@ -11,7 +11,7 @@ final class FilesEditorBracketTests: XCTestCase {
         let text = "f(a[1], {b})"
         XCTAssertEqual(pair(text, caret: 2)?.1, 11, "caret after '(' pairs with the final ')'")
         XCTAssertEqual(pair(text, caret: 12)?.1, 1, "caret after ')' pairs back to '('")
-        XCTAssertEqual(pair(text, caret: 4)?.1, 6, "'[' pairs with ']' not with the outer ')'")
+        XCTAssertEqual(pair(text, caret: 4)?.1, 5, "'[' pairs with ']' not with the outer ')'")
     }
 
     func test_ignoresBracketsInStringsAndComments() {
