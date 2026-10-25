@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import SwiftUI
 import Foundation
 import CoreModel
 import SocketServer
@@ -36,6 +37,7 @@ final class FileExplorerOutlineTests: XCTestCase {
         let view = FileExplorerOutline(model: model, showHidden: false, onNewFile: { _ in }, onNewFolder: { _ in }, onRequestDelete: { _ in })
         let hosting = NSHostingView(rootView: view.frame(width: 300, height: 600))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
         pump()

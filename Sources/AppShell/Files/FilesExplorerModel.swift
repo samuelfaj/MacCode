@@ -165,7 +165,10 @@ extension FilesViewModel {
     func refreshTree(directories: Set<String>? = nil) {
         let loaded = Set(treeStore.cachedDirectoryPaths)
         let targets = directories.map { $0.intersection(loaded) } ?? loaded
-        for path in targets { treeStore.invalidate(path: path) }
+        for path in targets {
+            treeStore.invalidate(path: path)
+            _ = treeStore.children(at: path)
+        }
         if directories == nil || directories!.contains(currentDirectory) {
             if let result = try? router?.fsWorkspaceList(workspace: workspaceID, path: currentDirectory) {
                 entries = mapEntries(result)
