@@ -287,6 +287,19 @@ final class FileTreeStore<Item: FileTreeItem> {
     /// Test seam: number of path keys currently held in the child listing cache.
     var childCacheCountForTesting: Int { childCache.count }
 
+    /// Directory paths whose children are currently cached.
+    var cachedDirectoryPaths: [String] { Array(childCache.keys) }
+
+    /// Replace the top level without clearing cached subtrees (used by in-place refresh).
+    func replaceRoots(_ items: [Item]) {
+        roots = items.map { FileTreeNode(item: $0) }
+    }
+
+    /// Drop the cached listing for `path` so the next request re-lists it.
+    func invalidate(path: String) {
+        childCache.removeValue(forKey: path)
+    }
+
     /// Expand a directory node, fetching its children the first time only. A node already carrying
     /// `children` is not re-fetched (`force` re-lists, e.g. after a mutation in that directory).
     /// Returns false and stays collapsed if the lazy fetch throws, so a failed listing doesn't
@@ -1095,13 +1108,26 @@ final class FilesViewModel: ObservableObject {
     // listings live in `treeStore`, which fetches them on first expand and caches them. Reset
     // whenever the displayed directory changes (P1). `expandedPaths` is the @Published trigger that
     // makes SwiftUI re-render the affected subtree.
-    @Published var expandedPaths: Set<String> = []
+    @Published var expandedPaths: Set<String> = [] {
+        didSet {
+            guard expandedPaths != oldValue else { return }
+            scheduleExpansionPersist()
+        }
+    }
+    /// Bumped whenever cached tree listings change so the outline reloads.
+    @Published var treeRevision = 0
+    /// Git status per workspace-relative path, folders included (propagated).
+    @Published var gitStatuses: [String: ExplorerGitStatus] = [:]
+    var expansionPersistTimer: Timer?
+    var restoringExpansion = false
+    var fileWatcher: ExplorerFileWatcher?
+    var gitGeneration = 0
     @Published var caretLine = 1
     @Published var caretColumn = 1
     /// Status-bar values read from the edit session on load: "LF"/"CRLF" and the file encoding id.
     @Published var lineEnding = "LF"
     @Published var encoding = "utf-8"
-    private lazy var treeStore = FileTreeStore<FileEntry>(lister: { [weak self] path in
+    lazy var treeStore = FileTreeStore<FileEntry>(lister: { [weak self] path in
         try self?.listEntries(at: path) ?? []
     })
     @Published var previewURL: URL?
@@ -1190,9 +1216,14 @@ final class FilesViewModel: ObservableObject {
         }
         if let eventToken { EventBus.shared.unsubscribe(eventToken) }
         if let sessionID { _ = try? router?.filesEditClose(sessionID: sessionID) }
+        fileWatcher?.stop()
+        fileWatcher = nil
+        expansionPersistTimer?.invalidate()
+        persistExpansionNow()
     }
 
     func loadInitialState() {
+        var restoredExpansion: [String] = []
         do {
             var initialSelectedPath: String?
             if let state = try router?.filesStateGet(surface: surfaceID).objectValue {
@@ -1204,8 +1235,13 @@ final class FilesViewModel: ObservableObject {
                 if case .array(let tabs) = state["open_tabs"] ?? .array([]) {
                     restoreOpenTabs(tabs.compactMap(\.stringValue))
                 }
+                if case .array(let dirs) = state["expanded_dirs"] ?? .array([]) {
+                    restoredExpansion = dirs.compactMap(\.stringValue)
+                }
             }
             loadDirectory(currentDirectory)
+            restoreExpansion(restoredExpansion)
+            startExplorerWatching()
             if let initialSelectedPath,
                let entry = entries.first(where: { !$0.isDirectory && $0.relativePath == initialSelectedPath }) {
                 selectedEntry = entry
@@ -1227,6 +1263,7 @@ final class FilesViewModel: ObservableObject {
             // top level, and any previously expanded subtree no longer applies (P1).
             expandedPaths = []
             treeStore.setRoots(entries)
+            treeRevision &+= 1
             isLoading = false
             _ = try? router?.filesStateUpdate(surface: surfaceID, patch: [
                 "current_directory": .string(currentDirectory)
@@ -1255,7 +1292,7 @@ final class FilesViewModel: ObservableObject {
     /// files. Shared by the top-level directory load and the lazy subtree fetch so both produce
     /// identical rows. This keeps the existing security-scoped `fsWorkspaceList` IO unchanged -
     /// only the surrounding tree structure is new (P1).
-    private func mapEntries(_ result: JSONValue?) -> [FileEntry] {
+    func mapEntries(_ result: JSONValue?) -> [FileEntry] {
         let values = result?.objectValue?["entries"]?.arrayValue ?? []
         var entries: [FileEntry] = []
         entries.reserveCapacity(values.count)
@@ -1273,7 +1310,7 @@ final class FilesViewModel: ObservableObject {
 
     /// Fetch the entries directly under `relativePath` (security-scoped `fsWorkspaceList`), mapped
     /// to rows. Used by the lazy subtree fetch.
-    private func listEntries(at relativePath: String) throws -> [FileEntry] {
+    func listEntries(at relativePath: String) throws -> [FileEntry] {
         mapEntries(try router?.fsWorkspaceList(workspace: workspaceID, path: relativePath))
     }
 
@@ -1516,12 +1553,14 @@ final class FilesViewModel: ObservableObject {
         }
     }
 
-    func createFile(named rawName: String) {
-        guard let path = newFileTargetPath(parent: currentDirectory, rawName: rawName) else { return }
+    func createFile(named rawName: String, in parent: String? = nil) {
+        let parent = parent ?? currentDirectory
+        guard let path = newFileTargetPath(parent: parent, rawName: rawName) else { return }
         do {
             let result = try router?.fsWorkspaceCreateFile(workspace: workspaceID, path: path, content: "")
             let created = result.flatMap(FileEntry.init(value:))
-            loadDirectory(currentDirectory)
+            if !parent.isEmpty, parent != currentDirectory { expandedPaths.insert(parent) }
+            refreshTree()
             if let created {
                 selectedEntry = created
                 openFileInTab(created)
@@ -1531,14 +1570,17 @@ final class FilesViewModel: ObservableObject {
         }
     }
 
-    func createFolder(named rawName: String) {
+    func createFolder(named rawName: String, in parent: String? = nil) {
+        let parent = parent ?? currentDirectory
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
-        let existingNames = Set(entries.map(\.name))
-        let path = newFolderTargetPath(parent: currentDirectory, name: name, existingNames: existingNames)
+        let siblings = parent == currentDirectory ? entries : treeStore.children(at: parent)
+        let existingNames = Set(siblings.map(\.name))
+        let path = newFolderTargetPath(parent: parent, name: name, existingNames: existingNames)
         do {
             _ = try router?.fsWorkspaceCreateDirectory(workspace: workspaceID, path: path)
-            loadDirectory(currentDirectory)
+            if !parent.isEmpty, parent != currentDirectory { expandedPaths.insert(parent) }
+            refreshTree()
         } catch {
             errorText = String(describing: error)
         }
@@ -1569,7 +1611,7 @@ final class FilesViewModel: ObservableObject {
                 renderedText = ""
                 isDirty = false
             }
-            loadDirectory(currentDirectory)
+            refreshTree()
         } catch {
             errorText = String(describing: error)
         }
@@ -1582,7 +1624,11 @@ final class FilesViewModel: ObservableObject {
         do {
             let result = try router?.fsWorkspaceRename(workspace: workspaceID, path: entry.relativePath, newName: name)
             let renamed = result.flatMap(FileEntry.init(value:))
-            loadDirectory(currentDirectory)
+            if entry.isDirectory, expandedPaths.contains(entry.relativePath), let renamed {
+                expandedPaths.remove(entry.relativePath)
+                expandedPaths.insert(renamed.relativePath)
+            }
+            refreshTree()
             if let renamed, let tabIndex = openTabs.firstIndex(where: { $0.id == entry.id }) {
                 openTabs[tabIndex] = renamed
                 persistOpenTabs()
@@ -1622,7 +1668,7 @@ final class FilesViewModel: ObservableObject {
                 if let error {
                     self.errorText = String(describing: error)
                 } else {
-                    self.loadDirectory(self.currentDirectory)
+                    self.refreshTree()
                 }
             }
         }
@@ -1983,34 +2029,20 @@ struct FilesSurfaceRoot: View {
     @AppStorage("files.sidebar.showHidden.v1") private var showHidden = false
     @State private var sidebarVisible = true
     @State private var lastAutomaticSidebarChange: TimeInterval?
-    @State private var selectedFileIDs: Set<String> = []
-    @State private var pathInput = ""
     @State private var confirmDiscard = false
     @State private var showNewFileDialog = false
     @State private var newFileName = ""
+    @State private var newItemDirectory: String?
     @State private var showNewFolderDialog = false
     @State private var newFolderName = ""
     @FocusState private var newFolderFieldFocused: Bool
-    @State private var dropTargetedFolderPath: String? = nil
-    @State private var renamingEntry: FileEntry?
-    @State private var renameText = ""
     @State private var deleteTargets: [FileEntry] = []
     @State private var confirmDelete = false
-    @State private var pathInvalid = false
     @State private var dropTargeted = false
     @FocusState private var newFileFieldFocused: Bool
-    @State private var nameFilter = ""
     @State private var explorerHovered = false
-    @State private var hoveredRowID: String?
     @State private var hoveredTabID: String?
     @State private var hoveredCloseTabID: String?
-    @FocusState private var nameFilterFocused: Bool
-    // PERF: visibleEntries filters on every SwiftUI body evaluation (scroll, selection, etc.).
-    // Cache last result and only recompute when entries, showHidden, or nameFilter changes —
-    // mirrors SidebarView.filteredWorkspacesCache, avoids O(N) filter on transient body passes.
-    @State private var visibleEntriesCache: [FileEntry] = []
-    @State private var visibleEntriesCacheKey: (count: Int, showHidden: Bool, query: String) = (0, false, "")
-    @State private var visibleEntriesSource: [FileEntry] = []
 
     // Preview HTML cache -- avoids recomputing MarkdownSurface.renderHTML / highlightedHTML
     // on every SwiftUI body pass. Seeded immediately on .onAppear; subsequent changes are
@@ -2060,7 +2092,7 @@ struct FilesSurfaceRoot: View {
                 .accessibilityIdentifier("files.newFile.create")
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(model.currentDirectory.isEmpty ? "Create in workspace root." : "Create in \(model.currentDirectory).")
+            Text((newItemDirectory ?? model.currentDirectory).isEmpty ? "Create in workspace root." : "Create in \(newItemDirectory ?? model.currentDirectory).")
         }
         // Focus the name field as soon as the New File dialog appears so keyboard users can
         // type immediately without clicking first (UX-MAC_FILES-001).
@@ -2076,40 +2108,16 @@ struct FilesSurfaceRoot: View {
                 .accessibilityIdentifier("files.newFolder.create")
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(model.currentDirectory.isEmpty ? "Create in workspace root." : "Create in \(model.currentDirectory).")
+            Text((newItemDirectory ?? model.currentDirectory).isEmpty ? "Create in workspace root." : "Create in \(newItemDirectory ?? model.currentDirectory).")
         }
         .onChange(of: showNewFolderDialog) { presented in
             if presented { newFolderFieldFocused = true }
-        }
-        .alert("Rename", isPresented: Binding(
-            get: { renamingEntry != nil },
-            set: { if !$0 { renamingEntry = nil } }
-        )) {
-            TextField("File name", text: $renameText)
-            Button("Rename") { commitRename() }
-            Button("Cancel", role: .cancel) { renamingEntry = nil }
         }
         .alert(deleteTitle, isPresented: $confirmDelete) {
             Button("Move to Trash", role: .destructive) { commitDelete() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(deleteTargets.count == 1 ? deleteTargets[0].relativePath : "\(deleteTargets.count) selected items will be moved to the Trash.")
-        }
-        .onAppear { pathInput = displayPath }
-        .onChange(of: model.currentDirectory) { _ in
-            pathInput = displayPath
-            selectedFileIDs = []
-            updateVisibleEntriesCacheIfNeeded()
-        }
-        .onChange(of: model.entries) { _ in updateVisibleEntriesCacheIfNeeded() }
-        .onChange(of: showHidden) { _ in updateVisibleEntriesCacheIfNeeded() }
-        .onChange(of: nameFilter) { _ in updateVisibleEntriesCacheIfNeeded() }
-        .onAppear { updateVisibleEntriesCacheIfNeeded() }
-        .onChange(of: selectedFileIDs) { ids in
-            guard ids.count == 1,
-                  let id = ids.first,
-                  let entry = model.entryForSelectionID(id) else { return }
-            model.selectIfNeeded(entry)
         }
         // Seed cachedPreviewHTML immediately on first appear so the initial render
         // is not blank. Subsequent changes go through the debounce path.
@@ -2181,15 +2189,17 @@ struct FilesSurfaceRoot: View {
                 Spacer(minLength: 4)
                 if explorerHovered {
                     explorerAction("doc.badge.plus", label: "New file", id: "files.newFile.button") {
+                        newItemDirectory = model.explorerTargetDirectory(for: model.selectedEntry)
                         newFileName = ""
                         showNewFileDialog = true
                     }
                     explorerAction("folder.badge.plus", label: "New folder", id: "files.newFolder.button") {
+                        newItemDirectory = model.explorerTargetDirectory(for: model.selectedEntry)
                         newFolderName = ""
                         showNewFolderDialog = true
                     }
                     explorerAction("arrow.clockwise", label: "Refresh", id: "files.refresh.button") {
-                        model.loadDirectory(model.currentDirectory)
+                        model.refreshTree()
                     }
                     explorerAction("rectangle.compress.vertical", label: "Collapse folders", id: "files.collapseAll.button") {
                         model.collapseAll()
@@ -2199,59 +2209,21 @@ struct FilesSurfaceRoot: View {
             .foregroundStyle(VSCodeTheme.sectionHeader)
             .padding(.horizontal, 4)
             .frame(height: 22)
-            TextField("Filter files\u{2026}", text: $nameFilter)
-                .textFieldStyle(.plain)
-                .focused($nameFilterFocused)
-                .font(.system(size: 12))
-                .padding(.horizontal, 6)
-                .frame(height: 24)
-                .background(VSCodeTheme.inputBackground)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 2)
-                        .stroke(nameFilterFocused ? VSCodeTheme.focusBorder : VSCodeTheme.inputBorder, lineWidth: 1)
-                )
-                .foregroundStyle(VSCodeTheme.foreground)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 6)
-                .accessibilityLabel("Filter files by name")
-                .accessibilityIdentifier("files.nameFilter.field")
-                .onChange(of: model.currentDirectory) { _ in nameFilter = "" }
-            TextField("Path", text: $pathInput)
-                .font(.system(size: 11, design: .monospaced))
-                .textFieldStyle(.plain)
-                .foregroundStyle(pathInvalid ? DS.Palette.danger : VSCodeTheme.inactiveForeground)
-                .lineLimit(1)
-                .padding(.horizontal, 8)
-                .frame(height: 22)
-                .onSubmit { submitPath() }
-                .help("Type a workspace path and press Return")
-                .accessibilityLabel("Workspace path")
-                .accessibilityIdentifier("files.path.field")
-            breadcrumb
-            List(selection: $selectedFileIDs) {
-                if !model.currentDirectory.isEmpty {
-                    Button {
-                        navigateToParent()
-                    } label: {
-                        treeRow(icon: "arrow.turn.up.left", iconColor: VSCodeTheme.inactiveForeground, name: "..", depth: 0) {
-                            Color.clear.frame(width: 16, height: 22)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                    .listRowBackground(Color.clear)
-                    // Cmd+Up navigates up a level for keyboard users, since the ".." row is not part
-                    // of the List selection set and arrow keys never reach it (UX-MAC_FILES-012).
-                    .keyboardShortcut(.upArrow, modifiers: .command)
-                    .help("Go to parent folder (⌘↑)")
-                    .accessibilityIdentifier("files.parent.button")
-                }
-                treeRows(visibleEntries, depth: 0)
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(VSCodeTheme.sideBarBackground)
-            .accessibilityIdentifier("files.sidebar.list")
+            FileExplorerOutline(
+                model: model,
+                showHidden: showHidden,
+                onNewFile: { directory in
+                    newItemDirectory = directory
+                    newFileName = ""
+                    showNewFileDialog = true
+                },
+                onNewFolder: { directory in
+                    newItemDirectory = directory
+                    newFolderName = ""
+                    showNewFolderDialog = true
+                },
+                onRequestDelete: { entries in beginDelete(entries) }
+            )
             if model.isLoading {
                 ProgressView().controlSize(.small)
                     .padding(.vertical, 4)
@@ -2279,129 +2251,6 @@ struct FilesSurfaceRoot: View {
         .help(label)
         .accessibilityLabel(label)
         .accessibilityIdentifier(id)
-    }
-
-    private var displayPath: String {
-        guard !model.currentDirectory.isEmpty else { return model.root }
-        return (model.root as NSString).appendingPathComponent(model.currentDirectory)
-    }
-
-    // Dotfiles are hidden unless the user opts in via the sidebar toggle (IMP-MAC_FILES-014).
-    // Name filter further narrows the visible set when the user types in the filter field.
-    // PERF: avoid O(N) filter on every transient body (scroll/selection) — cache last result.
-    // `onChange` of entries/showHidden/nameFilter keeps cache fresh; body fast-path reuses it.
-    // Count-only key is fast, but a rename keeps count same — also check source equality to avoid stale.
-    private var visibleEntries: [FileEntry] {
-        let key = (count: model.entries.count, showHidden: showHidden, query: nameFilter)
-        if !visibleEntriesCache.isEmpty && key.count == visibleEntriesCacheKey.count && key.showHidden == visibleEntriesCacheKey.showHidden && key.query == visibleEntriesCacheKey.query && visibleEntriesSource == model.entries {
-            return visibleEntriesCache
-        }
-        return visibleFileEntries(model.entries, showHidden: showHidden, query: nameFilter, isHidden: \.isHidden)
-    }
-
-    private func updateVisibleEntriesCacheIfNeeded() {
-        let key = (count: model.entries.count, showHidden: showHidden, query: nameFilter)
-        if !visibleEntriesCache.isEmpty && key.count == visibleEntriesCacheKey.count && key.showHidden == visibleEntriesCacheKey.showHidden && key.query == visibleEntriesCacheKey.query && visibleEntriesSource == model.entries {
-            return
-        }
-        visibleEntriesCache = visibleFileEntries(model.entries, showHidden: showHidden, query: nameFilter, isHidden: \.isHidden)
-        visibleEntriesCacheKey = key
-        visibleEntriesSource = model.entries
-    }
-
-    private func visibleChildren(of directory: FileEntry) -> [FileEntry] {
-        let children = model.childEntries(for: directory)
-        return visibleFileEntries(children, showHidden: showHidden, query: "", isHidden: \.isHidden)
-    }
-
-    // Recursive tree renderer (P1): each row gets a disclosure triangle when it is a directory, and
-    // its children are emitted indented and lazily - `model.childEntries` only fetches on first
-    // expand. Selection/open/drag/dirty affordances are unchanged from the old flat row; only the
-    // leading disclosure control and indentation are new.
-    // Returns AnyView to break the self-referential opaque return type a directly recursive
-    // @ViewBuilder would otherwise produce.
-    private func treeRows(_ entries: [FileEntry], depth: Int) -> some View {
-        ForEach(entries) { entry in
-            entryRow(entry, depth: depth)
-            if entry.isDirectory && model.isExpanded(entry) {
-                AnyView(treeRows(visibleChildren(of: entry), depth: depth + 1))
-            }
-        }
-    }
-
-    private func entryRow(_ entry: FileEntry, depth: Int) -> some View {
-        let isDropTarget = dropTargetedFolderPath == entry.relativePath
-        let isExpanded = entry.isDirectory && model.isExpanded(entry)
-        return treeRow(
-            icon: entry.isDirectory ? (isExpanded ? "folder.fill" : "folder") : entry.icon,
-            iconColor: VSCodeTheme.color(entry.isDirectory ? 0xDCB67A : fileIconColorHex(for: entry.name)),
-            name: entry.name,
-            depth: depth,
-            active: model.selectedEntry?.id == entry.id,
-            focused: selectedFileIDs.contains(entry.id),
-            hovered: hoveredRowID == entry.id,
-            dirty: model.dirtyPaths.contains(entry.relativePath),
-            dirtyPath: entry.relativePath
-        ) {
-            if entry.isDirectory {
-                Button {
-                    model.toggleExpand(entry)
-                } label: {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(VSCodeTheme.inactiveForeground)
-                        .frame(width: 16, height: 22)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(isExpanded ? "Collapse folder" : "Expand folder")
-                .accessibilityIdentifier("files.disclosure.\(entry.relativePath)")
-            } else {
-                Color.clear.frame(width: 16, height: 22)
-            }
-        }
-        .overlay {
-            if isDropTarget {
-                Rectangle()
-                    .stroke(VSCodeTheme.focusBorder, lineWidth: 1.5)
-                    .allowsHitTesting(false)
-                    .accessibilityIdentifier("files.moveDropIndicator.\(entry.relativePath)")
-            }
-        }
-        .onTapGesture {
-            selectedFileIDs = [entry.id]
-            model.selectIfNeeded(entry)
-        }
-        .onHover { inside in
-            if inside {
-                hoveredRowID = entry.id
-            } else if hoveredRowID == entry.id {
-                hoveredRowID = nil
-            }
-        }
-        .tag(entry.id)
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-        .listRowBackground(Color.clear)
-        .contextMenu { fileContextMenu(for: entry) }
-	        .fileTabDragPayload(entry.dragPayload)
-	        // Any entry can be dragged to move it. Directories also accept drops.
-	        .sidebarMoveDragPayload(entry.moveDragPayload)
-	        .fileOutDragProvider(absolutePath: entry.path, fileTabPayload: entry.dragPayload, movePayload: entry.moveDragPayload)
-	        .sidebarMoveDropDestination(
-            enabled: entry.isDirectory,
-            workspaceID: model.workspaceID.value.uuidString,
-            onDrop: { relativePath in
-                guard let src = model.entries.first(where: { $0.relativePath == relativePath })
-                    ?? model.allKnownEntry(relativePath: relativePath) else { return false }
-                model.moveEntry(src, intoDirWithPath: entry.relativePath)
-                return true
-            },
-            isTargeted: { targeted in
-                dropTargetedFolderPath = targeted ? entry.relativePath : nil
-            }
-        )
-        .help(entry.relativePath.isEmpty ? entry.name : entry.relativePath)
-        .accessibilityIdentifier("files.row.\(entry.relativePath)")
     }
 
     // Language badge, size, and modified-ago for the selected text file so users get context
@@ -2447,135 +2296,18 @@ struct FilesSurfaceRoot: View {
         return ("Files error", "exclamationmark.triangle", raw, true)
     }
 
-    // Clickable breadcrumb so users can jump to any ancestor without typing full paths or
-    // clicking up through ".." repeatedly (UX-MAC_FILES-014).
-    private var breadcrumb: some View {
-        let segments = model.currentDirectory.split(separator: "/").map(String.init)
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
-                Button("root") { model.loadDirectory("") }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(segments.isEmpty ? VSCodeTheme.foreground : VSCodeTheme.inactiveForeground)
-                    .accessibilityIdentifier("files.breadcrumb.root")
-                ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8))
-                        .foregroundStyle(VSCodeTheme.inactiveForeground)
-                    Button(segment) {
-                        model.loadDirectory(segments[0...index].joined(separator: "/"))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(index == segments.count - 1 ? VSCodeTheme.foreground : VSCodeTheme.inactiveForeground)
-                    .accessibilityIdentifier("files.breadcrumb.\(segment)")
-                }
-            }
-            .font(.system(size: 11))
-            .lineLimit(1)
-        }
-        .frame(height: 22)
-        .padding(.horizontal, 8)
-    }
-
-    private func navigateToParent() {
-        let parent = (model.currentDirectory as NSString).deletingLastPathComponent
-        model.loadDirectory(parent == "." ? "" : parent)
-    }
-
-    private func submitPath() {
-        guard let relative = resolveSubmittedFilesPath(raw: pathInput, root: model.root) else {
-            pathInput = displayPath
-            return
-        }
-        model.loadDirectory(relative)
-        // On a bad path the error surfaces far away in the reader; flag the field red and restore
-        // the last valid path so the input doesn't silently keep invalid text (UX-MAC_FILES-013).
-        if model.errorText != nil {
-            pathInvalid = true
-            pathInput = displayPath
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { pathInvalid = false }
-        } else {
-            pathInvalid = false
-        }
-    }
-
-    private var selectedEntries: [FileEntry] {
-        selectedFileIDs.compactMap(model.entryForSelectionID)
-    }
-
     private var deleteTitle: String {
         deleteTargets.count == 1 ? "Move \(deleteTargets[0].name) to Trash?" : "Move \(deleteTargets.count) items to Trash?"
     }
 
-    @ViewBuilder
-    private func fileContextMenu(for entry: FileEntry) -> some View {
-        let targets = selectedFileIDs.contains(entry.id) && selectedEntries.count > 1 ? selectedEntries : [entry]
-        if targets.count == 1 {
-            if !entry.isDirectory {
-                Button("Open in New Tab") { model.openInNewTab(entry) }
-                Divider()
-            }
-            Button("Reveal in Finder") { revealInFinder(entry) }
-            if !entry.isDirectory {
-                Button("Open with Default App") { openWithDefaultApp(entry) }
-            }
-            Divider()
-            Button("Rename...") { beginRename(entry) }
-            Divider()
-            Button("Move to Trash", role: .destructive) { beginDelete(targets) }
-        } else {
-            Button("Open \(targets.count) Files in New Tabs") {
-                targets.filter { !$0.isDirectory }.forEach { model.openInNewTab($0) }
-            }
-            .accessibilityIdentifier("files.contextMenu.openAllInTabs")
-            Button("Reveal in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting(targets.map { URL(fileURLWithPath: $0.path) })
-            }
-            .accessibilityIdentifier("files.contextMenu.revealAll")
-            Divider()
-            Button("Move \(targets.count) Items to Trash", role: .destructive) { beginDelete(targets) }
-        }
-    }
-
     private func createNewFile() {
-        model.createFile(named: newFileName)
+        model.createFile(named: newFileName, in: newItemDirectory)
         newFileName = ""
     }
 
     private func createNewFolder() {
-        model.createFolder(named: newFolderName)
+        model.createFolder(named: newFolderName, in: newItemDirectory)
         newFolderName = ""
-    }
-
-    // Escape hatches to the real file via Finder / default app, for binaries and large media
-    // that RemoteCode can't render usefully (UX-MAC_FILES-009).
-    private func revealInFinder(_ entry: FileEntry) {
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: entry.path)])
-    }
-
-    private func openWithDefaultApp(_ entry: FileEntry) {
-        NSWorkspace.shared.open(URL(fileURLWithPath: entry.path))
-    }
-
-    private func beginRename(_ entry: FileEntry) {
-        selectedFileIDs = [entry.id]
-        renamingEntry = entry
-        renameText = entry.name
-        // Pre-select the basename (not the extension) once the alert's text field
-        // becomes first responder. The alert is presented asynchronously by SwiftUI,
-        // so we defer one run-loop turn to reach the field editor.
-        let selectionRange = filesBasenameSelectionRange(for: entry.name)
-        DispatchQueue.main.async {
-            guard let window = NSApp.keyWindow,
-                  let editor = window.fieldEditor(false, for: nil) as? NSTextView else { return }
-            editor.selectedRange = selectionRange
-        }
-    }
-
-    private func commitRename() {
-        guard let entry = renamingEntry else { return }
-        model.rename(entry, to: renameText)
-        selectedFileIDs = []
-        renamingEntry = nil
     }
 
     private func beginDelete(_ entries: [FileEntry]) {
@@ -2585,7 +2317,6 @@ struct FilesSurfaceRoot: View {
 
     private func commitDelete() {
         model.delete(deleteTargets)
-        selectedFileIDs.subtract(deleteTargets.map(\.id))
         deleteTargets = []
     }
 
@@ -3062,61 +2793,6 @@ struct FilesSurfaceRoot: View {
         ) { newValue in
             model.editorChanged(newValue)
         }
-    }
-
-    private func treeRow<Disclosure: View>(
-        icon: String,
-        iconColor: Color,
-        name: String,
-        depth: Int,
-        active: Bool = false,
-        focused: Bool = false,
-        hovered: Bool = false,
-        dirty: Bool = false,
-        dirtyPath: String? = nil,
-        @ViewBuilder disclosure: () -> Disclosure
-    ) -> some View {
-        let fill: Color = focused ? VSCodeTheme.listFocusedSelection
-            : active ? VSCodeTheme.listActiveSelection
-            : hovered ? VSCodeTheme.listHover
-            : .clear
-        return HStack(spacing: 0) {
-            Spacer().frame(width: 8)
-            ForEach(0..<depth, id: \.self) { _ in
-                Rectangle()
-                    .fill(VSCodeTheme.indentGuide.opacity(0.4))
-                    .frame(width: 1, height: 22)
-                    .frame(width: 8, height: 22)
-            }
-            disclosure()
-            Image(systemName: icon)
-                .font(.system(size: 14))
-                .foregroundStyle(iconColor)
-                .frame(width: 16, height: 22)
-            Text(name)
-                .font(.system(size: 13))
-                .lineLimit(1)
-                .foregroundStyle(dirty ? VSCodeTheme.modifiedText : VSCodeTheme.foreground)
-                .padding(.leading, 4)
-            Spacer(minLength: 4)
-            if dirty {
-                Circle()
-                    .fill(VSCodeTheme.dirty)
-                    .frame(width: 8, height: 8)
-                    .padding(.trailing, 8)
-                    .accessibilityLabel("Unsaved changes")
-                    .accessibilityIdentifier("files.dirtyDot.\(dirtyPath ?? "")")
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 22)
-        .background(fill)
-        .overlay {
-            if focused {
-                Rectangle().stroke(VSCodeTheme.focusBorder, lineWidth: 1)
-            }
-        }
-        .contentShape(Rectangle())
     }
 
     /// Bottom status bar: branch and workspace on the left, editor state on the right.
