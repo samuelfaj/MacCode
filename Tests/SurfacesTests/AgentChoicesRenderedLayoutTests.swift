@@ -66,7 +66,7 @@ final class AgentChoicesRenderedLayoutTests: XCTestCase {
     private func render(_ vm: AgentAppViewModel, size: NSSize, name: String) throws -> (NSBitmapImageRep, NSWindow) {
         let root = AgentAppView(
             vm: vm,
-            layout: AgentAppViewLayout(showsThreadRail: false, showsHeader: false, showsPlanSidebar: false)
+            layout: AgentAppViewLayout(showsThreadRail: false, showsHeader: false)
         ).frame(width: size.width, height: size.height)
         let hosting = NSHostingView(rootView: root)
         hosting.frame = NSRect(origin: .zero, size: size)
