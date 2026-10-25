@@ -1098,6 +1098,9 @@ final class FilesViewModel: ObservableObject {
     @Published var expandedPaths: Set<String> = []
     @Published var caretLine = 1
     @Published var caretColumn = 1
+    /// Status-bar values read from the edit session on load: "LF"/"CRLF" and the file encoding id.
+    @Published var lineEnding = "LF"
+    @Published var encoding = "utf-8"
     private lazy var treeStore = FileTreeStore<FileEntry>(lister: { [weak self] path in
         try self?.listEntries(at: path) ?? []
     })
@@ -1787,7 +1790,9 @@ final class FilesViewModel: ObservableObject {
                 }
             }
         }
+        if let encoding = payload["encoding"]?.stringValue { self.encoding = encoding }
         if let content = payload["content"]?.stringValue {
+            lineEnding = Self.detectLineEnding(content)
             if remote {
                 let update = filesRemoteContentUpdate(
                     localDirty: isDirty,
@@ -2587,12 +2592,8 @@ struct FilesSurfaceRoot: View {
     private var reader: some View {
         GeometryReader { proxy in
             VStack(spacing: 0) {
-                if !model.openTabs.isEmpty {
-                    openTabBar
-                    Divider().overlay(DS.Palette.line)
-                }
-                readerHeader
-                Divider().overlay(DS.Palette.line)
+                openTabBar
+                if model.selectedEntry != nil { breadcrumbRow }
                 if model.conflictActive {
                     conflictBanner
                     Divider().overlay(DS.Palette.line)
@@ -2741,14 +2742,28 @@ struct FilesSurfaceRoot: View {
         .accessibilityIdentifier("files.saveError.banner")
     }
 
-    /// VS Code-style editor tab strip: active tab, dirty dot, per-tab close.
+    /// VS Code-style editor tab strip with the action group on the right.
+    /// vscode: multieditortabscontrol.css — 35px tabs, 1px `tab.border` separators, tabs scroll, actions stay.
     private var openTabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(model.openTabs) { entry in
-                    openTab(entry)
+        HStack(spacing: 0) {
+            if !sidebarVisible {
+                DSIconButton("sidebar.left", help: "Show file sidebar") {
+                    sidebarIntent = .forcedVisible
+                    sidebarVisible = true
+                }
+                .accessibilityLabel("Show file sidebar")
+                .padding(.horizontal, 6)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(model.openTabs) { entry in
+                        openTab(entry)
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            readerActions
+                .padding(.horizontal, 6)
         }
         .frame(height: 35)
         .background(VSCodeTheme.tabsContainer)
@@ -2756,6 +2771,77 @@ struct FilesSurfaceRoot: View {
             Rectangle().fill(VSCodeTheme.border).frame(height: 1)
         }
         .accessibilityIdentifier("files.tabs.strip")
+    }
+
+    private func readerActionButton(_ symbol: String, help: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13))
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(enabled ? VSCodeTheme.foreground : VSCodeTheme.inactiveForeground.opacity(0.5))
+        .disabled(!enabled)
+        .help(help)
+    }
+
+    /// Icon-only actions, so nothing truncates or overlaps at narrow widths; the sync icon drops first.
+    private var readerActions: some View {
+        let kind = model.selectedEntry?.kind
+        let hasModes = kind == "markdown" || kind == "html"
+        let canEdit = model.selectedEntry?.isEditable == true
+        func group(showSync: Bool) -> some View {
+            HStack(spacing: 2) {
+                if showSync, canEdit {
+                    Image(systemName: model.isDirty ? "circle.dotted" : "checkmark.circle")
+                        .font(.system(size: 12))
+                        .foregroundStyle(VSCodeTheme.inactiveForeground)
+                        .frame(width: 24, height: 24)
+                        .help("\(model.syncLabel) — \(model.syncDetail)")
+                        .accessibilityLabel(model.syncLabel)
+                        .accessibilityIdentifier("files.sync.label")
+                }
+                if hasModes {
+                    HStack(spacing: 0) {
+                        ForEach([("source", "chevron.left.forwardslash.chevron.right", "Source"),
+                                 ("split", "rectangle.split.2x1", "Split"),
+                                 ("preview", "eye", "Preview")], id: \.0) { mode, symbol, title in
+                            Button { model.readerMode = mode; model.setReaderMode(mode) } label: {
+                                Image(systemName: symbol)
+                                    .font(.system(size: 12))
+                                    .frame(width: 24, height: 22)
+                                    .background(model.readerMode == mode ? Color.white.opacity(0.12) : Color.clear,
+                                                in: RoundedRectangle(cornerRadius: 4))
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(model.readerMode == mode ? VSCodeTheme.foreground : VSCodeTheme.inactiveForeground)
+                            .help(title)
+                            .accessibilityLabel(title)
+                            .accessibilityAddTraits(model.readerMode == mode ? .isSelected : [])
+                            .accessibilityIdentifier("files.readerMode.\(mode)")
+                        }
+                    }
+                    .accessibilityIdentifier("files.readerMode.picker")
+                }
+                if canEdit {
+                    readerActionButton("square.and.arrow.down", help: "Save (Command-S)", enabled: model.isDirty) { model.save() }
+                        .keyboardShortcut("s", modifiers: .command)
+                        .accessibilityLabel("Save file")
+                        .accessibilityIdentifier("files.save.button")
+                    readerActionButton("arrow.uturn.backward", help: "Discard unsaved changes (Command-Delete)", enabled: model.isDirty) { confirmDiscard = true }
+                        .keyboardShortcut(.delete, modifiers: .command)
+                        .accessibilityLabel("Discard unsaved changes")
+                        .accessibilityIdentifier("files.discard.button")
+                }
+            }
+        }
+        return ViewThatFits(in: .horizontal) {
+            group(showSync: true)
+            group(showSync: false)
+        }
+        .fixedSize()
     }
 
     private func openTab(_ entry: FileEntry) -> some View {
@@ -2787,6 +2873,8 @@ struct FilesSurfaceRoot: View {
                 }
                 .frame(width: 20, height: 20)
                 .background(closeHovered ? Color.white.opacity(0.1) : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+                .frame(width: 28, height: 35) // vscode: 28px close slot
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .onHover { inside in
@@ -2800,7 +2888,7 @@ struct FilesSurfaceRoot: View {
             .accessibilityLabel(isDirty ? "Close \(entry.name), Unsaved changes" : "Close \(entry.name)")
             .accessibilityIdentifier("files.tab.close.\(entry.relativePath)")
         }
-        .padding(.horizontal, 10)
+        .padding(.leading, 10) // vscode: tab padding-left 10
         .frame(minWidth: 80, minHeight: 35, maxHeight: 35)
         .foregroundStyle(isActive ? Color.white : VSCodeTheme.inactiveForeground)
         .background(isActive ? VSCodeTheme.activeTab : VSCodeTheme.inactiveTab)
@@ -2826,100 +2914,46 @@ struct FilesSurfaceRoot: View {
         .accessibilityIdentifier("files.tab.\(entry.relativePath)")
     }
 
-    /// Breadcrumb bar above the editor with the reader controls on the right.
-    private var readerHeader: some View {
-        HStack(spacing: 8) {
-            if !sidebarVisible {
-                DSIconButton("sidebar.left", help: "Show file sidebar") {
-                    sidebarIntent = .forcedVisible
-                    sidebarVisible = true
-                }
-                .accessibilityLabel("Show file sidebar")
-            }
-            breadcrumbPath
-            Spacer(minLength: 8)
-            if model.isDirty {
-                Label("Unsaved", systemImage: "circle.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(DS.Palette.warning)
-            }
-            Text(model.syncLabel)
-                .font(.system(size: 11))
-                .foregroundStyle(VSCodeTheme.inactiveForeground)
-                .help(model.syncDetail)
-                .accessibilityIdentifier("files.sync.label")
-            Picker("", selection: $model.readerMode) {
-                Text("Source").tag("source")
-                Text("Preview").tag("preview")
-                Text("Split").tag("split")
-            }
-            .pickerStyle(.segmented)
-            .controlSize(.small)
-            .frame(width: 150)
-            .onChange(of: model.readerMode) { newValue in model.setReaderMode(newValue) }
-            .accessibilityIdentifier("files.readerMode.picker")
-            // UX-P3: visible text labels so the Save/Discard affordance is legible
-            // without relying on the tooltip or icon recognition alone.
-            Button { model.save() } label: {
-                HStack(spacing: 4) {
-                    DisketteIcon()
-                        .frame(width: 12, height: 12)
-                    Text("Save")
-                        .font(.system(size: 11, weight: .semibold))
-                }
-            }
-            .help("Save (Command-S)")
-            .keyboardShortcut("s", modifiers: .command)
-            .disabled(!model.isDirty)
-            .accessibilityLabel("Save file")
-            .accessibilityIdentifier("files.save.button")
-            Button { confirmDiscard = true } label: {
-                Label("Discard", systemImage: "arrow.uturn.backward")
-                    .font(.system(size: 11, weight: .semibold))
-            }
-            // UX-P3: keyboard shortcut for discard so keyboard users can trigger
-            // the confirm dialog without reaching for the mouse.
-            .help("Discard unsaved changes (Command-Delete)")
-            .keyboardShortcut(.delete, modifiers: .command)
-            .disabled(!model.isDirty)
-            .accessibilityLabel("Discard unsaved changes")
-            .accessibilityIdentifier("files.discard.button")
-        }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 8)
-        .frame(height: 22)
-        .background(VSCodeTheme.editorBackground)
-    }
-
-    /// Path segments of the selected file, shown as the editor breadcrumb.
-    private var breadcrumbPath: some View {
+    /// One 22px breadcrumb row. vscode: breadcrumbscontrol.css — 13px, `›` separators, file icon on the last segment.
+    private var breadcrumbRow: some View {
         let segments = (model.selectedEntry?.relativePath ?? "").split(separator: "/").map(String.init)
         return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                if segments.isEmpty {
-                    Text("No file selected")
-                        .foregroundStyle(VSCodeTheme.inactiveForeground)
-                }
+            HStack(spacing: 2) {
                 ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
                     let isLast = index == segments.count - 1
                     if index > 0 {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9))
+                        Text("›")
+                            .font(.system(size: 13))
                             .foregroundStyle(VSCodeTheme.inactiveForeground)
                     }
-                    if isLast, let entry = model.selectedEntry {
-                        Image(systemName: entry.icon)
-                            .font(.system(size: 12))
-                            .foregroundStyle(VSCodeTheme.color(fileIconColorHex(for: entry.name)))
+                    HStack(spacing: 4) {
+                        if isLast, let entry = model.selectedEntry {
+                            Image(systemName: entry.icon)
+                                .font(.system(size: 12))
+                                .foregroundStyle(VSCodeTheme.color(fileIconColorHex(for: entry.name)))
+                        }
+                        Text(segment)
+                            .font(.system(size: 13))
+                            .foregroundStyle(isLast ? VSCodeTheme.foreground : VSCodeTheme.color(0xA9A9A9))
                     }
-                    Text(segment)
-                        .foregroundStyle(isLast ? VSCodeTheme.foreground : VSCodeTheme.inactiveForeground)
+                    .padding(.horizontal, 3)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        // Reveal the folder (or the file itself for the last segment) in the explorer.
+                        let target = segments[0...index].joined(separator: "/")
+                        model.reveal(relativePath: target)
+                    }
+                    .help(isLast ? segment : "Reveal \(segment) in the explorer")
+                    .accessibilityAddTraits(.isButton)
                 }
             }
-            .font(.system(size: 12))
+            .padding(.horizontal, 8)
             .lineLimit(1)
         }
         .frame(height: 22)
+        .background(VSCodeTheme.editorBackground)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(segments.joined(separator: " › "))
         .accessibilityIdentifier("files.editor.breadcrumbs")
     }
 
@@ -3101,8 +3135,10 @@ struct FilesSurfaceRoot: View {
                 Text("Ln \(model.caretLine), Col \(model.caretColumn)")
                     .accessibilityIdentifier("files.status.cursor")
                 Text("Spaces: 4")
-                Text("UTF-8")
-                Text("LF")
+                Text(model.encodingLabel)
+                    .accessibilityIdentifier("files.status.encoding")
+                Text(model.lineEnding)
+                    .accessibilityIdentifier("files.status.lineEnding")
                 Text(languageDisplayName(entry?.language))
                     .accessibilityIdentifier("files.status.language")
                 HStack(spacing: 3) {
@@ -4463,7 +4499,14 @@ final class CodeEditorTextView: NSTextView {
 
     override func insertNewline(_ sender: Any?) {
         guard !hasMarkedText(), !suggest.isVisible else { super.insertNewline(sender); return }
-        apply(EditorCommands.newline(text: string as NSString, selection: selectedRange(), language: language))
+        var edit = EditorCommands.newline(text: string as NSString, selection: selectedRange(), language: language)
+        // Keep CRLF files CRLF: the first line break of the document decides.
+        if FilesViewModel.detectLineEnding(string) == "CRLF" {
+            let grown = edit.replacement.replacingOccurrences(of: "\n", with: "\r\n")
+            edit.selection.location += grown.utf16.count - edit.replacement.utf16.count
+            edit.replacement = grown
+        }
+        apply(edit)
     }
 
     override func insertTab(_ sender: Any?) {

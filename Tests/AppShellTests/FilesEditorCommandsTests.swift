@@ -111,3 +111,21 @@ final class FilesEditorCommandsTests: XCTestCase {
         XCTAssertEqual(view.selectedRange().location, 0)
     }
 }
+
+final class FilesLineEndingTests: XCTestCase {
+    func test_detectsFirstLineBreak() {
+        XCTAssertEqual(FilesViewModel.detectLineEnding("a\r\nb\n"), "CRLF")
+        XCTAssertEqual(FilesViewModel.detectLineEnding("a\nb\r\n"), "LF")
+        XCTAssertEqual(FilesViewModel.detectLineEnding("single line"), "LF")
+    }
+
+    @MainActor
+    func test_returnInCRLFDocumentInsertsCRLF() {
+        let view = CodeEditorTextView()
+        view.configureForEditing()
+        view.string = "a {\r\nb"
+        view.setSelectedRange(NSRange(location: 3, length: 0))
+        view.insertNewline(nil)
+        XCTAssertEqual(view.string, "a {\r\n    \r\nb", "new line in a CRLF file must use CRLF so saves keep one line-ending style")
+    }
+}
