@@ -544,6 +544,19 @@ final class AgentActivityServiceTests: XCTestCase {
         XCTAssertTrue(runIDs.contains(failedBeforeRerun.id.value), "its result still shows until the new run finishes")
     }
 
+    func test_unfilteredListAlwaysReturnsWorkspaceCountsPerWorkspace() throws {
+        let context = try makeContext()
+        let workspaceA = WorkspaceID()
+        let workspaceB = WorkspaceID()
+        _ = try makeRun(context, thread: try makeThread(context, workspace: workspaceA), status: .completed, at: 100)
+        _ = try makeRun(context, thread: try makeThread(context, workspace: workspaceA), status: .failed, at: 101)
+        _ = try makeRun(context, thread: try makeThread(context, workspace: workspaceB), status: .completed, at: 102)
+        let page = try decodePage(service(context).list(["section": .string("running")]))
+        let byWorkspace = try XCTUnwrap(page.workspaceCounts, "host must always return workspace_counts")
+        XCTAssertEqual(byWorkspace[workspaceA.value.uuidString]?.finished, 2)
+        XCTAssertEqual(byWorkspace[workspaceB.value.uuidString]?.finished, 1)
+    }
+
     private func makeContext() throws -> AppContext {
         try AppContext(channel: .debug, appSupportOverride: NSTemporaryDirectory() + "activity-" + UUID().uuidString)
     }

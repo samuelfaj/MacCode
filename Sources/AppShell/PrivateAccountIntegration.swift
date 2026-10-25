@@ -1414,7 +1414,16 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
         alertData["threadIdentifier"] = content.threadIdentifier
         alertData["soundEnabled"] = content.soundEnabled ? "true" : "false"
         alertData["idempotencyKey"] = content.identifier
-        let deliveryData = await withConnectionHints(alertData)
+        let watermark = connectionHintLock.withLock { connectionHintSources }.watermark?()
+        let delta = PushConnectionHints.delta(
+            threadId: content.userInfo["threadId"],
+            workspaceId: content.userInfo["workspaceId"],
+            state: content.userInfo["outcome"],
+            kind: "thread_update",
+            preview: content.body,
+            seq: watermark
+        )
+        let deliveryData = await withConnectionHints(alertData.merging(delta) { current, _ in current })
         do {
             let result = try await sessionRefresher.perform(session: session) { accessToken in
                 try await self.api.deliverAlert(
@@ -1439,7 +1448,8 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
             await deliverSilentCatchUp(
                 hostHint: content.userInfo["workspaceId"] ?? content.identifier,
                 force: true,
-                coalesceClass: .other
+                coalesceClass: .other,
+                delta: delta
             )
             return false
         }
@@ -1449,7 +1459,8 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
         await deliverSilentCatchUp(
             hostHint: content.userInfo["workspaceId"] ?? content.identifier,
             force: !alertDelivered,
-            coalesceClass: .other
+            coalesceClass: .other,
+            delta: delta
         )
         return alertDelivered
     }
@@ -1577,7 +1588,8 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
         hostHint: String = "host",
         force: Bool = false,
         payload: SilentCatchUpV1 = SilentCatchUpV1(reason: "catch_up"),
-        coalesceClass: MaterialWakeCoalesceClass = .other
+        coalesceClass: MaterialWakeCoalesceClass = .other,
+        delta: [String: String] = [:]
     ) async {
         guard let session = accountStore.load() else {
             recordWakeNotSent(reason: "no_session")
@@ -1628,7 +1640,7 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
         guard admitSilentWakeToBudget(coalesceClass, device: budgetDevice) else { return }
         var contract = payload
         contract.catchUp = true
-        let data = await withConnectionHints(contract.asPushData())
+        let data = await withConnectionHints(contract.asPushData().merging(delta) { current, _ in current })
         let idempotencyKey = "catchup.\(coalesceClass.rawValue).\(hostHint).\(bucket)"
         HostWakeMetrics.shared.increment(.silentAttempt)
         do {

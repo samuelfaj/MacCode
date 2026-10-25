@@ -46,6 +46,7 @@ public final class MaterialWakeCoordinator: @unchecked Sendable {
         let force: Bool
         let payload: SilentCatchUpV1
         let coalesceClass: MaterialWakeCoalesceClass
+        var delta: [String: String] = [:]
     }
 
     private init() {}
@@ -292,11 +293,20 @@ public final class MaterialWakeCoordinator: @unchecked Sendable {
             bootEpoch: bootEpoch,
             watermark: watermark
         )
+        let object = event.payload.objectValue
         let item = PendingWake(
             hostHint: kind,
             force: decision.force,
             payload: payload,
-            coalesceClass: MaterialWakeTaxonomy.coalesceClass(forEventKind: kind)
+            coalesceClass: MaterialWakeTaxonomy.coalesceClass(forEventKind: kind),
+            delta: PushConnectionHints.delta(
+                threadId: object?["thread_id"]?.stringValue,
+                workspaceId: object?["workspace_id"]?.stringValue,
+                state: object?["status"]?.stringValue ?? kind,
+                kind: kind,
+                preview: object?["preview"]?.stringValue,
+                seq: String(event.seq)
+            )
         )
         enqueue(item)
     }
@@ -361,7 +371,8 @@ public final class MaterialWakeCoordinator: @unchecked Sendable {
                     hostHint: next.hostHint,
                     force: next.force,
                     payload: next.payload,
-                    coalesceClass: next.coalesceClass
+                    coalesceClass: next.coalesceClass,
+                    delta: next.delta
                 )
             }
         }
