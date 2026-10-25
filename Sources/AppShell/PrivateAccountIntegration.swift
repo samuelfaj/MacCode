@@ -1236,6 +1236,7 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
     /// Indirection so the outbox send closure can bind after `self` exists.
     private let silentWakeSendBox: SilentWakeOutboxSendBox
     private struct ConnectionHintSources {
+        var hostId: (@Sendable () -> String?)?
         var watermark: (@Sendable () -> String?)?
         var bootEpoch: (@Sendable () -> String?)?
     }
@@ -1326,10 +1327,12 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
 
     /// Late-bound sources for `PushConnectionHints`. Unset sources contribute nothing.
     func setConnectionHintSources(
+        hostId: (@Sendable () -> String?)? = nil,
         watermark: (@Sendable () -> String?)? = nil,
         bootEpoch: (@Sendable () -> String?)? = nil
     ) {
         connectionHintLock.withLock {
+            if let hostId { connectionHintSources.hostId = hostId }
             if let watermark { connectionHintSources.watermark = watermark }
             if let bootEpoch { connectionHintSources.bootEpoch = bootEpoch }
         }
@@ -1339,11 +1342,13 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
     /// replay carry the same connection and catch-up hints.
     private func withConnectionHints(_ data: [String: String]) async -> [String: String] {
         let sources = connectionHintLock.withLock { connectionHintSources }
-        return PushConnectionHints.merge(
+        var hints = PushConnectionHints.merge(
             into: data,
             watermark: sources.watermark?(),
             bootEpoch: sources.bootEpoch?()
         )
+        if let hostId = sources.hostId?() { hints["host_id"] = hostId }
+        return hints
     }
 
     /// Test seam: observe the durable silent-wake outbox.

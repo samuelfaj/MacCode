@@ -677,6 +677,7 @@ final class AppIdentityNotificationTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "private.silentCatchUp.lastBucket")
         UserDefaults.standard.removeObject(forKey: "private.silentCatchUp.lastBuckets")
         bridge.setConnectionHintSources(
+            hostId: { "host-a" },
             watermark: { "42" },
             bootEpoch: { "7" }
         )
@@ -684,6 +685,7 @@ final class AppIdentityNotificationTests: XCTestCase {
     }
 
     private func assertCatchUpHints(_ data: [String: String], file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(data["host_id"], "host-a", "persisted previews must be bound to their producing Mac", file: file, line: line)
         XCTAssertEqual(data["rc2_wm"], "42", file: file, line: line)
         XCTAssertEqual(data["rc2_boot_epoch"], "7", file: file, line: line)
         XCTAssertTrue(

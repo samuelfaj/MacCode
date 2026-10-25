@@ -697,6 +697,7 @@ public final class AppContext {
             botStore: self.botStore
         ))
         privateNotificationBridge.setConnectionHintSources(
+            hostId: { liveActivityIdentity.serverId },
             watermark: { String(EventBus.shared.currentSeq) },
             bootEpoch: { String(liveActivityIdentity.bootEpoch) }
         )
