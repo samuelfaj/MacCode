@@ -184,6 +184,7 @@ public final class EventBus: @unchecked Sendable {
             RemoteCodeEventKind.agentThreadTokenUsage.rawValue,
             RemoteCodeEventKind.agentAccountUsage.rawValue,
             RemoteCodeEventKind.agentAccountUsageRefresh.rawValue,
+            RemoteCodeEventKind.agentActivityChanged.rawValue,
         ])
     private struct Subscriber {
         var filter: EventStreamFilter

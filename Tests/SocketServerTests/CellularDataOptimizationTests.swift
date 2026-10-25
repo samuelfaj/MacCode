@@ -690,3 +690,28 @@ private final class LockedStrings: @unchecked Sendable {
         lock.unlock()
     }
 }
+
+final class ActivityChangedAdmissionTests: XCTestCase {
+    func testActivityChangedReachesFullAndCellularStreams() {
+        // WHY: iOS mirrors Activity counts from this event on both the default and the
+        // cellular stream; a filter that drops it leaves the phone on stale counts.
+        let bus = EventBus()
+        var full: [String] = []
+        var cellular: [String] = []
+        _ = bus.subscribe(since: nil) { full.append($0.kind) }
+        _ = bus.subscribe(since: nil, filter: .cellularSafe()) { cellular.append($0.kind) }
+        bus.publish(kind: .agentActivityChanged, payload: .object([
+            "workspace_id": .string("ws"),
+            "counts": .object(["running": .number(1)]),
+            "changed_thread_ids": .array([.string("t")]),
+        ]))
+        XCTAssertEqual(full, ["agent.activity.changed"])
+        XCTAssertEqual(cellular, ["agent.activity.changed"])
+    }
+
+    func testActivityChangedIsNotLiveOnlyOrRevisionExempt() {
+        // WHY: it must stay in the durable log and advance the snapshot state, or a
+        // reconnecting client cannot recover counts it missed.
+        XCTAssertFalse(EventBus.liveOnlyStreamEventKinds.contains("agent.activity.changed"))
+    }
+}

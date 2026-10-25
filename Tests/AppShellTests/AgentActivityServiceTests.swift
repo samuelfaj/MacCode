@@ -614,3 +614,49 @@ final class AgentActivityServiceTests: XCTestCase {
         return try decoder.decode(AgentActivityPage.self, from: JSONEncoder().encode(value))
     }
 }
+
+final class ActivityChangeEmitterTests: XCTestCase {
+    private func item(_ id: String, thread: UUID?, workspace: UUID?, state: AgentActivityState = .running, occurredAt: TimeInterval = 100) -> AgentActivityItem {
+        AgentActivityItem(id: id, kind: .agent, workspaceID: workspace, threadID: thread, state: state, title: "t", occurredAt: Date(timeIntervalSince1970: occurredAt))
+    }
+
+    func testDiffReportsOnlyRowsThatChangedOrVanishedPerWorkspace() {
+        // WHY: iOS applies the delta to its per-workspace counts; an unchanged row must not
+        // wake the phone, and a vanished row must still announce its workspace.
+        let ws = UUID(), thread = UUID(), otherThread = UUID()
+        let before = ActivityChangeEmitter.diff(previous: [:], items: [item("a", thread: thread, workspace: ws), item("b", thread: otherThread, workspace: ws)])
+        let unchanged = ActivityChangeEmitter.diff(previous: before.rows, items: [item("a", thread: thread, workspace: ws), item("b", thread: otherThread, workspace: ws)])
+        XCTAssertTrue(unchanged.changedThreads.isEmpty)
+
+        let flipped = ActivityChangeEmitter.diff(previous: before.rows, items: [item("a", thread: thread, workspace: ws, state: .completed), item("b", thread: otherThread, workspace: ws)])
+        XCTAssertEqual(flipped.changedThreads[ws.uuidString], [thread.uuidString])
+
+        let removed = ActivityChangeEmitter.diff(previous: before.rows, items: [item("b", thread: otherThread, workspace: ws)])
+        XCTAssertEqual(removed.changedThreads[ws.uuidString], [thread.uuidString], "a row that left Activity must still notify its thread")
+    }
+
+    func testRowsWithoutWorkspaceNeverPublish() {
+        let diffed = ActivityChangeEmitter.diff(previous: [:], items: [item("n", thread: UUID(), workspace: nil)])
+        XCTAssertTrue(diffed.changedThreads.isEmpty)
+    }
+
+    func testPublishDelayCapsEachWorkspaceAtTwoPerSecond() {
+        // WHY: a streaming run flips counts many times a second; the phone must see at most
+        // 2 events per workspace per second, and the first change after quiet goes out now.
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(ActivityChangeEmitter.publishDelay(lastPublished: nil, now: now), 0)
+        XCTAssertEqual(ActivityChangeEmitter.publishDelay(lastPublished: now.addingTimeInterval(-0.1), now: now), 0.4, accuracy: 0.001)
+        XCTAssertEqual(ActivityChangeEmitter.publishDelay(lastPublished: now.addingTimeInterval(-5), now: now), 0)
+    }
+
+    func testPayloadMatchesWorkspaceCountsShape() throws {
+        let counts = AgentActivityCounts(running: 2, queued: 1, needsYou: 3, finished: 4, newResults: 5)
+        let payload = ActivityChangeEmitter.payload(workspaceID: "ws-1", counts: counts, changedThreadIDs: ["t2", "t1"])
+        let data = try JSONEncoder().encode(payload)
+        let decoded = try JSONDecoder().decode(AgentActivityCounts.self, from: JSONEncoder().encode(try XCTUnwrap(payload.objectValue?["counts"])))
+        XCTAssertEqual(decoded, counts, "counts must decode with the same keys as workspace_counts entries")
+        XCTAssertEqual(payload.objectValue?["workspace_id"]?.stringValue, "ws-1")
+        XCTAssertEqual(payload.objectValue?["changed_thread_ids"]?.arrayValue?.compactMap(\.stringValue), ["t1", "t2"])
+        XCTAssertFalse(data.isEmpty)
+    }
+}
