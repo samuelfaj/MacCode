@@ -4418,9 +4418,97 @@ final class CodeEditorTextView: NSTextView {
         textKit2InsertionRect(at: index)
     }
 
+    // MARK: Editing commands
+
+    /// Applies `edit` as one undo step and keeps TextKit 2 layout in sync.
+    func apply(_ edit: EditorEdit) {
+        undoManager?.beginUndoGrouping()
+        defer { undoManager?.endUndoGrouping() }
+        guard shouldChangeText(in: edit.range, replacementString: edit.replacement), let storage = textStorage else { return }
+        storage.replaceCharacters(in: edit.range, with: NSAttributedString(string: edit.replacement, attributes: typingAttributes))
+        setSelectedRange(edit.selection)
+        didChangeText()
+    }
+
+    /// Cmd+/ — language-aware line comment toggle.
+    func toggleLineComment() {
+        guard let edit = EditorCommands.toggleComment(text: string as NSString, selection: selectedRange(), language: language) else { return }
+        apply(edit)
+    }
+
+    /// Moves the caret to the start of 1-based `line` (clamped) and scrolls it into view.
+    func goToLine(_ line: Int) {
+        let location = EditorCommands.lineStart(of: max(1, line), in: string as NSString)
+        setSelectedRange(NSRange(location: location, length: 0))
+        scrollRangeToVisible(NSRange(location: location, length: 0))
+    }
+
+    /// Ctrl+G — small prompt for a line number.
+    func promptGoToLine() {
+        let alert = NSAlert()
+        alert.messageText = "Go to Line"
+        alert.informativeText = "Enter a line number."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        field.placeholderString = "Line"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Go")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .alertFirstButtonReturn, let line = Int(field.stringValue.trimmingCharacters(in: .whitespaces)) else { return }
+            self?.goToLine(line)
+        }
+        if let window { alert.beginSheetModal(for: window, completionHandler: finish) } else { finish(alert.runModal()) }
+    }
+
+    override func insertNewline(_ sender: Any?) {
+        guard !hasMarkedText(), !suggest.isVisible else { super.insertNewline(sender); return }
+        apply(EditorCommands.newline(text: string as NSString, selection: selectedRange(), language: language))
+    }
+
+    override func insertTab(_ sender: Any?) {
+        guard !hasMarkedText() else { super.insertTab(sender); return }
+        apply(EditorCommands.tab(text: string as NSString, selection: selectedRange()))
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        apply(EditorCommands.backtab(text: string as NSString, selection: selectedRange()))
+    }
+
+    override func deleteBackward(_ sender: Any?) {
+        if !hasMarkedText(), let edit = EditorCommands.backspace(text: string as NSString, selection: selectedRange()) {
+            apply(edit)
+            return
+        }
+        super.deleteBackward(sender)
+    }
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        if !isAcceptingSuggestion, !hasMarkedText(), replacementRange.location == NSNotFound,
+           let typed = string as? String,
+           let edit = EditorCommands.typed(typed, text: self.string as NSString, selection: selectedRange()) {
+            apply(edit)
+            return
+        }
+        super.insertText(string, replacementRange: replacementRange)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
+        if flags == .command, event.charactersIgnoringModifiers == "/", window?.firstResponder === self {
+            toggleLineComment()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         if suggest.isVisible, suggest.handleKeyDown(event) { return }
         let command = event.modifierFlags.contains(.command)
+        if event.keyCode == 5, event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.control), !command { // Ctrl+G
+            promptGoToLine()
+            return
+        }
         if event.keyCode == 49, event.modifierFlags.contains(.control) { // Ctrl+Space
             if suggest.isVisible {
                 suggest.toggleDetails()
