@@ -4,6 +4,58 @@ import SwiftUI
 @testable import Surfaces
 
 final class AgentChatLiveTurnChromeTests: XCTestCase {
+    func test_runningToolsTrackRealTimelineDeltasAndParallelCompletion() {
+        let start = Date(timeIntervalSince1970: 100)
+        var timeline = AssistantTimelineState()
+        timeline.apply(.turnStarted(turnId: "t"), nowMs: 100_000)
+        for id in ["build", "tests"] {
+            timeline.apply(.itemStarted(item: AssistantItem(id: id, turnId: "t", type: .tool,
+                                                          body: "command \(id)", startedAtMs: 100_001)))
+        }
+        XCTAssertEqual(AgentChatLiveTurnChrome.runningTools(in: timeline.turns, since: start).map(\.id), ["build", "tests"])
+        timeline.apply(.itemDelta(itemId: "build", bodyAppend: nil, outputAppend: "Building module\n", summary: nil))
+        XCTAssertEqual(AgentChatLiveTurnChrome.recentToolOutput(AgentChatLiveTurnChrome.runningTools(in: timeline.turns, since: start)[0]),
+                       "Building module\n", "running details must consume actual timeline output deltas")
+        timeline.apply(.itemCompleted(itemId: "build", finalState: .completed))
+        XCTAssertEqual(AgentChatLiveTurnChrome.runningTools(in: timeline.turns, since: start).map(\.id), ["tests"])
+        timeline.apply(.itemCompleted(itemId: "tests", finalState: .cancelled))
+        XCTAssertTrue(AgentChatLiveTurnChrome.runningTools(in: timeline.turns, since: start).isEmpty,
+                      "cancelled or finished commands must not leave a phantom running panel")
+    }
+
+    func test_recentToolOutputIsBoundedAndKeepsNewestUnicodeOutput() {
+        var item = AssistantItem(id: "shell", turnId: "t", type: .tool, startedAtMs: 0)
+        XCTAssertNil(AgentChatLiveTurnChrome.recentToolOutput(item))
+        item.output = ""
+        XCTAssertNil(AgentChatLiveTurnChrome.recentToolOutput(item))
+        item.output = String(repeating: "old", count: 2_000) + "🛠 latest line"
+        let tail = AgentChatLiveTurnChrome.recentToolOutput(item)
+        XCTAssertEqual(tail?.count, 2_000, "live status must bound output rendering independently of full transcript size")
+        XCTAssertTrue(tail?.hasSuffix("🛠 latest line") == true, "the newest output matters when following a long command")
+        XCTAssertEqual(item.output?.count, 6_013, "display projection must not truncate the persisted tool output")
+    }
+
+    func test_runningToolsFollowCurrentRunAndKeepRealCommandOutput() {
+        let start = Date(timeIntervalSince1970: 100)
+        let active = AssistantItem(id: "current", turnId: "t", type: .commandExecution,
+                                   body: "swift test --filter Example", output: "Test started\n", startedAtMs: 100_001)
+        var done = active
+        done.state = .completed
+        let old = AssistantItem(id: "old", turnId: "old", type: .tool, startedAtMs: 99_000)
+        let reasoning = AssistantItem(id: "thought", turnId: "t", type: .reasoning, startedAtMs: 100_001)
+        let turns = [AssistantTurnSnapshot(turnId: "t", items: [old, reasoning, active, done]),
+                     AssistantTurnSnapshot(turnId: "finished", items: [active], finished: true)]
+        XCTAssertEqual(AgentChatLiveTurnChrome.runningTools(in: turns, since: start), [active],
+                       "the running strip must not borrow tools from earlier runs or completed turns")
+        XCTAssertTrue(AgentChatLiveTurnChrome.runningTools(in: turns, since: nil).isEmpty)
+        var updated = active
+        updated.output = "Test passed\n"
+        XCTAssertEqual(AgentChatLiveTurnChrome.runningTools(in: [.init(turnId: "t", items: [updated])], since: start).first?.output,
+                       "Test passed\n", "provider output must stay live, not freeze when tool identity stays the same")
+        updated.state = .failed
+        XCTAssertTrue(AgentChatLiveTurnChrome.runningTools(in: [.init(turnId: "t", items: [updated])], since: start).isEmpty)
+    }
+
     func test_liveTurnPaintsANewestWindowOfWorkBlocksWithEarlierStepsBehindAReveal() throws {
         // WHY (AA-23): a turn with hundreds of tool groups mounted every block as
         // an eager row and, while live, re-diffed all of them on every paint
