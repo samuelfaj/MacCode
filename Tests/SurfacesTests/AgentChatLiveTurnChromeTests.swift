@@ -1,4 +1,5 @@
 import XCTest
+import AgentRuntime
 import CoreModel
 import SwiftUI
 @testable import Surfaces
@@ -795,5 +796,91 @@ final class AgentChatLiveTurnChromeTests: XCTestCase {
         let second = AgentChatLiveTurnChrome.toolGroupSummary(items)
         XCTAssertEqual(first, second)
         XCTAssertFalse(first.isEmpty)
+    }
+
+    /// Real Distill ACP `session/update` lines 0...9 from a live shell run
+    /// (text trimmed). Line 9 is an open shell tool_call with no completion.
+    func test_realDistillShellToolCallStaysRunningThroughProductionMapperAndReducer() throws {
+        let fixture = #"""
+[{"timestamp":1793030590,"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Run exactly this shell command and nothi"}}},{"timestamp":1793030592,"update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"The user wants me to execute a specific "}}},{"timestamp":1793030593,"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"I run command.\n\n"}}},{"timestamp":1793030593,"update":{"sessionUpdate":"tool_call","toolCallId":"chatcmpl-tool-a11f48140a1ef273","title":"run_terminal_command","rawInput":{"command":"\"for i in $(seq 1 40); do echo line-$i; sleep 1; done\"","description":"\"Run user requested loop to print lines 1-40 with a 1-second delay between each print.\""}}},{"timestamp":1793030593,"update":{"sessionUpdate":"tool_call_update","toolCallId":"chatcmpl-tool-a11f48140a1ef273","kind":"execute","title":"Execute `\"for i in $(seq 1 40); do echo line-$i; sleep 1; done\"`","content":[{"type":"content","content":{"type":"text","text":"\"Run user requested loop to print lines "}}],"locations":[],"rawInput":{"variant":"Bash","command":"\"for i in $(seq 1 40); do echo line-$i; sleep 1; done\"","description":"\"Run user requested loop to print lines 1-40 with a 1-second delay between each print.\"","is_background":false}}},{"timestamp":1793030596,"update":{"sessionUpdate":"tool_call_update","toolCallId":"chatcmpl-tool-a11f48140a1ef273","status":"completed","content":[{"type":"content","content":{"type":"text","text":"(eval):1: command not found: for i in 1\\"}}],"rawOutput":{"type":"Bash","output":[40,101,118,97,108,41,58,49,58,32,99,111,109,109,97,110,100,32,110,111,116,32,102,111,117,110,100,58,32,102,111,114,32,105,32,105,110,32,49,92,110,50,92,110,51,92,110,52,92,110,53,92,110,54,92,110,55,92,110,56,92,110,57,92,110,49,48,92,110,49,49,92,110,49,50,92,110,49,51,92,110,49,52,92,110,49,53,92,110,49,54,92,110,49,55,92,110,49,56,92,110,49,57,92,110,50,48,92,110,50,49,92,110,50,50,92,110,50,51,92,110,50,52,92,110,50,53,92,110,50,54,92,110,50,55,92,110,50,56,92,110,50,57,92,110,51,48,92,110,51,49,92,110,51,50,92,110,51,51,92,110,51,52,92,110,51,53,92,110,51,54,92,110,51,55,92,110,51,56,92,110,51,57,92,110,52,48,59,32,100,111,32,101,99,104,111,32,108,105,110,101,45,59,32,115,108,101,101,112,32,49,59,32,100,111,110,101,10],"output_for_prompt":"exit: 127\n(eval):1: command not found: for i in 1\\n2\\n3\\n4\\n5\\n6\\n7\\n8\\n9\\n10\\n11\\n12\\n13\\n14\\n15\\n16\\n17\\n18\\n19\\n20\\n21\\n22\\n23\\n24\\n25\\n26\\n27\\n28\\n29\\n30\\n31\\n32\\n33\\n34\\n35\\n36\\n37\\n38\\n39\\n40; do echo line-; sleep 1; done\n","exit_code":127,"command":"\"for i in $(seq 1 40); do echo line-$i; sleep 1; done\"","truncated":false,"signal":null,"timed_out":false,"description":"\"Run user requested loop to print lines 1-40 with a 1-second delay between each print.\"","current_dir":"/var/folders/wp/st3y6js14rs708k9pgyxr7jr0000gn/T/grok-goal-26c32b2cbb4c/implementer/pr32/scratch","output_file":"/Users/samuelfajreldines/dev/remote-code/macos-app/.sandbox-worktrees/20261026T125736Z/.sandbox-state/home/.distill/sessions/%2Fvar%2Ffolders%2Fwp%2Fst3y6js14rs708k9pgyxr7jr0000gn%2FT%2Fgrok-goal-26c32b2cbb4c%2Fimplementer%2Fpr32%2Fscratch/01a178f3-8c12-7173-b3d7-859c527d1160/terminal/chatcmpl-tool-a11f48140a1ef273.log","total_bytes":218}}},{"timestamp":1793030600,"update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"The user wanted me to run the command `f"}}},{"timestamp":1793030603,"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Command execution failed. Error message "}}},{"timestamp":1793030606,"update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"The user asked me to run a specific shel"}}},{"timestamp":1793030606,"update":{"sessionUpdate":"tool_call","toolCallId":"chatcmpl-tool-8110ff6e67b184a9","title":"run_terminal_command","rawInput":{"command":"zsh -c 'for i in $(seq 1 40); do echo line-$i; sleep 1; done'","description":"Execute the user requested shell loop command using zsh to ensure proper shell syntax interpretation."}}}]
+"""#
+        let rows = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(fixture.utf8)) as? [[String: Any]])
+        XCTAssertEqual(rows.count, 10)
+        let runStartedAt = Date(timeIntervalSince1970: TimeInterval(rows[0]["timestamp"] as? Int ?? 0))
+        let mapper = DistillACPEventMapper(sessionId: "s")
+        var timeline = AssistantTimelineState()
+        for event in mapper.beginTurn() { timeline.apply(event) }
+        for row in rows {
+            let update = try XCTUnwrap(row["update"] as? [String: Any])
+            for event in mapper.consumeSessionUpdate(update) { timeline.apply(event) }
+        }
+        let turn = try XCTUnwrap(timeline.turns.last)
+        let shell = try XCTUnwrap(turn.items.first { $0.id == "chatcmpl-tool-8110ff6e67b184a9" })
+        XCTAssertFalse(turn.finished, "turn must still be open while the shell runs")
+        XCTAssertEqual(shell.state, .streaming)
+        XCTAssertEqual(shell.type, .tool)
+        XCTAssertGreaterThanOrEqual(Double(shell.startedAtMs), floor(runStartedAt.timeIntervalSince1970 * 1_000),
+                                    "shell item must not predate the run start")
+        XCTAssertEqual(AgentChatLiveTurnChrome.runningTools(in: timeline.turns, since: runStartedAt).map(\.id),
+                       ["chatcmpl-tool-8110ff6e67b184a9"])
+    }
+
+    func test_recentToolOutputShowsLatestDistillPromptTextNotRawToolJSON() throws {
+        let snapshots = ["line-1\n", "line-1\nline-2\n", "line-1\nline-2\nline-3\n", "line-1\nline-2\nline-3\nline-4\n"]
+        let item = try distillShellItem(snapshots.map { ["sessionUpdate": "tool_call_update", "toolCallId": "shell", "rawOutput": distillBashRawOutput($0)] })
+        XCTAssertEqual(AgentChatLiveTurnChrome.recentToolOutput(item), "line-1\nline-2\nline-3\nline-4\n",
+                       "the panel must show the command text from the newest snapshot, not concatenated JSON or byte arrays")
+    }
+
+    func test_recentToolOutputReadsTaskOutputResultOutput() throws {
+        let result: [String: Any] = ["type": "TaskOutput", "Result": ["task_id": "x", "command": "loop", "status": "completed",
+                                                                     "exit_code": 0, "output": "line-1\nline-2\n",
+                                                                     "output_file": "/x.log", "truncated": false]]
+        let item = try distillShellItem([["sessionUpdate": "tool_call_update", "toolCallId": "shell", "rawOutput": result]])
+        XCTAssertEqual(AgentChatLiveTurnChrome.recentToolOutput(item), "line-1\nline-2\n")
+    }
+
+    func test_recentToolOutputKeepsPlainTextOutputUnchanged() throws {
+        let plain: [String: Any] = ["sessionUpdate": "tool_call_update", "toolCallId": "shell",
+                                    "content": [["type": "content", "content": ["type": "text", "text": "hello\nworld"]]]]
+        let item = try distillShellItem([plain])
+        XCTAssertEqual(AgentChatLiveTurnChrome.recentToolOutput(item), "hello\nworld",
+                       "non-Distill providers emit plain text and must not be reinterpreted as JSON")
+    }
+
+    func test_recentToolOutputSuffixesReadableDistillTextToLast2000Characters() throws {
+        let prompt = String(repeating: "old\n", count: 1_000) + "tail line\n"
+        let item = try distillShellItem([["sessionUpdate": "tool_call_update", "toolCallId": "shell",
+                                          "rawOutput": distillBashRawOutput(prompt)]])
+        let tail = try XCTUnwrap(AgentChatLiveTurnChrome.recentToolOutput(item))
+        XCTAssertEqual(tail.count, 2_000)
+        XCTAssertTrue(tail.hasSuffix("tail line\n"))
+        XCTAssertFalse(tail.contains("output_for_prompt"), "bounded readable output must not carry tool JSON keys")
+    }
+
+    func test_recentToolOutputTreatsEmptyDistillPromptTextAsNoOutput() throws {
+        let item = try distillShellItem([["sessionUpdate": "tool_call_update", "toolCallId": "shell",
+                                          "rawOutput": distillBashRawOutput("")]])
+        XCTAssertNil(AgentChatLiveTurnChrome.recentToolOutput(item),
+                     "empty command text must fall back to the quiet-command copy")
+    }
+
+    private func distillShellItem(_ updates: [[String: Any]]) throws -> AssistantItem {
+        let mapper = DistillACPEventMapper(sessionId: "s")
+        var timeline = AssistantTimelineState()
+        for event in mapper.beginTurn() { timeline.apply(event) }
+        let start: [String: Any] = ["sessionUpdate": "tool_call", "toolCallId": "shell",
+                                    "title": "run_terminal_command", "rawInput": ["command": "loop"]]
+        for update in [start] + updates {
+            for event in mapper.consumeSessionUpdate(update) { timeline.apply(event) }
+        }
+        return try XCTUnwrap(timeline.turns.last?.items.first { $0.id == "shell" })
+    }
+
+    /// Shape of a Distill Bash rawOutput: byte array in `output`, readable text in `output_for_prompt`.
+    private func distillBashRawOutput(_ prompt: String) -> [String: Any] {
+        ["type": "Bash", "output": prompt.utf8.map { Int($0) }, "output_for_prompt": prompt,
+         "exit_code": 0, "command": "loop", "truncated": false, "signal": NSNull(),
+         "timed_out": false, "total_bytes": prompt.utf8.count]
     }
 }

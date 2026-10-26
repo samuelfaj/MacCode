@@ -24,7 +24,26 @@ public enum AgentChatLiveTurnChrome {
 
     static func recentToolOutput(_ item: AssistantItem) -> String? {
         guard let output = item.output, !output.isEmpty else { return nil }
-        return String(output.suffix(2_000))
+        let text = promptOutputText(in: output) ?? output
+        guard !text.isEmpty else { return nil }
+        return String(text.suffix(2_000))
+    }
+
+    /// Distill appends raw tool JSON to `output`; the newest `output_for_prompt`
+    /// (else `output` string) is the readable text.
+    private static func promptOutputText(in output: String) -> String? {
+        lastJSONStringField("output_for_prompt", in: output) ?? lastJSONStringField("output", in: output)
+    }
+
+    private static func lastJSONStringField(_ key: String, in output: String) -> String? {
+        let pattern = "\"\(key)\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\""
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.matches(in: output, range: NSRange(output.startIndex..., in: output)).last,
+              let range = Range(match.range(at: 1), in: output),
+              let data = "\"\(output[range])\"".data(using: .utf8),
+              let decoded = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) as? String
+        else { return nil }
+        return decoded
     }
 
     private static let toolGroupSummaryLock = NSLock()
