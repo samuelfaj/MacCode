@@ -10093,6 +10093,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     public func activitySetViewed(params: [String: JSONValue]) throws -> JSONValue {
         guard let context else { throw LayoutError.workspaceNotFound }
         let result = try ActivityService(context: context).setViewed(params)
+        try? ActivityService(context: context).observeChanges()
         let ids = result.objectValue?["updated_ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
         if !ids.isEmpty {
             EventBus.shared.publish(kind: .notificationRead, payload: .object([
@@ -10107,6 +10108,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     public func activityAcknowledge(params: [String: JSONValue]) throws -> JSONValue {
         guard let context else { throw LayoutError.workspaceNotFound }
         let result = try ActivityService(context: context).acknowledge(params)
+        try? ActivityService(context: context).observeChanges()
         let acknowledged = result.objectValue?["acknowledged"]?.boolValue == true
         let ids = result.objectValue?["item_id"]?.stringValue.map { [$0] }
             ?? result.objectValue?["updated_ids"]?.arrayValue?.compactMap(\.stringValue) ?? []

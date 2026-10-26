@@ -16,4 +16,33 @@ enum PushConnectionHints {
         }
         return out
     }
+
+    /// Bounded RemoteCode delta for alert and silent pushes. Mirrors the backend
+    /// bounds (ids 64 chars, seq decimal digits) so the backend never drops a field.
+    /// Preview is cut to 160 UTF-16 units without leaving a lone high surrogate.
+    static func delta(
+        threadId: String?,
+        workspaceId: String?,
+        state: String?,
+        kind: String?,
+        preview: String?,
+        seq: String?
+    ) -> [String: String] {
+        var out: [String: String] = [:]
+        for (key, raw) in [("thread_id", threadId), ("workspace_id", workspaceId), ("state", state), ("kind", kind)] {
+            let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !value.isEmpty, value.count <= 64 { out[key] = value }
+        }
+        let seqValue = seq?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !seqValue.isEmpty, seqValue.count <= 20, seqValue.allSatisfy(\.isASCII), seqValue.allSatisfy(\.isNumber) {
+            out["seq"] = seqValue
+        }
+        let units = Array((preview ?? "").utf16.prefix(160))
+        var cut = String(decoding: units, as: UTF16.self)
+        if let last = units.last, (0xD800...0xDBFF).contains(last) {
+            cut = String(decoding: units.dropLast(), as: UTF16.self)
+        }
+        if !cut.isEmpty { out["preview"] = cut }
+        return out
+    }
 }

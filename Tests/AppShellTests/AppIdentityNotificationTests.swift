@@ -677,6 +677,7 @@ final class AppIdentityNotificationTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "private.silentCatchUp.lastBucket")
         UserDefaults.standard.removeObject(forKey: "private.silentCatchUp.lastBuckets")
         bridge.setConnectionHintSources(
+            hostId: { "host-a" },
             watermark: { "42" },
             bootEpoch: { "7" }
         )
@@ -684,6 +685,7 @@ final class AppIdentityNotificationTests: XCTestCase {
     }
 
     private func assertCatchUpHints(_ data: [String: String], file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(data["host_id"], "host-a", "persisted previews must be bound to their producing Mac", file: file, line: line)
         XCTAssertEqual(data["rc2_wm"], "42", file: file, line: line)
         XCTAssertEqual(data["rc2_boot_epoch"], "7", file: file, line: line)
         XCTAssertTrue(
@@ -710,6 +712,42 @@ final class AppIdentityNotificationTests: XCTestCase {
         XCTAssertTrue(silent.silent)
         assertCatchUpHints(silent.data)
         XCTAssertEqual(silent.data["rc2_catch_up"], "1")
+    }
+
+    func testAlertAndSilentWakesCarryBoundedRemoteCodeDelta() async throws {
+        let (bridge, api) = try makeHintBridge()
+        let content = try XCTUnwrap(RemoteCodeNotificationContent.threadOutcome(
+            threadId: "thread-1", workspaceId: "ws-1", title: "Build fix", phase: .completed
+        ))
+        await bridge.deliver(content)
+        let alert = try XCTUnwrap(api.alertRequests.first)
+        let silent = try XCTUnwrap(api.alertRequests.last)
+        XCTAssertTrue(silent.silent)
+        for data in [alert.data, silent.data] {
+            XCTAssertEqual(data["thread_id"], "thread-1")
+            XCTAssertEqual(data["workspace_id"], "ws-1")
+            XCTAssertEqual(data["state"], "completed")
+            XCTAssertEqual(data["seq"], "42", "one wake carries the newest seq (connection watermark)")
+            XCTAssertLessThanOrEqual(data["preview"]?.utf16.count ?? 0, 160)
+        }
+    }
+
+    func testPushDeltaBoundsPreviewAndRejectsMalformedSeq() {
+        let emoji = PushConnectionHints.delta(
+            threadId: "t", workspaceId: nil, state: "completed", kind: "k",
+            preview: String(repeating: "🙂", count: 200), seq: "12abc"
+        )
+        XCTAssertNil(emoji["seq"], "non-digit seq must not reach the wake")
+        XCTAssertNil(emoji["workspace_id"])
+        XCTAssertEqual(emoji["preview"], String(repeating: "🙂", count: 80), "cut at 160 UTF-16 units")
+
+        let split = PushConnectionHints.delta(
+            threadId: nil, workspaceId: nil, state: nil, kind: nil,
+            preview: String(repeating: "a", count: 159) + "🙂", seq: "4201"
+        )
+        XCTAssertEqual(split["seq"], "4201")
+        XCTAssertEqual(split["preview"]?.utf16.count, 159, "a lone high surrogate at the cut must be dropped")
+        XCTAssertNil(split["thread_id"])
     }
 
     func testOutboxReplayCarriesCatchUpHints() async throws {

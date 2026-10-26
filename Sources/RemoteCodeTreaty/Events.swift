@@ -3,6 +3,9 @@ import Foundation
 public enum RemoteCodeEventKind: String, Codable, CaseIterable, Sendable {
     case agentAccountUsage = "agent.account.usage"
     case agentAccountUsageRefresh = "agent.account.usage.refresh"
+    /// Activity rows or counts changed: payload `{workspace_id, counts, changed_thread_ids}`,
+    /// `counts` in the `workspace_counts` entry shape. Host-debounced to 2/s per workspace.
+    case agentActivityChanged = "agent.activity.changed"
     case agentAttachmentUploaded = "agent.attachment.uploaded"
     case agentCheckpointReverted = "agent.checkpoint.reverted"
     case agentContextCompaction = "agent.context.compaction"
