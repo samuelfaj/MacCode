@@ -287,6 +287,19 @@ final class FileTreeStore<Item: FileTreeItem> {
     /// Test seam: number of path keys currently held in the child listing cache.
     var childCacheCountForTesting: Int { childCache.count }
 
+    /// Directory paths whose children are currently cached.
+    var cachedDirectoryPaths: [String] { Array(childCache.keys) }
+
+    /// Replace the top level without clearing cached subtrees (used by in-place refresh).
+    func replaceRoots(_ items: [Item]) {
+        roots = items.map { FileTreeNode(item: $0) }
+    }
+
+    /// Drop the cached listing for `path` so the next request re-lists it.
+    func invalidate(path: String) {
+        childCache.removeValue(forKey: path)
+    }
+
     /// Expand a directory node, fetching its children the first time only. A node already carrying
     /// `children` is not re-fetched (`force` re-lists, e.g. after a mutation in that directory).
     /// Returns false and stays collapsed if the lazy fetch throws, so a failed listing doesn't
@@ -750,6 +763,11 @@ nonisolated func changedLineRanges(oldText: String, newText: String) -> [NSRange
     return [NSRange(location: rangeStart, length: length)]
 }
 
+nonisolated func editorHex(_ rgb: UInt32) -> NSColor {
+    NSColor(srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255,
+            blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
+}
+
 // MARK: - Editor color palette (no AppKit environment needed; tested in EditorColorPaletteTests)
 
 /// Color set for the code editor and its line-number gutter. Chosen per appearance so the editor
@@ -764,6 +782,11 @@ struct EditorColorPalette: Equatable {
     let insertionPoint: NSColor
     let lineNumberBackground: NSColor
     let lineNumberText: NSColor
+    let lineNumberActiveText: NSColor
+    let selection: NSColor
+    let currentLineBorder: NSColor
+    let indentGuide: NSColor
+    let indentGuideActive: NSColor
 
     static func == (lhs: EditorColorPalette, rhs: EditorColorPalette) -> Bool {
         lhs.isDark == rhs.isDark
@@ -777,9 +800,14 @@ struct EditorColorPalette: Equatable {
                 isDark:              true,
                 background:          NSColor(red: 0.122, green: 0.122, blue: 0.122, alpha: 1),
                 text:                NSColor(red: 0.8, green: 0.8, blue: 0.8, alpha: 1),
-                insertionPoint:      .white,
+                insertionPoint:      editorHex(0xAEAFAD), // vscode: editorColorRegistry.ts editorCursor.foreground
                 lineNumberBackground: NSColor(red: 0.122, green: 0.122, blue: 0.122, alpha: 1),
-                lineNumberText:      NSColor(red: 0.431, green: 0.463, blue: 0.502, alpha: 1)
+                lineNumberText:      editorHex(0x6E7681), // vscode: dark_modern.json editorLineNumber.foreground
+                lineNumberActiveText: editorHex(0xCCCCCC), // vscode: dark_modern.json editorLineNumber.activeForeground
+                selection:           editorHex(0x264F78), // vscode: dark_vs.json editor.selectionBackground
+                currentLineBorder:   editorHex(0x282828), // vscode: editorColorRegistry.ts editor.lineHighlightBorder
+                indentGuide:         editorHex(0x404040), // vscode: dark_vs.json editorIndentGuide.background1
+                indentGuideActive:   editorHex(0x707070)  // vscode: dark_vs.json editorIndentGuide.activeBackground1
             )
         } else {
             return EditorColorPalette(
@@ -788,7 +816,12 @@ struct EditorColorPalette: Equatable {
                 text:                NSColor(red: 0.13, green: 0.13, blue: 0.13, alpha: 1),
                 insertionPoint:      .black,
                 lineNumberBackground: NSColor(red: 0.91, green: 0.91, blue: 0.91, alpha: 1),
-                lineNumberText:      NSColor(red: 0.42, green: 0.44, blue: 0.47, alpha: 1)
+                lineNumberText:      NSColor(red: 0.42, green: 0.44, blue: 0.47, alpha: 1),
+                lineNumberActiveText: NSColor(red: 0.13, green: 0.13, blue: 0.13, alpha: 1),
+                selection:           editorHex(0xADD6FF),
+                currentLineBorder:   editorHex(0xEEEEEE),
+                indentGuide:         editorHex(0xD3D3D3),
+                indentGuideActive:   editorHex(0x939393)
             )
         }
     }
@@ -1075,10 +1108,26 @@ final class FilesViewModel: ObservableObject {
     // listings live in `treeStore`, which fetches them on first expand and caches them. Reset
     // whenever the displayed directory changes (P1). `expandedPaths` is the @Published trigger that
     // makes SwiftUI re-render the affected subtree.
-    @Published var expandedPaths: Set<String> = []
+    @Published var expandedPaths: Set<String> = [] {
+        didSet {
+            guard expandedPaths != oldValue else { return }
+            scheduleExpansionPersist()
+        }
+    }
+    /// Bumped whenever cached tree listings change so the outline reloads.
+    @Published var treeRevision = 0
+    /// Git status per workspace-relative path, folders included (propagated).
+    @Published var gitStatuses: [String: ExplorerGitStatus] = [:]
+    var expansionPersistTimer: Timer?
+    var restoringExpansion = false
+    var fileWatcher: ExplorerFileWatcher?
+    var gitGeneration = 0
     @Published var caretLine = 1
     @Published var caretColumn = 1
-    private lazy var treeStore = FileTreeStore<FileEntry>(lister: { [weak self] path in
+    /// Status-bar values read from the edit session on load: "LF"/"CRLF" and the file encoding id.
+    @Published var lineEnding = "LF"
+    @Published var encoding = "utf-8"
+    lazy var treeStore = FileTreeStore<FileEntry>(lister: { [weak self] path in
         try self?.listEntries(at: path) ?? []
     })
     @Published var previewURL: URL?
@@ -1167,24 +1216,35 @@ final class FilesViewModel: ObservableObject {
         }
         if let eventToken { EventBus.shared.unsubscribe(eventToken) }
         if let sessionID { _ = try? router?.filesEditClose(sessionID: sessionID) }
+        fileWatcher?.stop()
+        fileWatcher = nil
+        expansionPersistTimer?.invalidate()
+        persistExpansionNow()
     }
 
     func loadInitialState() {
+        var restoredExpansion: [String] = []
         do {
             var initialSelectedPath: String?
             if let state = try router?.filesStateGet(surface: surfaceID).objectValue {
                 initialSelectedPath = state["selected_path"]?.stringValue
-                let stateDirectory = state["current_directory"]?.stringValue ?? ""
-                currentDirectory = initialFilesDirectory(stateDirectory: stateDirectory, selectedPath: initialSelectedPath)
+                // VS Code keeps the workspace root as the tree root; the selected file's
+                // folders are expanded instead of navigated into.
+                currentDirectory = ""
                 readerMode = state["reader_mode"]?.stringValue ?? "source"
                 dirtyPaths = Self.dirtyPaths(from: state)
                 if case .array(let tabs) = state["open_tabs"] ?? .array([]) {
                     restoreOpenTabs(tabs.compactMap(\.stringValue))
                 }
+                if case .array(let dirs) = state["expanded_dirs"] ?? .array([]) {
+                    restoredExpansion = dirs.compactMap(\.stringValue)
+                }
             }
             loadDirectory(currentDirectory)
+            restoreExpansion(restoredExpansion)
+            startExplorerWatching()
             if let initialSelectedPath,
-               let entry = entries.first(where: { !$0.isDirectory && $0.relativePath == initialSelectedPath }) {
+               let entry = expandAncestors(of: initialSelectedPath), !entry.isDirectory {
                 selectedEntry = entry
                 openFileInTab(entry)
             }
@@ -1204,6 +1264,7 @@ final class FilesViewModel: ObservableObject {
             // top level, and any previously expanded subtree no longer applies (P1).
             expandedPaths = []
             treeStore.setRoots(entries)
+            treeRevision &+= 1
             isLoading = false
             _ = try? router?.filesStateUpdate(surface: surfaceID, patch: [
                 "current_directory": .string(currentDirectory)
@@ -1218,12 +1279,13 @@ final class FilesViewModel: ObservableObject {
     /// already listed, otherwise navigate to its parent directory and select the
     /// entry there (a directory path opens the directory itself).
     func reveal(relativePath: String) {
-        if let known = allKnownEntry(relativePath: relativePath) {
-            select(known)
-            return
-        }
-        loadDirectory((relativePath as NSString).deletingLastPathComponent)
-        if let entry = entries.first(where: { $0.relativePath == relativePath }) {
+        guard let entry = expandAncestors(of: relativePath) else { return }
+        if entry.isDirectory {
+            expandedPaths.insert(entry.relativePath)
+            _ = childEntries(for: entry)
+            selectedEntry = entry
+            treeRevision &+= 1
+        } else {
             select(entry)
         }
     }
@@ -1232,7 +1294,7 @@ final class FilesViewModel: ObservableObject {
     /// files. Shared by the top-level directory load and the lazy subtree fetch so both produce
     /// identical rows. This keeps the existing security-scoped `fsWorkspaceList` IO unchanged -
     /// only the surrounding tree structure is new (P1).
-    private func mapEntries(_ result: JSONValue?) -> [FileEntry] {
+    func mapEntries(_ result: JSONValue?) -> [FileEntry] {
         let values = result?.objectValue?["entries"]?.arrayValue ?? []
         var entries: [FileEntry] = []
         entries.reserveCapacity(values.count)
@@ -1250,7 +1312,7 @@ final class FilesViewModel: ObservableObject {
 
     /// Fetch the entries directly under `relativePath` (security-scoped `fsWorkspaceList`), mapped
     /// to rows. Used by the lazy subtree fetch.
-    private func listEntries(at relativePath: String) throws -> [FileEntry] {
+    func listEntries(at relativePath: String) throws -> [FileEntry] {
         mapEntries(try router?.fsWorkspaceList(workspace: workspaceID, path: relativePath))
     }
 
@@ -1298,7 +1360,7 @@ final class FilesViewModel: ObservableObject {
         selectedEntry = entry
         errorText = nil
         if entry.isDirectory {
-            loadDirectory(entry.relativePath)
+            toggleExpand(entry)
             return
         }
         openFileInTab(entry)
@@ -1493,12 +1555,14 @@ final class FilesViewModel: ObservableObject {
         }
     }
 
-    func createFile(named rawName: String) {
-        guard let path = newFileTargetPath(parent: currentDirectory, rawName: rawName) else { return }
+    func createFile(named rawName: String, in parent: String? = nil) {
+        let parent = parent ?? currentDirectory
+        guard let path = newFileTargetPath(parent: parent, rawName: rawName) else { return }
         do {
             let result = try router?.fsWorkspaceCreateFile(workspace: workspaceID, path: path, content: "")
             let created = result.flatMap(FileEntry.init(value:))
-            loadDirectory(currentDirectory)
+            if !parent.isEmpty, parent != currentDirectory { expandedPaths.insert(parent) }
+            refreshTree()
             if let created {
                 selectedEntry = created
                 openFileInTab(created)
@@ -1508,14 +1572,17 @@ final class FilesViewModel: ObservableObject {
         }
     }
 
-    func createFolder(named rawName: String) {
+    func createFolder(named rawName: String, in parent: String? = nil) {
+        let parent = parent ?? currentDirectory
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
-        let existingNames = Set(entries.map(\.name))
-        let path = newFolderTargetPath(parent: currentDirectory, name: name, existingNames: existingNames)
+        let siblings = parent == currentDirectory ? entries : treeStore.children(at: parent)
+        let existingNames = Set(siblings.map(\.name))
+        let path = newFolderTargetPath(parent: parent, name: name, existingNames: existingNames)
         do {
             _ = try router?.fsWorkspaceCreateDirectory(workspace: workspaceID, path: path)
-            loadDirectory(currentDirectory)
+            if !parent.isEmpty, parent != currentDirectory { expandedPaths.insert(parent) }
+            refreshTree()
         } catch {
             errorText = String(describing: error)
         }
@@ -1546,7 +1613,7 @@ final class FilesViewModel: ObservableObject {
                 renderedText = ""
                 isDirty = false
             }
-            loadDirectory(currentDirectory)
+            refreshTree()
         } catch {
             errorText = String(describing: error)
         }
@@ -1559,7 +1626,11 @@ final class FilesViewModel: ObservableObject {
         do {
             let result = try router?.fsWorkspaceRename(workspace: workspaceID, path: entry.relativePath, newName: name)
             let renamed = result.flatMap(FileEntry.init(value:))
-            loadDirectory(currentDirectory)
+            if entry.isDirectory, expandedPaths.contains(entry.relativePath), let renamed {
+                expandedPaths.remove(entry.relativePath)
+                expandedPaths.insert(renamed.relativePath)
+            }
+            refreshTree()
             if let renamed, let tabIndex = openTabs.firstIndex(where: { $0.id == entry.id }) {
                 openTabs[tabIndex] = renamed
                 persistOpenTabs()
@@ -1599,7 +1670,7 @@ final class FilesViewModel: ObservableObject {
                 if let error {
                     self.errorText = String(describing: error)
                 } else {
-                    self.loadDirectory(self.currentDirectory)
+                    self.refreshTree()
                 }
             }
         }
@@ -1767,7 +1838,9 @@ final class FilesViewModel: ObservableObject {
                 }
             }
         }
+        if let encoding = payload["encoding"]?.stringValue { self.encoding = encoding }
         if let content = payload["content"]?.stringValue {
+            lineEnding = Self.detectLineEnding(content)
             if remote {
                 let update = filesRemoteContentUpdate(
                     localDirty: isDirty,
@@ -1958,34 +2031,20 @@ struct FilesSurfaceRoot: View {
     @AppStorage("files.sidebar.showHidden.v1") private var showHidden = false
     @State private var sidebarVisible = true
     @State private var lastAutomaticSidebarChange: TimeInterval?
-    @State private var selectedFileIDs: Set<String> = []
-    @State private var pathInput = ""
     @State private var confirmDiscard = false
     @State private var showNewFileDialog = false
     @State private var newFileName = ""
+    @State private var newItemDirectory: String?
     @State private var showNewFolderDialog = false
     @State private var newFolderName = ""
     @FocusState private var newFolderFieldFocused: Bool
-    @State private var dropTargetedFolderPath: String? = nil
-    @State private var renamingEntry: FileEntry?
-    @State private var renameText = ""
     @State private var deleteTargets: [FileEntry] = []
     @State private var confirmDelete = false
-    @State private var pathInvalid = false
     @State private var dropTargeted = false
     @FocusState private var newFileFieldFocused: Bool
-    @State private var nameFilter = ""
     @State private var explorerHovered = false
-    @State private var hoveredRowID: String?
     @State private var hoveredTabID: String?
     @State private var hoveredCloseTabID: String?
-    @FocusState private var nameFilterFocused: Bool
-    // PERF: visibleEntries filters on every SwiftUI body evaluation (scroll, selection, etc.).
-    // Cache last result and only recompute when entries, showHidden, or nameFilter changes —
-    // mirrors SidebarView.filteredWorkspacesCache, avoids O(N) filter on transient body passes.
-    @State private var visibleEntriesCache: [FileEntry] = []
-    @State private var visibleEntriesCacheKey: (count: Int, showHidden: Bool, query: String) = (0, false, "")
-    @State private var visibleEntriesSource: [FileEntry] = []
 
     // Preview HTML cache -- avoids recomputing MarkdownSurface.renderHTML / highlightedHTML
     // on every SwiftUI body pass. Seeded immediately on .onAppear; subsequent changes are
@@ -2035,7 +2094,7 @@ struct FilesSurfaceRoot: View {
                 .accessibilityIdentifier("files.newFile.create")
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(model.currentDirectory.isEmpty ? "Create in workspace root." : "Create in \(model.currentDirectory).")
+            Text((newItemDirectory ?? model.currentDirectory).isEmpty ? "Create in workspace root." : "Create in \(newItemDirectory ?? model.currentDirectory).")
         }
         // Focus the name field as soon as the New File dialog appears so keyboard users can
         // type immediately without clicking first (UX-MAC_FILES-001).
@@ -2051,40 +2110,16 @@ struct FilesSurfaceRoot: View {
                 .accessibilityIdentifier("files.newFolder.create")
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(model.currentDirectory.isEmpty ? "Create in workspace root." : "Create in \(model.currentDirectory).")
+            Text((newItemDirectory ?? model.currentDirectory).isEmpty ? "Create in workspace root." : "Create in \(newItemDirectory ?? model.currentDirectory).")
         }
         .onChange(of: showNewFolderDialog) { presented in
             if presented { newFolderFieldFocused = true }
-        }
-        .alert("Rename", isPresented: Binding(
-            get: { renamingEntry != nil },
-            set: { if !$0 { renamingEntry = nil } }
-        )) {
-            TextField("File name", text: $renameText)
-            Button("Rename") { commitRename() }
-            Button("Cancel", role: .cancel) { renamingEntry = nil }
         }
         .alert(deleteTitle, isPresented: $confirmDelete) {
             Button("Move to Trash", role: .destructive) { commitDelete() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(deleteTargets.count == 1 ? deleteTargets[0].relativePath : "\(deleteTargets.count) selected items will be moved to the Trash.")
-        }
-        .onAppear { pathInput = displayPath }
-        .onChange(of: model.currentDirectory) { _ in
-            pathInput = displayPath
-            selectedFileIDs = []
-            updateVisibleEntriesCacheIfNeeded()
-        }
-        .onChange(of: model.entries) { _ in updateVisibleEntriesCacheIfNeeded() }
-        .onChange(of: showHidden) { _ in updateVisibleEntriesCacheIfNeeded() }
-        .onChange(of: nameFilter) { _ in updateVisibleEntriesCacheIfNeeded() }
-        .onAppear { updateVisibleEntriesCacheIfNeeded() }
-        .onChange(of: selectedFileIDs) { ids in
-            guard ids.count == 1,
-                  let id = ids.first,
-                  let entry = model.entryForSelectionID(id) else { return }
-            model.selectIfNeeded(entry)
         }
         // Seed cachedPreviewHTML immediately on first appear so the initial render
         // is not blank. Subsequent changes go through the debounce path.
@@ -2156,15 +2191,17 @@ struct FilesSurfaceRoot: View {
                 Spacer(minLength: 4)
                 if explorerHovered {
                     explorerAction("doc.badge.plus", label: "New file", id: "files.newFile.button") {
+                        newItemDirectory = model.explorerTargetDirectory(for: model.selectedEntry)
                         newFileName = ""
                         showNewFileDialog = true
                     }
                     explorerAction("folder.badge.plus", label: "New folder", id: "files.newFolder.button") {
+                        newItemDirectory = model.explorerTargetDirectory(for: model.selectedEntry)
                         newFolderName = ""
                         showNewFolderDialog = true
                     }
                     explorerAction("arrow.clockwise", label: "Refresh", id: "files.refresh.button") {
-                        model.loadDirectory(model.currentDirectory)
+                        model.refreshTree()
                     }
                     explorerAction("rectangle.compress.vertical", label: "Collapse folders", id: "files.collapseAll.button") {
                         model.collapseAll()
@@ -2174,59 +2211,21 @@ struct FilesSurfaceRoot: View {
             .foregroundStyle(VSCodeTheme.sectionHeader)
             .padding(.horizontal, 4)
             .frame(height: 22)
-            TextField("Filter files\u{2026}", text: $nameFilter)
-                .textFieldStyle(.plain)
-                .focused($nameFilterFocused)
-                .font(.system(size: 12))
-                .padding(.horizontal, 6)
-                .frame(height: 24)
-                .background(VSCodeTheme.inputBackground)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 2)
-                        .stroke(nameFilterFocused ? VSCodeTheme.focusBorder : VSCodeTheme.inputBorder, lineWidth: 1)
-                )
-                .foregroundStyle(VSCodeTheme.foreground)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 6)
-                .accessibilityLabel("Filter files by name")
-                .accessibilityIdentifier("files.nameFilter.field")
-                .onChange(of: model.currentDirectory) { _ in nameFilter = "" }
-            TextField("Path", text: $pathInput)
-                .font(.system(size: 11, design: .monospaced))
-                .textFieldStyle(.plain)
-                .foregroundStyle(pathInvalid ? DS.Palette.danger : VSCodeTheme.inactiveForeground)
-                .lineLimit(1)
-                .padding(.horizontal, 8)
-                .frame(height: 22)
-                .onSubmit { submitPath() }
-                .help("Type a workspace path and press Return")
-                .accessibilityLabel("Workspace path")
-                .accessibilityIdentifier("files.path.field")
-            breadcrumb
-            List(selection: $selectedFileIDs) {
-                if !model.currentDirectory.isEmpty {
-                    Button {
-                        navigateToParent()
-                    } label: {
-                        treeRow(icon: "arrow.turn.up.left", iconColor: VSCodeTheme.inactiveForeground, name: "..", depth: 0) {
-                            Color.clear.frame(width: 16, height: 22)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                    .listRowBackground(Color.clear)
-                    // Cmd+Up navigates up a level for keyboard users, since the ".." row is not part
-                    // of the List selection set and arrow keys never reach it (UX-MAC_FILES-012).
-                    .keyboardShortcut(.upArrow, modifiers: .command)
-                    .help("Go to parent folder (⌘↑)")
-                    .accessibilityIdentifier("files.parent.button")
-                }
-                treeRows(visibleEntries, depth: 0)
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(VSCodeTheme.sideBarBackground)
-            .accessibilityIdentifier("files.sidebar.list")
+            FileExplorerOutline(
+                model: model,
+                showHidden: showHidden,
+                onNewFile: { directory in
+                    newItemDirectory = directory
+                    newFileName = ""
+                    showNewFileDialog = true
+                },
+                onNewFolder: { directory in
+                    newItemDirectory = directory
+                    newFolderName = ""
+                    showNewFolderDialog = true
+                },
+                onRequestDelete: { entries in beginDelete(entries) }
+            )
             if model.isLoading {
                 ProgressView().controlSize(.small)
                     .padding(.vertical, 4)
@@ -2254,129 +2253,6 @@ struct FilesSurfaceRoot: View {
         .help(label)
         .accessibilityLabel(label)
         .accessibilityIdentifier(id)
-    }
-
-    private var displayPath: String {
-        guard !model.currentDirectory.isEmpty else { return model.root }
-        return (model.root as NSString).appendingPathComponent(model.currentDirectory)
-    }
-
-    // Dotfiles are hidden unless the user opts in via the sidebar toggle (IMP-MAC_FILES-014).
-    // Name filter further narrows the visible set when the user types in the filter field.
-    // PERF: avoid O(N) filter on every transient body (scroll/selection) — cache last result.
-    // `onChange` of entries/showHidden/nameFilter keeps cache fresh; body fast-path reuses it.
-    // Count-only key is fast, but a rename keeps count same — also check source equality to avoid stale.
-    private var visibleEntries: [FileEntry] {
-        let key = (count: model.entries.count, showHidden: showHidden, query: nameFilter)
-        if !visibleEntriesCache.isEmpty && key.count == visibleEntriesCacheKey.count && key.showHidden == visibleEntriesCacheKey.showHidden && key.query == visibleEntriesCacheKey.query && visibleEntriesSource == model.entries {
-            return visibleEntriesCache
-        }
-        return visibleFileEntries(model.entries, showHidden: showHidden, query: nameFilter, isHidden: \.isHidden)
-    }
-
-    private func updateVisibleEntriesCacheIfNeeded() {
-        let key = (count: model.entries.count, showHidden: showHidden, query: nameFilter)
-        if !visibleEntriesCache.isEmpty && key.count == visibleEntriesCacheKey.count && key.showHidden == visibleEntriesCacheKey.showHidden && key.query == visibleEntriesCacheKey.query && visibleEntriesSource == model.entries {
-            return
-        }
-        visibleEntriesCache = visibleFileEntries(model.entries, showHidden: showHidden, query: nameFilter, isHidden: \.isHidden)
-        visibleEntriesCacheKey = key
-        visibleEntriesSource = model.entries
-    }
-
-    private func visibleChildren(of directory: FileEntry) -> [FileEntry] {
-        let children = model.childEntries(for: directory)
-        return visibleFileEntries(children, showHidden: showHidden, query: "", isHidden: \.isHidden)
-    }
-
-    // Recursive tree renderer (P1): each row gets a disclosure triangle when it is a directory, and
-    // its children are emitted indented and lazily - `model.childEntries` only fetches on first
-    // expand. Selection/open/drag/dirty affordances are unchanged from the old flat row; only the
-    // leading disclosure control and indentation are new.
-    // Returns AnyView to break the self-referential opaque return type a directly recursive
-    // @ViewBuilder would otherwise produce.
-    private func treeRows(_ entries: [FileEntry], depth: Int) -> some View {
-        ForEach(entries) { entry in
-            entryRow(entry, depth: depth)
-            if entry.isDirectory && model.isExpanded(entry) {
-                AnyView(treeRows(visibleChildren(of: entry), depth: depth + 1))
-            }
-        }
-    }
-
-    private func entryRow(_ entry: FileEntry, depth: Int) -> some View {
-        let isDropTarget = dropTargetedFolderPath == entry.relativePath
-        let isExpanded = entry.isDirectory && model.isExpanded(entry)
-        return treeRow(
-            icon: entry.isDirectory ? (isExpanded ? "folder.fill" : "folder") : entry.icon,
-            iconColor: VSCodeTheme.color(entry.isDirectory ? 0xDCB67A : fileIconColorHex(for: entry.name)),
-            name: entry.name,
-            depth: depth,
-            active: model.selectedEntry?.id == entry.id,
-            focused: selectedFileIDs.contains(entry.id),
-            hovered: hoveredRowID == entry.id,
-            dirty: model.dirtyPaths.contains(entry.relativePath),
-            dirtyPath: entry.relativePath
-        ) {
-            if entry.isDirectory {
-                Button {
-                    model.toggleExpand(entry)
-                } label: {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(VSCodeTheme.inactiveForeground)
-                        .frame(width: 16, height: 22)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(isExpanded ? "Collapse folder" : "Expand folder")
-                .accessibilityIdentifier("files.disclosure.\(entry.relativePath)")
-            } else {
-                Color.clear.frame(width: 16, height: 22)
-            }
-        }
-        .overlay {
-            if isDropTarget {
-                Rectangle()
-                    .stroke(VSCodeTheme.focusBorder, lineWidth: 1.5)
-                    .allowsHitTesting(false)
-                    .accessibilityIdentifier("files.moveDropIndicator.\(entry.relativePath)")
-            }
-        }
-        .onTapGesture {
-            selectedFileIDs = [entry.id]
-            model.selectIfNeeded(entry)
-        }
-        .onHover { inside in
-            if inside {
-                hoveredRowID = entry.id
-            } else if hoveredRowID == entry.id {
-                hoveredRowID = nil
-            }
-        }
-        .tag(entry.id)
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-        .listRowBackground(Color.clear)
-        .contextMenu { fileContextMenu(for: entry) }
-	        .fileTabDragPayload(entry.dragPayload)
-	        // Any entry can be dragged to move it. Directories also accept drops.
-	        .sidebarMoveDragPayload(entry.moveDragPayload)
-	        .fileOutDragProvider(absolutePath: entry.path, fileTabPayload: entry.dragPayload, movePayload: entry.moveDragPayload)
-	        .sidebarMoveDropDestination(
-            enabled: entry.isDirectory,
-            workspaceID: model.workspaceID.value.uuidString,
-            onDrop: { relativePath in
-                guard let src = model.entries.first(where: { $0.relativePath == relativePath })
-                    ?? model.allKnownEntry(relativePath: relativePath) else { return false }
-                model.moveEntry(src, intoDirWithPath: entry.relativePath)
-                return true
-            },
-            isTargeted: { targeted in
-                dropTargetedFolderPath = targeted ? entry.relativePath : nil
-            }
-        )
-        .help(entry.relativePath.isEmpty ? entry.name : entry.relativePath)
-        .accessibilityIdentifier("files.row.\(entry.relativePath)")
     }
 
     // Language badge, size, and modified-ago for the selected text file so users get context
@@ -2422,135 +2298,18 @@ struct FilesSurfaceRoot: View {
         return ("Files error", "exclamationmark.triangle", raw, true)
     }
 
-    // Clickable breadcrumb so users can jump to any ancestor without typing full paths or
-    // clicking up through ".." repeatedly (UX-MAC_FILES-014).
-    private var breadcrumb: some View {
-        let segments = model.currentDirectory.split(separator: "/").map(String.init)
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
-                Button("root") { model.loadDirectory("") }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(segments.isEmpty ? VSCodeTheme.foreground : VSCodeTheme.inactiveForeground)
-                    .accessibilityIdentifier("files.breadcrumb.root")
-                ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8))
-                        .foregroundStyle(VSCodeTheme.inactiveForeground)
-                    Button(segment) {
-                        model.loadDirectory(segments[0...index].joined(separator: "/"))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(index == segments.count - 1 ? VSCodeTheme.foreground : VSCodeTheme.inactiveForeground)
-                    .accessibilityIdentifier("files.breadcrumb.\(segment)")
-                }
-            }
-            .font(.system(size: 11))
-            .lineLimit(1)
-        }
-        .frame(height: 22)
-        .padding(.horizontal, 8)
-    }
-
-    private func navigateToParent() {
-        let parent = (model.currentDirectory as NSString).deletingLastPathComponent
-        model.loadDirectory(parent == "." ? "" : parent)
-    }
-
-    private func submitPath() {
-        guard let relative = resolveSubmittedFilesPath(raw: pathInput, root: model.root) else {
-            pathInput = displayPath
-            return
-        }
-        model.loadDirectory(relative)
-        // On a bad path the error surfaces far away in the reader; flag the field red and restore
-        // the last valid path so the input doesn't silently keep invalid text (UX-MAC_FILES-013).
-        if model.errorText != nil {
-            pathInvalid = true
-            pathInput = displayPath
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { pathInvalid = false }
-        } else {
-            pathInvalid = false
-        }
-    }
-
-    private var selectedEntries: [FileEntry] {
-        selectedFileIDs.compactMap(model.entryForSelectionID)
-    }
-
     private var deleteTitle: String {
         deleteTargets.count == 1 ? "Move \(deleteTargets[0].name) to Trash?" : "Move \(deleteTargets.count) items to Trash?"
     }
 
-    @ViewBuilder
-    private func fileContextMenu(for entry: FileEntry) -> some View {
-        let targets = selectedFileIDs.contains(entry.id) && selectedEntries.count > 1 ? selectedEntries : [entry]
-        if targets.count == 1 {
-            if !entry.isDirectory {
-                Button("Open in New Tab") { model.openInNewTab(entry) }
-                Divider()
-            }
-            Button("Reveal in Finder") { revealInFinder(entry) }
-            if !entry.isDirectory {
-                Button("Open with Default App") { openWithDefaultApp(entry) }
-            }
-            Divider()
-            Button("Rename...") { beginRename(entry) }
-            Divider()
-            Button("Move to Trash", role: .destructive) { beginDelete(targets) }
-        } else {
-            Button("Open \(targets.count) Files in New Tabs") {
-                targets.filter { !$0.isDirectory }.forEach { model.openInNewTab($0) }
-            }
-            .accessibilityIdentifier("files.contextMenu.openAllInTabs")
-            Button("Reveal in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting(targets.map { URL(fileURLWithPath: $0.path) })
-            }
-            .accessibilityIdentifier("files.contextMenu.revealAll")
-            Divider()
-            Button("Move \(targets.count) Items to Trash", role: .destructive) { beginDelete(targets) }
-        }
-    }
-
     private func createNewFile() {
-        model.createFile(named: newFileName)
+        model.createFile(named: newFileName, in: newItemDirectory)
         newFileName = ""
     }
 
     private func createNewFolder() {
-        model.createFolder(named: newFolderName)
+        model.createFolder(named: newFolderName, in: newItemDirectory)
         newFolderName = ""
-    }
-
-    // Escape hatches to the real file via Finder / default app, for binaries and large media
-    // that RemoteCode can't render usefully (UX-MAC_FILES-009).
-    private func revealInFinder(_ entry: FileEntry) {
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: entry.path)])
-    }
-
-    private func openWithDefaultApp(_ entry: FileEntry) {
-        NSWorkspace.shared.open(URL(fileURLWithPath: entry.path))
-    }
-
-    private func beginRename(_ entry: FileEntry) {
-        selectedFileIDs = [entry.id]
-        renamingEntry = entry
-        renameText = entry.name
-        // Pre-select the basename (not the extension) once the alert's text field
-        // becomes first responder. The alert is presented asynchronously by SwiftUI,
-        // so we defer one run-loop turn to reach the field editor.
-        let selectionRange = filesBasenameSelectionRange(for: entry.name)
-        DispatchQueue.main.async {
-            guard let window = NSApp.keyWindow,
-                  let editor = window.fieldEditor(false, for: nil) as? NSTextView else { return }
-            editor.selectedRange = selectionRange
-        }
-    }
-
-    private func commitRename() {
-        guard let entry = renamingEntry else { return }
-        model.rename(entry, to: renameText)
-        selectedFileIDs = []
-        renamingEntry = nil
     }
 
     private func beginDelete(_ entries: [FileEntry]) {
@@ -2560,19 +2319,14 @@ struct FilesSurfaceRoot: View {
 
     private func commitDelete() {
         model.delete(deleteTargets)
-        selectedFileIDs.subtract(deleteTargets.map(\.id))
         deleteTargets = []
     }
 
     private var reader: some View {
         GeometryReader { proxy in
             VStack(spacing: 0) {
-                if !model.openTabs.isEmpty {
-                    openTabBar
-                    Divider().overlay(DS.Palette.line)
-                }
-                readerHeader
-                Divider().overlay(DS.Palette.line)
+                openTabBar
+                if model.selectedEntry != nil { breadcrumbRow }
                 if model.conflictActive {
                     conflictBanner
                     Divider().overlay(DS.Palette.line)
@@ -2721,14 +2475,28 @@ struct FilesSurfaceRoot: View {
         .accessibilityIdentifier("files.saveError.banner")
     }
 
-    /// VS Code-style editor tab strip: active tab, dirty dot, per-tab close.
+    /// VS Code-style editor tab strip with the action group on the right.
+    /// vscode: multieditortabscontrol.css — 35px tabs, 1px `tab.border` separators, tabs scroll, actions stay.
     private var openTabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(model.openTabs) { entry in
-                    openTab(entry)
+        HStack(spacing: 0) {
+            if !sidebarVisible {
+                DSIconButton("sidebar.left", help: "Show file sidebar") {
+                    sidebarIntent = .forcedVisible
+                    sidebarVisible = true
+                }
+                .accessibilityLabel("Show file sidebar")
+                .padding(.horizontal, 6)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(model.openTabs) { entry in
+                        openTab(entry)
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            readerActions
+                .padding(.horizontal, 6)
         }
         .frame(height: 35)
         .background(VSCodeTheme.tabsContainer)
@@ -2736,6 +2504,77 @@ struct FilesSurfaceRoot: View {
             Rectangle().fill(VSCodeTheme.border).frame(height: 1)
         }
         .accessibilityIdentifier("files.tabs.strip")
+    }
+
+    private func readerActionButton(_ symbol: String, help: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13))
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(enabled ? VSCodeTheme.foreground : VSCodeTheme.inactiveForeground.opacity(0.5))
+        .disabled(!enabled)
+        .help(help)
+    }
+
+    /// Icon-only actions, so nothing truncates or overlaps at narrow widths; the sync icon drops first.
+    private var readerActions: some View {
+        let kind = model.selectedEntry?.kind
+        let hasModes = kind == "markdown" || kind == "html"
+        let canEdit = model.selectedEntry?.isEditable == true
+        func group(showSync: Bool) -> some View {
+            HStack(spacing: 2) {
+                if showSync, canEdit {
+                    Image(systemName: model.isDirty ? "circle.dotted" : "checkmark.circle")
+                        .font(.system(size: 12))
+                        .foregroundStyle(VSCodeTheme.inactiveForeground)
+                        .frame(width: 24, height: 24)
+                        .help("\(model.syncLabel) — \(model.syncDetail)")
+                        .accessibilityLabel(model.syncLabel)
+                        .accessibilityIdentifier("files.sync.label")
+                }
+                if hasModes {
+                    HStack(spacing: 0) {
+                        ForEach([("source", "chevron.left.forwardslash.chevron.right", "Source"),
+                                 ("split", "rectangle.split.2x1", "Split"),
+                                 ("preview", "eye", "Preview")], id: \.0) { mode, symbol, title in
+                            Button { model.readerMode = mode; model.setReaderMode(mode) } label: {
+                                Image(systemName: symbol)
+                                    .font(.system(size: 12))
+                                    .frame(width: 24, height: 22)
+                                    .background(model.readerMode == mode ? Color.white.opacity(0.12) : Color.clear,
+                                                in: RoundedRectangle(cornerRadius: 4))
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(model.readerMode == mode ? VSCodeTheme.foreground : VSCodeTheme.inactiveForeground)
+                            .help(title)
+                            .accessibilityLabel(title)
+                            .accessibilityAddTraits(model.readerMode == mode ? .isSelected : [])
+                            .accessibilityIdentifier("files.readerMode.\(mode)")
+                        }
+                    }
+                    .accessibilityIdentifier("files.readerMode.picker")
+                }
+                if canEdit {
+                    readerActionButton("square.and.arrow.down", help: "Save (Command-S)", enabled: model.isDirty) { model.save() }
+                        .keyboardShortcut("s", modifiers: .command)
+                        .accessibilityLabel("Save file")
+                        .accessibilityIdentifier("files.save.button")
+                    readerActionButton("arrow.uturn.backward", help: "Discard unsaved changes (Command-Delete)", enabled: model.isDirty) { confirmDiscard = true }
+                        .keyboardShortcut(.delete, modifiers: .command)
+                        .accessibilityLabel("Discard unsaved changes")
+                        .accessibilityIdentifier("files.discard.button")
+                }
+            }
+        }
+        return ViewThatFits(in: .horizontal) {
+            group(showSync: true)
+            group(showSync: false)
+        }
+        .fixedSize()
     }
 
     private func openTab(_ entry: FileEntry) -> some View {
@@ -2767,6 +2606,8 @@ struct FilesSurfaceRoot: View {
                 }
                 .frame(width: 20, height: 20)
                 .background(closeHovered ? Color.white.opacity(0.1) : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+                .frame(width: 28, height: 35) // vscode: 28px close slot
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .onHover { inside in
@@ -2780,7 +2621,7 @@ struct FilesSurfaceRoot: View {
             .accessibilityLabel(isDirty ? "Close \(entry.name), Unsaved changes" : "Close \(entry.name)")
             .accessibilityIdentifier("files.tab.close.\(entry.relativePath)")
         }
-        .padding(.horizontal, 10)
+        .padding(.leading, 10) // vscode: tab padding-left 10
         .frame(minWidth: 80, minHeight: 35, maxHeight: 35)
         .foregroundStyle(isActive ? Color.white : VSCodeTheme.inactiveForeground)
         .background(isActive ? VSCodeTheme.activeTab : VSCodeTheme.inactiveTab)
@@ -2806,100 +2647,46 @@ struct FilesSurfaceRoot: View {
         .accessibilityIdentifier("files.tab.\(entry.relativePath)")
     }
 
-    /// Breadcrumb bar above the editor with the reader controls on the right.
-    private var readerHeader: some View {
-        HStack(spacing: 8) {
-            if !sidebarVisible {
-                DSIconButton("sidebar.left", help: "Show file sidebar") {
-                    sidebarIntent = .forcedVisible
-                    sidebarVisible = true
-                }
-                .accessibilityLabel("Show file sidebar")
-            }
-            breadcrumbPath
-            Spacer(minLength: 8)
-            if model.isDirty {
-                Label("Unsaved", systemImage: "circle.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(DS.Palette.warning)
-            }
-            Text(model.syncLabel)
-                .font(.system(size: 11))
-                .foregroundStyle(VSCodeTheme.inactiveForeground)
-                .help(model.syncDetail)
-                .accessibilityIdentifier("files.sync.label")
-            Picker("", selection: $model.readerMode) {
-                Text("Source").tag("source")
-                Text("Preview").tag("preview")
-                Text("Split").tag("split")
-            }
-            .pickerStyle(.segmented)
-            .controlSize(.small)
-            .frame(width: 150)
-            .onChange(of: model.readerMode) { newValue in model.setReaderMode(newValue) }
-            .accessibilityIdentifier("files.readerMode.picker")
-            // UX-P3: visible text labels so the Save/Discard affordance is legible
-            // without relying on the tooltip or icon recognition alone.
-            Button { model.save() } label: {
-                HStack(spacing: 4) {
-                    DisketteIcon()
-                        .frame(width: 12, height: 12)
-                    Text("Save")
-                        .font(.system(size: 11, weight: .semibold))
-                }
-            }
-            .help("Save (Command-S)")
-            .keyboardShortcut("s", modifiers: .command)
-            .disabled(!model.isDirty)
-            .accessibilityLabel("Save file")
-            .accessibilityIdentifier("files.save.button")
-            Button { confirmDiscard = true } label: {
-                Label("Discard", systemImage: "arrow.uturn.backward")
-                    .font(.system(size: 11, weight: .semibold))
-            }
-            // UX-P3: keyboard shortcut for discard so keyboard users can trigger
-            // the confirm dialog without reaching for the mouse.
-            .help("Discard unsaved changes (Command-Delete)")
-            .keyboardShortcut(.delete, modifiers: .command)
-            .disabled(!model.isDirty)
-            .accessibilityLabel("Discard unsaved changes")
-            .accessibilityIdentifier("files.discard.button")
-        }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 8)
-        .frame(height: 22)
-        .background(VSCodeTheme.editorBackground)
-    }
-
-    /// Path segments of the selected file, shown as the editor breadcrumb.
-    private var breadcrumbPath: some View {
+    /// One 22px breadcrumb row. vscode: breadcrumbscontrol.css — 13px, `›` separators, file icon on the last segment.
+    private var breadcrumbRow: some View {
         let segments = (model.selectedEntry?.relativePath ?? "").split(separator: "/").map(String.init)
         return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                if segments.isEmpty {
-                    Text("No file selected")
-                        .foregroundStyle(VSCodeTheme.inactiveForeground)
-                }
+            HStack(spacing: 2) {
                 ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
                     let isLast = index == segments.count - 1
                     if index > 0 {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9))
+                        Text("›")
+                            .font(.system(size: 13))
                             .foregroundStyle(VSCodeTheme.inactiveForeground)
                     }
-                    if isLast, let entry = model.selectedEntry {
-                        Image(systemName: entry.icon)
-                            .font(.system(size: 12))
-                            .foregroundStyle(VSCodeTheme.color(fileIconColorHex(for: entry.name)))
+                    HStack(spacing: 4) {
+                        if isLast, let entry = model.selectedEntry {
+                            Image(systemName: entry.icon)
+                                .font(.system(size: 12))
+                                .foregroundStyle(VSCodeTheme.color(fileIconColorHex(for: entry.name)))
+                        }
+                        Text(segment)
+                            .font(.system(size: 13))
+                            .foregroundStyle(isLast ? VSCodeTheme.foreground : VSCodeTheme.color(0xA9A9A9))
                     }
-                    Text(segment)
-                        .foregroundStyle(isLast ? VSCodeTheme.foreground : VSCodeTheme.inactiveForeground)
+                    .padding(.horizontal, 3)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        // Reveal the folder (or the file itself for the last segment) in the explorer.
+                        let target = segments[0...index].joined(separator: "/")
+                        model.reveal(relativePath: target)
+                    }
+                    .help(isLast ? segment : "Reveal \(segment) in the explorer")
+                    .accessibilityAddTraits(.isButton)
                 }
             }
-            .font(.system(size: 12))
+            .padding(.horizontal, 8)
             .lineLimit(1)
         }
         .frame(height: 22)
+        .background(VSCodeTheme.editorBackground)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(segments.joined(separator: " › "))
         .accessibilityIdentifier("files.editor.breadcrumbs")
     }
 
@@ -3010,61 +2797,6 @@ struct FilesSurfaceRoot: View {
         }
     }
 
-    private func treeRow<Disclosure: View>(
-        icon: String,
-        iconColor: Color,
-        name: String,
-        depth: Int,
-        active: Bool = false,
-        focused: Bool = false,
-        hovered: Bool = false,
-        dirty: Bool = false,
-        dirtyPath: String? = nil,
-        @ViewBuilder disclosure: () -> Disclosure
-    ) -> some View {
-        let fill: Color = focused ? VSCodeTheme.listFocusedSelection
-            : active ? VSCodeTheme.listActiveSelection
-            : hovered ? VSCodeTheme.listHover
-            : .clear
-        return HStack(spacing: 0) {
-            Spacer().frame(width: 8)
-            ForEach(0..<depth, id: \.self) { _ in
-                Rectangle()
-                    .fill(VSCodeTheme.indentGuide.opacity(0.4))
-                    .frame(width: 1, height: 22)
-                    .frame(width: 8, height: 22)
-            }
-            disclosure()
-            Image(systemName: icon)
-                .font(.system(size: 14))
-                .foregroundStyle(iconColor)
-                .frame(width: 16, height: 22)
-            Text(name)
-                .font(.system(size: 13))
-                .lineLimit(1)
-                .foregroundStyle(dirty ? VSCodeTheme.modifiedText : VSCodeTheme.foreground)
-                .padding(.leading, 4)
-            Spacer(minLength: 4)
-            if dirty {
-                Circle()
-                    .fill(VSCodeTheme.dirty)
-                    .frame(width: 8, height: 8)
-                    .padding(.trailing, 8)
-                    .accessibilityLabel("Unsaved changes")
-                    .accessibilityIdentifier("files.dirtyDot.\(dirtyPath ?? "")")
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 22)
-        .background(fill)
-        .overlay {
-            if focused {
-                Rectangle().stroke(VSCodeTheme.focusBorder, lineWidth: 1)
-            }
-        }
-        .contentShape(Rectangle())
-    }
-
     /// Bottom status bar: branch and workspace on the left, editor state on the right.
     private var statusBar: some View {
         let entry = model.selectedEntry
@@ -3081,8 +2813,10 @@ struct FilesSurfaceRoot: View {
                 Text("Ln \(model.caretLine), Col \(model.caretColumn)")
                     .accessibilityIdentifier("files.status.cursor")
                 Text("Spaces: 4")
-                Text("UTF-8")
-                Text("LF")
+                Text(model.encodingLabel)
+                    .accessibilityIdentifier("files.status.encoding")
+                Text(model.lineEnding)
+                    .accessibilityIdentifier("files.status.lineEnding")
                 Text(languageDisplayName(entry?.language))
                     .accessibilityIdentifier("files.status.language")
                 HStack(spacing: 3) {
@@ -3538,7 +3272,7 @@ private struct WebFileView: NSViewRepresentable {
     }
 }
 
-private struct CodeTextEditor: NSViewRepresentable {
+struct CodeTextEditor: NSViewRepresentable {
     @Binding var text: String
     let language: String?
     let filePath: String
@@ -3558,13 +3292,9 @@ private struct CodeTextEditor: NSViewRepresentable {
         let textView = CodeEditorTextView()
         textView.configureForEditing()
         textView.delegate = context.coordinator
-        textView.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         let palette = EditorColorPalette.resolve(isDark: NSApp.effectiveAppearance.isDark)
-        textView.backgroundColor = palette.background
-        textView.textColor = palette.text
-        textView.insertionPointColor = palette.insertionPoint
+        textView.applyEditorStyle(palette)
         context.coordinator.currentPalette = palette
-        textView.textContainerInset = NSSize(width: 12, height: 12)
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -3607,10 +3337,12 @@ private struct CodeTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView ?? scroll.documentView as? NSTextView else { return }
+        let languageChanged = context.coordinator.language != language
         context.coordinator.language = language
         context.coordinator.filePath = filePath
         context.coordinator.inlineProvider = inlineCompletionProvider
         (textView as? CodeEditorTextView)?.language = language
+        if languageChanged, textView.string == text { context.coordinator.applyHighlight(to: textView) }
         if absolutePath != context.coordinator.absolutePath || rootPath != context.coordinator.rootPath {
             context.coordinator.absolutePath = absolutePath
             context.coordinator.rootPath = rootPath
@@ -3620,9 +3352,7 @@ private struct CodeTextEditor: NSViewRepresentable {
         let newPalette = EditorColorPalette.resolve(isDark: NSApp.effectiveAppearance.isDark)
         if newPalette != context.coordinator.currentPalette {
             context.coordinator.currentPalette = newPalette
-            textView.backgroundColor = newPalette.background
-            textView.textColor = newPalette.text
-            textView.insertionPointColor = newPalette.insertionPoint
+            (textView as? CodeEditorTextView)?.applyEditorStyle(newPalette)
             context.coordinator.lineNumberRuler?.currentPalette = newPalette
             context.coordinator.applyHighlight(to: textView)
             return
@@ -3694,6 +3424,14 @@ private struct CodeTextEditor: NSViewRepresentable {
         deinit {
             inlineTask?.cancel()
             inlineDebounceTimer?.invalidate()
+        }
+
+        /// New-text range of the edit about to happen, consumed by `highlightEditedRange`.
+        private var pendingEdit: NSRange?
+
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            pendingEdit = NSRange(location: affectedCharRange.location, length: (replacementString as NSString?)?.length ?? 0)
+            return true
         }
 
         func textDidChange(_ notification: Notification) {
@@ -4033,52 +3771,50 @@ private struct CodeTextEditor: NSViewRepresentable {
 
         /// Re-highlight only the paragraph(s) touched by the last edit instead of the whole
         /// document, keeping per-keystroke cost bounded for large files (PERF-MAC_FILES-001).
+        /// Attribute-only storage edits: no undo entry, selection and marked text stay untouched.
         private func highlightEditedRange(in textView: NSTextView) {
-            guard !applyingHighlight, let storage = textView.textStorage else { return }
+            guard !applyingHighlight, !textView.hasMarkedText(), let storage = textView.textStorage else { return }
             applyingHighlight = true
             defer { applyingHighlight = false }
             let nsText = storage.string as NSString
-            let edited = storage.editedRange.location == NSNotFound
-                ? NSRange(location: 0, length: nsText.length)
-                : storage.editedRange
+            // Edited range recorded in `shouldChangeTextIn`; otherwise the caret's paragraph, never the whole document.
+            let edited = pendingEdit ?? textView.selectedRange()
+            pendingEdit = nil
             let clampedLocation = min(edited.location, nsText.length)
-            let safeEdited = NSRange(location: clampedLocation,
-                                     length: min(edited.length, nsText.length - clampedLocation))
-            let paragraphRange = nsText.paragraphRange(for: safeEdited)
-            let baseAttrs = codeBaseAttributes(for: currentPalette)
-            storage.beginEditing()
-            storage.setAttributes(baseAttrs, range: paragraphRange)
-            nsText.enumerateSubstrings(in: paragraphRange, options: [.byLines, .substringNotRequired]) { _, range, _, _ in
-                let lineText = nsText.substring(with: range)
-                applyHighlightSpans(highlightCodeLine(lineText), lineRange: range, to: storage)
+            var target = NSRange(location: clampedLocation, length: min(edited.length, nsText.length - clampedLocation))
+            let paragraph = nsText.paragraphRange(for: target)
+            let line = nsText.substring(with: paragraph)
+            // A block-comment delimiter changes the color of the lines after it.
+            if line.contains("/*") || line.contains("*/") || line.contains("<!--") || line.contains("-->") || line.contains("```") {
+                let end = min(nsText.length, NSMaxRange(paragraph) + SyntaxHighlighter.contextLimit)
+                target = NSRange(location: paragraph.location, length: end - paragraph.location)
             }
+            storage.beginEditing()
+            SyntaxHighlighter.highlight(storage, range: target, language: language, palette: currentPalette, resetBase: true)
             storage.endEditing()
             (textView as? CodeEditorTextView)?.reapplyDiagnostics()
         }
 
+        /// Full pass for load and appearance changes. Rewrites attributes in place, so the text,
+        /// selection, scroll position and undo stack are never replaced.
         func applyHighlight(to textView: NSTextView) {
-            guard !applyingHighlight else { return }
+            guard !applyingHighlight, !textView.hasMarkedText(), let storage = textView.textStorage else { return }
             applyingHighlight = true
-            let selectedRanges = textView.selectedRanges
-            let scrollOrigin = textView.enclosingScrollView?.contentView.bounds.origin
-            let text = textView.string
-            let attributed = highlightedCodeAttributedString(text, palette: currentPalette)
-            textView.textStorage?.setAttributedString(attributed)
-            textView.selectedRanges = selectedRanges
-            if let scrollOrigin {
-                textView.enclosingScrollView?.contentView.scroll(to: scrollOrigin)
-                textView.enclosingScrollView?.reflectScrolledClipView(textView.enclosingScrollView!.contentView)
-            }
+            defer { applyingHighlight = false }
+            storage.beginEditing()
+            let full = NSRange(location: 0, length: storage.length)
+            storage.setAttributes(codeBaseAttributes(for: currentPalette), range: full)
+            SyntaxHighlighter.highlight(storage, range: full, language: language, palette: currentPalette)
+            storage.endEditing()
             (textView as? CodeEditorTextView)?.reapplyDiagnostics()
             lineNumberRuler?.invalidateLineStartCache()
             lineNumberRuler?.needsDisplay = true
-            applyingHighlight = false
         }
 
         /// Re-highlight only the lines that changed between `oldText` and the current textView
         /// content (PERF-MAC_FILES-014). Never moves the selection or scroll offset.
         func applyHighlightIncremental(oldText: String, to textView: NSTextView) {
-            guard !applyingHighlight else { return }
+            guard !applyingHighlight, !textView.hasMarkedText() else { return }
             let ranges = changedLineRanges(oldText: oldText, newText: textView.string)
             guard !ranges.isEmpty else { return }
             let nsNew = textView.string as NSString
@@ -4090,14 +3826,9 @@ private struct CodeTextEditor: NSViewRepresentable {
             guard let storage = textView.textStorage else { return }
             applyingHighlight = true
             defer { applyingHighlight = false }
-            let baseAttrs = codeBaseAttributes(for: currentPalette)
             storage.beginEditing()
             for range in ranges {
-                storage.setAttributes(baseAttrs, range: range)
-                nsNew.enumerateSubstrings(in: range, options: [.byLines, .substringNotRequired]) { _, lineRange, _, _ in
-                    let lineText = nsNew.substring(with: lineRange)
-                    applyHighlightSpans(highlightCodeLine(lineText), lineRange: lineRange, to: storage)
-                }
+                SyntaxHighlighter.highlight(storage, range: range, language: language, palette: currentPalette, resetBase: true)
             }
             storage.endEditing()
             lineNumberRuler?.invalidateLineStartCache()
@@ -4143,7 +3874,160 @@ final class CodeEditorTextView: NSTextView {
     private lazy var hoverPanel = EditorHoverPanel()
     private static let ghostColor = NSColor(srgbRed: 0.8, green: 0.8, blue: 0.8, alpha: 0.45)
 
-    private var monoFont: NSFont { font ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular) }
+    private var monoFont: NSFont { font ?? EditorMetrics.font }
+
+    /// TextKit 2 stack so `textLayoutManager` stays non-nil. Any `layoutManager` access would
+    /// silently downgrade the view to TextKit 1, so this type never touches it.
+    convenience init() {
+        let content = NSTextContentStorage()
+        let layout = NSTextLayoutManager()
+        content.addTextLayoutManager(layout)
+        let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        layout.textContainer = container
+        self.init(frame: .zero, textContainer: container)
+    }
+
+    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+        super.init(frame: frameRect, textContainer: container)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    /// Matching bracket pair for the caret, drawn as boxes behind the text.
+    private(set) var bracketPair: (NSRange, NSRange)?
+    private var palette = EditorColorPalette.resolve(isDark: true)
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
+        refreshBracketPair()
+        needsDisplay = true
+    }
+
+    private func refreshBracketPair() {
+        let selection = selectedRange()
+        bracketPair = selection.length == 0
+            ? EditorBracketMatcher.pair(in: string as NSString, caret: selection.location) : nil
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        refreshBracketPair()
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        drawCurrentLineBox()
+        drawIndentGuides(in: rect)
+        drawBracketBoxes()
+    }
+
+    /// vscode: editorColorRegistry.ts editor.lineHighlightBorder — a 2px border box, not for selections.
+    private func drawCurrentLineBox() {
+        guard selectedRange().length == 0 else { return }
+        let ns = string as NSString
+        let caret = min(selectedRange().location, ns.length)
+        let paragraph = ns.paragraphRange(for: NSRange(location: min(caret, max(0, ns.length - 1)), length: 0))
+        var rects = ns.length == 0 || caret == ns.length && (ns.length == 0 || ns.character(at: ns.length - 1) == 0x0A)
+            ? [textKit2InsertionRect(at: caret)]
+            : textKit2SegmentRects(for: NSRange(location: paragraph.location, length: max(1, paragraph.length)))
+        guard let first = rects.first else { return }
+        rects = rects.map { $0 }
+        let top = first.minY
+        let bottom = rects.map(\.maxY).max() ?? first.maxY
+        let box = NSRect(x: 0, y: top, width: bounds.width, height: bottom - top)
+        palette.currentLineBorder.setStroke()
+        let path = NSBezierPath(rect: box.insetBy(dx: 1, dy: 1))
+        path.lineWidth = 2
+        path.stroke()
+    }
+
+    /// Indent guides for the visible lines: one 1px line per tab stop of leading whitespace.
+    /// vscode: dark_vs.json editorIndentGuide.background1 / activeBackground1.
+    private func drawIndentGuides(in rect: NSRect) {
+        guard let layout = textLayoutManager, let content = layout.textContentManager else { return }
+        let ns = string as NSString
+        let charWidth = ("0" as NSString).size(withAttributes: [.font: monoFont]).width
+        let step = charWidth * CGFloat(EditorMetrics.tabWidth)
+        let baseX = textContainerOrigin.x + (textContainer?.lineFragmentPadding ?? 0)
+        let docStart = content.documentRange.location
+        let startPoint = CGPoint(x: 0, y: max(0, rect.minY - textContainerOrigin.y))
+        let start = layout.textLayoutFragment(for: startPoint)?.rangeInElement.location ?? docStart
+        var lines: [(frame: NSRect, indent: Int)] = []
+        layout.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
+            let frame = fragment.layoutFragmentFrame.offsetBy(dx: 0, dy: self.textContainerOrigin.y)
+            if frame.minY > rect.maxY { return false }
+            let offset = content.offset(from: docStart, to: fragment.rangeInElement.location)
+            var columns = 0
+            var i = offset
+            while i < ns.length {
+                let c = ns.character(at: i)
+                if c == 0x20 { columns += 1 } else if c == 0x09 { columns += EditorMetrics.tabWidth - columns % EditorMetrics.tabWidth } else { break }
+                i += 1
+            }
+            let blank = i >= ns.length || ns.character(at: i) == 0x0A || ns.character(at: i) == 0x0D
+            lines.append((frame, blank ? -1 : columns))
+            return true
+        }
+        // Blank lines continue the guides of the surrounding code.
+        for index in lines.indices where lines[index].indent < 0 {
+            let before = lines[..<index].last(where: { $0.indent >= 0 })?.indent ?? 0
+            let after = lines[(index + 1)...].first(where: { $0.indent >= 0 })?.indent ?? 0
+            lines[index].indent = min(before, after)
+        }
+        let caretLine = lines.firstIndex { $0.frame.minY <= caretRect().midY && caretRect().midY < $0.frame.maxY }
+        var activeLevel = -1
+        var activeRange = 0..<0
+        if let caretLine {
+            let level = lines[caretLine].indent / EditorMetrics.tabWidth - 1
+            if level >= 0 {
+                activeLevel = level
+                var lo = caretLine, hi = caretLine
+                while lo > 0, lines[lo - 1].indent / EditorMetrics.tabWidth > level { lo -= 1 }
+                while hi + 1 < lines.count, lines[hi + 1].indent / EditorMetrics.tabWidth > level { hi += 1 }
+                activeRange = lo..<(hi + 1)
+            }
+        }
+        for (index, line) in lines.enumerated() {
+            for level in 0..<(line.indent / EditorMetrics.tabWidth) {
+                let isActive = level == activeLevel && activeRange.contains(index)
+                (isActive ? palette.indentGuideActive : palette.indentGuide).setFill()
+                NSRect(x: (baseX + CGFloat(level) * step).rounded(), y: line.frame.minY, width: 1, height: line.frame.height).fill()
+            }
+        }
+    }
+
+    /// vscode: editorColorRegistry.ts editorBracketMatch.background (#0064001a) / border (#888888).
+    private func drawBracketBoxes() {
+        guard let pair = bracketPair else { return }
+        for range in [pair.0, pair.1] {
+            guard let rect = textKit2SegmentRects(for: range).first else { continue }
+            editorHex(0x006400).withAlphaComponent(0x1A / 255.0).setFill()
+            rect.fill()
+            editorHex(0x888888).setStroke()
+            NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5)).stroke()
+        }
+    }
+
+    /// Dark Modern look: Menlo 12 on an 18pt line, small left padding next to the gutter.
+    func applyEditorStyle(_ palette: EditorColorPalette) {
+        font = EditorMetrics.font
+        defaultParagraphStyle = EditorMetrics.paragraphStyle
+        typingAttributes = [
+            .font: EditorMetrics.font,
+            .foregroundColor: palette.text,
+            .paragraphStyle: EditorMetrics.paragraphStyle,
+        ]
+        self.palette = palette
+        backgroundColor = palette.background
+        textColor = palette.text
+        insertionPointColor = palette.insertionPoint
+        selectedTextAttributes = [.backgroundColor: palette.selection]
+        textContainerInset = NSSize(width: 0, height: 0)
+        textContainer?.lineFragmentPadding = EditorMetrics.leftPadding
+        needsDisplay = true
+    }
 
     /// Code-editor behaviour shared by every mount: plain text, no smart
     /// substitutions, undo, and the native incremental find bar.
@@ -4245,14 +4129,107 @@ final class CodeEditorTextView: NSTextView {
     }
 
     private func caretRect(at index: Int) -> NSRect {
-        let origin = caretOrigin(at: index) ?? .zero
-        let height = layoutManager?.defaultLineHeight(for: monoFont) ?? 14
-        return NSRect(x: origin.x, y: origin.y, width: 1, height: height)
+        textKit2InsertionRect(at: index)
+    }
+
+    // MARK: Editing commands
+
+    /// Applies `edit` as one undo step and keeps TextKit 2 layout in sync.
+    func apply(_ edit: EditorEdit) {
+        undoManager?.beginUndoGrouping()
+        defer { undoManager?.endUndoGrouping() }
+        guard shouldChangeText(in: edit.range, replacementString: edit.replacement), let storage = textStorage else { return }
+        storage.replaceCharacters(in: edit.range, with: NSAttributedString(string: edit.replacement, attributes: typingAttributes))
+        setSelectedRange(edit.selection)
+        didChangeText()
+    }
+
+    /// Cmd+/ — language-aware line comment toggle.
+    func toggleLineComment() {
+        guard let edit = EditorCommands.toggleComment(text: string as NSString, selection: selectedRange(), language: language) else { return }
+        apply(edit)
+    }
+
+    /// Moves the caret to the start of 1-based `line` (clamped) and scrolls it into view.
+    func goToLine(_ line: Int) {
+        let location = EditorCommands.lineStart(of: max(1, line), in: string as NSString)
+        setSelectedRange(NSRange(location: location, length: 0))
+        scrollRangeToVisible(NSRange(location: location, length: 0))
+    }
+
+    /// Ctrl+G — small prompt for a line number.
+    func promptGoToLine() {
+        let alert = NSAlert()
+        alert.messageText = "Go to Line"
+        alert.informativeText = "Enter a line number."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        field.placeholderString = "Line"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Go")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .alertFirstButtonReturn, let line = Int(field.stringValue.trimmingCharacters(in: .whitespaces)) else { return }
+            self?.goToLine(line)
+        }
+        if let window { alert.beginSheetModal(for: window, completionHandler: finish) } else { finish(alert.runModal()) }
+    }
+
+    override func insertNewline(_ sender: Any?) {
+        guard !hasMarkedText(), !suggest.isVisible else { super.insertNewline(sender); return }
+        var edit = EditorCommands.newline(text: string as NSString, selection: selectedRange(), language: language)
+        // Keep CRLF files CRLF: the first line break of the document decides.
+        if FilesViewModel.detectLineEnding(string) == "CRLF" {
+            let grown = edit.replacement.replacingOccurrences(of: "\n", with: "\r\n")
+            edit.selection.location += grown.utf16.count - edit.replacement.utf16.count
+            edit.replacement = grown
+        }
+        apply(edit)
+    }
+
+    override func insertTab(_ sender: Any?) {
+        guard !hasMarkedText() else { super.insertTab(sender); return }
+        apply(EditorCommands.tab(text: string as NSString, selection: selectedRange()))
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        apply(EditorCommands.backtab(text: string as NSString, selection: selectedRange()))
+    }
+
+    override func deleteBackward(_ sender: Any?) {
+        if !hasMarkedText(), let edit = EditorCommands.backspace(text: string as NSString, selection: selectedRange()) {
+            apply(edit)
+            return
+        }
+        super.deleteBackward(sender)
+    }
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        if !isAcceptingSuggestion, !hasMarkedText(), replacementRange.location == NSNotFound,
+           let typed = string as? String,
+           let edit = EditorCommands.typed(typed, text: self.string as NSString, selection: selectedRange()) {
+            apply(edit)
+            return
+        }
+        super.insertText(string, replacementRange: replacementRange)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
+        if flags == .command, event.charactersIgnoringModifiers == "/", window?.firstResponder === self {
+            toggleLineComment()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 
     override func keyDown(with event: NSEvent) {
         if suggest.isVisible, suggest.handleKeyDown(event) { return }
         let command = event.modifierFlags.contains(.command)
+        if event.keyCode == 5, event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.control), !command { // Ctrl+G
+            promptGoToLine()
+            return
+        }
         if event.keyCode == 49, event.modifierFlags.contains(.control) { // Ctrl+Space
             if suggest.isVisible {
                 suggest.toggleDetails()
@@ -4364,27 +4341,45 @@ final class CodeEditorTextView: NSTextView {
         reapplyDiagnostics()
     }
 
-    /// Temporary attributes do not survive every storage edit, so highlight passes call this again.
+    /// Recomputes diagnostic ranges against the current text and repaints. Squiggles are drawn in
+    /// `draw(_:)` from TextKit 2 segment frames, so storage edits cannot drop them.
     func reapplyDiagnostics() {
-        guard let layoutManager else { return }
         guard !lastDiagnostics.isEmpty || !diagnostics.isEmpty else { return }
         let text = string
         let length = (text as NSString).length
-        let full = NSRange(location: 0, length: length)
-        layoutManager.removeTemporaryAttribute(.underlineStyle, forCharacterRange: full)
-        layoutManager.removeTemporaryAttribute(.underlineColor, forCharacterRange: full)
         diagnostics = []
         let lineStarts = buildLineStartOffsets(text: text)
         for item in lastDiagnostics {
-            guard let color = Self.underlineColor(forSeverity: item.severity) else { continue }
+            guard Self.underlineColor(forSeverity: item.severity) != nil else { continue }
             var range = diagnosticNSRange(item.range, lineStarts: lineStarts, length: length)
             if range.length == 0 { range.length = min(1, length - range.location) }
             guard range.length > 0 else { continue }
             diagnostics.append((range, item))
-            layoutManager.addTemporaryAttributes([
-                .underlineStyle: NSUnderlineStyle.single.rawValue | NSUnderlineStyle.patternDot.rawValue,
-                .underlineColor: color,
-            ], forCharacterRange: range)
+        }
+        needsDisplay = true
+    }
+
+    /// Dotted-underline rectangles (text-view coordinates) for each painted diagnostic.
+    func diagnosticUnderlineRects() -> [(rect: NSRect, color: NSColor)] {
+        var result: [(NSRect, NSColor)] = []
+        for (range, item) in diagnostics {
+            guard let color = Self.underlineColor(forSeverity: item.severity) else { continue }
+            for rect in textKit2SegmentRects(for: range) {
+                result.append((NSRect(x: rect.minX, y: rect.maxY - 3, width: rect.width, height: 2), color))
+            }
+        }
+        return result
+    }
+
+    private func drawDiagnosticUnderlines(in dirtyRect: NSRect) {
+        for (rect, color) in diagnosticUnderlineRects() where rect.intersects(dirtyRect) {
+            color.setStroke()
+            let path = NSBezierPath()
+            path.lineWidth = 1
+            path.setLineDash([2, 2], count: 2, phase: 0)
+            path.move(to: NSPoint(x: rect.minX, y: rect.midY))
+            path.line(to: NSPoint(x: rect.maxX, y: rect.midY))
+            path.stroke()
         }
     }
 
@@ -4399,14 +4394,15 @@ final class CodeEditorTextView: NSTextView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        drawDiagnosticUnderlines(in: dirtyRect)
         guard let ghostText, let origin = caretOrigin(at: ghostCaret) else { return }
         let parts = GhostTextLayout.split(ghostText)
         let attrs: [NSAttributedString.Key: Any] = [.font: monoFont, .foregroundColor: Self.ghostColor]
         if !parts.inline.isEmpty {
             (parts.inline as NSString).draw(at: origin, withAttributes: attrs)
         }
-        guard let layoutManager, !parts.lines.isEmpty else { return }
-        let lineHeight = layoutManager.defaultLineHeight(for: monoFont)
+        guard !parts.lines.isEmpty else { return }
+        let lineHeight = EditorMetrics.lineHeight
         let x = textContainerOrigin.x
         let width = max(0, visibleRect.maxX - x)
         var y = origin.y + lineHeight
@@ -4419,24 +4415,8 @@ final class CodeEditorTextView: NSTextView {
     }
 
     private func caretOrigin(at index: Int) -> NSPoint? {
-        guard let layoutManager, let textContainer else { return nil }
-        let ns = string as NSString
-        let caret = max(0, min(index, ns.length))
-        let inset = textContainerOrigin
-        if caret < ns.length {
-            let glyph = layoutManager.glyphIndexForCharacter(at: caret)
-            guard glyph < layoutManager.numberOfGlyphs else { return nil }
-            let rect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: textContainer)
-            return NSPoint(x: rect.minX + inset.x, y: rect.minY + inset.y)
-        }
-        if ns.length > 0 {
-            let glyph = layoutManager.glyphIndexForCharacter(at: ns.length - 1)
-            guard glyph < layoutManager.numberOfGlyphs else { return nil }
-            let rect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: textContainer)
-            return NSPoint(x: rect.maxX + inset.x, y: rect.minY + inset.y)
-        }
-        let rect = layoutManager.extraLineFragmentRect
-        return NSPoint(x: rect.minX + inset.x, y: rect.minY + inset.y)
+        let rect = textKit2InsertionRect(at: index)
+        return NSPoint(x: rect.minX, y: rect.minY)
     }
 }
 
@@ -4569,103 +4549,10 @@ nonisolated func lineIndex(forCharOffset charOffset: Int, in offsets: [Int]) -> 
     return max(0, lo - 1)
 }
 
-private final class CodeLineNumberRulerView: NSRulerView {
-    private weak var textView: NSTextView?
-    private var lastVisibleGlyphRange = NSRange(location: NSNotFound, length: 0)
-    /// Mutable so `updateNSView` can push a new palette when appearance changes.
-    var currentPalette: EditorColorPalette = EditorColorPalette.resolve(isDark: true) {
-        didSet { needsDisplay = true }
-    }
-    /// Cached line-start offsets (UTF-16) rebuilt whenever the document text changes.
-    /// Allows O(log n) first-visible-line lookup instead of O(document) substring+filter.
-    private var cachedLineStartOffsets: [Int] = []
-    private var cachedOffsetText: String = ""
-
-    private var lineNumberAttributes: [NSAttributedString.Key: Any] {
-        [.font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
-         .foregroundColor: currentPalette.lineNumberText]
-    }
-
-    init(textView: NSTextView) {
-        self.textView = textView
-        super.init(scrollView: textView.enclosingScrollView, orientation: .verticalRuler)
-        clientView = textView
-        ruleThickness = 46
-        NotificationCenter.default.addObserver(self, selector: #selector(boundsChanged), name: NSView.boundsDidChangeNotification, object: textView.enclosingScrollView?.contentView)
-        textView.enclosingScrollView?.contentView.postsBoundsChangedNotifications = true
-        // Build initial index so the first paint doesn't fall back to O(document) scan.
-        invalidateLineStartCache()
-    }
-
-    required init(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    /// Rebuild the line-start offset cache from the current textView string.
-    /// Must be called whenever the document text changes (keystroke, remote patch, file load).
-    /// O(n) rebuild cost is paid once per edit; subsequent scroll paints are O(log n).
-    func invalidateLineStartCache() {
-        let text = textView?.string ?? ""
-        guard text != cachedOffsetText else { return }
-        cachedLineStartOffsets = buildLineStartOffsets(text: text)
-        cachedOffsetText = text
-    }
-
-    // Coalesce scroll-driven redraws: only repaint when the set of visible lines actually changes,
-    // not on every bounds tick (e.g. horizontal scroll, sub-pixel jitter) (PERF-MAC_FILES-012).
-    @objc private func boundsChanged() {
-        guard let textView,
-              let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer,
-              let clipView = textView.enclosingScrollView?.contentView else {
-            needsDisplay = true
-            return
-        }
-        let glyphRange = layoutManager.glyphRange(forBoundingRect: clipView.bounds, in: textContainer)
-        guard !NSEqualRanges(glyphRange, lastVisibleGlyphRange) else { return }
-        lastVisibleGlyphRange = glyphRange
-        needsDisplay = true
-    }
-
-    override func drawHashMarksAndLabels(in rect: NSRect) {
-        guard let textView,
-              let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer,
-              let clipView = textView.enclosingScrollView?.contentView else { return }
-        currentPalette.lineNumberBackground.setFill()
-        bounds.fill()
-
-        let attrs = lineNumberAttributes
-        let visibleRect = clipView.bounds
-        let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
-        guard glyphRange.location < layoutManager.numberOfGlyphs else { return }
-        let firstCharIndex = layoutManager.characterIndexForGlyph(at: glyphRange.location)
-        // O(log n): binary-search the cached line-start offsets instead of scanning the document.
-        // Falls back to 0 (line 1) when the cache is empty (stale between init and first invalidation).
-        let offsets = cachedLineStartOffsets.isEmpty ? buildLineStartOffsets(text: textView.string) : cachedLineStartOffsets
-        var lineNumber = lineIndex(forCharOffset: firstCharIndex, in: offsets) + 1
-        var glyphIndex = glyphRange.location
-        while glyphIndex < NSMaxRange(glyphRange) {
-            var lineRange = NSRange()
-            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &lineRange, withoutAdditionalLayout: true)
-            let y = lineRect.minY + textView.textContainerOrigin.y - visibleRect.minY
-            let value = "\(lineNumber)" as NSString
-            let size = value.size(withAttributes: attrs)
-            value.draw(at: NSPoint(x: ruleThickness - size.width - 8, y: y + 1), withAttributes: attrs)
-            glyphIndex = NSMaxRange(lineRange)
-            lineNumber += 1
-        }
-    }
-}
-
 private func highlightedHTML(text: String, language: String?) -> String {
     let html = text
         .components(separatedBy: "\n")
-        .map(highlightCodeLine)
+        .map { highlightCodeLine($0) }
         .joined(separator: "\n")
     let css = """
     body { margin:0; background:#1e1e1e; color:#d4d4d4; font:12px ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -4687,27 +4574,19 @@ private func highlightedHTML(text: String, language: String?) -> String {
 
 /// Build NSAttributedString base attributes from a resolved palette so the editor and gutter
 /// use consistent colors when the appearance changes (P2).
-private func codeBaseAttributes(for palette: EditorColorPalette) -> [NSAttributedString.Key: Any] {
-    [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+func codeBaseAttributes(for palette: EditorColorPalette) -> [NSAttributedString.Key: Any] {
+    [.font: EditorMetrics.font,
      .foregroundColor: palette.text,
-     .backgroundColor: palette.background]
+     .paragraphStyle: EditorMetrics.paragraphStyle]
 }
 
-func highlightedCodeAttributedString(_ text: String, palette: EditorColorPalette) -> NSMutableAttributedString {
+func highlightedCodeAttributedString(_ text: String, palette: EditorColorPalette, language: String? = nil) -> NSMutableAttributedString {
     let attributed = NSMutableAttributedString(string: text, attributes: codeBaseAttributes(for: palette))
-    highlightCode(text, in: attributed)
+    SyntaxHighlighter.highlight(attributed, range: NSRange(location: 0, length: attributed.length), language: language, palette: palette)
     return attributed
 }
 
-private func highlightCode(_ text: String, in attributed: NSMutableAttributedString) {
-    let nsText = text as NSString
-    nsText.enumerateSubstrings(in: NSRange(location: 0, length: nsText.length), options: [.byLines, .substringNotRequired]) { _, range, _, _ in
-        let line = nsText.substring(with: range)
-        applyHighlightSpans(highlightCodeLine(line), lineRange: range, to: attributed)
-    }
-}
-
-private func applyHighlightSpans(_ html: String, lineRange: NSRange, to attributed: NSMutableAttributedString) {
+func applyHighlightSpans(_ html: String, lineRange: NSRange, to attributed: NSMutableAttributedString) {
     var sourceIndex = html.startIndex
     var plainOffset = 0
     var activeClass: String?
@@ -4750,33 +4629,41 @@ private func applyHighlightSpans(_ html: String, lineRange: NSRange, to attribut
     }
 }
 
-private func codeColor(for tokenClass: String) -> NSColor? {
+/// vscode: extensions/theme-defaults/themes/dark_plus.json / dark_vs.json token colors.
+func codeColor(for tokenClass: String) -> NSColor? {
     switch tokenClass {
-    case "comment": return NSColor(red: 0.42, green: 0.60, blue: 0.33, alpha: 1)
-    case "kw", "tag": return NSColor(red: 0.34, green: 0.61, blue: 0.84, alpha: 1)
-    case "control": return NSColor(red: 0.77, green: 0.53, blue: 0.75, alpha: 1)
-    case "type": return NSColor(red: 0.31, green: 0.79, blue: 0.69, alpha: 1)
-    case "str": return NSColor(red: 0.81, green: 0.57, blue: 0.47, alpha: 1)
-    case "num": return NSColor(red: 0.71, green: 0.81, blue: 0.66, alpha: 1)
-    case "attr", "prop": return NSColor(red: 0.61, green: 0.86, blue: 1.0, alpha: 1)
-    case "selector": return NSColor(red: 0.84, green: 0.73, blue: 0.49, alpha: 1)
-    case "punct": return NSColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1)
+    case "comment": return editorHex(0x6A9955)
+    case "kw", "tag": return editorHex(0x569CD6)
+    case "control": return editorHex(0xC586C0)
+    case "type": return editorHex(0x4EC9B0)
+    case "str": return editorHex(0xCE9178)
+    case "num": return editorHex(0xB5CEA8)
+    case "attr", "prop": return editorHex(0x9CDCFE)
+    case "selector": return editorHex(0xD7BA7D)
+    case "fn": return editorHex(0xDCDCAA)
+    case "heading": return editorHex(0x569CD6)
+    case "punct": return editorHex(0x808080)
     default: return nil
     }
 }
 
-private let codeKeywords = Set(["class", "struct", "enum", "func", "let", "var", "import", "public", "private", "final", "async", "await", "throws", "try", "catch", "do", "in", "extension", "protocol", "init", "self", "static", "const", "function", "def", "from", "as", "nil", "null", "true", "false"])
-private let controlKeywords = Set(["return", "if", "else", "for", "while", "guard", "case", "switch", "break", "continue", "throw"])
+let codeKeywords = Set(["class", "struct", "enum", "func", "let", "var", "public", "private", "internal", "fileprivate", "open", "final", "async", "throws", "extension", "protocol", "init", "self", "super", "static", "const", "function", "def", "as", "nil", "null", "undefined", "true", "false", "in", "is", "typealias", "where", "some", "any", "override", "mutating", "lazy", "weak", "interface", "type", "new", "typeof", "extends", "implements", "this", "void", "readonly", "abstract", "package", "namespace", "instanceof", "delete"])
+let controlKeywords = Set(["return", "if", "else", "for", "while", "guard", "case", "switch", "break", "continue", "throw", "try", "catch", "do", "import", "from", "export", "default", "await", "yield", "defer", "repeat", "finally", "elif", "raise", "except", "with", "pass"])
+let pythonKeywords = Set(["lambda", "None", "True", "False", "and", "or", "not", "global", "nonlocal", "del", "assert"])
 
-private func highlightCodeLine(_ line: String) -> String {
+func highlightCodeLine(_ line: String, language: String? = nil) -> String {
     let trimmed = line.trimmingCharacters(in: .whitespaces)
-    if trimmed.hasPrefix("<") {
+    let lang = (language ?? "").lowercased()
+    // The markup/style line heuristics only apply where they make sense; `{` in Swift or JS is code.
+    let markupLanguages: Set<String> = ["", "html", "xml", "svg", "vue", "markdown"]
+    let styleLanguages: Set<String> = ["", "css", "scss", "less"]
+    if trimmed.hasPrefix("<"), markupLanguages.contains(lang) {
         return highlightMarkupLine(line)
     }
-    if looksLikeStyleLine(line) {
+    if styleLanguages.contains(lang), looksLikeStyleLine(line) {
         return highlightStyleLine(line)
     }
-    return highlightGeneralLine(line, hashStartsComment: true)
+    return highlightGeneralLine(line, hash: hashComment(for: language), language: language)
 }
 
 private func highlightMarkupLine(_ line: String) -> String {
@@ -4849,62 +4736,90 @@ private func highlightStyleLine(_ line: String) -> String {
     if let colon = line.firstIndex(of: ":") {
         let before = String(line[..<colon])
         let after = String(line[line.index(after: colon)...])
-        return "<span class=\"prop\">\(htmlEscape(before))</span><span class=\"punct\">:</span>\(highlightGeneralLine(after, hashStartsComment: false))"
+        return "<span class=\"prop\">\(htmlEscape(before))</span><span class=\"punct\">:</span>\(highlightGeneralLine(after, hash: .none))"
     }
-    return highlightGeneralLine(line, hashStartsComment: false)
+    return highlightGeneralLine(line, hash: .none)
 }
 
-private func highlightGeneralLine(_ line: String, hashStartsComment: Bool) -> String {
+enum HashComment { case none, lineStart, anywhere }
+
+/// `#` starts a comment anywhere in scripting languages, only at line start for unknown files
+/// (the long-standing default), and never in C-family languages.
+func hashComment(for language: String?) -> HashComment {
+    switch (language ?? "").lowercased() {
+    case "python", "shell script", "shellscript", "shell", "bash", "zsh", "sh", "yaml", "yml", "ruby", "toml", "makefile", "dockerfile": return .anywhere
+    case "swift", "javascript", "typescript", "json", "css", "html", "c", "cpp", "java", "go", "rust": return .none
+    default: return .lineStart
+    }
+}
+
+private func highlightGeneralLine(_ line: String, hash: HashComment, language: String? = nil) -> String {
+    let lang = (language ?? "").lowercased()
+    let isPython = lang == "python"
+    let isJSON = lang == "json"
     var output = ""
     var index = line.startIndex
     var sawNonWhitespace = false
+    var previous: Character?
 
     while index < line.endIndex {
         let char = line[index]
         let next = line.index(after: index)
-        if char == "/" && next < line.endIndex && line[next] == "/" {
+        if char == "/" && next < line.endIndex && line[next] == "/" && lang != "python" {
             output += "<span class=\"comment\">\(htmlEscape(String(line[index...])))</span>"
             break
         }
-        if hashStartsComment, char == "#" && !sawNonWhitespace {
+        if char == "#" && (hash == .anywhere || (hash == .lineStart && !sawNonWhitespace)) {
             output += "<span class=\"comment\">\(htmlEscape(String(line[index...])))</span>"
             break
         }
-        if char == "\"" || char == "'" {
+        if char == "\"" || char == "'" || char == "`" {
             let end = stringEnd(in: line, from: index, quote: char)
-            output += "<span class=\"str\">\(htmlEscape(String(line[index..<end])))</span>"
+            // vscode: JSON property names use the property color.
+            let rest = line[end...].drop(while: { $0 == " " || $0 == "\t" })
+            let cls = isJSON && char == "\"" && rest.first == ":" ? "prop" : "str"
+            output += "<span class=\"\(cls)\">\(htmlEscape(String(line[index..<end])))</span>"
             index = end
             sawNonWhitespace = true
+            previous = "\""
             continue
         }
         if isIdentifierStart(char) {
             let end = scanIdentifier(in: line, from: index)
             let word = String(line[index..<end])
+            let isCall = end < line.endIndex && line[end] == "("
             if controlKeywords.contains(word) {
                 output += "<span class=\"control\">\(word)</span>"
-            } else if codeKeywords.contains(word) {
+            } else if codeKeywords.contains(word) || (isPython && pythonKeywords.contains(word)) {
                 output += "<span class=\"kw\">\(word)</span>"
             } else if word.first?.isUppercase == true {
                 output += "<span class=\"type\">\(word)</span>"
+            } else if isCall {
+                output += "<span class=\"fn\">\(word)</span>"
+            } else if previous == "." {
+                output += "<span class=\"prop\">\(word)</span>"
             } else {
                 output += htmlEscape(word)
             }
             index = end
             sawNonWhitespace = true
+            previous = "a"
             continue
         }
         if char.isNumber {
             var end = next
-            while end < line.endIndex && (line[end].isNumber || line[end] == "." || line[end] == "_") {
+            let isHex = char == "0" && end < line.endIndex && (line[end] == "x" || line[end] == "X")
+            while end < line.endIndex && (line[end].isNumber || line[end] == "." || line[end] == "_" || (isHex && (line[end].isHexDigit || line[end] == "x" || line[end] == "X"))) {
                 end = line.index(after: end)
             }
             output += "<span class=\"num\">\(htmlEscape(String(line[index..<end])))</span>"
             index = end
             sawNonWhitespace = true
+            previous = "0"
             continue
         }
         output += htmlEscape(String(char))
-        if !char.isWhitespace { sawNonWhitespace = true }
+        if !char.isWhitespace { sawNonWhitespace = true; previous = char }
         index = next
     }
     return output

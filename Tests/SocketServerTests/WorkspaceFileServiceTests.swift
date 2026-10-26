@@ -209,6 +209,36 @@ final class WorkspaceFileServiceTests: XCTestCase {
                              "save conflict checks must not read an externally-grown file without the edit size cap")
     }
 
+    /// WHY: the editor sends minimal patches over the decoded text; saving must not turn CRLF into LF
+    /// or drop the UTF-16 BOM, otherwise every save silently rewrites the whole file.
+    func testSavePreservesCRLFLineEndingsAndUTF16BOM() throws {
+        let crlf = root.appendingPathComponent("win.txt")
+        try Data("one\r\ntwo\r\nthree".utf8).write(to: crlf)
+        let utf16 = root.appendingPathComponent("wide.txt")
+        var wide = Data([0xFF, 0xFE])
+        wide.append("a\r\nb".data(using: .utf16LittleEndian)!)
+        try wide.write(to: utf16)
+
+        func editAndSave(_ name: String, location: Int, replacement: String) throws -> (encoding: String?, content: String?) {
+            let opened = try FileEditSessionStore.shared.open(surfaceID: SurfaceID(), workspaceID: WorkspaceID(), root: root.path, path: name)
+            let id = try XCTUnwrap(opened.objectValue?["session_id"]?.stringValue)
+            defer { _ = try? FileEditSessionStore.shared.close(sessionID: id) }
+            let revision = try XCTUnwrap(opened.objectValue?["draft_revision"]?.intValue)
+            _ = try FileEditSessionStore.shared.applyPatch(sessionID: id, baseDraftRevision: revision, rangeLocation: location, rangeLength: 0, replacement: replacement, deviceID: "t")
+            let saved = try FileEditSessionStore.shared.save(sessionID: id)
+            return (saved.objectValue?["encoding"]?.stringValue, saved.objectValue?["content"]?.stringValue)
+        }
+
+        let a = try editAndSave("win.txt", location: 0, replacement: "X")
+        XCTAssertEqual(a.encoding, "utf-8", "session payload reports the file encoding for the status bar")
+        XCTAssertEqual(try Data(contentsOf: crlf), Data("Xone\r\ntwo\r\nthree".utf8), "CRLF endings must survive a save")
+        let b = try editAndSave("wide.txt", location: 0, replacement: "X")
+        XCTAssertEqual(b.encoding, "utf-16le")
+        var expected = Data([0xFF, 0xFE])
+        expected.append("Xa\r\nb".data(using: .utf16LittleEndian)!)
+        XCTAssertEqual(try Data(contentsOf: utf16), expected, "the UTF-16LE BOM and CRLF must survive a save")
+    }
+
     func testEditConflictSaveReleasesLockExactlyOnceBeforeConcurrentFollowUp() throws {
         let file = root.appendingPathComponent("conflict.txt")
         let concurrentFile = root.appendingPathComponent("concurrent.txt")
