@@ -16236,6 +16236,7 @@ public struct AgentAppView: View {
                                     hold: vm.backgroundHoldSummary,
                                     distill: vm.provider == .distill ? vm.distillLive : nil,
                                     contextTokens: vm.provider == .distill ? vm.timeline.tokenUsage?.contextTokens : nil,
+                                    runningTools: AgentChatLiveTurnChrome.runningTools(in: vm.timeline.turns, since: vm.runStartedAt),
                                     onStop: { vm.stop() }
                                 )
                                 .id("agent.workingStatus")

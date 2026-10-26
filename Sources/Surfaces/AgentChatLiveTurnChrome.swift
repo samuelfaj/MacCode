@@ -9,6 +9,43 @@ import SwiftUI
 /// Work so far (Thinking…/Thought + tools) → final markdown — from the linked
 /// thread's persisted stream events. A composer Thinking pill is not enough.
 public enum AgentChatLiveTurnChrome {
+    /// Only live tools started by this run belong in its running strip.
+    static func runningTools(in turns: [AssistantTurnSnapshot], since startedAt: Date?) -> [AssistantItem] {
+        guard let startedAt else { return [] }
+        let start = floor(startedAt.timeIntervalSince1970 * 1_000)
+        return turns.filter { !$0.finished }.flatMap(\.items).filter { item in
+            guard item.state == .streaming, Double(item.startedAtMs) >= start else { return false }
+            switch item.type {
+            case .tool, .commandExecution, .mcpToolCall, .dynamicToolCall, .collabToolCall: return true
+            default: return false
+            }
+        }
+    }
+
+    static func recentToolOutput(_ item: AssistantItem) -> String? {
+        guard let output = item.output, !output.isEmpty else { return nil }
+        let text = promptOutputText(in: output) ?? output
+        guard !text.isEmpty else { return nil }
+        return String(text.suffix(2_000))
+    }
+
+    /// Distill appends raw tool JSON to `output`; the newest `output_for_prompt`
+    /// (else `output` string) is the readable text.
+    private static func promptOutputText(in output: String) -> String? {
+        lastJSONStringField("output_for_prompt", in: output) ?? lastJSONStringField("output", in: output)
+    }
+
+    private static func lastJSONStringField(_ key: String, in output: String) -> String? {
+        let pattern = "\"\(key)\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\""
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.matches(in: output, range: NSRange(output.startIndex..., in: output)).last,
+              let range = Range(match.range(at: 1), in: output),
+              let data = "\"\(output[range])\"".data(using: .utf8),
+              let decoded = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) as? String
+        else { return nil }
+        return decoded
+    }
+
     private static let toolGroupSummaryLock = NSLock()
     private static var toolGroupSummaryMemo: [String: String] = [:]
 
@@ -1230,8 +1267,11 @@ public struct AgentChatWorkingStatusStrip: View {
     public let hold: AgentBackgroundHoldSummary?
     public let distill: DistillLiveStatus?
     public let contextTokens: Int?
+    public let runningTools: [AssistantItem]
     public let onStop: () -> Void
     @State private var subagentsExpanded = true
+    @State private var toolsExpanded = true
+    @State private var expandedToolIDs: Set<String> = []
 
     public init(
         startedAt: Date,
@@ -1240,10 +1280,12 @@ public struct AgentChatWorkingStatusStrip: View {
         hold: AgentBackgroundHoldSummary? = nil,
         distill: DistillLiveStatus? = nil,
         contextTokens: Int? = nil,
+        runningTools: [AssistantItem] = [],
         onStop: @escaping () -> Void
     ) {
         self.distill = distill
         self.contextTokens = contextTokens
+        self.runningTools = runningTools
         self.startedAt = startedAt
         self.isStopping = isStopping
         self.context = context
@@ -1302,6 +1344,51 @@ public struct AgentChatWorkingStatusStrip: View {
                         .help(stopHelp(showingHold: showingHold))
                         .accessibilityIdentifier("agent.working.stop")
                 }
+            }
+            if !runningTools.isEmpty {
+                DisclosureGroup(isExpanded: $toolsExpanded) {
+                    VStack(alignment: .leading, spacing: DS.Space.md) {
+                        ForEach(runningTools) { item in
+                            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                                TimelineView(.periodic(from: .now, by: 1)) { tick in
+                                    let elapsed = max(0, Int(tick.date.timeIntervalSince1970 - Double(item.startedAtMs) / 1_000))
+                                    Text("Running for \(elapsed)s")
+                                        .font(DS.Font.caption.monospacedDigit())
+                                        .foregroundColor(DS.Palette.textTertiary)
+                                }
+                                AgentChatLiveToolRow(item: item, expandedIDs: $expandedToolIDs)
+                                    .equatable()
+                                if let output = AgentChatLiveTurnChrome.recentToolOutput(item) {
+                                    Text("Recent output (up to 2,000 characters)")
+                                        .font(DS.Font.caption)
+                                        .foregroundColor(DS.Palette.textTertiary)
+                                    ScrollView {
+                                        Text(output)
+                                            .font(DS.Font.monoSmall)
+                                            .foregroundColor(DS.Palette.textSecondary)
+                                            .textSelection(.enabled)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    .frame(maxHeight: 120)
+                                    .defaultScrollAnchor(.bottom)
+                                    .accessibilityIdentifier("agent.workingStatus.output.\(item.id)")
+                                }
+                                Text(item.output?.isEmpty == false
+                                     ? "Expand tool for command and output details."
+                                     : "No output received. A quiet command may still be running.")
+                                    .font(DS.Font.caption)
+                                    .foregroundColor(DS.Palette.textTertiary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .padding(.top, DS.Space.sm)
+                } label: {
+                    Text("Active tools (\(runningTools.count))")
+                        .font(DS.Font.captionStrong)
+                        .foregroundColor(DS.Palette.textSecondary)
+                }
+                .accessibilityIdentifier("agent.workingStatus.tools")
             }
             if let distill, distill.goal != nil || !distill.scheduledTasks.isEmpty {
                 goalLoopLine(distill)
