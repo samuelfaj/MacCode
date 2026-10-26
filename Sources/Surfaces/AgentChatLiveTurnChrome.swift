@@ -1370,6 +1370,7 @@ public struct AgentChatWorkingStatusStrip: View {
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                     .frame(maxHeight: 120)
+                                    .defaultScrollAnchor(.bottom)
                                     .accessibilityIdentifier("agent.workingStatus.output.\(item.id)")
                                 }
                                 Text(item.output?.isEmpty == false
