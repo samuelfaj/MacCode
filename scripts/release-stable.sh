@@ -192,7 +192,12 @@ hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT" "dist/$ASSET_NAME"
 codesign --verify --deep --strict --verbose=4 "$MOUNT/MacCode.app"
 spctl --assess --type execute --verbose=4 "$MOUNT/MacCode.app"
 bash scripts/orchestrate-launch-smoke.sh "$MOUNT/MacCode.app"
-hdiutil detach "$MOUNT"
+# The smoke app and its helpers can hold the read-only volume briefly after kill.
+for attempt in 1 2 3 4 5; do
+  hdiutil detach "$MOUNT" && break
+  [ "$attempt" -lt 5 ] || hdiutil detach -force "$MOUNT"
+  sleep 3
+done
 rmdir "$MOUNT"
 MOUNT=""
 

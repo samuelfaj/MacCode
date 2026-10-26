@@ -21,7 +21,9 @@ LOG="$SMOKE_ROOT/app.log"
 PID=""
 cleanup() {
   if [ -n "$PID" ]; then
+    pkill -TERM -P "$PID" 2>/dev/null || true
     kill "$PID" 2>/dev/null || true
+    wait "$PID" 2>/dev/null || true
   fi
   rm -rf "$SMOKE_ROOT"
 }
