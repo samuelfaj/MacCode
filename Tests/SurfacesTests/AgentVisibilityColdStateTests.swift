@@ -41,6 +41,15 @@ final class AgentVisibilityColdStateTests: XCTestCase {
         XCTAssertNil(stale)
     }
 
+    /// Checkpoints persisted before the plan sidebar was removed carry a
+    /// `planSidebarIntent` key; they must still decode.
+    func test_presentationCheckpoint_decodesLegacyPlanSidebarIntentKey() throws {
+        let legacy = #"{"durableSequence":3,"lastAppliedDurableSequence":2,"composerText":"draft","attachmentIds":[],"planSidebarIntent":"forcedHidden","unreadOwned":false,"stopOwned":false}"#
+        let decoded = try JSONDecoder().decode(AgentPresentationCheckpoint.self, from: Data(legacy.utf8))
+        XCTAssertEqual(decoded.durableSequence, 3)
+        XCTAssertEqual(decoded.composerText, "draft")
+    }
+
     func test_globalLRU_disabledUntilMeasuredBreach() {
         XCTAssertFalse(AgentVisibilityColdState.globalAgentLRUEnabled)
     }

@@ -14777,8 +14777,7 @@ public struct BotsRootView: View {
                         vm: agentVM,
                         layout: AgentAppViewLayout(
                             showsThreadRail: false,
-                            showsHeader: false,
-                            showsPlanSidebar: false
+                            showsHeader: false
                         ),
                         timelineAccessory: AnyView(deskNewThreadFAB)
                     )

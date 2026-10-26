@@ -356,9 +356,6 @@ public final class CommandPalette: NSObject, NSWindowDelegate, NSTableViewDataSo
                 cmds.append(PaletteCommand(id: "agent.thread.new", title: "Agent: New Thread", subtitle: "Start a fresh thread", keywords: ["thread", "new", "chat"], category: .agent, iconName: "plus.bubble") {
                     vm.createThread(title: "New thread")
                 })
-                cmds.append(PaletteCommand(id: "agent.plan.toggle", title: "Agent: Toggle Plan Sidebar", keywords: ["plan", "notes", "sidebar"], category: .agent, iconName: "sidebar.right") {
-                    vm.showPlanSidebar.toggle()
-                })
                 // E2/UX-004: surface the provider's model catalog as quick-switches.
                 // While the async load is in flight with no models yet, show a
                 // disabled "Loading models..." row and observe the VM so the rows

@@ -1347,7 +1347,7 @@ struct BotGroupRoomScreen: View {
                 .dsBar(edge: .bottom)
                 AgentAppView(
                     vm: privateVM,
-                    layout: AgentAppViewLayout(showsThreadRail: false, showsHeader: false, showsPlanSidebar: false)
+                    layout: AgentAppViewLayout(showsThreadRail: false, showsHeader: false)
                 )
                 .id(privateVM.selectedThreadId)
             }
@@ -1355,7 +1355,7 @@ struct BotGroupRoomScreen: View {
         } else if let roomVM = teamsGroups.roomVM {
             AgentAppView(
                 vm: roomVM,
-                layout: AgentAppViewLayout(showsThreadRail: false, showsHeader: false, showsPlanSidebar: false)
+                layout: AgentAppViewLayout(showsThreadRail: false, showsHeader: false)
             )
             .id(group.roomThreadID)
             .accessibilityElement(children: .contain)

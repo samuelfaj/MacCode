@@ -24,7 +24,7 @@ final class AgentAppNewThreadFABTests: XCTestCase {
         let fab = try XCTUnwrap(AgentAppView.newThreadFAB(layout: .standard, vm: vm))
         XCTAssertEqual(fab.identifier, "agent.thread.new.fab")
         XCTAssertNil(AgentAppView.newThreadFAB(
-            layout: AgentAppViewLayout(showsThreadRail: false, showsHeader: false, showsPlanSidebar: false),
+            layout: AgentAppViewLayout(showsThreadRail: false, showsHeader: false),
             vm: vm
         ), "the Bot desk passes its own +")
 
