@@ -1269,7 +1269,6 @@ public struct AgentChatWorkingStatusStrip: View {
     public let contextTokens: Int?
     public let runningTools: [AssistantItem]
     public let onStop: () -> Void
-    @State private var subagentsExpanded = true
     @State private var toolsExpanded = true
     @State private var expandedToolIDs: Set<String> = []
 
@@ -1393,9 +1392,6 @@ public struct AgentChatWorkingStatusStrip: View {
             if let distill, distill.goal != nil || !distill.scheduledTasks.isEmpty {
                 goalLoopLine(distill)
             }
-            if let distill, !distill.subagents.isEmpty {
-                subagentsList(distill)
-            }
             Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1433,42 +1429,6 @@ public struct AgentChatWorkingStatusStrip: View {
             .lineLimit(1)
             .truncationMode(.tail)
             .accessibilityIdentifier("agent.workingStatus.goalLoops")
-    }
-
-    private func subagentsList(_ distill: DistillLiveStatus) -> some View {
-        DisclosureGroup(isExpanded: $subagentsExpanded) {
-            TimelineView(.periodic(from: .now, by: 1)) { tl in
-                VStack(alignment: .leading, spacing: DS.Space.xs) {
-                    ForEach(distill.subagents) { sub in
-                        HStack(spacing: DS.Space.sm) {
-                            Text(sub.typeLabel)
-                                .foregroundColor(DS.Palette.accent)
-                            Text(sub.description)
-                                .foregroundColor(DS.Palette.textSecondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            Text("— \(sub.phaseText)")
-                                .foregroundColor(DS.Palette.textTertiary)
-                            Spacer(minLength: DS.Space.sm)
-                            if let model = sub.shortModel {
-                                Text(model).foregroundColor(DS.Palette.textTertiary)
-                            }
-                            Text("\(sub.elapsedSeconds(now: tl.date))s")
-                                .monospacedDigit()
-                                .foregroundColor(DS.Palette.textTertiary)
-                        }
-                        .font(DS.Font.caption)
-                        .accessibilityElement(children: .combine)
-                    }
-                }
-            }
-        } label: {
-            Text("Subagents \(distill.subagents.count)")
-                .lineLimit(1)
-                .font(DS.Font.caption)
-                .foregroundColor(DS.Palette.textSecondary)
-        }
-        .accessibilityIdentifier("agent.workingStatus.subagents")
     }
 
     private func stopHelp(showingHold: Bool) -> String {

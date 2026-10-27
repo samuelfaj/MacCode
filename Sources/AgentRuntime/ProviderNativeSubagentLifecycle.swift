@@ -35,7 +35,8 @@ enum ProviderNativeSubagentLifecycle {
     static func isPotentialLifecycleEvent(_ event: AssistantEvent) -> Bool {
         switch event {
         case .providerRuntime(let runtimeEvent):
-            return runtimeEvent.provider == .grok && isGrokSubagentMethod(runtimeEvent.method)
+            return (runtimeEvent.provider == .grok || runtimeEvent.provider == .distill)
+                && isGrokSubagentMethod(runtimeEvent.method)
         case .itemDelta(_, _, let outputAppend, let summary):
             guard outputAppend != nil, let summary else { return false }
             return isCodexCollaborationTool(summary)
@@ -81,7 +82,7 @@ enum ProviderNativeSubagentLifecycle {
     private static func grokUpdates(
         from event: ProviderRuntimeEvent
     ) -> [ProviderNativeSubagentUpdate] {
-        guard event.provider == .grok,
+        guard event.provider == .grok || event.provider == .distill,
               isGrokSubagentMethod(event.method),
               let data = event.payloadJSON.data(using: .utf8),
               let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -125,7 +126,7 @@ enum ProviderNativeSubagentLifecycle {
         }
         return [ProviderNativeSubagentUpdate(
             childRunId: AgentRunID(childID),
-            provider: .grok,
+            provider: event.provider,
             phase: phase
         )]
     }
