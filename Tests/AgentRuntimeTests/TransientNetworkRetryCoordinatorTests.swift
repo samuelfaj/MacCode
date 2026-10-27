@@ -159,6 +159,57 @@ final class TransientNetworkRetryCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.networkRetryDelays, [10, 30, 60])
     }
 
+    func test_unknownAndTransientFailures_retry_permanentOnesStop() {
+        // WHY: when in doubt the run must resume by itself; only failures that
+        // repeat identically on every attempt may stop on a red Retry.
+        let retried = [
+            "Distill ACP failure: Distill ACP RPC error: Internal error",
+            "Grok ACP failure: Grok ACP RPC error: Internal error",
+            "Distill ACP failure: Distill ACP turn inactivity watchdog: open tool_call with no further events (session/prompt never returned)",
+            "Distill ACP failure: Distill ACP RPC error: Selected account is unavailable or its identity changed",
+            "[retryable:rate-limit] Distill rate limit: Distill ACP RPC error: Rate limited: API error (status 429 Too Many Requests)",
+            "Claude run completed without producing an assistant response",
+            "Distill ACP failure: Distill ACP process exited (exit 255)",
+            "sqlite execute: database is locked",
+            "Codex app-server RPC thread/start timed out after 30s."
+        ]
+        for message in retried {
+            XCTAssertTrue(TransientNetworkRetry.isRetryableInterruption(message), message)
+        }
+        let stopped = [
+            "[auth-required] Distill authentication failed: 401",
+            "Failed to authenticate: OAuth session expired and could not be refreshed",
+            "You've hit your weekly limit · resets Sep 13 at 11am",
+            "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits",
+            "Distill ACP failure: Distill ACP RPC error: 402 Payment Required: usage balance exhausted",
+            "Distill ACP failure: Selected Distill model 'grok-4.6' is not advertised. Refresh the model catalog and select one exact model.",
+            "Distill ACP failure: Distill ACP RPC error: Invalid params: unknown model id",
+            "Auto routing is off. Open Auto profile, enable it, and save before running Auto.",
+            "Provider adapter operation unsupported: Select an explicit Distill Main model before running.",
+            "Provider adapter operation unsupported: Codex session already has an in-flight turn",
+            "Distill ACP failure: Distill ACP RPC error: API error (status 426 Upgrade Required): Your Grok CLI version (none) is outdated.",
+            "This bot belongs to another workspace.",
+            "VM unavailable: this bot no longer has a Docker desktop.",
+            "[start-fresh:invalid-resume] Distill session could not be resumed",
+            "Grok ACP failure: Grok ACP process exited (exit 1): Configuration error: None of your models are allowed by allowed_models.",
+            "cancelled",
+            "CancellationError()",
+            ""
+        ]
+        for message in stopped {
+            XCTAssertFalse(TransientNetworkRetry.isRetryableInterruption(message), message)
+        }
+        XCTAssertFalse(TransientNetworkRetry.isRetryableInterruption(nil))
+    }
+
+    func test_unknownFailure_resumesTheSameSessionAndCompletes() async throws {
+        let runner = FlakyRunner(provider: .distill, failure: "Distill ACP failure: Distill ACP RPC error: Internal error", failures: 1)
+        let (_, thread, threadRepo) = try await start(runner)
+        await waitUntil { runner.requests.count == 2 && (try? threadRepo.status(of: thread.id)) == .completed }
+        XCTAssertEqual(runner.requests.count, 2)
+        XCTAssertEqual(runner.requests.last?.providerThreadId, "session-1")
+    }
+
     func test_acpStoppedRespondingTimeout_resumesTheSameSession() async throws {
         // WHY: "[retryable:timeout] Distill ACP stopped responding during session/prompt"
         // already killed the hung process; resuming the session is safe and expected.
