@@ -17514,8 +17514,7 @@ public struct AgentAppView: View {
                     )
                 } else if vm.embedding?.noticeChoiceHandler != nil,
                           let notice = TitioNoticeBlock.parse(msg.content).block {
-                    ComposerReactiveScope(composerState: vm.composerState) {
-                        AgentChatNoticeCard(
+                    AgentChatNoticeCard(
                             messageID: msg.id.value.uuidString.lowercased(),
                             block: notice,
                             choices: BotChoicesBlock.parse(msg.content).choices.flatMap { choices in
@@ -17524,15 +17523,18 @@ public struct AgentAppView: View {
                             },
                             createdAt: msg.createdAt,
                             content: AnyView(assistantProse(TitioNoticeBlock.visibleText(msg.content))),
-                            isBlockedByDraft: !vm.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                || !vm.attachments.isEmpty
-                                || (vm.activeReplyTarget != nil && vm.activeReplyTarget?.noticeMessageID != msg.id.value.uuidString.lowercased()),
+                            now: relativeNow,
+                            composerState: vm.composerState,
+                            isBlockedByDraft: {
+                                !vm.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    || !vm.attachments.isEmpty
+                                    || (vm.activeReplyTarget != nil && vm.activeReplyTarget?.noticeMessageID != msg.id.value.uuidString.lowercased())
+                            },
                             isSending: vm.selectedThreadIsPreparingRun,
                             onOption: { index in vm.embedding?.noticeChoiceHandler?(msg.id.value.uuidString.lowercased(), index) },
                             onReply: { text in await vm.sendNoticeReply(to: msg, text: text) },
                             onClear: vm.embedding?.noticeClearHandler == nil ? nil : { vm.clearHostMessage(msg.id) }
                         )
-                    }
                 } else {
                     AgentChatAssistantReply(
                         text: BackgroundAwaitContinuation.strippingAwaitingMarker(msg.content),
