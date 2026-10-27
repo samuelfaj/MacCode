@@ -10,6 +10,8 @@ public enum AgentAutoGuide {
     public static let subtitle = "The global Auto profile affects all Auto conversations, Bots, and scheduled Auto runs."
 
     @MainActor public static var makeGuide: ((_ onClose: @escaping () -> Void) -> AnyView)?
+    /// Turns the shared Auto profile on; false when it still needs setup in the guide.
+    @MainActor public static var enableProfile: (@MainActor () async -> Bool)?
 }
 
 /// Inline Accounts & Auto editor shown in a Distill conversation's empty state.
