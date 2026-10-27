@@ -131,6 +131,34 @@ final class TransientNetworkRetryCoordinatorTests: XCTestCase {
         XCTAssertEqual(runner.requests.last?.providerThreadId, "session-1")
     }
 
+    func test_requestSendFailure_isTransientAndResumes() async throws {
+        // WHY: "reqwest error stream: error sending request for url (https://api.anthropic.com/v1/messages)"
+        // is a dropped connection; it stopped the run on a red Retry instead of resuming by itself.
+        let failure = DistillACPFailureTaxonomy.normalize(
+            DistillACPError.rpcError(code: -32603, message: "reqwest error stream: error sending request for url (https://api.anthropic.com/v1/messages)"),
+            context: .turn
+        )
+        XCTAssertTrue(failure.message.hasPrefix(TransientNetworkRetry.marker))
+        let runner = FlakyRunner(provider: .distill, failure: failure.message, failures: 1)
+        let (_, thread, threadRepo) = try await start(runner)
+        await waitUntil { runner.requests.count == 2 && (try? threadRepo.status(of: thread.id)) == .completed }
+        XCTAssertEqual(runner.requests.count, 2)
+        XCTAssertEqual(runner.requests.last?.providerThreadId, "session-1")
+    }
+
+    func test_defaultBackoff_isThreeRetriesAt10_30_60Seconds() throws {
+        // WHY: user-requested schedule — up to 3 automatic retries, 10s, then 30s, then 60s.
+        let tmp = NSTemporaryDirectory() + "rc2-net-retry-" + UUID().uuidString
+        let (_, db) = try Bootstrap(channel: .debug, appSupportOverride: tmp).run()
+        let coordinator = AgentRunCoordinator(
+            runRepo: AgentRunRepository(db: db),
+            messageRepo: AgentMessageRepository(db: db),
+            threadRepo: AgentThreadRepository(db: db),
+            providers: [:]
+        )
+        XCTAssertEqual(coordinator.networkRetryDelays, [10, 30, 60])
+    }
+
     func test_acpStoppedRespondingTimeout_resumesTheSameSession() async throws {
         // WHY: "[retryable:timeout] Distill ACP stopped responding during session/prompt"
         // already killed the hung process; resuming the session is safe and expected.
