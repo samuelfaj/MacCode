@@ -49,6 +49,8 @@ public enum BotPeerDelegation: Sendable {
 
     For independent work, set `wait` to false with `consult`: the tool returns durable activity and consultation ids immediately. Observe the activity with `bot_peer_status` (optionally `wait: true`); use `bot_cancel_peer` to stop only that activity. Do not declare completion while required activities remain pending. Use a stable `operation_id` when retrying the same submission; after an uncertain transport result inspect its receipt instead of starting duplicate work. Dependent tasks must wait for their prerequisites. Parallel work must not edit the same files or drive the same browser/computer; use isolated worktrees or sequence it. Admission bounds work per root, depth, time, and shared Bot resources; a refusal is not permission to retry in a loop.
 
+    Inside a workspace you can consult only that workspace's Bots and general Bots; Bots of other workspaces are not available there. Use `bot_list_peers` for the exact handles you can use; never guess a handle from another workspace.
+
     Delegate only when the requested expertise, independent verification, or useful parallel work warrants the overhead. Give each peer the objective, exact constraints, relevant source references, expected deliverable, and any prerequisite results. Preserve evidence-backed disagreement in the synthesis; do not replace verification with a vote or invent consensus. Simple requests should finish directly. Stop consulting when the user outcome is supported by evidence. Report measured usage separately from unknown provider usage; no monetary ceiling is implied by the delegation limits.
     """
 

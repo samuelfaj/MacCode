@@ -7,7 +7,7 @@ public extension BotStore {
         guard !hostID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw BotStoreError.invalidInput("hostID must be nonempty")
         }
-        return try db.transaction {
+        let binding = try db.transaction {
             let raw = try db.prepare("SELECT 1 FROM bot_context_bindings WHERE host_id=? AND bot_id=? AND context_key=?;")
             try raw.bind(1, hostID)
             try raw.bind(2, botID.value.uuidString.lowercased())
@@ -38,10 +38,12 @@ public extension BotStore {
             _ = try write.step()
             return BotContextBinding(hostID: hostID, botID: botID, context: context, state: .active, policyRevision: revision, actions: actions)
         }
+        bumpBotsListRevision()
+        return binding
     }
 
     func revokeContext(hostID: String, botID: BotID, context: BotContext, expectedRevision: Int64) throws -> BotContextBinding {
-        try db.transaction {
+        let binding = try db.transaction {
             guard let old = try contextBinding(hostID: hostID, botID: botID, context: context), old.policyRevision == expectedRevision, old.policyRevision < Int64.max else { throw BotStoreError.revisionConflict }
             let revision = old.policyRevision + 1
             let update = try db.prepare("UPDATE bot_context_bindings SET state='revoked', policy_revision=? WHERE host_id=? AND bot_id=? AND context_key=?;")
@@ -52,6 +54,8 @@ public extension BotStore {
             _ = try update.step()
             return BotContextBinding(hostID: hostID, botID: botID, context: context, state: .revoked, policyRevision: revision, actions: old.actions)
         }
+        bumpBotsListRevision()
+        return binding
     }
 
     func getContextBinding(hostID: String, botID: BotID, context: BotContext) throws -> BotContextBinding? {

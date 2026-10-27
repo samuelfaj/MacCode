@@ -138,12 +138,13 @@ public final class BotStore: @unchecked Sendable {
     }
 
     /// Monotonic revision of bot-definition writes (create, updateProfile,
-    /// renameHandle, setPinned, setHidden, publish, duplicate, delete).
+    /// renameHandle, setPinned, setHidden, publish, duplicate, delete) and
+    /// context grants/revokes, which change where a Bot can be mentioned.
     public var botsListRevision: UInt64 {
         listCacheState.withLock { botsListRevisionValue }
     }
 
-    private func bumpBotsListRevision() {
+    func bumpBotsListRevision() {
         listCacheState.withLock { botsListRevisionValue += 1 }
     }
 

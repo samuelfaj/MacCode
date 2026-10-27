@@ -542,7 +542,11 @@ final class BotGroupOrchestrator: AgentRunObserver {
                     compiledPayload: receipt.compiledPayload,
                     provider: routing.provider,
                     executionTarget: member.thread.executionTarget,
-                    runsInGuest: inGuest
+                    runsInGuest: inGuest,
+                    importMacFiles: { [botStore, appSupportDirectory] urls in
+                        let resource = try botStore.guestResourceID(botID: bot.id, threadID: threadID)
+                        return try BotGuestHome.importFiles(urls, appSupport: appSupportDirectory, botID: resource)
+                    }
                 ),
                 provider: routing.provider,
                 model: model,
