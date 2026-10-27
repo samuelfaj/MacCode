@@ -43,7 +43,7 @@ final class AgentDistillAutoSendTests: XCTestCase {
         vm.model = "auto"
         vm.providerLaunchConfig = { _, _ in ("/usr/bin/true", ["DISTILL_HOME": home.path]) }
         let previousGuide = AgentAutoGuide.makeGuide
-        AgentAutoGuide.makeGuide = { _, _ in AnyView(EmptyView()) }
+        AgentAutoGuide.makeGuide = { _ in AnyView(EmptyView()) }
         defer { AgentAutoGuide.makeGuide = previousGuide }
         vm.prompt = "Review the screenshot"
         let before = try Data(contentsOf: registryURL)

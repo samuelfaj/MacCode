@@ -15453,10 +15453,7 @@ public struct AgentAppView: View {
                 onClose: { vm.showingAutoRoutingSetup = false }
             ) {
                 if let makeGuide = AgentAutoGuide.makeGuide {
-                    makeGuide({ vm.showingAutoRoutingSetup = false }, {
-                        vm.statusMessage = ""
-                        vm.showingAutoRoutingSetup = false
-                    })
+                    makeGuide { vm.showingAutoRoutingSetup = false }
                 }
             }
         }
