@@ -955,23 +955,25 @@ public final class BotComputerGuestService: @unchecked Sendable {
                 "image": BotComputerGuestSpec.botImageTag(botID: resource),
             ]
         case BotComputerCatalog.requestUserAction:
-            let shot = try observe(botID: resource)
-            let base64 = try Self.boundedBase64(shot.png)
             let kind = ManualActionKind(rawValue: action.subkind) ?? .other
+            // Sharing a Mac file needs consent, not a working guest display.
+            let png = kind == .file ? nil : try observe(botID: resource).png
+            let base64 = try png.map(Self.boundedBase64)
             let id = ManualActionHost.request(
                 control: control,
                 botID: botID,
                 threadID: threadID,
                 kind: kind,
                 reason: action.reason,
-                screenshotPNG: shot.png,
+                screenshotPNG: png,
                 center: notificationCenter
             )
-            return [
+            var reply: [String: Any] = [
                 "request_id": id.uuidString.lowercased(),
                 "message": ManualActionRequest.pauseReply,
-                "png_base64": base64,
             ]
+            if let base64 { reply["png_base64"] = base64 }
+            return reply
         case BotComputerCatalog.postScreenshot:
             let kind = BotScreenshotKind(rawValue: action.subkind) ?? .normal
             if let blocked = screenshotLimiter.acquire(botID: botID, kind: kind).message {

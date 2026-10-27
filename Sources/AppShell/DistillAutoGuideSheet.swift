@@ -53,7 +53,7 @@ struct DistillAutoGuideSheet: View {
             }
         }
         .frame(width: 560, alignment: .leading)
-        .task { if !controller.hasLoadedState || controller.stateError != nil { controller.refresh() } }
+        .task { controller.refresh() }
         .task(id: controller.statuses.filter(\.connected).map(\.id) + [controller.routing.enabled ? "auto-enabled" : "auto-disabled"]) {
             _ = await controller.discoverModels(using: loadModels)
         }

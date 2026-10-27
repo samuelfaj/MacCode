@@ -680,6 +680,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     @Published public var distillMainEffortSelection: AgentEffortSelection = .automatic
     @Published public var distillReasoningEffortSelection: AgentEffortSelection = .automatic
     @Published public var distillExecutionMode: DistillExecutionMode = .auto
+    @Published public var showingAutoRoutingSetup = false
     @Published public var serviceTier: AgentServiceTier = .auto
     @Published public private(set) var routingMode: AgentRoutingMode = .manual
     @Published public var executionMode: AgentExecutionMode = .local
@@ -9516,6 +9517,22 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             statusMessage = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             return nil
         }
+        if runProvider == .distill, runModel == "auto",
+           runAsUser.map({ $0.uid == getuid() }) ?? true {
+            let launch = providerLaunchConfig?(runProvider, runProviderInstanceId)
+            let environment = ProcessInfo.processInfo.environment.merging(launch?.environment ?? [:]) { _, run in run }
+            let home = DistillProvisioner.homeURL(
+                environment: environment,
+                userHome: runAsUser?.homePath ?? FileManager.default.homeDirectoryForCurrentUser.path
+            )
+            do {
+                _ = try DistillAccounts.autoRoutingAccounts(home: home)
+            } catch {
+                statusMessage = error.localizedDescription
+                showingAutoRoutingSetup = error is DistillAutoRoutingError && AgentAutoGuide.makeGuide != nil
+                return nil
+            }
+        }
         if recordHistory { recordPromptHistory(text) }
         if selectedThreadId == nil {
             createThread(title: "New thread")
@@ -15428,6 +15445,21 @@ public struct AgentAppView: View {
         }
         .background(DS.Palette.bg)
         .background(newThreadShortcut)
+        .sheet(isPresented: $vm.showingAutoRoutingSetup) {
+            AgentChoiceSheet(
+                icon: "sparkles", tint: DS.Palette.ultracode,
+                title: AgentAutoGuide.title, subtitle: AgentAutoGuide.subtitle,
+                width: 600, accessibilityIdentifier: "agent.autoSetup.sheet",
+                onClose: { vm.showingAutoRoutingSetup = false }
+            ) {
+                if let makeGuide = AgentAutoGuide.makeGuide {
+                    makeGuide({ vm.showingAutoRoutingSetup = false }, {
+                        vm.statusMessage = ""
+                        vm.showingAutoRoutingSetup = false
+                    })
+                }
+            }
+        }
         // UX-MAC_AGENT-OPEN-SPLIT: any tapped link inside this surface's markdown
         // (file mentions, bare URLs, markdown links) routes through the VM so it
         // opens — or reuses — a split panel to the right instead of leaving the app.
