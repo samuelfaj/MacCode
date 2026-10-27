@@ -31,6 +31,16 @@ final class BotBlobatarTests: XCTestCase {
         }
     }
 
+    func test_workspaceTintOverridesHue_becauseWorkspaceExclusiveBotsWearTheWorkspaceColor() {
+        let spec = BotBlobatarSpec(hue: .named("coral"))
+        let plain = BotBlobatar.figure(name: "Piper", spec: spec)
+        let tinted = BotBlobatar.figure(name: "Piper", spec: spec, tintHex: 0x8EE6A8)
+        XCTAssertEqual(tinted.palette.head, 0x8EE6A8)
+        XCTAssertNotEqual(plain.palette.head, 0x8EE6A8)
+        XCTAssertEqual(plain, BotBlobatar.figure(name: "Piper", spec: spec, tintHex: nil), "no workspace color keeps the look")
+        XCTAssertEqual(tinted.body, plain.body, "tint recolors only, never reshapes")
+    }
+
     func test_previewSaveAndRenameKeepTheSelectedCreature() throws {
         let original = BotBlobatarSpec.default
         let selected = original.selecting(shape: .cloud, hue: .auto, name: "Developer", handle: "elephant-developer")

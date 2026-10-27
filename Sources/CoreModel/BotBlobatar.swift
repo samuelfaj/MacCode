@@ -336,7 +336,7 @@ public enum BotBlobatar {
         .init(id: "magenta", degrees: 320, preview: 0xE879F9),
     ]
 
-    public static func figure(name: String, spec: BotBlobatarSpec, handle: String = "") -> BotBlobatarFigure {
+    public static func figure(name: String, spec: BotBlobatarSpec, handle: String = "", tintHex: UInt32? = nil) -> BotBlobatarFigure {
         let seed = spec.renderSeed(liveName: name, handle: handle)
         let traits = Traits(seed: seed, overrides: overrides(for: spec))
         var layout = layout(traits)
@@ -348,6 +348,10 @@ public enum BotBlobatar {
            let swatch = studioHues.first(where: { $0.id == id }) {
             palette.head = swatch.preview
             palette.eye = contrastEye(against: palette.head)
+        }
+        if let tintHex {
+            palette.head = tintHex
+            palette.eye = contrastEye(against: tintHex)
         }
         return BotBlobatarFigure(
             resolvedShape: layout.shape,

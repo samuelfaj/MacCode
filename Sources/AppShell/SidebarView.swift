@@ -3439,14 +3439,14 @@ public struct SidebarRootView: View {
         return "General"
     }
 
-    private func botConversationRow(_ row: SidebarViewModel.AuthorizedBotConversationRow) -> some View {
+    private func botConversationRow(_ row: SidebarViewModel.AuthorizedBotConversationRow, tintHex: UInt32? = nil) -> some View {
         let selected = vm.newBotConversationThreadID != nil && vm.deskSelection?.threadID == vm.newBotConversationThreadID && vm.deskSelection?.botID == row.botID && vm.deskSelection?.context == row.context
         let running = SidebarViewModel.isBotRunning(row.botID, running: vm.runningBotIDs, runningLinked: vm.runningLinkedBotIDs)
         return Button {
             navigate { vm.startBotConversation(row) }
         } label: {
             HStack(spacing: DS.Space.sm) {
-                BotsAvatarView(name: row.botName, handle: row.handle, symbol: row.symbol.isEmpty ? nil : row.symbol, size: 20, attention: running ? .working : .none)
+                BotsAvatarView(name: row.botName, handle: row.handle, symbol: row.symbol.isEmpty ? nil : row.symbol, size: 20, attention: running ? .working : .none, tintHex: tintHex)
                     .frame(width: 20, height: 20)
                 Text(BotsViewModel.displayName(row.botName)).font(selected ? DS.Font.bodyStrong : DS.Font.body).foregroundColor(selected ? DS.Palette.text : DS.Palette.textSecondary).lineLimit(1)
                 Spacer(minLength: 0)
@@ -3747,7 +3747,7 @@ public struct SidebarRootView: View {
                                 id: "sidebar.newConversation.bot.\(row.botID.value.uuidString)",
                                 action: { navigate { vm.startNewBotConversation(row) } }
                             ) {
-                                BotsAvatarView(name: row.botName, handle: row.handle, symbol: row.symbol.isEmpty ? nil : row.symbol, size: 24)
+                                BotsAvatarView(name: row.botName, handle: row.handle, symbol: row.symbol.isEmpty ? nil : row.symbol, size: 24, tintHex: TabColor.from(ws.metadata["color"])?.hex)
                             }
                         }
                     }
@@ -3897,7 +3897,7 @@ public struct SidebarRootView: View {
         let bots = vm.sectionSlice(SidebarViewModel.runningFirst(vm.workspaceBotRows(ws.id)) {
             SidebarViewModel.isBotRunning($0.botID, running: vm.runningBotIDs, runningLinked: vm.runningLinkedBotIDs)
         }, ws.id, .bots)
-        ForEach(bots.rows) { botConversationRow($0) }
+        ForEach(bots.rows) { botConversationRow($0, tintHex: TabColor.from(ws.metadata["color"])?.hex) }
         if bots.hidden > 0 || bots.expanded {
             showMoreRow(expanded: bots.expanded, hidden: bots.hidden, noun: "bots",
                         id: "sidebar.botsToggle.\(ws.id.value.uuidString)") { vm.toggleSectionList(ws.id, .bots) }
@@ -4020,7 +4020,8 @@ public struct SidebarRootView: View {
         return Button { navigate { vm.openWorkspaceConversation(row) } } label: {
             HStack(spacing: DS.Space.sm) {
                 if let bot = vm.conversationBot(row) {
-                    BotsAvatarView(name: bot.name, handle: bot.handle, symbol: bot.avatarSymbol.isEmpty ? nil : bot.avatarSymbol, size: 20, attention: running ? .working : .none)
+                    BotsAvatarView(name: bot.name, handle: bot.handle, symbol: bot.avatarSymbol.isEmpty ? nil : bot.avatarSymbol, size: 20, attention: running ? .working : .none,
+                                   tintHex: vm.workspaceBotRows(workspace.id).contains { $0.botID == bot.id } ? TabColor.from(workspace.metadata["color"])?.hex : nil)
                         .frame(width: 20, height: 20)
                         .accessibilityIdentifier("sidebar.conversationBotAvatar.\(row.threadID.value.uuidString)")
                 } else {

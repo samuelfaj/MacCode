@@ -9,6 +9,7 @@ public struct BotBlobatarView: View {
     public var size: CGFloat
     public var motion: BotBlobatarMotionMode
     public var handle: String
+    public var tintHex: UInt32? = nil
     /// Renders one fixed frame of the motion (snapshots and tests).
     var fixedTime: TimeInterval? = nil
 
@@ -20,17 +21,19 @@ public struct BotBlobatarView: View {
         spec: BotBlobatarSpec,
         size: CGFloat,
         motion: BotBlobatarMotionMode = .frozen,
-        handle: String = ""
+        handle: String = "",
+        tintHex: UInt32? = nil
     ) {
         self.name = name
         self.spec = spec
         self.size = size
         self.motion = motion
         self.handle = handle
+        self.tintHex = tintHex
     }
 
     public var body: some View {
-        let figure = BotBlobatar.figure(name: name, spec: spec, handle: handle)
+        let figure = BotBlobatar.figure(name: name, spec: spec, handle: handle, tintHex: tintHex)
         let motionSeed = spec.renderSeed(liveName: name, handle: handle)
         Group {
             if let fixedTime {
