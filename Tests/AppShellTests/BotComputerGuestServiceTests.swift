@@ -164,6 +164,34 @@ private final class FakeDocker: BotComputerDockerClienting, @unchecked Sendable 
 
 @MainActor
 final class BotComputerGuestServiceTests: XCTestCase {
+    func test_fileRequestNeedsConsentButNotAGuestScreenshot() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let docker = FakeDocker()
+        docker.infoFails = true
+        let control = BotComputerControl()
+        let bot = BotID()
+        let service = BotComputerGuestService(
+            appSupport: root, docker: docker, control: control,
+            notificationCenter: NotificationCenter(), vmRuns: BotVMRunRegistry()
+        )
+        let reply = try service.apply(BotComputerPendingAction(
+            id: UUID().uuidString, botID: bot.value.uuidString,
+            kind: BotComputerCatalog.requestUserAction,
+            threadID: AgentThreadID().value.uuidString,
+            reason: "Share /Users/example/Desktop/screenshot.png", subkind: "file"
+        ))
+        let request = try XCTUnwrap(control.openRequest(bot))
+        XCTAssertEqual(request.kind, .file)
+        XCTAssertEqual(request.state, .open)
+        XCTAssertNotNil(reply["request_id"])
+        XCTAssertNil(reply["png_base64"])
+        XCTAssertEqual(docker.execCalls, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.path), "requesting consent must not import anything")
+        XCTAssertEqual(control.dismiss(request.id, as: .declined)?.state, .declined)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.path), "declining must not import anything")
+    }
+
     func test_gatewayLeaseInstallAndRevokeUseExactRootCommandsAndStoppedRevokeIsNoop() throws {
         let support = makeSupport("rc-gateway-lease")
         defer { try? FileManager.default.removeItem(at: support) }

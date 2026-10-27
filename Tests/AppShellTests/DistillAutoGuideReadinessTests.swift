@@ -71,10 +71,8 @@ final class DistillAutoGuideReadinessTests: XCTestCase {
         XCTAssertTrue(buttonBody.contains("guard canUseAuto else { return }"))
         XCTAssertTrue(buttonBody.range(of: "guard canUseAuto")!.lowerBound < buttonBody.range(of: "onUseAuto()")!.lowerBound)
         XCTAssertTrue(guide.contains("Button(\"Save\") { controller.saveRouting(current) }"))
-        XCTAssertTrue(guide.contains("!controller.hasLoadedState || controller.stateError != nil"),
-                      "opening guide must load initially and retry a failed state load even after prior state loaded")
-        XCTAssertTrue(guide.contains(".task { if !controller.hasLoadedState || controller.stateError != nil { controller.refresh() } }"),
-                      "reopening guide must retry when loaded state has an error")
+        XCTAssertTrue(guide.contains(".task { controller.refresh() }"),
+                      "opening after a rejected Auto send must recheck the saved profile, including previously loaded state")
         XCTAssertTrue(guide.contains("Button(\"Retry\") { controller.refresh() }"),
                       "guide must offer explicit retry for a state error")
         XCTAssertTrue(guide.contains("agent.autoGuide.retry"))

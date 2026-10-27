@@ -3512,17 +3512,17 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             self?.botWorkspaceRunHooks?.runStarted(botID, runID, threadID)
         }
         agent.viewModel.openBotScreen = { [weak self] botID in self?.openBotGuestDesktopInNewWindow(botID) }
-        agent.viewModel.importFilesToBotComputer = { [weak self] botID, threadID, urls in
-            guard let context = self?.context else { throw BotWorkspaceRunUnavailable() }
-            let resource = try context.botStore.guestResourceID(botID: botID, threadID: threadID)
-            return try BotGuestHome.importFiles(urls, appSupport: context.appSupportDirectory, botID: resource)
-        }
     }
 
     /// The bot VM hooks every Agent App that runs bot threads shares (Agent
     /// App tabs and the embedded Bots Desk): target default, the queue behind
     /// a VM rebuild or stop, Mac-execution approvals, and the VM gate behind the D11 banner.
     func configureBotVMHooks(on viewModel: AgentAppViewModel) {
+        viewModel.importFilesToBotComputer = { [weak self] botID, threadID, urls in
+            guard let context = self?.context else { throw BotWorkspaceRunUnavailable() }
+            let resource = try context.botStore.guestResourceID(botID: botID, threadID: threadID)
+            return try BotGuestHome.importFiles(urls, appSupport: context.appSupportDirectory, botID: resource)
+        }
         viewModel.botExecutionTargetProvider = { [weak self] botID in
             guard let store = self?.context?.botStore else { return .mac }
             let revision = (try? store.get(id: botID))?.currentRevisionID.flatMap { try? store.getRevision(id: $0) }
