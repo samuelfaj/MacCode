@@ -43,10 +43,11 @@ final class DistillAutoGuideReadinessTests: XCTestCase {
 
         let picker = try source("Sources/Surfaces/AgentModelPopover.swift")
         let selector = try XCTUnwrap(picker.range(of: "private func selectAuto()"))
-        let body = String(picker[selector.lowerBound...]).prefix(260)
+        let body = String(picker[selector.lowerBound...]).prefix(700)
         XCTAssertTrue(body.range(of: "onSelectMainModel(\"auto\")")!.lowerBound < body.range(of: "showingAutoGuide = true")!.lowerBound,
                       "Auto must be selected before any guide opens")
-        XCTAssertTrue(body.contains("!catalogAdvertisesAuto"), "a ready profile closes the picker instead of opening the guide")
+        XCTAssertTrue(body.contains("if catalogAdvertisesAuto"), "a ready profile closes the picker instead of opening the guide")
+        XCTAssertTrue(body.contains("AgentAutoGuide.enableProfile"), "tapping Auto turns the shared profile on before any guide opens")
     }
 
     private func source(_ path: String) throws -> String {

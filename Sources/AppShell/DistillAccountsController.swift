@@ -179,6 +179,19 @@ public final class DistillAccountsController: ObservableObject {
         }
         perform(accountID: nil) { try await $0.saveRouting(draft) }
     }
+    /// Turns the shared Auto profile on without the guide. Returns false when the
+    /// profile has no options yet or the save fails (`lastError` explains).
+    public func enableAuto() async -> Bool {
+        if !hasLoadedState { await refreshAndWait() }
+        guard hasLoadedState else { return false }
+        if routing.enabled && !routing.options.isEmpty { return true }
+        guard !routing.options.isEmpty, !isBusy else { return false }
+        var draft = routing
+        draft.enabled = true
+        perform(accountID: nil) { try await $0.saveRouting(draft) }
+        await operation?.value
+        return routing.enabled
+    }
     public func login(accountID: String) {
         let token = generation &+ 1
         perform(accountID: accountID) { [weak self] accounts in

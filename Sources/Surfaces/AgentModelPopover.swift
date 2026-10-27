@@ -1167,10 +1167,22 @@ private struct AgentDistillMainModelSheet<StatusHeader: View, MainFooter: View>:
         }
     }
 
-    /// Selecting Auto applies it at once; the guide opens only when the profile still needs setup.
+    /// Selecting Auto applies it at once and turns the shared profile on; the guide opens only when it still needs setup.
     private func selectAuto() {
         onSelectMainModel("auto")
-        if !catalogAdvertisesAuto, AgentAutoGuide.makeGuide != nil {
+        if catalogAdvertisesAuto {
+            // The catalog can be stale after another client turned Auto off; re-enable without blocking.
+            if let enableProfile = AgentAutoGuide.enableProfile { Task { @MainActor in _ = await enableProfile() } }
+            close()
+        } else if let enableProfile = AgentAutoGuide.enableProfile {
+            Task { @MainActor in
+                if await enableProfile() {
+                    close()
+                } else if AgentAutoGuide.makeGuide != nil {
+                    showingAutoGuide = true
+                }
+            }
+        } else if AgentAutoGuide.makeGuide != nil {
             showingAutoGuide = true
         } else {
             close()

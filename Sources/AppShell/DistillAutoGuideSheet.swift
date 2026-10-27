@@ -133,6 +133,9 @@ struct DistillAutoGuideSheet: View {
                 onClose: onClose
             ))
         }
+        AgentAutoGuide.enableProfile = { [weak context] in
+            await context?.distillAccountsController.enableAuto() ?? false
+        }
     }
 
     private var statusText: String {

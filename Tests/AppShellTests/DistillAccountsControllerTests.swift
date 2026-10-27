@@ -18,6 +18,7 @@ final class DistillAccountsControllerTests: XCTestCase {
         var loadContinuation: CheckedContinuation<DistillAccountsState, Error>?
         var holdLoad = false
         var holdSave = false
+        var saveCount = 0
         var saveContinuation: CheckedContinuation<Void, Never>?
         func loadState() async throws -> DistillAccountsState {
             if holdLoad { return try await withCheckedThrowingContinuation { loadContinuation = $0 } }
@@ -32,6 +33,7 @@ final class DistillAccountsControllerTests: XCTestCase {
         func refreshUsage(id: String) async throws -> DistillAccountQuota { lastID = id; throw DistillAccountError.failed("Quota unavailable") }
         func saveRouting(_ routing: DistillAutoRouting) async throws {
             if holdSave { await withCheckedContinuation { saveContinuation = $0 } }
+            saveCount += 1
             self.routing = routing
         }
         func login(id: String, onURL: @escaping @Sendable (URL) -> Void) async throws {
@@ -243,4 +245,37 @@ final class DistillAccountsControllerTests: XCTestCase {
         XCTAssertNil(controller.lastError)
     }
 
+    // The Auto profile is shared; tapping Auto must turn it on without a guide round trip.
+    func test_enableAutoSavesEnabledProfileWithSavedOptions() async {
+        let accounts = Accounts()
+        accounts.routing = DistillAutoRouting(enabled: false, options: [.init(id: "option", accountID: "legacy-chatgpt", mainModel: "m")])
+        let controller = DistillAccountsController(accounts: accounts)
+        let enabled = await controller.enableAuto()
+        XCTAssertTrue(enabled)
+        XCTAssertEqual(accounts.saveCount, 1)
+        XCTAssertTrue(accounts.routing.enabled)
+        XCTAssertEqual(accounts.routing.options.count, 1)
+        XCTAssertTrue(controller.routing.enabled)
+        XCTAssertFalse(controller.isBusy)
+    }
+
+    // Without options there is nothing to enable; the caller must open the guide instead.
+    func test_enableAutoWithoutOptionsReturnsFalseAndDoesNotSave() async {
+        let accounts = Accounts()
+        let controller = DistillAccountsController(accounts: accounts)
+        let enabled = await controller.enableAuto()
+        XCTAssertFalse(enabled)
+        XCTAssertEqual(accounts.saveCount, 0)
+        XCTAssertFalse(accounts.routing.enabled)
+    }
+
+    // Tapping Auto when the profile is already on must not rewrite the shared accounts file.
+    func test_enableAutoWhenAlreadyEnabledReturnsTrueWithoutSaving() async {
+        let accounts = Accounts()
+        accounts.routing = DistillAutoRouting(enabled: true, options: [.init(id: "option", accountID: "legacy-chatgpt", mainModel: "m")])
+        let controller = DistillAccountsController(accounts: accounts)
+        let enabled = await controller.enableAuto()
+        XCTAssertTrue(enabled)
+        XCTAssertEqual(accounts.saveCount, 0)
+    }
 }
