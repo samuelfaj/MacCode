@@ -5944,6 +5944,9 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         defer { endAdmittedCallbackMutation(runId: runId) }
         switch event {
         case .event(let rawEvent):
+            // The adapter already counted the chunk as turn activity; storing it
+            // would evict real tool items from the replay window.
+            if case .providerRuntime(let runtime) = rawEvent, runtime.isToolCallArgumentChunk { return }
             guard let ev = sanitizeFinalAssistantEvent(rawEvent, runId: runId) else { return }
             persistProviderNativeSubagentLifecycle(
                 from: ev,

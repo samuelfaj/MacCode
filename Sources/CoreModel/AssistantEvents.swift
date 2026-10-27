@@ -756,6 +756,34 @@ public struct ProviderRuntimeEvent: Codable, Sendable, Equatable, Identifiable {
         }
     }
 
+    /// Distill/Grok ACP `x.ai/session_notification` update that streams tool-call
+    /// arguments a few bytes at a time. The same arguments arrive whole on the
+    /// tool item and no client reads the chunks, but each one cost a stream row:
+    /// a single tool call pushed every earlier tool item out of the per-thread
+    /// replay window that paired devices hydrate from.
+    public var isToolCallArgumentChunk: Bool {
+        guard method == "x.ai/session_notification" || method == "_x.ai/session_notification",
+              payloadJSON.contains("tool_call_delta_chunk"),
+              let data = payloadJSON.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let update = payload["update"] as? [String: Any] else { return false }
+        return update["sessionUpdate"] as? String == "tool_call_delta_chunk"
+    }
+
+    private static let liveStatusCarrierKindPrefixes = [
+        "auto_compact_", "subagent_", "model_changed", "goal_updated", "scheduled_task_"
+    ]
+
+    /// Methods that drive the Distill live status strip (operation phase, guest
+    /// stage, subagents, compaction, goal, model). Paired devices fold the same
+    /// events, so these must reach them live, not only on the next thread read.
+    public static func isLiveStatusCarrier(method: String) -> Bool {
+        method == "_remotecode/operation" || method == "remotecode/guest_stage"
+            || method == "x.ai/session_notification" || method == "x.ai/session/update"
+            || method == "_x.ai/session_notification" || method == "_x.ai/session/update"
+            || liveStatusCarrierKindPrefixes.contains(where: { method.hasPrefix($0) })
+    }
+
     /// Skip token-rate lines (and SDK `stream_event` wrappers around them).
     /// Lifecycle / tool / error objects still emit.
     public static func shouldEmitFromDecodedStreamObject(_ obj: [String: Any]) -> Bool {
