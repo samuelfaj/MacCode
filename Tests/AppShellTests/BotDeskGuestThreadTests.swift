@@ -699,4 +699,34 @@ final class BotDeskGuestThreadTests: XCTestCase {
             "BRAIN"
         )
     }
+
+    func test_macScreenshotPathKeepsBotContextAndFileRequestInstructions() async throws {
+        let f = try makeFixture()
+        let created = try f.vm.create(name: "File helper", title: "Scout")
+        f.vm.openStudio(created)
+        f.vm.studioDraft.executionDestination = .ownVM
+        let bot = try f.vm.saveStudio()
+        let text = "/Users/example/Desktop/Screenshot 2026-10-26 at 5.26.37 PM.png fix"
+        _ = try await firstSend(f, bot: bot, provider: .distill, text: text)
+        let prompt = try XCTUnwrap(f.distill.requests.first).prompt
+        XCTAssertTrue(prompt.contains(text))
+        XCTAssertTrue(prompt.hasSuffix(BotStandingInstructions.guestThreadRules))
+        XCTAssertTrue(prompt.contains("bot_request_user_action"))
+        await finishAll(f)
+
+        let conversationID = try XCTUnwrap(f.vm.selectedConversation?.id)
+        XCTAssertTrue(f.vm.createDeskThread())
+        f.vm.selectDeskThread(conversationID)
+        let agent = try XCTUnwrap(f.vm.deskAgentVM)
+        let importFiles = try XCTUnwrap(agent.importFilesToBotComputer,
+                                       "the Desk's file request must offer the same approved file import as Agent App")
+        let source = f.ctx.appSupportDirectory.appendingPathComponent("approved.txt")
+        try Data("approved contents".utf8).write(to: source)
+        let paths = try importFiles(bot.id, agent.selectedThreadId, [source])
+        let resource = try f.ctx.botStore.guestResourceID(botID: bot.id, threadID: agent.selectedThreadId)
+        let copied = BotGuestHome.url(appSupport: f.ctx.appSupportDirectory, botID: resource)
+            .appendingPathComponent("Downloads/approved.txt")
+        XCTAssertEqual(paths, ["/home/remotecode/Downloads/approved.txt"])
+        XCTAssertEqual(try Data(contentsOf: copied), Data("approved contents".utf8))
+    }
 }

@@ -21,7 +21,6 @@ public struct AgentPresentationCheckpoint: Sendable, Equatable, Codable {
     public var attachmentIds: [String]
     public var scrollPinIntent: String?
     public var disclosureIntent: String?
-    public var planSidebarIntent: String?
     public var browserURL: String?
     public var browserTitle: String?
     public var surfaceMetadataJSON: String?
@@ -37,7 +36,6 @@ public struct AgentPresentationCheckpoint: Sendable, Equatable, Codable {
         attachmentIds: [String] = [],
         scrollPinIntent: String? = nil,
         disclosureIntent: String? = nil,
-        planSidebarIntent: String? = nil,
         browserURL: String? = nil,
         browserTitle: String? = nil,
         surfaceMetadataJSON: String? = nil,
@@ -52,7 +50,6 @@ public struct AgentPresentationCheckpoint: Sendable, Equatable, Codable {
         self.attachmentIds = attachmentIds
         self.scrollPinIntent = scrollPinIntent
         self.disclosureIntent = disclosureIntent
-        self.planSidebarIntent = planSidebarIntent
         self.browserURL = browserURL
         self.browserTitle = browserTitle
         self.surfaceMetadataJSON = surfaceMetadataJSON

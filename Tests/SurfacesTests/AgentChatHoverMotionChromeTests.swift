@@ -475,7 +475,7 @@ final class AgentUndoToastOverlayTests: XCTestCase {
         let size = NSSize(width: 1_000, height: 700)
         let root = AgentAppView(
             vm: vm,
-            layout: AgentAppViewLayout(showsThreadRail: false, showsHeader: false, showsPlanSidebar: false)
+            layout: AgentAppViewLayout(showsThreadRail: false, showsHeader: false)
         )
         .frame(width: size.width, height: size.height)
         let hosting = NSHostingView(rootView: root)

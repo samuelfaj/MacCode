@@ -1226,7 +1226,7 @@ struct ActivityRootView: View {
                 Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
                 AgentAppView(
                     vm: conversation.host.viewModel,
-                    layout: AgentAppViewLayout(showsThreadRail: false, showsHeader: false, showsPlanSidebar: false, showsComposer: conversation.host.showsComposer)
+                    layout: AgentAppViewLayout(showsThreadRail: false, showsHeader: false, showsComposer: conversation.host.showsComposer)
                 )
                 .id(conversation.threadID)
                 if !conversation.host.showsComposer, let target = conversation.host.botTarget {

@@ -4862,8 +4862,6 @@ final class AgentAppViewModelTests: XCTestCase {
         vm.createThread(title: "plan")
         vm.prompt = "/plan"
         await vm.send()
-        XCTAssertFalse(vm.showPlanSidebar,
-                       "plan mode must not open the side panel; proposed plans render in the main timeline")
         vm.prompt = "inspect before editing"
 
         await vm.send()
@@ -4883,8 +4881,6 @@ final class AgentAppViewModelTests: XCTestCase {
 
         vm.prompt = "/plan What's the best way to create the snake game?"
         await vm.send()
-        XCTAssertFalse(vm.showPlanSidebar,
-                       "inline /plan must keep the plan response in the main window instead of opening the side panel")
 
         await waitAsync("inline plan prompt reaches runner") {
             runner.interactionModes.contains(.plan)
@@ -4903,8 +4899,6 @@ final class AgentAppViewModelTests: XCTestCase {
 
         vm.prompt = "/plan What's the best way to create the snake game?"
         await vm.send()
-        XCTAssertFalse(vm.showPlanSidebar,
-                       "Claude inline /plan must keep the plan response in the main window instead of opening the side panel")
 
         await waitAsync("inline plan prompt reaches Claude runner") {
             runner.interactionModes.contains(.plan)
@@ -8486,7 +8480,6 @@ final class AgentAppViewModelTests: XCTestCase {
         // approvals out of this lifecycle gate; Plan's read-only collaboration
         // sandbox still proves the no-mutation contract below.
         surface.permissionMode = .fullAccess
-        surface.showPlanSidebar = true
         surface.interactionMode = .plan
         surface.prompt = """
         Create a proposed implementation plan only. Do not edit files.
@@ -8510,7 +8503,6 @@ final class AgentAppViewModelTests: XCTestCase {
                                          "the rendered plan card must be backed by a first-class proposed-plan artifact")
         XCTAssertTrue(proposedPlan.markdown.contains("RC_AGENT_APP_PLAN_SURFACE"))
 
-        surface.showPlanSidebar = false
         await surface.implementLatestPlan()
         await waitAsync("real Codex proposed plan implementation completes", timeout: 240) {
             surface.status == .completed
@@ -8792,111 +8784,19 @@ final class AgentAppViewModelTests: XCTestCase {
             "opening a thread must not read any checkpoint diff/blob rows (metadata list only)"
         )
         XCTAssertGreaterThanOrEqual(checkpointRepo.summaryListReadCountForTesting, 1)
-        XCTAssertEqual(vm.checkpointDiffPreview, "",
-                       "with the plan sidebar hidden, the auto-selected checkpoint fetches nothing")
+        XCTAssertEqual(checkpointRepo.fullRowListReadCountForTesting, 0,
+                       "the checkpoint list must not fetch diff rows until a revert needs them")
 
-        // Opening the sidebar fetches the selected checkpoint's diff on demand.
-        vm.showPlanSidebar = true
-        try await waitForCondition(timeout: 2.0) {
-            vm.checkpointDiffPreview.contains("visible checkpoint")
-        }
-        XCTAssertEqual(checkpointRepo.fullRowListReadCountForTesting, 1,
-                       "exactly the selected checkpoint's full row is fetched on demand")
-        let checkpoint = try XCTUnwrap(vm.checkpoints.first)
-        vm.selectCheckpoint(checkpoint, path: "Sources/App.swift")
-        try await waitForCondition(timeout: 2.0) {
-            vm.checkpointDiffPreview.contains("visible file checkpoint")
-        }
-        XCTAssertEqual(checkpointRepo.fullRowListReadCountForTesting, 2,
-                       "the checkpoint browser must let users inspect the file-level diff before choosing rollback")
-
-        XCTAssertEqual(vm.checkpointRevealGeneration, 0)
         try await vm.revealCheckpoint(checkpointTurnCount: 1, expectedRunID: runId, path: "Sources/App.swift")
         XCTAssertEqual(vm.selectedCheckpointPath, "Sources/App.swift")
         XCTAssertEqual(vm.selectedCheckpointTurnCount, 1)
-        XCTAssertEqual(vm.checkpointRevealGeneration, 1,
-                       "a successful explicit reveal must notify the view to force the plan sidebar visible")
         do {
             try await vm.revealCheckpoint(checkpointTurnCount: 1, expectedRunID: AgentRunID(), path: "Sources/App.swift")
             XCTFail("a checkpoint from another run must not be revealed")
         } catch is AgentAppSurfaceCheckpointRevealError {
-            XCTAssertEqual(vm.selectedCheckpointPath, "Sources/App.swift")
-            XCTAssertEqual(vm.checkpointRevealGeneration, 1,
-                           "a rejected reveal must not change sidebar intent")
+            XCTAssertEqual(vm.selectedCheckpointPath, "Sources/App.swift",
+                           "a rejected reveal must keep the previous checkpoint selection")
         }
-    }
-
-    func test_checkpointPreviewRejectsStaleSameCountAndPathRequest() async throws {
-        let tmp = NSTemporaryDirectory() + "rc2-vm-agent-checkpoint-race-" + UUID().uuidString
-        let (_, db) = try Bootstrap(channel: .debug, appSupportOverride: tmp).run()
-        let threadRepo = AgentThreadRepository(db: db)
-        let messageRepo = AgentMessageRepository(db: db)
-        let runRepo = AgentRunRepository(db: db)
-        let checkpointRepo = AgentTurnCheckpointRepository(db: db)
-        let workspaceID = WorkspaceID()
-        let thread = AgentThread(workspaceId: workspaceID, title: "checkpoint race", provider: .codex, model: "gpt-5.5")
-        try threadRepo.upsert(thread)
-        let threadID = thread.id
-        let firstRun = AgentRunID()
-        let secondRun = AgentRunID()
-        try runRepo.upsert(AgentRun(id: firstRun, threadId: threadID, provider: .codex, model: "gpt-5.5", status: .completed))
-        try runRepo.upsert(AgentRun(id: secondRun, threadId: threadID, provider: .codex, model: "gpt-5.5", status: .completed))
-        let first = AgentTurnCheckpointSummary(
-            threadId: threadID, runId: firstRun, turnId: "first", checkpointTurnCount: 1,
-            checkpointRef: "first", status: .ready,
-            files: [AgentTurnCheckpointFile(path: "Sources/App.swift", kind: "modified", additions: 1, deletions: 0)],
-            diffPatch: "+first",
-            fileDiffs: [AgentTurnCheckpointFileDiff(path: "Sources/App.swift", patch: "+first")],
-            completedAt: Date(timeIntervalSince1970: 1)
-        )
-        let second = AgentTurnCheckpointSummary(
-            threadId: threadID, runId: secondRun, turnId: "second", checkpointTurnCount: 1,
-            checkpointRef: "second", status: .ready,
-            files: [AgentTurnCheckpointFile(path: "Sources/App.swift", kind: "modified", additions: 1, deletions: 0)],
-            diffPatch: "+second",
-            fileDiffs: [AgentTurnCheckpointFileDiff(path: "Sources/App.swift", patch: "+second")],
-            completedAt: Date(timeIntervalSince1970: 2)
-        )
-        try checkpointRepo.upsert(first)
-        try checkpointRepo.upsert(second)
-        let coordinator = AgentRunCoordinator(
-            runRepo: runRepo, messageRepo: messageRepo, threadRepo: threadRepo,
-            providers: [.codex: FakeProviderRunner(provider: .codex)]
-        )
-        let vm = AgentAppViewModel(
-            workspaceID: workspaceID, cwd: tmp, coordinator: coordinator,
-            threadRepo: threadRepo, messageRepo: messageRepo, checkpointRepo: checkpointRepo
-        )
-        vm.selectThread(threadID, markRead: false)
-        await vm.waitForSelectThreadHydrationForTesting()
-        vm.checkpoints = [first, second]
-
-        let firstFetchStarted = expectation(description: "first preview fetch paused")
-        var releaseFirstFetch: CheckedContinuation<Void, Never>?
-        defer {
-            releaseFirstFetch?.resume()
-            releaseFirstFetch = nil
-        }
-        var shouldPauseFirstFetch = true
-        vm.beforeCheckpointPreviewFetchForTesting = { _ in
-            guard shouldPauseFirstFetch else { return }
-            shouldPauseFirstFetch = false
-            firstFetchStarted.fulfill()
-            await withCheckedContinuation { releaseFirstFetch = $0 }
-        }
-        vm.selectedCheckpointTurnCount = nil
-        vm.showPlanSidebar = true
-        vm.selectCheckpoint(first, path: "Sources/App.swift")
-        await fulfillment(of: [firstFetchStarted], timeout: 2)
-        guard releaseFirstFetch != nil else { return XCTFail("first preview fetch did not start") }
-        vm.selectCheckpoint(second, path: "Sources/App.swift")
-        try await waitForCondition(timeout: 2.0) { vm.checkpointDiffPreview.contains("+second") }
-        releaseFirstFetch?.resume()
-        releaseFirstFetch = nil
-        try await Task.sleep(nanoseconds: 20_000_000)
-
-        XCTAssertTrue(vm.checkpointDiffPreview.contains("+second"))
-        XCTAssertNil(vm.checkpointStatusMessage)
     }
 
     func test_selectThreadLoadsQueueAndDropsStaleOpenBundles() async throws {

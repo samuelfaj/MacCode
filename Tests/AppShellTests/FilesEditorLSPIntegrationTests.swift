@@ -82,11 +82,14 @@ final class FilesEditorLSPIntegrationTests: XCTestCase {
             severity: 1, message: "x", source: nil
         )
         textView.applyDiagnostics([diagnostic])
-        let layoutManager = textView.layoutManager!
-        XCTAssertNotNil(layoutManager.temporaryAttribute(.underlineStyle, atCharacterIndex: 4, effectiveRange: nil),
-            "the diagnostic range must be underlined so the error is visible")
-        XCTAssertNil(layoutManager.temporaryAttribute(.underlineStyle, atCharacterIndex: 0, effectiveRange: nil),
+        XCTAssertEqual(textView.diagnostics.map(\.0), [NSRange(location: 4, length: 5)],
+            "only the reported range may be painted as a diagnostic")
+        let underlines = textView.diagnosticUnderlineRects()
+        XCTAssertFalse(underlines.isEmpty, "the diagnostic range must be underlined so the error is visible")
+        let glyph0 = textView.textKit2SegmentRects(for: NSRange(location: 0, length: 1))[0]
+        XCTAssertTrue(underlines.allSatisfy { $0.rect.minX > glyph0.maxX },
             "text outside the diagnostic range must not be underlined")
+        XCTAssertNotNil(textView.textLayoutManager, "diagnostics must not downgrade the view to TextKit 1")
     }
 
     /// Opt-in: needs `sourcekit-lsp` on PATH. Run with RC_LIVE_LSP=1.

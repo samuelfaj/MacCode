@@ -11746,7 +11746,8 @@ public final class BotsViewModel: ObservableObject {
         runsInGuest: Bool = false
     ) -> String {
         if provider == .distill,
-           userText.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/") {
+           userText.trimmingCharacters(in: .whitespacesAndNewlines)
+            .range(of: #"^/[A-Za-z][A-Za-z0-9_-]*(?:\s|$)"#, options: .regularExpression) != nil {
             return userText
         }
         guard executionTarget == .vm else { return compiledPayload }
@@ -14777,8 +14778,7 @@ public struct BotsRootView: View {
                         vm: agentVM,
                         layout: AgentAppViewLayout(
                             showsThreadRail: false,
-                            showsHeader: false,
-                            showsPlanSidebar: false
+                            showsHeader: false
                         ),
                         timelineAccessory: AnyView(deskNewThreadFAB)
                     )

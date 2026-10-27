@@ -107,7 +107,14 @@ final class ActivityService: @unchecked Sendable {
     /// notification summaries, the sort and the JSON encoding.
     func counts() throws -> (global: AgentActivityCounts, byWorkspace: [String: AgentActivityCounts]) {
         let items = try projectedItems(filter: ActivityFilter(params: [:]), snapshotAt: Date(), includeDisplayDetail: false)
-        return (Self.counts(for: items), Self.workspaceCounts(for: items))
+        let byWorkspace = Self.workspaceCounts(for: items)
+        ActivityChangeEmitter.shared.observe(items: items, byWorkspace: byWorkspace)
+        return (Self.counts(for: items), byWorkspace)
+    }
+
+    /// Feeds the unfiltered rows to `agent.activity.changed` after a mutation.
+    func observeChanges() throws {
+        _ = try counts()
     }
 
     private func projectedItems(filter: ActivityFilter, snapshotAt: Date, includeDisplayDetail: Bool) throws -> [AgentActivityItem] {
@@ -716,4 +723,111 @@ private struct ActivityCursor {
         return (try? JSONEncoder().encode(wire).base64EncodedString()) ?? ""
     }
     private struct CursorWire: Codable { let occurredAtBits: UInt64; let snapshotBits: UInt64; let id: String }
+}
+
+/// Emits `agent.activity.changed` for rows whose state changed. Each workspace publishes
+/// at most once per `minInterval`; changes inside the window coalesce into one trailing event.
+final class ActivityChangeEmitter: @unchecked Sendable {
+    static let shared = ActivityChangeEmitter()
+    static let minInterval: TimeInterval = 0.5
+
+    struct Row: Equatable {
+        let workspace: String?
+        let thread: String?
+        let fingerprint: String
+    }
+
+    private let lock = NSLock()
+    private var rows: [String: Row] = [:]
+    private var latestCounts: [String: AgentActivityCounts] = [:]
+    private var pendingThreads: [String: Set<String>] = [:]
+    private var lastPublished: [String: Date] = [:]
+    private var scheduled: Set<String> = []
+    /// The first observation is the baseline, not a change.
+    private var primed = false
+
+    static func row(for item: AgentActivityItem) -> Row {
+        Row(
+            workspace: item.workspaceID?.uuidString,
+            thread: item.threadID?.uuidString,
+            fingerprint: "\(item.state.rawValue)|\(item.needsAction)|\(item.blocking)|\(item.viewedAt != nil)|\(item.occurredAt.timeIntervalSince1970)"
+        )
+    }
+
+    /// Rows that appeared, changed or vanished, grouped by workspace. Rows without a workspace are skipped.
+    static func diff(previous: [String: Row], items: [AgentActivityItem]) -> (rows: [String: Row], changedThreads: [String: Set<String>]) {
+        var current: [String: Row] = [:]
+        var changed: [String: Set<String>] = [:]
+        for item in items {
+            let row = row(for: item)
+            current[item.id] = row
+            guard previous[item.id] != row, let workspace = row.workspace else { continue }
+            changed[workspace, default: []].insert(row.thread ?? item.id)
+        }
+        for (id, old) in previous where current[id] == nil {
+            guard let workspace = old.workspace else { continue }
+            changed[workspace, default: []].insert(old.thread ?? id)
+        }
+        return (current, changed)
+    }
+
+    /// Seconds to wait before the next publish for a workspace; 0 publishes now.
+    static func publishDelay(lastPublished: Date?, now: Date) -> TimeInterval {
+        guard let lastPublished else { return 0 }
+        return max(0, lastPublished.addingTimeInterval(minInterval).timeIntervalSince(now))
+    }
+
+    static func payload(workspaceID: String, counts: AgentActivityCounts, changedThreadIDs: Set<String>) -> JSONValue {
+        .object([
+            "workspace_id": .string(workspaceID),
+            "counts": .object([
+                "running": .number(Double(counts.running)),
+                "queued": .number(Double(counts.queued)),
+                "needs_you": .number(Double(counts.needsYou)),
+                "finished": .number(Double(counts.finished)),
+                "new_results": .number(Double(counts.newResults)),
+            ]),
+            "changed_thread_ids": .array(changedThreadIDs.sorted().map(JSONValue.string)),
+        ])
+    }
+
+    func observe(items: [AgentActivityItem], byWorkspace: [String: AgentActivityCounts], now: Date = Date()) {
+        lock.lock()
+        let diffed = Self.diff(previous: rows, items: items)
+        rows = diffed.rows
+        latestCounts = byWorkspace
+        guard primed else {
+            primed = true
+            lock.unlock()
+            return
+        }
+        var immediate: [String] = []
+        for (workspace, threads) in diffed.changedThreads {
+            pendingThreads[workspace, default: []].formUnion(threads)
+            if scheduled.contains(workspace) { continue }
+            let delay = Self.publishDelay(lastPublished: lastPublished[workspace], now: now)
+            if delay <= 0 {
+                immediate.append(workspace)
+            } else {
+                scheduled.insert(workspace)
+                DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [self] in flush(workspace) }
+            }
+        }
+        lock.unlock()
+        for workspace in immediate { flush(workspace) }
+    }
+
+    private func flush(_ workspace: String) {
+        lock.lock()
+        let threads = pendingThreads.removeValue(forKey: workspace) ?? []
+        scheduled.remove(workspace)
+        lastPublished[workspace] = Date()
+        let counts = latestCounts[workspace] ?? AgentActivityCounts(running: 0, queued: 0, needsYou: 0, finished: 0, newResults: 0)
+        lock.unlock()
+        guard !threads.isEmpty else { return }
+        EventBus.shared.publish(
+            kind: .agentActivityChanged,
+            payload: Self.payload(workspaceID: workspace, counts: counts, changedThreadIDs: threads)
+        )
+    }
 }

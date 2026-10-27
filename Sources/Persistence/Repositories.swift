@@ -6400,8 +6400,9 @@ public final class AgentRunRepository: @unchecked Sendable {
         }
         let st = try db.prepare("""
             WITH ranked AS (
-                SELECT e.id,
+                SELECT e.id, r.status,
                        ROW_NUMBER() OVER (
+                           PARTITION BY r.status = 'running'
                            ORDER BY r.started_at DESC, e.seq DESC, e.id DESC
                        ) AS row_number,
                        SUM(LENGTH(CAST(e.payload_json AS BLOB))) OVER (
@@ -6416,8 +6417,12 @@ public final class AgentRunRepository: @unchecked Sendable {
             WHERE id IN (
                 SELECT id FROM ranked
                 -- Always keep the newest row so a large fresh event can enter;
-                -- reclaim budget by deleting older rows only.
-                WHERE row_number > ? OR (row_number > 1 AND running_bytes > ?)
+                -- reclaim budget by deleting older rows only. A running run is
+                -- exempt from the row cap (still bound by bytes): paired devices
+                -- rebuild its live turn from these rows, and the cap evicted the
+                -- tool items the Mac still shows.
+                WHERE (row_number > ? AND status != 'running')
+                   OR (row_number > 1 AND running_bytes > ?)
             );
         """)
         try st.bind(1, threadId.value.uuidString)
@@ -6436,11 +6441,12 @@ public final class AgentRunRepository: @unchecked Sendable {
         limit: Int,
         maxPayloadBytes: Int64
     ) throws -> Bool {
+        // Rows of a running run do not count against the row cap (see prune).
         let countSt = try db.prepare("""
             SELECT COUNT(*)
             FROM agent_stream_events e
             JOIN agent_runs r ON r.id = e.run_id
-            WHERE r.thread_id = ?;
+            WHERE r.thread_id = ? AND r.status != 'running';
         """)
         try countSt.bind(1, threadId.value.uuidString)
         let count = try countSt.step() ? countSt.columnInt64(0) : 0

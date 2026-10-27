@@ -680,6 +680,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     @Published public var distillMainEffortSelection: AgentEffortSelection = .automatic
     @Published public var distillReasoningEffortSelection: AgentEffortSelection = .automatic
     @Published public var distillExecutionMode: DistillExecutionMode = .auto
+    @Published public var showingAutoRoutingSetup = false
     @Published public var serviceTier: AgentServiceTier = .auto
     @Published public private(set) var routingMode: AgentRoutingMode = .manual
     @Published public var executionMode: AgentExecutionMode = .local
@@ -731,14 +732,6 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     @Published public internal(set) var resolvedManualActions: [ManualActionRequest] = []
     @Published public var currentRunId: AgentRunID?
     @Published public var hasUnreadActivity: Bool = false
-    @Published public var showPlanSidebar: Bool = false {
-        didSet {
-            // The checkpoint diff preview is fetched per selection and only
-            // while the sidebar shows it (perf AA-03); catch up on open.
-            guard showPlanSidebar, oldValue == false else { return }
-            refreshCheckpointDiffPreviewIfNeeded()
-        }
-    }
     /// Provider-neutral Subagents activity derived from admission receipts +
     /// coordinator active runs. Empty until the first refresh; never invents rows.
     @Published public private(set) var subagentActivity: SubagentActivitySnapshot = .empty
@@ -854,8 +847,6 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     @Published public var checkpoints: [AgentTurnCheckpointSummary] = []
     @Published public var selectedCheckpointTurnCount: Int?
     @Published public var selectedCheckpointPath: String?
-    @Published public private(set) var checkpointRevealGeneration = 0
-    @Published public var checkpointDiffPreview: String = ""
     @Published public var checkpointStatusMessage: String?
     /// B3: durable, managed attachments attached to the next message.
     @Published public var attachments: [AgentAttachment] = []
@@ -975,8 +966,6 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     // UX-XPLAT-REVERT-UNDO: drops the transient checkpoint-revert undo toast when
     // the undo window lapses. Cancelled on a new revert, on undo, or on teardown.
     private var checkpointRevertUndoExpiryTask: Task<Void, Never>?
-    private var checkpointPreviewGeneration: UInt64 = 0
-    var beforeCheckpointPreviewFetchForTesting: (@MainActor (UInt64) async -> Void)?
     private var messageHistoryLoadTask: Task<Void, Never>?
     private var olderMessageLoadTask: Task<Void, Never>?
     private var messageRevealGeneration: UInt64 = 0
@@ -3441,11 +3430,9 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             checkpoints = []
             selectedCheckpointTurnCount = nil
             selectedCheckpointPath = nil
-            checkpointDiffPreview = ""
             return
         }
-        // Metadata-only (perf AA-03): diff blobs are fetched per selection via
-        // loadCheckpointDiffPreview, never for the whole list on open/reselect.
+        // Metadata-only (perf AA-03): diff blobs are never read for the whole list.
         let loaded = (try? checkpointRepo.listSummaries(threadId: selectedThreadId)) ?? []
         applyCheckpointSummaries(loaded)
     }
@@ -3470,7 +3457,6 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         } else {
             selectedCheckpointTurnCount = nil
             selectedCheckpointPath = nil
-            checkpointDiffPreview = ""
         }
     }
 
@@ -3518,109 +3504,13 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         if !checkpoints.contains(where: { $0.checkpointTurnCount == checkpointTurnCount && $0.runId == expectedRunID }) {
             checkpoints.append(summary)
         }
-        showPlanSidebar = true
-        selectCheckpoint(summary, path: path, fetchedCheckpoint: fetched)
-        checkpointRevealGeneration += 1
+        selectCheckpoint(summary, path: path)
     }
 
     public func selectCheckpoint(_ checkpoint: AgentTurnCheckpointSummary, path: String?) {
-        selectCheckpoint(checkpoint, path: path, fetchedCheckpoint: nil)
-    }
-
-    private func selectCheckpoint(
-        _ checkpoint: AgentTurnCheckpointSummary,
-        path: String?,
-        fetchedCheckpoint: AgentTurnCheckpointSummary?
-    ) {
         selectedCheckpointTurnCount = checkpoint.checkpointTurnCount
         selectedCheckpointPath = path
         checkpointStatusMessage = nil
-        loadCheckpointDiffPreview(
-            threadId: selectedThreadId,
-            checkpointTurnCount: checkpoint.checkpointTurnCount,
-            expectedRunID: checkpoint.runId,
-            path: path,
-            fetchedCheckpoint: fetchedCheckpoint
-        )
-    }
-
-    /// Fetches the selected checkpoint's diff payload off-main and publishes the
-    /// preview (perf AA-03: checkpoint rows no longer carry the diff blobs, so
-    /// the fetch happens per selection and only while the plan sidebar shows
-    /// them). The sidebar-open hook refetches when the panel was hidden at
-    /// select time.
-    private func loadCheckpointDiffPreview(
-        threadId: AgentThreadID?,
-        checkpointTurnCount: Int,
-        expectedRunID: AgentRunID,
-        path: String?,
-        fetchedCheckpoint: AgentTurnCheckpointSummary? = nil
-    ) {
-        checkpointPreviewGeneration &+= 1
-        let generation = checkpointPreviewGeneration
-        guard let threadId, let checkpointRepo else {
-            checkpointDiffPreview = ""
-            return
-        }
-        guard showPlanSidebar else {
-            checkpointDiffPreview = ""
-            return
-        }
-        checkpointDiffPreview = ""
-        Task { @MainActor [weak self] in
-            await self?.beforeCheckpointPreviewFetchForTesting?(generation)
-            let fetched: AgentTurnCheckpointSummary?
-            if let fetchedCheckpoint {
-                fetched = fetchedCheckpoint
-            } else {
-                fetched = await Task.detached(priority: .userInitiated) {
-                    try? checkpointRepo.get(threadId: threadId, checkpointTurnCount: checkpointTurnCount)
-                }.value
-            }
-            guard let self, !self.isDisposed,
-                  self.checkpointPreviewGeneration == generation,
-                  self.selectedThreadId == threadId,
-                  self.selectedCheckpointTurnCount == checkpointTurnCount,
-                  self.selectedCheckpointPath == path else { return }
-            guard let fetched, fetched.runId == expectedRunID,
-                  path == nil || fetched.files.contains(where: { $0.path == path }) else {
-                self.checkpointStatusMessage = "Checkpoint is no longer available."
-                return
-            }
-            self.checkpointDiffPreview = Self.checkpointDiffPreviewText(from: fetched, path: path)
-        }
-    }
-
-    /// Pure preview builder (testable): all-files or single-file diff text.
-    nonisolated public static func checkpointDiffPreviewText(
-        from checkpoint: AgentTurnCheckpointSummary?,
-        path: String?
-    ) -> String {
-        guard let checkpoint else { return "No diff captured for this checkpoint." }
-        let preview: String
-        if let path {
-            preview = checkpoint.fileDiffs.first(where: { $0.path == path })?.patch ?? ""
-        } else {
-            preview = checkpoint.diffPatch ?? checkpoint.fileDiffs.map(\.patch).joined(separator: "\n\n")
-        }
-        if preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return checkpoint.errorMessage ?? "No diff captured for this checkpoint."
-        }
-        return preview
-    }
-
-    /// When the plan sidebar opens, the selected checkpoint's preview may not
-    /// have been fetched (the panel was hidden at select time).
-    private func refreshCheckpointDiffPreviewIfNeeded() {
-        guard showPlanSidebar,
-              let threadId = selectedThreadId,
-              let turnCount = selectedCheckpointTurnCount else { return }
-        guard let checkpoint = checkpoints.first(where: { $0.checkpointTurnCount == turnCount }) else {
-            checkpointStatusMessage = "Checkpoint is no longer available."
-            checkpointDiffPreview = ""
-            return
-        }
-        loadCheckpointDiffPreview(threadId: threadId, checkpointTurnCount: turnCount, expectedRunID: checkpoint.runId, path: selectedCheckpointPath)
     }
 
     nonisolated public static func canRevertCheckpoint(
@@ -9627,6 +9517,22 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             statusMessage = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             return nil
         }
+        if runProvider == .distill, runModel == "auto",
+           runAsUser.map({ $0.uid == getuid() }) ?? true {
+            let launch = providerLaunchConfig?(runProvider, runProviderInstanceId)
+            let environment = ProcessInfo.processInfo.environment.merging(launch?.environment ?? [:]) { _, run in run }
+            let home = DistillProvisioner.homeURL(
+                environment: environment,
+                userHome: runAsUser?.homePath ?? FileManager.default.homeDirectoryForCurrentUser.path
+            )
+            do {
+                _ = try DistillAccounts.autoRoutingAccounts(home: home)
+            } catch {
+                statusMessage = error.localizedDescription
+                showingAutoRoutingSetup = error is DistillAutoRoutingError && AgentAutoGuide.makeGuide != nil
+                return nil
+            }
+        }
         if recordHistory { recordPromptHistory(text) }
         if selectedThreadId == nil {
             createThread(title: "New thread")
@@ -13114,14 +13020,12 @@ private struct PendingSessionApprovalConfirmation {
 public struct AgentAppViewLayout: Equatable {
     public var showsThreadRail: Bool
     public var showsHeader: Bool
-    public var showsPlanSidebar: Bool
     /// False for a host that shows the conversation but sends from elsewhere (Activity).
     public var showsComposer: Bool
 
-    public init(showsThreadRail: Bool = true, showsHeader: Bool = true, showsPlanSidebar: Bool = true, showsComposer: Bool = true) {
+    public init(showsThreadRail: Bool = true, showsHeader: Bool = true, showsComposer: Bool = true) {
         self.showsThreadRail = showsThreadRail
         self.showsHeader = showsHeader
-        self.showsPlanSidebar = showsPlanSidebar
         self.showsComposer = showsComposer
     }
 
@@ -13151,7 +13055,6 @@ public struct AgentAppView: View {
     private static let threadRailWidthRange: ClosedRange<CGFloat> = 320...360
     private static let threadRailIdealWidth: CGFloat = 320
     private static let conversationMinimumWidth: CGFloat = 560
-    private static let planSidebarIdealWidth: CGFloat = 300
     static func visibleStatusMessage(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -13199,10 +13102,8 @@ public struct AgentAppView: View {
     @State private var timelineDropTargeted = false
 
     @AppStorage("agent.threadRail.intent.v1") private var threadRailIntentRaw = AdaptiveSidebarIntent.auto.rawValue
-    @AppStorage("agent.planSidebar.intent.v1") private var planSidebarIntentRaw = AdaptiveSidebarIntent.auto.rawValue
     @State private var showThreadRail = true
     @State private var lastAutomaticThreadRailChange: TimeInterval?
-    @State private var lastAutomaticPlanSidebarChange: TimeInterval?
     @State private var proposedPlanExpanded = false
     @State private var showWorkLog = false
     @State private var dismissedChoices = AgentChatChoicesCard.DismissedStore.load()
@@ -15536,25 +15437,26 @@ public struct AgentAppView: View {
                 }
                 conversationColumn(availableHeight: proxy.size.height)
                     .frame(minWidth: 0, maxWidth: .infinity)
-                // The plan sidebar steps aside in narrow panes so the conversation keeps its room.
-                if vm.showPlanSidebar && layout.showsPlanSidebar && proxy.size.width >= 560 {
-                    planSidebar.frame(minWidth: 240, idealWidth: Self.planSidebarIdealWidth, maxWidth: 420)
-                }
             }
             .onAppear { applyAdaptiveSidebars(width: proxy.size.width, event: .structural) }
             .onChange(of: proxy.size.width) { width in
                 applyAdaptiveSidebars(width: width, event: .resize)
             }
-            .onChange(of: vm.showPlanSidebar) { _ in
-                applyAdaptiveSidebars(width: proxy.size.width, event: .structural)
-            }
-            .onChange(of: vm.checkpointRevealGeneration) { _ in
-                planSidebarIntent = .forcedVisible
-                applyAdaptiveSidebars(width: proxy.size.width, event: .structural)
-            }
         }
         .background(DS.Palette.bg)
         .background(newThreadShortcut)
+        .sheet(isPresented: $vm.showingAutoRoutingSetup) {
+            AgentChoiceSheet(
+                icon: "sparkles", tint: DS.Palette.ultracode,
+                title: AgentAutoGuide.title, subtitle: AgentAutoGuide.subtitle,
+                width: 600, accessibilityIdentifier: "agent.autoSetup.sheet",
+                onClose: { vm.showingAutoRoutingSetup = false }
+            ) {
+                if let makeGuide = AgentAutoGuide.makeGuide {
+                    makeGuide { vm.showingAutoRoutingSetup = false }
+                }
+            }
+        }
         // UX-MAC_AGENT-OPEN-SPLIT: any tapped link inside this surface's markdown
         // (file mentions, bare URLs, markdown links) routes through the VM so it
         // opens — or reuses — a split panel to the right instead of leaving the app.
@@ -15971,9 +15873,13 @@ public struct AgentAppView: View {
                     orchestrateActive: vm.routingMode == .auto
                 )
             }
-            DSIconButton("list.bullet.rectangle", help: "Toggle plan") {
-                planSidebarIntent = vm.showPlanSidebar ? .forcedHidden : .forcedVisible
-                vm.showPlanSidebar.toggle()
+            // Same action as `/side`; hidden where no host can open a side pane.
+            if vm.onRequestSideChat != nil, !vm.selectedThreadIsEphemeral {
+                DSIconButton("rectangle.split.2x1", help: "Side chat (/side)") {
+                    vm.requestSideChat(text: "")
+                }
+                .disabled(vm.selectedThreadId == nil)
+                .accessibilityIdentifier("agent.header.sideChat")
             }
         }
         .padding(.horizontal, DS.Space.lg).padding(.vertical, DS.Space.sm)
@@ -16134,11 +16040,6 @@ public struct AgentAppView: View {
         nonmutating set { threadRailIntentRaw = newValue.rawValue }
     }
 
-    private var planSidebarIntent: AdaptiveSidebarIntent {
-        get { AdaptiveSidebarIntent(rawValue: planSidebarIntentRaw) ?? .auto }
-        nonmutating set { planSidebarIntentRaw = newValue.rawValue }
-    }
-
     // QA-MAC_AGENT-013: UI tests can pin both sidebars visible to get a stable
     // layout that resize-driven auto-collapse can't flake. Set via launch arg
     // `-agent.pinSidebars` or env `RC_AGENT_PIN_SIDEBARS=1`.
@@ -16149,45 +16050,15 @@ public struct AgentAppView: View {
     private func applyAdaptiveSidebars(width: CGFloat, event: AdaptiveSidebarLayoutEvent) {
         if Self.sidebarsPinnedForTesting {
             showThreadRail = true
-            vm.showPlanSidebar = true
             return
         }
-        applyAdaptivePlanSidebar(width: width, event: event)
         applyAdaptiveThreadRail(width: width, event: event)
-    }
-
-    private func applyAdaptivePlanSidebar(width: CGFloat, event: AdaptiveSidebarLayoutEvent) {
-        let now = vm.currentTime().timeIntervalSinceReferenceDate
-        let reservedThreadWidth = showThreadRail ? Self.threadRailIdealWidth : 0
-        let decision = AdaptiveSidebarPolicy.nextVisibility(
-            availableExtent: width - reservedThreadWidth,
-            contentMinimumExtent: Self.conversationMinimumWidth,
-            sidebarExtent: Self.planSidebarIdealWidth,
-            currentVisible: vm.showPlanSidebar,
-            intent: planSidebarIntent,
-            event: event,
-            now: now,
-            lastAutomaticChange: lastAutomaticPlanSidebarChange
-        )
-        guard decision.isVisible != vm.showPlanSidebar else { return }
-        vm.showPlanSidebar = decision.isVisible
-        if decision.didChangeAutomatically {
-            lastAutomaticPlanSidebarChange = now
-            // UX-MAC_AGENT-011: make auto-collapse one-way — once the policy
-            // hides the plan sidebar for being too narrow, persist that intent so
-            // a later resize never surprises the user by auto-showing it. The
-            // header "Toggle plan" button restores it explicitly (.forcedVisible).
-            if !decision.isVisible, planSidebarIntent == .auto {
-                planSidebarIntent = .forcedHidden
-            }
-        }
     }
 
     private func applyAdaptiveThreadRail(width: CGFloat, event: AdaptiveSidebarLayoutEvent) {
         let now = vm.currentTime().timeIntervalSinceReferenceDate
-        let reservedPlanWidth = vm.showPlanSidebar ? Self.planSidebarIdealWidth : 0
         let decision = AdaptiveSidebarPolicy.nextVisibility(
-            availableExtent: width - reservedPlanWidth,
+            availableExtent: width,
             contentMinimumExtent: Self.conversationMinimumWidth,
             sidebarExtent: Self.threadRailIdealWidth,
             currentVisible: showThreadRail,
@@ -16394,6 +16265,7 @@ public struct AgentAppView: View {
                                     hold: vm.backgroundHoldSummary,
                                     distill: vm.provider == .distill ? vm.distillLive : nil,
                                     contextTokens: vm.provider == .distill ? vm.timeline.tokenUsage?.contextTokens : nil,
+                                    runningTools: AgentChatLiveTurnChrome.runningTools(in: vm.timeline.turns, since: vm.runStartedAt),
                                     onStop: { vm.stop() }
                                 )
                                 .id("agent.workingStatus")
@@ -19771,273 +19643,6 @@ public struct AgentAppView: View {
         Task {
             _ = await vm.clearAllThreads()
         }
-    }
-
-    // MARK: Plan notes sidebar
-
-    private var planSidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            DSSectionHeader("Plan", trailing: AnyView(
-                DSIconButton("xmark", help: "Hide plan") {
-                    planSidebarIntent = .forcedHidden
-                    vm.showPlanSidebar = false
-                }
-            ))
-            Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
-            if Self.shouldRenderActivePlan(
-                plan: vm.activePlan,
-                status: vm.status,
-                runStartedAt: vm.runStartedAt,
-                newestUserMessageAt: vm.messages.last(where: { $0.role == .user })?.createdAt
-            ), let plan = vm.activePlan {
-                activePlanSidebarCard(plan)
-                Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
-            }
-            if let proposedPlan = vm.reviewableProposedPlan {
-                let plan = proposedPlanExpanded ? proposedPlan.markdown : proposedPlan.collapsedPreview
-                VStack(alignment: .leading, spacing: DS.Space.xs) {
-                    Text("PROPOSED BY AGENT")
-                        .font(DS.Font.caption2.weight(.semibold)).tracking(0.6)
-                        .foregroundColor(DS.Palette.accent)
-                    Text(proposedPlan.exportTitle)
-                        .font(DS.Font.body.weight(.semibold))
-                        .foregroundColor(DS.Palette.text)
-                    HStack(spacing: DS.Space.xs) {
-                        if proposedPlan.showsImplementationActions {
-                            Button {
-                                Task { await vm.implementLatestPlan(newThread: false) }
-                            } label: {
-                                Label("Approve", systemImage: "checkmark")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            Button {
-                                Task { await vm.rejectLatestPlan() }
-                            } label: {
-                                Label("Reject", systemImage: "xmark")
-                            }
-                            .buttonStyle(.bordered)
-                            Button {
-                                Task { await vm.implementLatestPlan(newThread: true) }
-                            } label: {
-                                Label("New thread", systemImage: "plus.message")
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                        Button {
-                            copyToPasteboard(plan)
-                        } label: {
-                            Label("Copy", systemImage: "doc.on.doc")
-                        }
-                        .buttonStyle(.bordered)
-                        Button {
-                            saveLatestProposedPlan()
-                        } label: {
-                            Label("Save", systemImage: "square.and.arrow.down")
-                        }
-                        .buttonStyle(.bordered)
-                        if proposedPlan.markdown != proposedPlan.collapsedPreview {
-                            Button {
-                                proposedPlanExpanded.toggle()
-                            } label: {
-                                Label(proposedPlanExpanded ? "Collapse" : "Show all",
-                                      systemImage: proposedPlanExpanded ? "chevron.up" : "chevron.down")
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                    ScrollView {
-                        AgentSelectablePlainText(
-                            text: plan,
-                            fontSize: 11,
-                            monospaced: true,
-                            textColor: DS.NS.text
-                        )
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxHeight: proposedPlanExpanded ? 420 : 220)
-                }
-                .padding(DS.Space.md)
-                .background(DS.Palette.bg)
-                Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
-            }
-            checkpointBrowserCard
-            if !vm.checkpoints.isEmpty {
-                Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
-            }
-            // UX-MAC_AGENT-014: when the panel has no plan/checkpoints yet, the
-            // bare Notes editor reads as broken — explain what fills this panel.
-            if vm.activePlan == nil, vm.reviewableProposedPlan == nil, vm.checkpoints.isEmpty {
-                Text("The agent's plan and turn checkpoints appear here.")
-                    .font(DS.Font.caption)
-                    .foregroundColor(DS.Palette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, DS.Space.md).padding(.top, DS.Space.sm)
-            }
-            Text("NOTES")
-                .font(DS.Font.caption2.weight(.semibold)).tracking(0.6)
-                .foregroundColor(DS.Palette.textTertiary)
-                .padding(.horizontal, DS.Space.md).padding(.top, DS.Space.sm)
-            TextEditor(text: $vm.planNotes)
-                .font(DS.Font.mono)
-                .scrollContentBackground(.hidden)
-                .padding(DS.Space.md)
-                .background(DS.Palette.surface)
-                .onChange(of: vm.planNotes) { _ in vm.savePlanNotes() }
-        }
-        .background(DS.Palette.surface)
-        .overlay(alignment: .leading) {
-            Rectangle().fill(DS.Palette.line).frame(width: DS.Border.hairline)
-        }
-    }
-
-    @ViewBuilder
-    private var checkpointBrowserCard: some View {
-        if !vm.checkpoints.isEmpty {
-            VStack(alignment: .leading, spacing: DS.Space.sm) {
-                HStack {
-                    Text("CHECKPOINTS")
-                        .font(DS.Font.caption2.weight(.semibold)).tracking(0.6)
-                        .foregroundColor(DS.Palette.accent)
-                    Spacer()
-                    Button {
-                        vm.reloadCheckpoints()
-                    } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
-                }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: DS.Space.xs) {
-                        ForEach(vm.checkpoints) { checkpoint in
-                            Button {
-                                vm.selectCheckpoint(checkpoint, path: nil)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("#\(checkpoint.checkpointTurnCount) \(checkpoint.status.rawValue.uppercased())")
-                                        .font(DS.Font.caption.weight(.semibold))
-                                    Text("\(checkpoint.files.count) files")
-                                        .font(DS.Font.caption2)
-                                        .foregroundColor(DS.Palette.textSecondary)
-                                }
-                                .frame(width: 116, alignment: .leading)
-                            }
-                            .buttonStyle(.bordered)
-                            .accessibilityIdentifier("agent.checkpoint.row.\(checkpoint.checkpointTurnCount)")
-                        }
-                    }
-                }
-                if let checkpoint = vm.checkpoints.first(where: { $0.checkpointTurnCount == vm.selectedCheckpointTurnCount }) {
-                    if !checkpoint.files.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: DS.Space.xs) {
-                                Button {
-                                    vm.selectCheckpoint(checkpoint, path: nil)
-                                } label: {
-                                    Label("All files", systemImage: "doc.text")
-                                }
-                                .buttonStyle(.bordered)
-                                ForEach(checkpoint.files, id: \.path) { file in
-                                    Button {
-                                        vm.selectCheckpoint(checkpoint, path: file.path)
-                                    } label: {
-                                        Label(URL(fileURLWithPath: file.path).lastPathComponent, systemImage: "doc")
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .accessibilityIdentifier("agent.checkpoint.file.\(file.path)")
-                                }
-                            }
-                        }
-                    }
-                    ScrollView {
-                        AgentSelectablePlainText(
-                            text: vm.checkpointDiffPreview,
-                            fontSize: 11,
-                            monospaced: true,
-                            textColor: DS.NS.text
-                        )
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxHeight: 220)
-                    .background(DS.Palette.surface)
-                    .accessibilityIdentifier("agent.checkpoint.diff")
-                    HStack {
-                        if let message = vm.checkpointStatusMessage {
-                            dismissibleStatusRow(
-                                message,
-                                identifier: "agent.checkpoint.status.dismiss",
-                                color: message.hasPrefix("Revert failed") ? DS.Palette.danger : DS.Palette.textSecondary,
-                                dismiss: { vm.dismissCheckpointStatusMessage() }
-                            )
-                        }
-                        Spacer()
-                        // UX-XPLAT-007: stage the revert for confirmation instead
-                        // of executing immediately — rolling back the working tree
-                        // is irreversible without a prior git commit.
-                        Button(role: .destructive) {
-                            pendingRevertCheckpointTurnCount = checkpoint.checkpointTurnCount
-                        } label: {
-                            Label("Revert", systemImage: "arrow.uturn.backward")
-                        }
-                        .disabled(!AgentAppViewModel.canRevertCheckpoint(
-                            status: checkpoint.status,
-                            capabilities: vm.selectedProviderCapabilities
-                        ))
-                        .help(vm.checkpointRevertUnavailableReason ?? "Restore provider context and workspace files to this checkpoint.")
-                        .accessibilityIdentifier("agent.checkpoint.revert")
-                    }
-                }
-            }
-            .padding(DS.Space.md)
-            .background(DS.Palette.bg)
-            .accessibilityIdentifier("agent.checkpoints.card")
-            // P1: confirm before reverting — rolls back working tree with no undo.
-            .confirmationDialog(
-                "Revert to checkpoint \(pendingRevertCheckpointTurnCount.map { "#\($0)" } ?? "")?",
-                isPresented: Binding(
-                    get: { pendingRevertCheckpointTurnCount != nil },
-                    set: { if !$0 { pendingRevertCheckpointTurnCount = nil } }
-                ),
-                titleVisibility: .visible
-            ) {
-                Button("Revert", role: .destructive) {
-                    vm.revertSelectedCheckpoint()
-                    pendingRevertCheckpointTurnCount = nil
-                }
-                Button("Cancel", role: .cancel) { pendingRevertCheckpointTurnCount = nil }
-            } message: {
-                Text("This will overwrite uncommitted changes in the working tree. This cannot be undone.")
-            }
-        }
-    }
-
-    private func activePlanSidebarCard(_ plan: AssistantActivePlan) -> some View {
-        VStack(alignment: .leading, spacing: DS.Space.xs) {
-            Text("ACTIVE PLAN")
-                .font(DS.Font.caption2.weight(.semibold)).tracking(0.6)
-                .foregroundColor(DS.Palette.accent)
-            if let explanation = plan.explanation, !explanation.isEmpty {
-                Text(explanation)
-                    .font(DS.Font.caption)
-                    .foregroundColor(DS.Palette.textSecondary)
-            }
-            VStack(alignment: .leading, spacing: DS.Space.xs) {
-                ForEach(plan.steps) { step in
-                    HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
-                        Image(systemName: step.status.iconName)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(step.status.tint)
-                            .frame(width: 14)
-                        Text(step.title)
-                            .font(DS.Font.caption)
-                            .foregroundColor(DS.Palette.text)
-                            .lineLimit(2)
-                        Spacer(minLength: 0)
-                    }
-                }
-            }
-        }
-        .padding(DS.Space.md)
-        .background(DS.Palette.bg)
     }
 
     private func activePlanRow(_ plan: AssistantActivePlan) -> some View {
