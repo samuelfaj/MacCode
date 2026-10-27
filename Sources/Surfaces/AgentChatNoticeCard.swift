@@ -76,8 +76,13 @@ public struct AgentChatNoticeCard: View {
     public let choices: BotChoicesBlock?
     public let createdAt: Date
     public let content: AnyView
+    /// Relative-time anchor shared with the transcript, so cards do not tick on their own.
+    public let now: Date?
+    /// Observed only by the options and reply field, so typing in the composer
+    /// does not re-render every card's prose.
+    public let composerState: AgentComposerState
     /// The composer holds a draft or attachments: answering here would replace them.
-    public let isBlockedByDraft: Bool
+    public let isBlockedByDraft: () -> Bool
     public let isSending: Bool
     public let onOption: (Int) -> Void
     /// Returns false when the reply failed; the text then stays in the field.
@@ -92,8 +97,8 @@ public struct AgentChatNoticeCard: View {
 
     private var identifier: String { "agent.notice.\(messageID)" }
     private var status: (label: String, symbol: String, tone: AgentNoticeStatus.Tone) { AgentNoticeStatus.of(block) }
-    private var canSend: Bool {
-        block.isOpen && !isBlockedByDraft && !isSending
+    private func canSend(blocked: Bool) -> Bool {
+        block.isOpen && !blocked && !isSending
             && !replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -103,7 +108,9 @@ public struct AgentChatNoticeCard: View {
         choices: BotChoicesBlock?,
         createdAt: Date,
         content: AnyView,
-        isBlockedByDraft: Bool,
+        now: Date? = nil,
+        composerState: AgentComposerState,
+        isBlockedByDraft: @escaping () -> Bool,
         isSending: Bool,
         onOption: @escaping (Int) -> Void,
         onReply: @escaping (String) async -> Bool,
@@ -114,6 +121,8 @@ public struct AgentChatNoticeCard: View {
         self.choices = choices
         self.createdAt = createdAt
         self.content = content
+        self.now = now
+        self.composerState = composerState
         self.isBlockedByDraft = isBlockedByDraft
         self.isSending = isSending
         self.onOption = onOption
@@ -146,6 +155,7 @@ public struct AgentChatNoticeCard: View {
                     .accessibilityIdentifier("\(identifier).expand")
             }
             if block.isOpen, let choices {
+                NoticeDraftGate(composerState: composerState, isBlocked: isBlockedByDraft) { blocked in
                 VStack(spacing: DS.Space.sm) {
                     ForEach(Array(choices.options.enumerated()), id: \.offset) { index, option in
                         AgentChoiceOptionRow(
@@ -157,11 +167,14 @@ public struct AgentChatNoticeCard: View {
                         ) { onOption(index) }
                     }
                 }
-                .disabled(isBlockedByDraft)
-                .opacity(isBlockedByDraft ? 0.5 : 1)
+                .disabled(blocked)
+                .opacity(blocked ? 0.5 : 1)
+                }
             }
             if block.isOpen {
-                replyField
+                NoticeDraftGate(composerState: composerState, isBlocked: isBlockedByDraft) { blocked in
+                    replyField(blocked: blocked)
+                }
             }
         }
         .padding(DS.Space.xl)
@@ -197,7 +210,7 @@ public struct AgentChatNoticeCard: View {
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("\(identifier).status")
             Spacer(minLength: DS.Space.md)
-            Text(createdAt, style: .relative)
+            Text(AgentChatTranscriptChrome.relativeTimestamp(createdAt, now: now ?? Date()))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
                 .lineLimit(1)
@@ -218,23 +231,23 @@ public struct AgentChatNoticeCard: View {
         }
     }
 
-    private var replyField: some View {
+    private func replyField(blocked: Bool) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(spacing: DS.Space.md) {
                 TextField("Reply to Titio about this…", text: $replyText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14))
                     .foregroundColor(DS.Palette.text)
-                    .onSubmit(send)
-                    .disabled(isBlockedByDraft)
+                    .onSubmit { send(blocked: blocked) }
+                    .disabled(blocked)
                     .accessibilityIdentifier("\(identifier).reply")
-                Button(action: send) {
+                Button { send(blocked: blocked) } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 20))
-                        .foregroundColor(canSend ? DS.Palette.accent : DS.Palette.textTertiary)
+                        .foregroundColor(canSend(blocked: blocked) ? DS.Palette.accent : DS.Palette.textTertiary)
                 }
                 .buttonStyle(.plain)
-                .disabled(!canSend)
+                .disabled(!canSend(blocked: blocked))
                 .accessibilityLabel("Send reply")
                 .accessibilityIdentifier("\(identifier).send")
             }
@@ -245,7 +258,7 @@ public struct AgentChatNoticeCard: View {
                 RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
                     .stroke(DS.Palette.lineStrong, lineWidth: 1)
             )
-            if isBlockedByDraft {
+            if blocked {
                 Text(AgentChatChoicesCard.blockedByDraftMessage)
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
@@ -254,13 +267,21 @@ public struct AgentChatNoticeCard: View {
         }
     }
 
-    private func send() {
+    private func send(blocked: Bool) {
         let text = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard canSend else { return }
+        guard canSend(blocked: blocked) else { return }
         Task {
             if await onReply(text) { replyText = "" }
         }
     }
+}
+
+/// Re-renders only its content when the composer draft changes.
+private struct NoticeDraftGate<Content: View>: View {
+    @ObservedObject var composerState: AgentComposerState
+    let isBlocked: () -> Bool
+    @ViewBuilder let content: (Bool) -> Content
+    var body: some View { content(isBlocked()) }
 }
 
 private struct NoticeContentHeightKey: PreferenceKey {
