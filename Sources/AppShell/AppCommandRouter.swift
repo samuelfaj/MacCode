@@ -3475,11 +3475,44 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         }
     }
 
+    /// A caller thread in a real workspace sees only that workspace's Bots and general Bots.
+    static func peerIsInCallerScope(_ bot: BotDefinition, callerWorkspace: WorkspaceID?, ctx: AppContext) throws -> Bool {
+        guard let callerWorkspace, callerWorkspace != BotsViewModel.botDeskWorkspaceID else { return true }
+        let bindings = try ctx.botStore.listContextBindings(hostID: ctx.liveActivityHostIdentity.serverId, botID: bot.id)
+        return SidebarViewModel.isAvailable(bot, bindings: bindings, inWorkspace: callerWorkspace)
+    }
+
+    private var mentionableBotsCache: [WorkspaceID: (revision: UInt64, bots: [BotDefinition])] = [:]
+
+    /// Bots offered by @ in a workspace: its own Bots and general Bots. `keeping`
+    /// is the selected thread's Bot, which stays resolvable for its chrome.
+    /// Cached per Bot-list revision (grants bump it) so keystrokes never hit SQLite.
+    func mentionableBots(inWorkspace workspace: WorkspaceID, keeping actor: BotID?) -> [BotDefinition] {
+        guard let store = context?.botStore, let roster = try? store.listCached() else { return [] }
+        guard workspace != BotsViewModel.botDeskWorkspaceID, let hostID = context?.liveActivityHostIdentity.serverId else { return roster }
+        let revision = store.botsListRevision
+        let scoped: [BotDefinition]
+        if let cache = mentionableBotsCache[workspace], cache.revision == revision {
+            scoped = cache.bots
+        } else {
+            scoped = roster.filter { bot in
+                let bindings = (try? store.listContextBindings(hostID: hostID, botID: bot.id)) ?? []
+                return SidebarViewModel.isAvailable(bot, bindings: bindings, inWorkspace: workspace)
+            }
+            mentionableBotsCache[workspace] = (revision, scoped)
+        }
+        guard let actor, !scoped.contains(where: { $0.id == actor }),
+              let own = roster.first(where: { $0.id == actor }) else { return scoped }
+        return scoped + [own]
+    }
+
     func configureAgentAppBotMentions(_ agent: AgentAppSurface) {
         agent.viewModel.botComputerControl = botComputerControl
         agent.viewModel.manualActionStore = manualActionStore
-        agent.viewModel.mentionableBotsProvider = { [weak self] in
-            (try? self?.context?.botStore.listCached()) ?? []
+        agent.viewModel.mentionableBotsProvider = { [weak self, weak vm = agent.viewModel] in
+            guard let self, let vm else { return [] }
+            let actor = vm.threads.first { $0.id == vm.selectedThreadId }?.actor.botID
+            return self.mentionableBots(inWorkspace: vm.workspaceID, keeping: actor)
         }
         agent.viewModel.createBotInWorkspace = { [weak self] workspaceID in
             self?.windowController?.presentBotsInMainContent()
@@ -3588,7 +3621,9 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             try ctx.botPeerHandoffAuthority.inheritedWorkspaceScope(thread: $0, runID: callerRun) != nil
         } ?? true
         return .object([
-            "bots": .array(try ctx.botStore.list().map { bot in
+            "bots": .array(try ctx.botStore.list().filter { bot in
+                try Self.peerIsInCallerScope(bot, callerWorkspace: caller?.workspaceId, ctx: ctx)
+            }.map { bot in
                 let skills = try ctx.botStore.listSkillBindings(botID: bot.id).filter(\.enabled).map(\.skillID)
                 let binding: BotContextBinding?
                 let unavailableReason: String?
@@ -3696,6 +3731,9 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                 throw JSONRPCError(code: -32044, message: "MacCode Bot @\(handle) was not found.")
             }
             peer = found
+            guard try Self.peerIsInCallerScope(found, callerWorkspace: try ctx.threadRepo.get(id: callerThread)?.workspaceId, ctx: ctx) else {
+                throw JSONRPCError(code: -32047, message: "@\(found.handle) belongs to another workspace; only this workspace's Bots and general Bots are available here.")
+            }
             delegatedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !delegatedPrompt.isEmpty, wait || replyMode == .consult else {
                 throw JSONRPCError(code: -32602, message: "Provide a prompt and use consult mode for asynchronous work.")

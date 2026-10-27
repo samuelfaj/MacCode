@@ -929,11 +929,7 @@ public final class SidebarViewModel: ObservableObject {
             for bot in bots {
                 let bindings = try botStore.listContextBindings(hostID: hostID, botID: bot.id)
                 if let workspaceID = Self.sidebarWorkspace(for: bot, bindings: bindings) { workspaceBots[workspaceID, default: []].append(bot) }
-                // Any workspace binding, even revoked, means the Bot was scoped: revoking must not move it to General.
-                let workspaceScoped = bindings.contains { workspaceID(for: $0.context) != nil }
-                let generalReadable = bindings.contains { $0.context == .general && $0.state == .active && $0.actions.contains(.read) }
-                // Never-bound Bots are the pre-contextual catalog Bots the roster already lists; they open their Desk.
-                guard bot.handle == TitioIdentity.handle || generalReadable || (bindings.isEmpty && !workspaceScoped) else { continue }
+                guard Self.isGeneralBot(bot, bindings: bindings) else { continue }
                 // Titio's badge is the global Activity total (see titioBadgeCount), not a count of its own.
                 let unread = bot.handle == TitioIdentity.handle
                     ? 0
@@ -1293,7 +1289,10 @@ public final class SidebarViewModel: ObservableObject {
     }
 
     func botPinnedAndHidden(_ id: BotID) -> (pinned: Bool, hidden: Bool) {
-        guard let bot = try? context?.botStore.get(id: id) else { return (false, false) }
+        // Context menus build on every row paint.
+        // Visible Bots come from the revision-cached roster; only hidden ones fall back to a row read.
+        guard let store = context?.botStore,
+              let bot = (try? store.listCached())?.first(where: { $0.id == id }) ?? (try? store.get(id: id)) ?? nil else { return (false, false) }
         return (bot.pinned, bot.hidden)
     }
 
@@ -1483,6 +1482,20 @@ public final class SidebarViewModel: ObservableObject {
         }
         if let own = bot.workspaceID, readable.contains(own) { return own }
         return readable.min { $0.value.uuidString < $1.value.uuidString }
+    }
+
+    /// General Bots: Titio, Bots readable in General, and never-bound catalog Bots.
+    nonisolated static func isGeneralBot(_ bot: BotDefinition, bindings: [BotContextBinding]) -> Bool {
+        // Any workspace binding, even revoked, means the Bot was scoped: revoking must not move it to General.
+        let workspaceScoped = bindings.contains { workspaceID(for: $0.context) != nil }
+        let generalReadable = bindings.contains { $0.context == .general && $0.state == .active && $0.actions.contains(.read) }
+        // Never-bound Bots are the pre-contextual catalog Bots the roster already lists; they open their Desk.
+        return bot.handle == TitioIdentity.handle || generalReadable || (bindings.isEmpty && !workspaceScoped)
+    }
+
+    /// Inside a workspace only its own Bots and general Bots can be mentioned or consulted.
+    nonisolated static func isAvailable(_ bot: BotDefinition, bindings: [BotContextBinding], inWorkspace workspace: WorkspaceID) -> Bool {
+        isGeneralBot(bot, bindings: bindings) || sidebarWorkspace(for: bot, bindings: bindings) == workspace
     }
 
     /// The workspace a Bot's scheduled tasks group under and pin their runs to: the sidebar
@@ -3439,14 +3452,14 @@ public struct SidebarRootView: View {
         return "General"
     }
 
-    private func botConversationRow(_ row: SidebarViewModel.AuthorizedBotConversationRow) -> some View {
+    private func botConversationRow(_ row: SidebarViewModel.AuthorizedBotConversationRow, tintHex: UInt32? = nil) -> some View {
         let selected = vm.newBotConversationThreadID != nil && vm.deskSelection?.threadID == vm.newBotConversationThreadID && vm.deskSelection?.botID == row.botID && vm.deskSelection?.context == row.context
         let running = SidebarViewModel.isBotRunning(row.botID, running: vm.runningBotIDs, runningLinked: vm.runningLinkedBotIDs)
         return Button {
             navigate { vm.startBotConversation(row) }
         } label: {
             HStack(spacing: DS.Space.sm) {
-                BotsAvatarView(name: row.botName, handle: row.handle, symbol: row.symbol.isEmpty ? nil : row.symbol, size: 20, attention: running ? .working : .none)
+                BotsAvatarView(name: row.botName, handle: row.handle, symbol: row.symbol.isEmpty ? nil : row.symbol, size: 20, attention: running ? .working : .none, tintHex: tintHex)
                     .frame(width: 20, height: 20)
                 Text(BotsViewModel.displayName(row.botName)).font(selected ? DS.Font.bodyStrong : DS.Font.body).foregroundColor(selected ? DS.Palette.text : DS.Palette.textSecondary).lineLimit(1)
                 Spacer(minLength: 0)
@@ -3747,7 +3760,7 @@ public struct SidebarRootView: View {
                                 id: "sidebar.newConversation.bot.\(row.botID.value.uuidString)",
                                 action: { navigate { vm.startNewBotConversation(row) } }
                             ) {
-                                BotsAvatarView(name: row.botName, handle: row.handle, symbol: row.symbol.isEmpty ? nil : row.symbol, size: 24)
+                                BotsAvatarView(name: row.botName, handle: row.handle, symbol: row.symbol.isEmpty ? nil : row.symbol, size: 24, tintHex: TabColor.from(ws.metadata["color"])?.hex)
                             }
                         }
                     }
@@ -3897,7 +3910,7 @@ public struct SidebarRootView: View {
         let bots = vm.sectionSlice(SidebarViewModel.runningFirst(vm.workspaceBotRows(ws.id)) {
             SidebarViewModel.isBotRunning($0.botID, running: vm.runningBotIDs, runningLinked: vm.runningLinkedBotIDs)
         }, ws.id, .bots)
-        ForEach(bots.rows) { botConversationRow($0) }
+        ForEach(bots.rows) { botConversationRow($0, tintHex: TabColor.from(ws.metadata["color"])?.hex) }
         if bots.hidden > 0 || bots.expanded {
             showMoreRow(expanded: bots.expanded, hidden: bots.hidden, noun: "bots",
                         id: "sidebar.botsToggle.\(ws.id.value.uuidString)") { vm.toggleSectionList(ws.id, .bots) }
@@ -4020,7 +4033,8 @@ public struct SidebarRootView: View {
         return Button { navigate { vm.openWorkspaceConversation(row) } } label: {
             HStack(spacing: DS.Space.sm) {
                 if let bot = vm.conversationBot(row) {
-                    BotsAvatarView(name: bot.name, handle: bot.handle, symbol: bot.avatarSymbol.isEmpty ? nil : bot.avatarSymbol, size: 20, attention: running ? .working : .none)
+                    BotsAvatarView(name: bot.name, handle: bot.handle, symbol: bot.avatarSymbol.isEmpty ? nil : bot.avatarSymbol, size: 20, attention: running ? .working : .none,
+                                   tintHex: vm.workspaceBotRows(workspace.id).contains { $0.botID == bot.id } ? TabColor.from(workspace.metadata["color"])?.hex : nil)
                         .frame(width: 20, height: 20)
                         .accessibilityIdentifier("sidebar.conversationBotAvatar.\(row.threadID.value.uuidString)")
                 } else {

@@ -220,6 +220,13 @@ struct AgentManualActionCard: View {
                     .help("Drive the bot's computer yourself; the bot stays paused")
                     .accessibilityIdentifier("agent.manualAction.take")
                 }
+                if request.kind == .file, vm.importFilesToBotComputer != nil,
+                   let named = MacPathReferences.requestedFile(in: request.reason, home: NSHomeDirectory()) {
+                    Button("Send \(named.lastPathComponent)") { sendFiles([named], for: request) }
+                        .buttonStyle(.borderedProminent)
+                        .help("Copy \(named.path) into the bot's Linux desktop and resume the bot")
+                        .accessibilityIdentifier("agent.manualAction.sendNamedFile")
+                }
                 if request.kind == .file, vm.importFilesToBotComputer != nil {
                     Button("Choose file…") { chooseFiles(for: request) }
                         .help("Copy files from this Mac into the bot's Linux desktop and resume the bot")
@@ -250,9 +257,14 @@ struct AgentManualActionCard: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
         panel.prompt = "Send to Linux desktop"
-        guard panel.runModal() == .OK, !panel.urls.isEmpty, let importFiles = vm.importFilesToBotComputer else { return }
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        sendFiles(panel.urls, for: request)
+    }
+
+    private func sendFiles(_ urls: [URL], for request: ManualActionRequest) {
+        guard let importFiles = vm.importFilesToBotComputer else { return }
         do {
-            let paths = try importFiles(request.botID, request.threadID, panel.urls)
+            let paths = try importFiles(request.botID, request.threadID, urls)
             let typed = note.trimmingCharacters(in: .whitespacesAndNewlines)
             note = ""
             let copied = "Files copied into the Linux desktop: " + paths.joined(separator: ", ")

@@ -13,19 +13,22 @@ public struct BotsAvatarView: View {
     public var symbol: String?
     public var size: CGFloat = 36
     public var attention: BotAttentionState = .none
+    public var tintHex: UInt32? = nil
 
     public init(
         name: String,
         handle: String,
         symbol: String? = nil,
         size: CGFloat = 36,
-        attention: BotAttentionState = .none
+        attention: BotAttentionState = .none,
+        tintHex: UInt32? = nil
     ) {
         self.name = name
         self.handle = handle
         self.symbol = symbol
         self.size = size
         self.attention = attention
+        self.tintHex = tintHex
     }
 
     /// A working Bot hops; any other Bot breathes only while hovered.
@@ -43,7 +46,8 @@ public struct BotsAvatarView: View {
                     spec: spec.liveFaced(attention: attention, name: name, handle: handle),
                     size: size,
                     motion: Self.motionMode(for: attention),
-                    handle: handle
+                    handle: handle,
+                    tintHex: tintHex
                 )
             } else {
                 symbolFallback
@@ -61,7 +65,7 @@ public struct BotsAvatarView: View {
 
     @ViewBuilder
     private var symbolFallback: some View {
-        let ink = Color(hex: BotAvatar.fallbackHex(for: handle))
+        let ink = Color(hex: tintHex ?? BotAvatar.fallbackHex(for: handle))
         ZStack {
             RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
                 .fill(ink)

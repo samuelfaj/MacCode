@@ -11692,7 +11692,8 @@ public final class BotsViewModel: ObservableObject {
             compiledPayload: receipt.compiledPayload,
             provider: routing.provider,
             executionTarget: thread?.executionTarget,
-            runsInGuest: inGuest
+            runsInGuest: inGuest,
+            importMacFiles: importMacFilesIntoGuest(botID: bot.id, threadID: threadID)
         )
     }
 
@@ -11743,7 +11744,9 @@ public final class BotsViewModel: ObservableObject {
         compiledPayload: String,
         provider: AgentProvider,
         executionTarget: ExecutionTarget? = nil,
-        runsInGuest: Bool = false
+        runsInGuest: Bool = false,
+        importMacFiles: (([URL]) throws -> [String])? = nil,
+        macHome: String = NSHomeDirectory()
     ) -> String {
         if provider == .distill,
            userText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -11752,7 +11755,45 @@ public final class BotsViewModel: ObservableObject {
         }
         guard executionTarget == .vm else { return compiledPayload }
         let rules = runsInGuest ? BotStandingInstructions.guestThreadRules : BotStandingInstructions.vmThreadRules
-        return compiledPayload + "\n\n" + rules
+        var prompt = compiledPayload + "\n\n" + rules
+        if let importMacFiles, let note = macFileHandoffNote(userText: userText, home: macHome, importFiles: importMacFiles) {
+            prompt += "\n\n" + note
+        }
+        return prompt
+    }
+
+    /// A VM Bot cannot read the Mac's disk: copy the Mac files the user named into
+    /// the guest's ~/Downloads and tell the Bot where they landed. A failure only
+    /// adds a note; the send never blocks on it.
+    nonisolated static func macFileHandoffNote(
+        userText: String,
+        home: String,
+        importFiles: ([URL]) throws -> [String]
+    ) -> String? {
+        let files = MacPathReferences.files(in: userText, home: home)
+        guard !files.isEmpty else { return nil }
+        var copied: [(mac: String, guest: String)] = []
+        var skipped: [String] = []
+        for url in files {
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+            guard size <= MacPathReferences.maxFileBytes,
+                  let guest = (try? importFiles([url]))?.first else {
+                skipped.append(url.path)
+                continue
+            }
+            copied.append((url.path, guest))
+        }
+        return MacPathReferences.copiedNote(copied, skipped: skipped)
+    }
+
+    /// Copies Mac files into this Bot thread's guest home.
+    func importMacFilesIntoGuest(botID: BotID, threadID: AgentThreadID) -> ([URL]) throws -> [String] {
+        let store = botStore
+        let appSupport = context.appSupportDirectory
+        return { urls in
+            let resource = try store.guestResourceID(botID: botID, threadID: threadID)
+            return try BotGuestHome.importFiles(urls, appSupport: appSupport, botID: resource)
+        }
     }
 
     private func deskAgentRunStarted(
@@ -12550,7 +12591,8 @@ public final class BotsViewModel: ObservableObject {
                     compiledPayload: receipt.compiledPayload,
                     provider: routing.provider,
                     executionTarget: prepared.thread.executionTarget,
-                    runsInGuest: inGuest
+                    runsInGuest: inGuest,
+                    importMacFiles: importMacFilesIntoGuest(botID: bot.id, threadID: prepared.thread.id)
                 ),
                 provider: routing.provider,
                 model: model,

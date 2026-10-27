@@ -948,6 +948,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     private let orchestrationRuntime: AgentOrchestrationRuntime
     private var subagentRefreshGeneration: UInt64 = 0
     private var subagentRefreshTask: Task<Void, Never>?
+    /// A refresh asked for while one is loading; the loader runs once more after it.
+    private var subagentRefreshPending = false
     private var titleRepairGeneration: UInt64 = 0
     private var titleRepairTask: Task<Void, Never>?
     private var pruneGeneration: UInt64 = 0
@@ -1609,6 +1611,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         }
         subagentRefreshTask?.cancel()
         subagentRefreshTask = nil
+        subagentRefreshPending = false
         subagentRefreshGeneration &+= 1
         titleRepairTask?.cancel()
         titleRepairTask = nil
@@ -1890,19 +1893,32 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         // path is the freeze-class hang_breach (CPU diag: applyRailSnapshot → receipts).
         let generation = subagentRefreshGeneration &+ 1
         subagentRefreshGeneration = generation
-        subagentRefreshTask?.cancel()
+        // Single flight: the detached receipt read cannot be cancelled, so
+        // restarting it on every rail reload stacked reads on the receipt lock
+        // (Notifications thread hang). Coalesce into one trailing rerun.
+        guard subagentRefreshTask == nil else {
+            subagentRefreshPending = true
+            return
+        }
         subagentRefreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard self.subagentRefreshGeneration == generation else { return }
-            let snapshot = await self.loadSubagentActivitySnapshotsOffMainActor(
-                for: [threadId],
-                persistLifecycleReconciliation: true
-            )[threadId] ?? .empty
-            guard !Task.isCancelled else { return }
-            guard self.subagentRefreshGeneration == generation else { return }
-            self.applySubagentActivity(snapshot, loadedFor: threadId)
-            if self.subagentRefreshGeneration == generation {
-                self.subagentRefreshTask = nil
+            var threadId = threadId
+            var generation = generation
+            while let self, !Task.isCancelled {
+                self.subagentRefreshPending = false
+                let snapshot = await self.loadSubagentActivitySnapshotsOffMainActor(
+                    for: [threadId],
+                    persistLifecycleReconciliation: true
+                )[threadId] ?? .empty
+                guard !Task.isCancelled else { return }
+                if self.subagentRefreshGeneration == generation {
+                    self.applySubagentActivity(snapshot, loadedFor: threadId)
+                }
+                guard self.subagentRefreshPending, let next = self.selectedThreadId else {
+                    self.subagentRefreshTask = nil
+                    return
+                }
+                threadId = next
+                generation = self.subagentRefreshGeneration
             }
         }
     }
@@ -17372,11 +17388,11 @@ public struct AgentAppView: View {
     /// Tap on a reply quote: scroll to the quoted assistant message and flash it.
     /// Nil when the quote is not a reply or its source is not loaded.
     private func replyQuoteJumpAction(for msg: AgentMessage) -> (() -> Void)? {
-        guard let excerpt = AgentReplyQuote.parse(msg.content)?.excerpt,
-              let targetID = AgentReplyQuoteTarget.messageID(for: excerpt, in: vm.messages, before: msg.id) else {
-            return nil
-        }
+        guard let excerpt = AgentReplyQuote.parse(msg.content)?.excerpt else { return nil }
+        // Resolve on tap: scanning every earlier message per row per paint made
+        // long notice threads (Titio Notifications) quadratic.
         return {
+            guard let targetID = AgentReplyQuoteTarget.messageID(for: excerpt, in: vm.messages, before: msg.id) else { return }
             vm.scrollToMessage(targetID)
             quoteJumpHighlightTask?.cancel()
             quoteJumpHighlightID = targetID
