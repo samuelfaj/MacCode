@@ -1023,7 +1023,7 @@ private struct AgentDistillMainModelSheet<StatusHeader: View, MainFooter: View>:
             onClose: close
         ) {
             if showingAutoGuide, let makeGuide = AgentAutoGuide.makeGuide {
-                makeGuide(close, isDisabled ? nil : { onSelectMainModel("auto"); close() })
+                makeGuide(close)
             } else if let target = effortTarget {
                 AgentDistillEffortStep(
                     efforts: target.efforts,
@@ -1167,11 +1167,12 @@ private struct AgentDistillMainModelSheet<StatusHeader: View, MainFooter: View>:
         }
     }
 
+    /// Selecting Auto applies it at once; the guide opens only when the profile still needs setup.
     private func selectAuto() {
-        if AgentAutoGuide.makeGuide != nil {
+        onSelectMainModel("auto")
+        if !catalogAdvertisesAuto, AgentAutoGuide.makeGuide != nil {
             showingAutoGuide = true
         } else {
-            onSelectMainModel("auto")
             close()
         }
     }
@@ -1216,7 +1217,7 @@ private struct AgentDistillWorkerModelSheet<StatusHeader: View>: View {
             onClose: close
         ) {
             if showingAutoGuide, let makeGuide = AgentAutoGuide.makeGuide {
-                makeGuide(close, nil)
+                makeGuide(close)
             } else if let target = effortTarget {
                 AgentDistillEffortStep(
                     efforts: target.efforts,
