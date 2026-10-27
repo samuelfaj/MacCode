@@ -116,6 +116,35 @@ final class TransientNetworkRetryCoordinatorTests: XCTestCase {
         XCTAssertEqual(runner.requests.last?.providerThreadId, "session-1")
     }
 
+    func test_providerHTTP503_isTransientAndResumes() async throws {
+        // WHY: "API error (status 503 Service Unavailable): Grok is temporarily unavailable"
+        // stopped a Bot run on a red Retry; an outage must resume by itself.
+        let failure = DistillACPFailureTaxonomy.normalize(
+            diagnostic: "Distill ACP RPC error: API error (status 503 Service Unavailable): Grok is temporarily unavailable. Please try again in a moment. (HTTP 503).",
+            context: .turn
+        )
+        XCTAssertTrue(failure.message.hasPrefix(TransientNetworkRetry.marker))
+        let runner = FlakyRunner(provider: .distill, failure: failure.message, failures: 1)
+        let (_, thread, threadRepo) = try await start(runner)
+        await waitUntil { runner.requests.count == 2 && (try? threadRepo.status(of: thread.id)) == .completed }
+        XCTAssertEqual(runner.requests.count, 2)
+        XCTAssertEqual(runner.requests.last?.providerThreadId, "session-1")
+    }
+
+    func test_acpStoppedRespondingTimeout_resumesTheSameSession() async throws {
+        // WHY: "[retryable:timeout] Distill ACP stopped responding during session/prompt"
+        // already killed the hung process; resuming the session is safe and expected.
+        let runner = FlakyRunner(
+            provider: .distill,
+            failure: "[retryable:timeout] Distill request timed out: Distill ACP stopped responding during session/prompt. Status probe: Distill ACP _remotecode/status timed out",
+            failures: 1
+        )
+        let (_, thread, threadRepo) = try await start(runner)
+        await waitUntil { runner.requests.count == 2 && (try? threadRepo.status(of: thread.id)) == .completed }
+        XCTAssertEqual(runner.requests.count, 2)
+        XCTAssertEqual(try threadRepo.status(of: thread.id), .completed)
+    }
+
     func test_persistentNetworkFailure_stopsAfterTheBound() async throws {
         let runner = FlakyRunner(failure: Self.realFailure, failures: 99)
         let (coordinator, thread, threadRepo) = try await start(runner)
