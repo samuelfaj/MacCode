@@ -9,6 +9,9 @@ public enum TransientNetworkRetry {
     /// Only the guest adapter may emit this: its lease serializes cleanup
     /// with the next run's host preparation. A Mac process exit is not enough.
     public static let guestProcessMarker = "[retryable:guest-process]"
+    /// The provider stopped answering mid-turn; the adapter drops the hung
+    /// process, so resuming the same session is safe.
+    public static let timeoutMarker = "[retryable:timeout]"
 
     public static let prompt = """
     The previous turn was interrupted before it finished. Continue the original task from where you stopped; do not repeat work that already completed.
@@ -17,5 +20,6 @@ public enum TransientNetworkRetry {
     public static func isRetryableInterruption(_ errorMessage: String?) -> Bool {
         guard let errorMessage else { return false }
         return errorMessage.hasPrefix(marker) || errorMessage.hasPrefix(guestProcessMarker)
+            || errorMessage.hasPrefix(timeoutMarker)
     }
 }

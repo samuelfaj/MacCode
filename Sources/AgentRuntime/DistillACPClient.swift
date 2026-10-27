@@ -144,6 +144,8 @@ enum DistillACPFailureTaxonomy {
                 for status in [httpStatus, code].compactMap({ $0 }) {
                     if status == 401 || status == 403 { return .authRequired }
                     if status == 429 { return .rateLimited }
+                    // Provider outage or overload: transient, resumed automatically.
+                    if [500, 502, 503, 504, 529].contains(status) { return .network }
                 }
                 return category(
                     forDiagnostic: ACPRPCErrorPayload.describe(message: message, detail: detail),
@@ -208,7 +210,9 @@ enum DistillACPFailureTaxonomy {
             "network error", "network failure", "connection refused", "connection reset",
             "connection closed", "host unreachable", "dns failure", "socket error",
             "transport error", "websocket closed", "offline",
-            "stream error (overloaded_error)", "stream error (service_unavailable_error)"
+            "stream error (overloaded_error)", "stream error (service_unavailable_error)",
+            "service unavailable", "temporarily unavailable", "bad gateway", "overloaded",
+            "status 500", "status 502", "status 503", "status 504", "status 529"
         ]
         if networkMarkers.contains(where: normalized.contains) { return .network }
         return .nonRecoverable
