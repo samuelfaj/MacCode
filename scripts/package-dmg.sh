@@ -102,7 +102,35 @@ assert_runtime_signature "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Vers
 assert_runtime_signature "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/Current/XPCServices/Downloader.xpc"
 assert_runtime_signature "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/Current/XPCServices/Installer.xpc"
 
-hdiutil create \
+# A volume left mounted by an earlier failed run makes Finder style the wrong
+# "MacCode" disk (-10006) and the next create fail; detach strays first.
+detach_stale_volumes() {
+  local volume
+  for volume in /Volumes/MacCode /Volumes/MacCode\ *; do
+    [[ -d "$volume" ]] || continue
+    echo "[package] detaching stale volume: $volume" >&2
+    hdiutil detach "$volume" >/dev/null 2>&1 || hdiutil detach -force "$volume" >/dev/null 2>&1 || true
+  done
+}
+
+# retry <attempts> <command...>: transient hdiutil/Finder failures on the runner.
+retry() {
+  local attempts="$1" n=1
+  shift
+  until "$@"; do
+    if (( n >= attempts )); then
+      return 1
+    fi
+    echo "[package] attempt $n failed: $1; retrying" >&2
+    detach_stale_volumes
+    sleep $(( n * 5 ))
+    n=$(( n + 1 ))
+  done
+}
+
+detach_stale_volumes
+rm -f "$RW_DMG"
+retry 3 hdiutil create \
   -volname "MacCode" \
   -srcfolder "$DMG_ROOT" \
   -ov \
@@ -126,6 +154,7 @@ if [[ -z "$MOUNT_DIR" || ! -d "$MOUNT_DIR" ]]; then
   exit 1
 fi
 
+style_dmg_window() {
 osascript <<OSA
 tell application "Finder"
   tell disk "MacCode"
@@ -147,6 +176,8 @@ tell application "Finder"
   end tell
 end tell
 OSA
+}
+retry 3 style_dmg_window
 
 sync
 hdiutil detach "$MOUNT_DIR"
