@@ -8,7 +8,7 @@ import SocketServer
 final class BotContextGuestResources {
     private static let lock = NSLock()
     // Retain listeners until network cleanup is proven, including failed preparation.
-    private static var live: [BotID: BotContextGuestResources] = [:]
+    private static var live: [AgentRunID: BotContextGuestResources] = [:]
     /// Measured ceiling (docs/CONTEXT-RUNTIME-COST.md): 4 simultaneous desktops.
     static let defaultMaximumLiveRuntimes = 4
 
@@ -120,16 +120,19 @@ final class BotContextGuestResources {
             do {
                 defer { resources.operationLock.unlock() }
                 var atCapacity = false
+                var liveRunIDs: Set<AgentRunID> = []
                 let didClaim = lock.withLock {
                     let scope = appSupport.resolvingSymlinksInPath().standardizedFileURL
-                    if live[identity.storageBotID] == nil,
-                       live.values.filter({ $0.appSupport.resolvingSymlinksInPath().standardizedFileURL == scope }).count >= maximumLiveRuntimes {
+                    // Capacity counts runtimes (VMs); runs of one identity share its VM.
+                    let runtimes = Set(live.values.filter { $0.appSupport.resolvingSymlinksInPath().standardizedFileURL == scope }
+                        .map(\.identity.storageBotID))
+                    if !runtimes.contains(identity.storageBotID), runtimes.count >= maximumLiveRuntimes {
                         atCapacity = true
                         return false
                     }
-                    guard live[identity.storageBotID] == nil,
-                          !live.values.contains(where: { $0.appSupport.resolvingSymlinksInPath().standardizedFileURL == appSupport.resolvingSymlinksInPath().standardizedFileURL && $0.runID == request.runId }) else { return false }
-                    live[identity.storageBotID] = resources
+                    guard live[request.runId] == nil else { return false }
+                    liveRunIDs = Set(live.values.filter { $0.identity.storageBotID == identity.storageBotID }.map(\.runID))
+                    live[request.runId] = resources
                     return true
                 }
                 guard didClaim else {
@@ -142,7 +145,7 @@ final class BotContextGuestResources {
                     _ = try store.recordContextDelegation(hostID: hostID, parentRunID: parentRunID, childRunID: request.runId, childThreadID: request.threadId)
                 }
                 guard authorize() else { throw BotComputerGuestServiceError.contextualRuntimeUnavailable }
-                try BotContextGuestRecovery.begin(identity: identity, runID: request.runId, conversationID: persistentSession ? pin.conversationID : nil, appSupport: appSupport)
+                try BotContextGuestRecovery.begin(identity: identity, runID: request.runId, conversationID: persistentSession ? pin.conversationID : nil, appSupport: appSupport, liveRunIDs: liveRunIDs)
                 resources.recordStarted = true
                 if let secretStore, let gateway {
                     let adapter = BotContextSecretStore(identity: identity, store: secretStore, authorizes: authorize)
@@ -281,6 +284,11 @@ final class BotContextGuestResources {
         }
     }
 
+    /// Call with `Self.lock` held.
+    private var sharesRuntimeLocked: Bool {
+        Self.live.values.contains { $0 !== self && $0.identity.storageBotID == identity.storageBotID }
+    }
+
     private func finishLocked(stopRuntime: Bool) throws {
         stopRequired = stopRequired || stopRuntime
         if finished {
@@ -288,14 +296,14 @@ final class BotContextGuestResources {
             guard identity.virtualMachineID == nil else { return }
             guard stopRequired else { return }
             let ownsScope = Self.lock.withLock {
-                guard Self.live[identity.storageBotID] == nil || Self.live[identity.storageBotID] === self else { return false }
-                Self.live[identity.storageBotID] = self
+                guard !sharesRuntimeLocked, Self.live[runID] == nil || Self.live[runID] === self else { return false }
+                Self.live[runID] = self
                 return true
             }
             guard ownsScope else { return }
             try service.stopForContextRecovery(identity: identity)
             Self.lock.withLock {
-                if Self.live[identity.storageBotID] === self { Self.live[identity.storageBotID] = nil }
+                if Self.live[runID] === self { Self.live[runID] = nil }
             }
             return
         }
@@ -325,7 +333,8 @@ final class BotContextGuestResources {
             catch { if descendantError == nil { descendantError = error } }
         }
         if let descendantError { throw descendantError }
-        if stopRequired { try service.stopForContextRecovery(identity: identity) }
+        // Another live run of this identity still uses the VM; its own end stops it.
+        if stopRequired, !Self.lock.withLock({ sharesRuntimeLocked }) { try service.stopForContextRecovery(identity: identity) }
         if let networkLease {
             try service.revokeGatewayLease(networkLease)
         } else if installationAttempted {
@@ -357,6 +366,6 @@ final class BotContextGuestResources {
             try BotContextGuestRecovery.end(identity: identity, runID: runID, appSupport: appSupport)
         }
         finished = true
-        Self.lock.withLock { _ = Self.live.removeValue(forKey: identity.storageBotID) }
+        Self.lock.withLock { if Self.live[runID] === self { Self.live[runID] = nil } }
     }
 }
