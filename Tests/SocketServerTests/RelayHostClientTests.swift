@@ -431,4 +431,161 @@ final class RelayHostClientTests: XCTestCase {
         rig.client.stop()
         XCTAssertEqual(RelayHostClient.currentStatus, .offline)
     }
+
+    // MARK: - Mux v1
+
+    /// Phone side of one mux session: frames go out as host DATA frames and
+    /// come back from the host socket for this session id only.
+    private final class SessionSocket: RelayWebSocket, @unchecked Sendable {
+        let id = UUID()
+        let relay: MemorySocket
+        private let lock = NSLock()
+        private var queue: [Data] = []
+        private var waiters: [CheckedContinuation<RelayMessage, Error>] = []
+        private(set) var closedCode: UInt16?
+        init(relay: MemorySocket) { self.relay = relay }
+        func push(_ data: Data) {
+            lock.lock()
+            if let w = waiters.first { waiters.removeFirst(); lock.unlock(); w.resume(returning: .binary(data)) }
+            else { queue.append(data); lock.unlock() }
+        }
+        func closedByHost(_ code: UInt16) {
+            lock.lock(); closedCode = code; let w = waiters; waiters = []; lock.unlock()
+            for x in w { x.resume(throwing: URLError(.networkConnectionLost)) }
+        }
+        func send(_ data: Data) async throws { try await relay.send(RelayMux.encode(.data(session: id, payload: data))) }
+        func sendText(_ text: String) async throws {}
+        func receiveMessage() async throws -> RelayMessage {
+            try await withCheckedThrowingContinuation { c in
+                lock.lock()
+                if !queue.isEmpty { let d = queue.removeFirst(); lock.unlock(); c.resume(returning: .binary(d)) }
+                else if closedCode != nil { lock.unlock(); c.resume(throwing: URLError(.networkConnectionLost)) }
+                else { waiters.append(c); lock.unlock() }
+            }
+        }
+        func close(code: Int) {}
+    }
+
+    /// Routes host-socket frames to sessions; skips pings.
+    private final class HostDemux: @unchecked Sendable {
+        private let lock = NSLock()
+        private var sessions: [UUID: SessionSocket] = [:]
+        private var task: Task<Void, Never>?
+        func add(_ s: SessionSocket) { lock.lock(); sessions[s.id] = s; lock.unlock() }
+        func start(_ relay: MemorySocket) {
+            task = Task {
+                while let m = try? await relay.receiveMessage() {
+                    guard case .binary(let d) = m, let f = RelayMux.decodeHost(d) else { continue }
+                    switch f {
+                    case .data(let id, let p): self.lock.withLock { self.sessions[id] }?.push(p)
+                    case .close(let id, let code): self.lock.withLock { self.sessions[id] }?.closedByHost(code)
+                    case .open: break
+                    }
+                }
+            }
+        }
+        deinit { task?.cancel() }
+    }
+
+    private func makeMuxRig() async throws -> (Rig, HostDemux) {
+        let rig = Rig(serverId: serverId, dispatcher: JSONRPCDispatcher(router: FakeRouter()))
+        rig.client.start()
+        try await rig.hostRelaySide.sendText(#"{"type":"hello","mux":1}"#)
+        for _ in 0..<200 where !rig.client.isConnected { try await Task.sleep(nanoseconds: 10_000_000) }
+        let demux = HostDemux()
+        demux.start(rig.hostRelaySide)
+        return (rig, demux)
+    }
+
+    private func muxSession(_ rig: Rig, _ demux: HostDemux, innerMux: Bool, key: Key? = nil) async throws
+        -> (RelaySecureChannel, SessionSocket)
+    {
+        let socket = SessionSocket(relay: rig.hostRelaySide)
+        demux.add(socket)
+        try await rig.hostRelaySide.send(RelayMux.encode(.open(session: socket.id, innerMux: innerMux)))
+        let channel = try await RelaySecureChannel.initiate(
+            socket: socket, initiatorStatic: key ?? rig.trustedPhone,
+            responderStaticPublicKey: rig.hostKey.publicKey.rawRepresentation, serverId: serverId)
+        return (channel, socket)
+    }
+
+    func testMuxHostRequestAdvertisesMuxHeader() async throws {
+        // WHY: the relay only routes sessions through the host socket when the Mac asks for it.
+        var seen: URLRequest?
+        let (_, macSide) = MemorySocket.pair()
+        let client = RelayHostClient(
+            server: DirectHTTPServer(port: 0, loopbackOnly: true, dispatcher: JSONRPCDispatcher(router: FakeRouter()),
+                                     auth: RelayTestAuth(), serverId: serverId, bootEpoch: 1),
+            relayBase: URL(string: "wss://relay.test")!, serverId: serverId, hostStatic: Key(),
+            accessToken: { "t" }, trustedDeviceForRelayKey: { _ in nil },
+            webSocketFactory: { seen = $0; return macSide })
+        client.start()
+        defer { client.stop() }
+        for _ in 0..<200 where seen == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(seen?.value(forHTTPHeaderField: RelayMux.hostHeader), "1")
+    }
+
+    func testMuxSessionWithoutInnerMuxServesOneHTTPConnectionOverTheHostSocket() async throws {
+        // WHY: phones that do not split sessions must keep working when the Mac moves to session frames.
+        let (rig, demux) = try await makeMuxRig()
+        defer { rig.client.stop() }
+        let (channel, _) = try await muxSession(rig, demux, innerMux: false)
+        try await channel.send(get("/v1/discovery", bearer: false, extra: "Connection: close\r\n"))
+        var body = Data()
+        while let chunk = try? await channel.receive() { body.append(chunk); if String(decoding: body, as: UTF8.self).contains(serverId) { break } }
+        XCTAssertTrue(String(decoding: body, as: UTF8.self).hasPrefix("HTTP/1.1 200"))
+    }
+
+    func testInnerMuxRunsConcurrentHTTPConnectionsInOneSession() async throws {
+        // WHY: one Noise session must carry discovery, RPC and more at once, with no new relay socket per request.
+        let (rig, demux) = try await makeMuxRig()
+        defer { rig.client.stop() }
+        let (channel, _) = try await muxSession(rig, demux, innerMux: true)
+        for id: UInt32 in [1, 2, 3] {
+            try await channel.send(RelayMux.encode(.open(stream: id)))
+            for frame in RelayMux.innerDataFrames(stream: id, bytes: get("/v1/discovery", bearer: false, extra: "Connection: close\r\n")) {
+                try await channel.send(frame)
+            }
+        }
+        var bodies: [UInt32: Data] = [:]
+        var closed = Set<UInt32>()
+        while closed.count < 3 {
+            guard let plain = try? await channel.receive(), let frame = RelayMux.decodeInner(plain) else { break }
+            switch frame {
+            case .data(let id, let payload): bodies[id, default: Data()].append(payload)
+            case .close(let id): closed.insert(id)
+            case .open: XCTFail("the Mac never opens streams")
+            }
+        }
+        XCTAssertEqual(closed, [1, 2, 3], "each inner stream ends with its own CLOSE")
+        for id: UInt32 in [1, 2, 3] {
+            let text = String(decoding: bodies[id] ?? Data(), as: UTF8.self)
+            XCTAssertTrue(text.hasPrefix("HTTP/1.1 200") && text.contains(serverId), "stream \(id): \(text.prefix(80))")
+        }
+    }
+
+    func testInnerMuxReusedStreamIdClosesTheSession() async throws {
+        // WHY: a reused id could splice two HTTP connections together.
+        let (rig, demux) = try await makeMuxRig()
+        defer { rig.client.stop() }
+        let (channel, socket) = try await muxSession(rig, demux, innerMux: true)
+        try await channel.send(RelayMux.encode(.open(stream: 1)))
+        try await channel.send(RelayMux.encode(.open(stream: 1)))
+        for _ in 0..<300 where socket.closedCode == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNotNil(socket.closedCode)
+    }
+
+    func testMuxSessionWithUntrustedKeyIsClosed4401() async throws {
+        // WHY: a key that is not a paired device must never reach the HTTP server through a session either.
+        let (rig, demux) = try await makeMuxRig()
+        defer { rig.client.stop() }
+        let socket = SessionSocket(relay: rig.hostRelaySide)
+        demux.add(socket)
+        try await rig.hostRelaySide.send(RelayMux.encode(.open(session: socket.id, innerMux: true)))
+        _ = try? await RelaySecureChannel.initiate(
+            socket: socket, initiatorStatic: Key(),
+            responderStaticPublicKey: rig.hostKey.publicKey.rawRepresentation, serverId: serverId)
+        for _ in 0..<300 where socket.closedCode == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(socket.closedCode, 4401)
+    }
 }

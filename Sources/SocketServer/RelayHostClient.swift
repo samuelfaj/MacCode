@@ -217,8 +217,9 @@ public final class RelayHostClient: @unchecked Sendable {
                 continue
             }
             publish(failures >= Self.offlineAfterFailures ? .offline : .connecting)
-            let socket = webSocketFactory(
-                authorizedRequest(RelayEndpoints.host(base: relayBase, serverId: serverId), token: token))
+            var hostRequest = authorizedRequest(RelayEndpoints.host(base: relayBase, serverId: serverId), token: token)
+            hostRequest.setValue("1", forHTTPHeaderField: RelayMux.hostHeader)
+            let socket = webSocketFactory(hostRequest)
             lock.lock(); hostSocket = socket; lock.unlock()
             let opened = await serveHost(socket)
             failures = opened ? 0 : failures + 1
@@ -246,8 +247,14 @@ public final class RelayHostClient: @unchecked Sendable {
                 try? await Task.sleep(nanoseconds: UInt64(tick * 1_000_000_000))
             }
         }
-        defer { pinger.cancel() }
+        var sessions: [UUID: RelayVirtualSocket] = [:]
+        defer {
+            pinger.cancel()
+            // The host socket carried these sessions; without it they are gone.
+            for session in sessions.values { session.remoteClosed() }
+        }
         var opened = false
+        var mux = false
         while !Task.isCancelled {
             guard let message = try? await socket.receiveMessage() else { break }
             rx.touch()
@@ -255,6 +262,28 @@ public final class RelayHostClient: @unchecked Sendable {
                 opened = true
                 setConnected(true)
             }
+            if case .binary(let data) = message {
+                guard mux, let frame = RelayMux.decodeHost(data) else { continue }
+                switch frame {
+                case .open(let id, let innerMux):
+                    guard sessions[id] == nil else { continue }
+                    let session = RelayVirtualSocket(id: id, host: socket)
+                    sessions[id] = session
+                    Task { [weak self] in
+                        await self?.serveSession(id.uuidString.lowercased(), socket: session, innerMux: innerMux)
+                    }
+                case .data(let id, let payload):
+                    sessions[id]?.deliver(payload)
+                case .close(let id, _):
+                    sessions.removeValue(forKey: id)?.remoteClosed()
+                }
+                continue
+            }
+            if case .text(let text) = message, case .hello(let version)? = RelayMux.control(text) {
+                mux = version >= 1
+                continue
+            }
+            sessions = sessions.filter { !$0.value.isClosed }
             guard case .text(let text) = message,
                   let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
                   object["type"] as? String == "open",
@@ -275,9 +304,16 @@ public final class RelayHostClient: @unchecked Sendable {
 
     private func handleStream(_ id: String) async {
         guard let token = accessToken(), !token.isEmpty, isRunning() else { return }
-        let started = Date()
         let socket = webSocketFactory(
             authorizedRequest(RelayEndpoints.stream(base: relayBase, serverId: serverId, streamId: id), token: token))
+        await serveSession(id, socket: socket, innerMux: false)
+    }
+
+    /// One phone session: Noise respond, device trust, then either one HTTP
+    /// connection (legacy) or many, split by inner mux frames.
+    private func serveSession(_ id: String, socket: RelayWebSocket, innerMux: Bool) async {
+        guard isRunning() else { socket.close(code: 1001); return }
+        let started = Date()
         let stream = Stream(socket: socket)
         lock.lock(); streams[id] = stream; lock.unlock()
 
@@ -299,6 +335,22 @@ public final class RelayHostClient: @unchecked Sendable {
         guard let deviceId = resolvedDevice else {
             socket.close(code: 4401)
             finish(id, stream)
+            return
+        }
+        if innerMux {
+            lock.lock()
+            stream.deviceId = deviceId
+            let aborted = stream.terminated
+            lock.unlock()
+            if aborted || trustedDeviceForRelayKey(initiatorKey) != deviceId {
+                socket.close(code: 4401)
+                finish(id, stream)
+                return
+            }
+            await RelayInnerMuxBridge(channel: channel, server: server, peer: "relay:" + deviceId).run()
+            channel.close(code: 1000)
+            finish(id, stream)
+            NSLog("[RC2.Relay] session=%@ device=%@ mux=1 duration=%.1fs", id, deviceId, Date().timeIntervalSince(started))
             return
         }
 
@@ -409,7 +461,7 @@ public final class RelayHostClient: @unchecked Sendable {
         stream.socket.close(code: code)
     }
 
-    private static func writeAll(_ fd: Int32, _ data: Data) async -> Bool {
+    static func writeAll(_ fd: Int32, _ data: Data) async -> Bool {
         var offset = 0
         while offset < data.count {
             let n = data.withUnsafeBytes { raw in
