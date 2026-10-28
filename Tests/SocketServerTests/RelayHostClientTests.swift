@@ -419,6 +419,19 @@ final class RelayHostClientTests: XCTestCase {
         XCTAssertEqual(phone.closeCode, 1000)
     }
 
+    func testRelayStatusGoesYellowThenGreenThenRedOnStop() async throws {
+        // WHY: the avatar badge must show green only while the host socket is open and red once stopped.
+        let rig = Rig(serverId: serverId, dispatcher: JSONRPCDispatcher(router: FakeRouter()))
+        rig.client.start()
+        for _ in 0..<200 where RelayHostClient.currentStatus != .connecting { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(RelayHostClient.currentStatus, .connecting)
+        try await rig.hostRelaySide.sendText(#"{"type":"pong"}"#)
+        for _ in 0..<200 where RelayHostClient.currentStatus != .connected { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(RelayHostClient.currentStatus, .connected)
+        rig.client.stop()
+        XCTAssertEqual(RelayHostClient.currentStatus, .offline)
+    }
+
     // MARK: - Mux v1
 
     /// Phone side of one mux session: frames go out as host DATA frames and

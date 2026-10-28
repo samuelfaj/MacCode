@@ -4,6 +4,16 @@ import Foundation
 import Persistence
 import RemoteCodeTreaty
 
+/// Relay link state for the account avatar badge: green, yellow, red.
+public enum RelayHostStatus: String, Sendable {
+    /// The host socket is open: iPhones can reach this Mac through the relay.
+    case connected
+    /// Opening or reopening the host socket.
+    case connecting
+    /// No account session, stopped, or several failed attempts in a row.
+    case offline
+}
+
 /// Keeps the Mac's `/v1/host` socket open on the relay and bridges every relay
 /// stream into the local HTTP server through a socketpair. Untrusted initiator keys never reach the HTTP server.
 public final class RelayHostClient: @unchecked Sendable {
@@ -38,6 +48,26 @@ public final class RelayHostClient: @unchecked Sendable {
     private var revokeObserver: NSObjectProtocol?
 
     public var onStatusChange: ((Bool) -> Void)?
+
+    /// Posted on the main queue with the new `RelayHostStatus` as the object.
+    public static let statusDidChangeNotification = Notification.Name("rc2RelayHostStatusDidChange")
+    /// Failed attempts in a row before the badge turns red instead of yellow.
+    static let offlineAfterFailures = 3
+    private static let statusLock = NSLock()
+    private static var currentStatusValue: RelayHostStatus = .offline
+    /// Last status of the running client; read when a view appears.
+    public static var currentStatus: RelayHostStatus { statusLock.withLock { currentStatusValue } }
+
+    private func publish(_ status: RelayHostStatus) {
+        let changed = Self.statusLock.withLock { () -> Bool in
+            defer { Self.currentStatusValue = status }
+            return Self.currentStatusValue != status
+        }
+        guard changed else { return }
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: Self.statusDidChangeNotification, object: status)
+        }
+    }
 
     public var isConnected: Bool {
         lock.lock(); defer { lock.unlock() }
@@ -97,6 +127,7 @@ public final class RelayHostClient: @unchecked Sendable {
         host?.close(code: 1000)
         for stream in open { terminate(stream, code: 1001) }
         setConnected(false)
+        publish(.offline)
     }
 
     /// The Private session changed: reconnect with the current token.
@@ -143,6 +174,7 @@ public final class RelayHostClient: @unchecked Sendable {
         let changed = connected != value
         connected = value
         lock.unlock()
+        if value { publish(.connected) }
         if changed { onStatusChange?(value) }
     }
 
@@ -180,9 +212,11 @@ public final class RelayHostClient: @unchecked Sendable {
         var failures = 0
         while !Task.isCancelled, isRunning() {
             guard let token = accessToken(), !token.isEmpty else {
+                publish(.offline)
                 await wait(60)
                 continue
             }
+            publish(failures >= Self.offlineAfterFailures ? .offline : .connecting)
             var hostRequest = authorizedRequest(RelayEndpoints.host(base: relayBase, serverId: serverId), token: token)
             hostRequest.setValue("1", forHTTPHeaderField: RelayMux.hostHeader)
             let socket = webSocketFactory(hostRequest)
@@ -193,6 +227,7 @@ public final class RelayHostClient: @unchecked Sendable {
             socket.close(code: 1000)
             setConnected(false)
             guard !Task.isCancelled, isRunning() else { break }
+            publish(failures >= Self.offlineAfterFailures ? .offline : .connecting)
             await wait(Self.reconnectDelay(opened: opened, failures: failures, roll: Double.random(in: 0...1)))
         }
     }
