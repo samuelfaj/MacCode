@@ -22,6 +22,9 @@ public final class RelayHostClient: @unchecked Sendable {
     private let accessToken: @Sendable () -> String?
     private let trustedDeviceForRelayKey: @Sendable (Data) -> String?
     private let webSocketFactory: @Sendable (URLRequest) -> RelayWebSocket
+    private let pingInterval: TimeInterval
+    private let rxTimeout: TimeInterval
+    private let openTimeout: TimeInterval
 
     private let lock = NSLock()
     private var task: Task<Void, Never>?
@@ -30,6 +33,8 @@ public final class RelayHostClient: @unchecked Sendable {
     private var streams: [String: Stream] = [:]
     private var connected = false
     private var running = false
+    /// Set by `reconnectNow()`: the next reconnect wait is skipped.
+    private var skipWait = false
     private var revokeObserver: NSObjectProtocol?
 
     public var onStatusChange: ((Bool) -> Void)?
@@ -46,7 +51,10 @@ public final class RelayHostClient: @unchecked Sendable {
         hostStatic: Curve25519.KeyAgreement.PrivateKey,
         accessToken: @escaping @Sendable () -> String?,
         trustedDeviceForRelayKey: @escaping @Sendable (Data) -> String?,
-        webSocketFactory: @escaping @Sendable (URLRequest) -> RelayWebSocket = { URLSessionRelayWebSocket($0) }
+        webSocketFactory: @escaping @Sendable (URLRequest) -> RelayWebSocket = { URLSessionRelayWebSocket($0) },
+        pingInterval: TimeInterval = 10,
+        rxTimeout: TimeInterval = 25,
+        openTimeout: TimeInterval = 15
     ) {
         self.server = server
         self.relayBase = relayBase
@@ -55,6 +63,9 @@ public final class RelayHostClient: @unchecked Sendable {
         self.accessToken = accessToken
         self.trustedDeviceForRelayKey = trustedDeviceForRelayKey
         self.webSocketFactory = webSocketFactory
+        self.pingInterval = pingInterval
+        self.rxTimeout = rxTimeout
+        self.openTimeout = openTimeout
     }
 
     public func start() {
@@ -100,6 +111,18 @@ public final class RelayHostClient: @unchecked Sendable {
         for stream in open { terminate(stream, code: 1001) }
     }
 
+    /// Wake or network change: drop the current host socket and reconnect without waiting out backoff.
+    public func reconnectNow() {
+        lock.lock()
+        guard running else { lock.unlock(); return }
+        skipWait = true
+        let sleeper = sleepTask
+        let host = hostSocket
+        lock.unlock()
+        host?.close(code: 1000)
+        sleeper?.cancel()
+    }
+
     var openStreamCount: Int {
         lock.lock(); defer { lock.unlock() }
         return streams.count
@@ -128,12 +151,23 @@ public final class RelayHostClient: @unchecked Sendable {
         return running
     }
 
+    /// Reconnect delay. `roll` is a uniform sample in 0...1. An opened socket reconnects at once (0–250 ms);
+    /// otherwise exponential 1, 2, 4, 8 s, capped at 15 s, with ±20% jitter.
+    static func reconnectDelay(opened: Bool, failures: Int, roll: Double) -> Double {
+        if opened { return roll * 0.25 }
+        let base = min(15, pow(2, Double(max(failures, 1) - 1)))
+        return base * (0.8 + 0.4 * roll)
+    }
+
     private func wait(_ seconds: Double) async {
         let sleeper = Task<Void, Never> { _ = try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
-        lock.lock(); sleepTask = sleeper; lock.unlock()
+        lock.lock()
+        if skipWait { skipWait = false; lock.unlock(); sleeper.cancel(); return }
+        sleepTask = sleeper
+        lock.unlock()
         if !isRunning() { sleeper.cancel() }
         await sleeper.value
-        lock.lock(); sleepTask = nil; lock.unlock()
+        lock.lock(); sleepTask = nil; skipWait = false; lock.unlock()
     }
 
     private func authorizedRequest(_ url: URL, token: String) -> URLRequest {
@@ -143,7 +177,7 @@ public final class RelayHostClient: @unchecked Sendable {
     }
 
     private func runLoop() async {
-        var backoff = 1.0
+        var failures = 0
         while !Task.isCancelled, isRunning() {
             guard let token = accessToken(), !token.isEmpty else {
                 await wait(60)
@@ -152,24 +186,29 @@ public final class RelayHostClient: @unchecked Sendable {
             let socket = webSocketFactory(
                 authorizedRequest(RelayEndpoints.host(base: relayBase, serverId: serverId), token: token))
             lock.lock(); hostSocket = socket; lock.unlock()
-            if await serveHost(socket) { backoff = 1 }
+            let opened = await serveHost(socket)
+            failures = opened ? 0 : failures + 1
             lock.lock(); hostSocket = nil; lock.unlock()
             socket.close(code: 1000)
             setConnected(false)
             guard !Task.isCancelled, isRunning() else { break }
-            await wait(backoff * Double.random(in: 0.8...1.2))
-            backoff = min(backoff * 2, 30)
+            await wait(Self.reconnectDelay(opened: opened, failures: failures, roll: Double.random(in: 0...1)))
         }
     }
 
     /// Returns true when the relay answered at least once (a successful open).
     private func serveHost(_ socket: RelayWebSocket) async -> Bool {
-        let rx = RxClock()
+        let rx = RxClock(openLimit: openTimeout, steadyLimit: rxTimeout)
         let pinger = Task {
+            var nextPing = Date.distantPast
+            let tick = min(1, pingInterval)
             while !Task.isCancelled {
-                do { try await socket.sendText(#"{"type":"ping"}"#) } catch { return }
-                try? await Task.sleep(nanoseconds: 25_000_000_000)
-                if rx.age > 80 { socket.close(code: 1000); return }
+                if Date() >= nextPing {
+                    do { try await socket.sendText(#"{"type":"ping"}"#) } catch { return }
+                    nextPing = Date().addingTimeInterval(pingInterval)
+                }
+                if rx.expired { socket.close(code: 1000); return }
+                try? await Task.sleep(nanoseconds: UInt64(tick * 1_000_000_000))
             }
         }
         defer { pinger.cancel() }
@@ -356,8 +395,19 @@ public final class RelayHostClient: @unchecked Sendable {
 private final class RxClock: @unchecked Sendable {
     private let lock = NSLock()
     private var last = Date()
-    func touch() { lock.lock(); last = Date(); lock.unlock() }
-    var age: TimeInterval { lock.lock(); defer { lock.unlock() }; return Date().timeIntervalSince(last) }
+    private var received = false
+    private let openLimit: TimeInterval
+    private let steadyLimit: TimeInterval
+    init(openLimit: TimeInterval, steadyLimit: TimeInterval) {
+        self.openLimit = openLimit
+        self.steadyLimit = steadyLimit
+    }
+    /// Before the first message the limit is `openLimit`; afterwards `steadyLimit` of silence is dead.
+    func touch() { lock.lock(); last = Date(); received = true; lock.unlock() }
+    var expired: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return Date().timeIntervalSince(last) > (received ? steadyLimit : openLimit)
+    }
 }
 
 private final class ByteCounters: @unchecked Sendable {

@@ -139,6 +139,20 @@ final class RelayChannelTests: XCTestCase {
         XCTAssertEqual(mac.closeCode, 4401)
     }
 
+    func testHandshakeWithSilentPeerTimesOutAndClosesSocket() async throws {
+        // WHY: a relay that never answers must not hang the stream forever; the socket must close so reads end.
+        let phone = MemoryRelayWebSocket()
+        do {
+            _ = try await RelaySecureChannel.initiate(
+                socket: phone, initiatorStatic: Key(),
+                responderStaticPublicKey: Key().publicKey.rawRepresentation, serverId: "srv", timeout: 0.1)
+            XCTFail("silent peer must time out")
+        } catch {
+            XCTAssertEqual(error as? RelayChannelError, .handshakeTimedOut)
+        }
+        XCTAssertEqual(phone.closeCode, 4400)
+    }
+
     func testTamperedFrameClosesWith4400() async throws {
         let (phone, mac, phoneSock, macSock) = try await handshake()
         phoneSock.tamperNext = true

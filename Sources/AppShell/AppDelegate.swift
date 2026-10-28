@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import AppKit
+import Network
 import CoreModel
 import Persistence
 import AgentRuntime
@@ -99,6 +100,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     public private(set) var bonjourPublicationState: BonjourPublicationState = .stopped
     private var directAccessSupervisor: DirectAccessLifecycleSupervisor?
     private var relayHostClient: RelayHostClient?
+    private var relayPathMonitor: NWPathMonitor?
     private let relayHostKeyStore: RelayHostKeyStoring =
         LocalAuthAdapter.isE2EPairingAutoApproveEnabled
         ? InMemoryRelayHostKeyStore()
@@ -696,6 +698,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         directAccessSupervisor = nil
         relayHostClient?.stop()
         relayHostClient = nil
+        relayPathMonitor?.cancel()
+        relayPathMonitor = nil
         providerSessionReaperTimer?.invalidate()
         ccrRetentionTimer?.invalidate()
         diagnosticsHeartbeatTimer?.invalidate()
@@ -1194,6 +1198,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         http.relayAvailable = { [weak client] in client?.isConnected ?? false }
         relayHostClient = client
         client.start()
+        startRelayPathMonitor(client)
+    }
+
+    /// Reconnects the relay host when the set of active interfaces changes (Wi-Fi/Ethernet/VPN switch).
+    private func startRelayPathMonitor(_ client: RelayHostClient) {
+        relayPathMonitor?.cancel()
+        let monitor = NWPathMonitor()
+        var lastInterfaces: Set<NWInterface.InterfaceType>?
+        monitor.pathUpdateHandler = { [weak client] path in
+            guard path.status == .satisfied else { return }
+            let interfaces = Set(path.availableInterfaces.map(\.type))
+            defer { lastInterfaces = interfaces }
+            guard let previous = lastInterfaces, previous != interfaces else { return }
+            client?.reconnectNow()
+        }
+        monitor.start(queue: .global(qos: .utility))
+        relayPathMonitor = monitor
     }
 
     @objc private func workspaceWillSleep() {
@@ -1205,6 +1226,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     @objc private func workspaceDidWake() {
         hangWatchdogAwakeState.value = .awake
         lifecycleRecorder?.record("hang_watchdog_awake state=awake")
+        relayHostClient?.reconnectNow()
         guard let context else { return }
         let remoteEnabled = ((try? context.settingsRepo.get("remote_access_enabled")) ?? "0") == "1"
         do {

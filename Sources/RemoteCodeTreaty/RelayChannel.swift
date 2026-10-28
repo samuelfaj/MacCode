@@ -14,7 +14,7 @@ public protocol RelayWebSocket: AnyObject, Sendable {
 }
 
 public enum RelayChannelError: Error, Equatable {
-    case unexpectedTextFrame, untrustedKey
+    case unexpectedTextFrame, untrustedKey, handshakeTimedOut
 }
 
 public extension RelayWebSocket {
@@ -104,20 +104,23 @@ public final class RelaySecureChannel: @unchecked Sendable {
         socket: RelayWebSocket,
         initiatorStatic: Curve25519.KeyAgreement.PrivateKey,
         responderStaticPublicKey: Data,
-        serverId: String
+        serverId: String,
+        timeout: TimeInterval = 10
     ) async throws -> RelaySecureChannel {
-        do {
-            let handshake = try RelayNoiseHandshake(
-                initiatorStatic: initiatorStatic,
-                responderStaticPublicKey: responderStaticPublicKey,
-                prologue: RelayNoise.prologue(serverId: serverId)
-            )
-            try await socket.send(handshake.writeMessage())
-            _ = try handshake.readMessage(try await socket.receive())
-            return RelaySecureChannel(socket: socket, transport: try handshake.split())
-        } catch {
-            socket.close(code: 4400)
-            throw error
+        try await withHandshakeDeadline(socket: socket, timeout: timeout) {
+            do {
+                let handshake = try RelayNoiseHandshake(
+                    initiatorStatic: initiatorStatic,
+                    responderStaticPublicKey: responderStaticPublicKey,
+                    prologue: RelayNoise.prologue(serverId: serverId)
+                )
+                try await socket.send(handshake.writeMessage())
+                _ = try handshake.readMessage(try await socket.receive())
+                return RelaySecureChannel(socket: socket, transport: try handshake.split())
+            } catch {
+                socket.close(code: 4400)
+                throw error
+            }
         }
     }
 
@@ -126,31 +129,59 @@ public final class RelaySecureChannel: @unchecked Sendable {
         socket: RelayWebSocket,
         responderStatic: Curve25519.KeyAgreement.PrivateKey,
         serverId: String,
+        timeout: TimeInterval = 10,
         isTrusted: (Data) -> Bool
     ) async throws -> (RelaySecureChannel, initiatorStaticPublicKey: Data) {
-        let handshake = RelayNoiseHandshake(
-            responderStatic: responderStatic,
-            prologue: RelayNoise.prologue(serverId: serverId)
-        )
-        let remoteKey: Data
-        do {
-            _ = try handshake.readMessage(try await socket.receive())
-            guard let key = handshake.remoteStaticPublicKey else { throw RelayNoiseError.wrongState }
-            remoteKey = key
-        } catch {
-            socket.close(code: 4400)
-            throw error
+        try await withHandshakeDeadline(socket: socket, timeout: timeout) {
+            let handshake = RelayNoiseHandshake(
+                responderStatic: responderStatic,
+                prologue: RelayNoise.prologue(serverId: serverId)
+            )
+            let remoteKey: Data
+            do {
+                _ = try handshake.readMessage(try await socket.receive())
+                guard let key = handshake.remoteStaticPublicKey else { throw RelayNoiseError.wrongState }
+                remoteKey = key
+            } catch {
+                socket.close(code: 4400)
+                throw error
+            }
+            guard isTrusted(remoteKey) else {
+                socket.close(code: 4401)
+                throw RelayChannelError.untrustedKey
+            }
+            do {
+                try await socket.send(handshake.writeMessage())
+                return (RelaySecureChannel(socket: socket, transport: try handshake.split()), remoteKey)
+            } catch {
+                socket.close(code: 4400)
+                throw error
+            }
         }
-        guard isTrusted(remoteKey) else {
-            socket.close(code: 4401)
-            throw RelayChannelError.untrustedKey
-        }
-        do {
-            try await socket.send(handshake.writeMessage())
-            return (RelaySecureChannel(socket: socket, transport: try handshake.split()), remoteKey)
-        } catch {
-            socket.close(code: 4400)
-            throw error
+    }
+
+    /// Races the handshake against a deadline. On expiry the socket is closed, which fails the pending read or write.
+    private static func withHandshakeDeadline<T: Sendable>(
+        socket: RelayWebSocket,
+        timeout: TimeInterval,
+        _ body: () async throws -> T
+    ) async throws -> T {
+        let expired = ExpiryFlag()
+        return try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                expired.set()
+                socket.close(code: 4400)
+            }
+            defer { group.cancelAll() }
+            do {
+                let value = try await body()
+                guard !expired.isSet else { throw RelayChannelError.handshakeTimedOut }
+                return value
+            } catch {
+                throw expired.isSet ? RelayChannelError.handshakeTimedOut : error
+            }
         }
     }
 
@@ -186,4 +217,11 @@ public final class RelaySecureChannel: @unchecked Sendable {
     public func close(code: Int = 1000) {
         socket.close(code: code)
     }
+}
+
+private final class ExpiryFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
+    func set() { lock.lock(); value = true; lock.unlock() }
 }
