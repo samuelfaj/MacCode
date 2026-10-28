@@ -594,6 +594,8 @@ public final class SidebarViewModel: ObservableObject {
         didSet { if filterText != oldValue { filteredWorkspacesCache = nil } }
     }
     @Published public var privateAccountUser: PrivateAccountUser?
+    @Published public var relayStatus: RelayHostStatus = RelayHostClient.currentStatus
+    private var relayStatusObserver: NSObjectProtocol?
     @Published public var updateAvailability: AppUpdateAvailability = .unknown
     @Published public private(set) var insomniaEnabled: Bool = false
     @Published public private(set) var insomniaAllowDisplaySleep: Bool = true
@@ -687,6 +689,16 @@ public final class SidebarViewModel: ObservableObject {
             UserDefaults.standard.stringArray(forKey: Self.collapsedWorkspaceSectionsKey) ?? [])
         self.expandedSectionLists = Set(
             UserDefaults.standard.stringArray(forKey: Self.expandedSectionListsKey) ?? [])
+        self.relayStatusObserver = NotificationCenter.default.addObserver(
+            forName: RelayHostClient.statusDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let status = note.object as? RelayHostStatus else { return }
+            Task { @MainActor in
+                if self?.relayStatus != status { self?.relayStatus = status }
+            }
+        }
         self.privateAccountObserver = NotificationCenter.default.addObserver(
             forName: .rc2PrivateAccountChanged,
             object: nil,
@@ -747,6 +759,9 @@ public final class SidebarViewModel: ObservableObject {
     }
 
     deinit {
+        if let relayStatusObserver {
+            NotificationCenter.default.removeObserver(relayStatusObserver)
+        }
         if let privateAccountObserver {
             NotificationCenter.default.removeObserver(privateAccountObserver)
         }
@@ -3380,6 +3395,37 @@ public struct SidebarRootView: View {
                 .foregroundColor(vm.privateAccountUser == nil ? DS.Palette.textSecondary : DS.Palette.accent)
         }
         .frame(width: size, height: size)
+        .overlay(alignment: .bottomTrailing) {
+            if vm.privateAccountUser != nil {
+                relayStatusBadge(size: max(6, size * 0.34))
+            }
+        }
+    }
+
+    private func relayStatusBadge(size: CGFloat) -> some View {
+        Circle()
+            .fill(relayStatusColor)
+            .frame(width: size, height: size)
+            .overlay(Circle().stroke(DS.Palette.surface, lineWidth: max(1, size * 0.2)))
+            .offset(x: size * 0.15, y: size * 0.15)
+            .help(relayStatusText)
+            .accessibilityLabel(relayStatusText)
+    }
+
+    private var relayStatusColor: Color {
+        switch vm.relayStatus {
+        case .connected: return DS.Palette.success
+        case .connecting: return DS.Palette.warning
+        case .offline: return DS.Palette.danger
+        }
+    }
+
+    private var relayStatusText: String {
+        switch vm.relayStatus {
+        case .connected: return "Relay connected: your iPhone can reach this Mac from anywhere"
+        case .connecting: return "Connecting to the relay…"
+        case .offline: return "Relay offline: your iPhone can only reach this Mac on the same network"
+        }
     }
 
     private var accountDisplayName: String {
