@@ -69,7 +69,7 @@ final class BotContextGuestResourcesTests: XCTestCase {
         _ = try docker.info()
         guard try docker.imageExists(tag: BotComputerGuestSpec.imageTag),
               try docker.imageLabel(tag: BotComputerGuestSpec.imageTag, key: BotComputerGuestSpec.recipeLabelKey) == BotComputerGuestSpec.recipeRevision else {
-            throw XCTSkip("matching existing Docker r7 image required; probe never builds an image")
+            throw XCTSkip("matching existing Docker r8 image required; probe never builds an image")
         }
 
         let (root, store, repo, workspace, thread, _, host, _) = try fixture()

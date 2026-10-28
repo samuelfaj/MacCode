@@ -3,7 +3,7 @@ import CryptoKit
 
 public enum BotComputerGuestSpec {
     /// Bump when start.sh / Dockerfile change. Missing label rebuilds the image.
-    public static let recipeRevision = "7"
+    public static let recipeRevision = "8"
     /// Versioned so two app builds on different revisions sharing one Docker
     /// daemon (e.g. the debug sandbox and the installed app) never rebuild the
     /// same tag back and forth.
@@ -28,7 +28,7 @@ public enum BotComputerGuestSpec {
     }
     /// Bump when the container create options change. A container whose label
     /// differs is recreated, but only while the bot has no active run.
-    public static let runtimeRevision = "7"
+    public static let runtimeRevision = "8"
     public static let runtimeLabelKey = "remotecode.runtime"
     /// The bot (of the app database that created it) a container belongs to.
     public static let botIDLabelKey = "remotecode.botId"

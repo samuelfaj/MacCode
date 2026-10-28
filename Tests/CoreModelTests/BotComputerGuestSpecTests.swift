@@ -147,15 +147,15 @@ final class BotComputerGuestSpecTests: XCTestCase {
         )
     }
 
-    func test_recipeRevision7ShipsTheInGuestAgentToolchain() throws {
+    func test_recipeRevision8ShipsTheInGuestAgentToolchain() throws {
         // WHY: the bot's agent runs inside this image. It needs git and ps for
         // its own shell, wmctrl + xwd for linux-use, and a pinned Playwright MCP
         // that only runs on Node >= 20 (bookworm's apt node is 18). Only the
         // revision bump makes existing guests pick the recipe up, and the tag
         // carries the revision so another app build on r4 never rebuilds it.
-        XCTAssertEqual(BotComputerGuestSpec.recipeRevision, "7")
-        XCTAssertEqual(BotComputerGuestSpec.imageTag, "remotecode/computer:r7")
-        XCTAssertEqual(BotComputerGuestSpec.runtimeRevision, "7")
+        XCTAssertEqual(BotComputerGuestSpec.recipeRevision, "8")
+        XCTAssertEqual(BotComputerGuestSpec.imageTag, "remotecode/computer:r8")
+        XCTAssertEqual(BotComputerGuestSpec.runtimeRevision, "8")
         XCTAssertTrue(BotComputerGuestSpec.recipeFileNames.contains("context-network.sh"))
         let recipe = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -180,6 +180,20 @@ final class BotComputerGuestSpecTests: XCTestCase {
             "CDP must stay on the guest loopback")
     }
 
+    func test_contextNetworkScriptKeepsOneGatewayLeasePerRun() throws {
+        // WHY: several conversations share one bot VM. A single gateway slot
+        // made the second run's lease fail, and revoking one run must not cut
+        // another run's endpoint.
+        let script = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/AppShell/Resources/ComputerGuest/context-network.sh"), encoding: .utf8)
+        XCTAssertTrue(script.contains("state_dir=/run/remotecode-context-gateways"))
+        XCTAssertTrue(script.contains("write_lease \"$run\" \"$ip\" \"$port\" active"))
+        XCTAssertTrue(script.contains("[ \"$lease_ip:$lease_port\" != \"$ip:$port\" ] || [ \"$lease_state\" = revoked ] || exit 1"),
+            "two live runs must never share one endpoint")
+        XCTAssertFalse(script.contains("state=/run/remotecode-context-gateway\n"), "the single-lease slot is gone")
+    }
+
     func test_contextualNetworkPolicyAddsPrivateEgressMarkersAndLeastPrivilegeOptions() throws {
         let botID = BotID()
         let support = URL(fileURLWithPath: "/tmp/rc-context-network")
@@ -196,7 +210,7 @@ final class BotComputerGuestSpecTests: XCTestCase {
         XCTAssertEqual(options.capAdd, ["NET_ADMIN"])
         XCTAssertEqual(options.securityOptions, ["no-new-privileges:true"])
         XCTAssertEqual(options.tmpfs, ["/run:rw,nosuid,nodev,noexec,mode=0755"])
-        XCTAssertEqual(options.image, "remotecode/computer:r7")
+        XCTAssertEqual(options.image, "remotecode/computer:r8")
     }
 
     func test_createOptionsMountTheAgentKitReadOnlyAndRunAnInitWithTheHostAlias() throws {
