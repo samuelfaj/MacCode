@@ -4911,6 +4911,13 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         }
     }
 
+    public func delegatedParentRunId(_ runId: AgentRunID, threadId: AgentThreadID) -> AgentRunID? {
+        lock.withLock {
+            guard let delegated = delegatedRuns[runId], delegated.threadId == threadId else { return nil }
+            return delegated.parentRunId
+        }
+    }
+
     /// Marks `runId` (on `threadId`) as a delegated child of `parentRunId` — a
     /// bot peer run started on behalf of a primary run. Registration happens
     /// before dispatch so the badge filter and the Stop cascade cover the child

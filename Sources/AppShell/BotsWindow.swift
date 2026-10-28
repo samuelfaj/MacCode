@@ -1129,10 +1129,6 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
         guard !inGuest || destination.target == .vm else {
             throw JSONRPCError(code: -32052, message: "A VM cannot delegate execution to the Mac. Choose an admitted VM for the peer or request Mac execution explicitly.")
         }
-        if inGuest, try botStore.guestResourceID(botID: pin.botID, threadID: callerThread)
-            == botStore.guestResourceID(botID: peerBotID) {
-            throw JSONRPCError(code: -32054, message: "The caller and peer share one VM. A waiting parent cannot reserve another slot on that VM.")
-        }
         return binding
     }
 

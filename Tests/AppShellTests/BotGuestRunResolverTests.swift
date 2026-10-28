@@ -263,6 +263,22 @@ final class BotGuestRunResolverTests: XCTestCase {
         await held.release()
     }
 
+    func test_delegatedPeerClaimSharesTheVMWithItsWaitingParentOnly() {
+        // WHY: a parent waiting on its delegated peer kept the VM, so the
+        // exclusive peer claim on the same VM was refused forever.
+        let registry = BotVMRunRegistry()
+        let vm = BotID()
+        let parent = BotVMRunRegistry.Entry(threadID: AgentThreadID(), runID: AgentRunID(), title: "Parent", workspace: "")
+        XCTAssertNil(registry.tryBegin(botID: BotID(), entry: parent, resourceID: vm))
+        let child = BotVMRunRegistry.Entry(threadID: AgentThreadID(), runID: AgentRunID(), title: "Peer", workspace: "", exclusive: true)
+        XCTAssertNil(registry.tryBegin(botID: BotID(), entry: child, resourceID: vm, allowsSameThreadExclusive: false,
+                                       parentRunID: parent.runID))
+        let stranger = BotVMRunRegistry.Entry(threadID: AgentThreadID(), runID: AgentRunID(), title: "Other", workspace: "", exclusive: true)
+        XCTAssertEqual(registry.tryBegin(botID: BotID(), entry: stranger, resourceID: vm, allowsSameThreadExclusive: false,
+                                         parentRunID: AgentRunID())?.runID, parent.runID,
+                       "an unrelated exclusive run still waits")
+    }
+
     func test_contextPinnedThreadWithoutAdmissionPreparesLikeANormalThread() async throws {
         for marked in [true, false] {
             let f = try await makeFixture()

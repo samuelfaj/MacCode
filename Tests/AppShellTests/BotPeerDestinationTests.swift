@@ -91,11 +91,11 @@ final class BotPeerDestinationTests: XCTestCase {
         XCTAssertEqual(try ctx.botStore.listConversations(botID: peer.id).count, 1)
     }
 
-    func test_vmCallerRefusesMacAndSameVMDestinationsBeforeCreatingPeerWork() async throws {
-        let (ctx, router, runner, caller, peer, _, callerDestination, _) = try await makeFixture()
+    func test_vmCallerRefusesMacDestinationBeforeCreatingPeerWork() async throws {
+        let (ctx, router, runner, caller, peer, _, _, _) = try await makeFixture()
         defer { cleanUp(ctx) }
         let messagesBefore = try ctx.messageRepo.list(threadId: caller.threadId).count
-        let destinations: [(BotExecutionDestination, Int)] = [(.mac, -32052), (callerDestination, -32054)]
+        let destinations: [(BotExecutionDestination, Int)] = [(.mac, -32052)]
         for (destination, errorCode) in destinations {
             _ = try ctx.botStore.setExecutionDestination(destination, botID: peer.id)
             do {
@@ -113,6 +113,27 @@ final class BotPeerDestinationTests: XCTestCase {
             XCTAssertEqual(runner.requests.count, 1)
             XCTAssertEqual(ctx.coordinator.activeRunId(threadId: caller.threadId), caller.runId)
         }
+    }
+
+    func test_vmCallerConsultsPeerOnItsOwnVMWhileTheParentWaits() async throws {
+        // WHY: "The caller and peer share one VM" refused every consultation
+        // between two Bots on one VM. The delegated peer must run on that VM
+        // concurrently with its waiting parent.
+        let (ctx, router, runner, caller, peer, _, callerDestination, _) = try await makeFixture()
+        defer { cleanUp(ctx) }
+        _ = try ctx.botStore.setExecutionDestination(callerDestination, botID: peer.id)
+        let pending = Task { @MainActor in
+            try await router.askBotPeer(callerThread: caller.threadId, callerRun: caller.runId,
+                handle: peer.handle, prompt: "Inspect the workspace.", replyMode: .consult,
+                consultationID: nil, wait: true,
+                delegationCapability: caller.environment[AgentDelegationCapabilityTransport.environmentKey])
+        }
+        defer { pending.cancel() }
+        let started = await waitUntil { runner.requests.count == 2 }
+        if !started, case .failure(let error) = await pending.result { XCTFail("peer ask failed: \(error)") }
+        XCTAssertTrue(started, "the same-VM peer must reach the provider runner")
+        XCTAssertEqual(ctx.coordinator.activeRunId(threadId: caller.threadId), caller.runId,
+            "the parent keeps running while its peer runs on the same VM")
     }
 
     private func makeFixture() async throws -> (AppContext, AppCommandRouter, ControlledBotHandoffRunner,

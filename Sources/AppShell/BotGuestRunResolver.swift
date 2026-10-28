@@ -55,6 +55,7 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
         var appSupport: URL
         var registry: BotVMRunRegistry = .shared
         var isDelegatedRun: @Sendable (AgentRunID, AgentThreadID) -> Bool = { _, _ in false }
+        var delegatedParentRun: @Sendable (AgentRunID, AgentThreadID) -> AgentRunID? = { _, _ in nil }
         var onVMAvailable: @Sendable (BotID, AgentThreadID) -> Void = { _, _ in }
         var leases = DistillGuestLeases()
         var barrier: DistillGuestLaunchBarrier
@@ -220,7 +221,8 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
             title: (try deps.threadRepo.get(id: request.threadId))?.title ?? "Conversation", workspace: request.cwd,
             exclusive: deps.isDelegatedRun(request.runId, request.threadId))
         if let holder = deps.registry.tryBegin(botID: admission.pin.botID, entry: claim, resourceID: identity.storageBotID,
-                                              allowsSameThreadExclusive: false) {
+                                              allowsSameThreadExclusive: false,
+                                              parentRunID: deps.delegatedParentRun(request.runId, request.threadId)) {
             throw DistillGuestLaunchError.busy("The VM is busy in \(holder.title)")
         }
         let lease = try await deps.leases.acquire(Self.contextLeaseKey(identity: identity, runID: request.runId))
@@ -336,7 +338,8 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
             exclusive: deps.isDelegatedRun(request.runId, request.threadId)
         )
         if let holder = deps.registry.tryBegin(botID: botID, entry: claim, resourceID: resourceID,
-                                              allowsSameThreadExclusive: false) {
+                                              allowsSameThreadExclusive: false,
+                                              parentRunID: deps.delegatedParentRun(request.runId, request.threadId)) {
             throw DistillGuestLaunchError.busy("The VM is busy in \(holder.title)")
         }
         // Failed preparation leaves release to the coordinator. A prepared
@@ -1008,6 +1011,9 @@ extension AppContext {
             appSupport: appSupport,
             isDelegatedRun: { [weak coordinator = coordinator] runID, threadID in
                 coordinator?.isDelegatedRun(runID, threadId: threadID) == true
+            },
+            delegatedParentRun: { [weak coordinator = coordinator] runID, threadID in
+                coordinator?.delegatedParentRunId(runID, threadId: threadID)
             },
             onVMAvailable: { [weak self] botID, threadID in
                 Task { @MainActor [weak self] in
