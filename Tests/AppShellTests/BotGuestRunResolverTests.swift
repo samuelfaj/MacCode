@@ -248,6 +248,21 @@ final class BotGuestRunResolverTests: XCTestCase {
         await plan.finish(.completed).value
     }
 
+    func test_contextualRunsOnOneVMHoldIndependentLeases() async throws {
+        // WHY: two conversations of one bot share its VM. A per-VM lease made
+        // the second wait for the first run's teardown; a retry of the same
+        // run must still wait for its own previous attempt.
+        let identity = try BotContextRuntimeIdentity(hostID: "host", botID: BotID(), context: .general, policyRevision: 1)
+        let leases = DistillGuestLeases()
+        let first = AgentRunID()
+        let held = try await leases.acquire(BotGuestRunResolver.contextLeaseKey(identity: identity, runID: first))
+        let other = try await leases.acquire(BotGuestRunResolver.contextLeaseKey(identity: identity, runID: AgentRunID()))
+        let retryHeld = await leases.isHeld(BotGuestRunResolver.contextLeaseKey(identity: identity, runID: first))
+        XCTAssertTrue(retryHeld, "the same run's retry keeps waiting on its own lease")
+        await other.release()
+        await held.release()
+    }
+
     func test_contextPinnedThreadWithoutAdmissionPreparesLikeANormalThread() async throws {
         for marked in [true, false] {
             let f = try await makeFixture()

@@ -40,8 +40,9 @@ protocol BotGuestVMPreparing: Sendable {
 /// (`tryBegin`) is taken here, at the spawn point every send path goes
 /// through, and is refused only while a rebuild or stop holds the VM ("The
 /// VM is busy"); the coordinator's run-finished callback frees it. A
-/// contextual runtime keeps one run per identity: its claim is exclusive and
-/// its lease waits for the previous run's teardown.
+/// contextual run shares its identity's VM like an ordinary run (delegated
+/// runs stay exclusive); its lease is per run, so a retry of the same run
+/// waits for that run's teardown without blocking other conversations.
 ///
 /// Stop while a run is still preparing (an image build can take minutes)
 /// invalidates the run's acceptance permit; preparation then stops at its
@@ -217,11 +218,12 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
         }
         let claim = BotVMRunRegistry.Entry(threadID: request.threadId, runID: request.runId,
             title: (try deps.threadRepo.get(id: request.threadId))?.title ?? "Conversation", workspace: request.cwd,
-            exclusive: true)
-        if let holder = deps.registry.tryBegin(botID: admission.pin.botID, entry: claim, resourceID: identity.storageBotID) {
+            exclusive: deps.isDelegatedRun(request.runId, request.threadId))
+        if let holder = deps.registry.tryBegin(botID: admission.pin.botID, entry: claim, resourceID: identity.storageBotID,
+                                              allowsSameThreadExclusive: false) {
             throw DistillGuestLaunchError.busy("The VM is busy in \(holder.title)")
         }
-        let lease = try await deps.leases.acquire(identity.storageBotID.value.uuidString.lowercased())
+        let lease = try await deps.leases.acquire(Self.contextLeaseKey(identity: identity, runID: request.runId))
         var resources: BotContextGuestResources?
         var heartbeat: BotGuestLeaseHeartbeat?
         do {
@@ -283,6 +285,10 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
             await lease.release()
             throw Self.launchError(error)
         }
+    }
+
+    static func contextLeaseKey(identity: BotContextRuntimeIdentity, runID: AgentRunID) -> String {
+        "\(identity.storageBotID.value.uuidString.lowercased()):\(runID.value.uuidString.lowercased())"
     }
 
     private func prepareGuestRun(
