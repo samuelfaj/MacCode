@@ -104,6 +104,13 @@ private final class RelayTestAuth: DirectAuthProvider, @unchecked Sendable {
     }
 }
 
+private final class AttemptCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+    func increment() { lock.lock(); count += 1; lock.unlock() }
+}
+
 @MainActor
 final class RelayHostClientTests: XCTestCase {
     private typealias Key = Curve25519.KeyAgreement.PrivateKey
@@ -125,7 +132,8 @@ final class RelayHostClientTests: XCTestCase {
             return streams[id]!
         }
 
-        init(serverId: String, dispatcher: JSONRPCDispatcher, deviceId: String = "device-1") {
+        init(serverId: String, dispatcher: JSONRPCDispatcher, deviceId: String = "device-1",
+             pingInterval: TimeInterval = 10, rxTimeout: TimeInterval = 25, openTimeout: TimeInterval = 15) {
             (hostRelaySide, hostMacSide) = MemorySocket.pair()
             server = DirectHTTPServer(
                 port: UInt16.random(in: 44_001...54_000),
@@ -149,7 +157,10 @@ final class RelayHostClientTests: XCTestCase {
                     let id = String(path.dropFirst("/v1/stream/".count))
                     lock.lock(); defer { lock.unlock() }
                     return streams[id]!
-                }
+                },
+                pingInterval: pingInterval,
+                rxTimeout: rxTimeout,
+                openTimeout: openTimeout
             )
         }
 
@@ -206,6 +217,69 @@ final class RelayHostClientTests: XCTestCase {
     private func get(_ path: String, bearer: Bool, extra: String = "") -> Data {
         let auth = bearer ? "Authorization: Bearer device-bearer\r\n" : ""
         return Data("GET \(path) HTTP/1.1\r\nHost: relay\r\n\(auth)\(extra)\r\n".utf8)
+    }
+
+    func testSilentHostSocketIsClosedAfterRxLimitAndPingsKeepFlowing() async throws {
+        // WHY: a half-dead relay link must be dropped so the reconnect loop can register the Mac again.
+        let rig = Rig(serverId: serverId, dispatcher: JSONRPCDispatcher(router: FakeRouter()),
+                      pingInterval: 0.05, rxTimeout: 0.3, openTimeout: 0.3)
+        rig.client.start()
+        defer { rig.client.stop() }
+        try await rig.hostRelaySide.sendText(#"{"type":"pong"}"#)
+        for _ in 0..<200 where !rig.client.isConnected { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertTrue(rig.client.isConnected)
+        let firstFrame = try await rig.hostRelaySide.receiveMessage()
+        XCTAssertEqual(firstFrame, .text(#"{"type":"ping"}"#))
+        for _ in 0..<300 where rig.hostMacSide.closeCode == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(rig.hostMacSide.closeCode, 1000, "no rx for the limit closes the host socket")
+        XCTAssertFalse(rig.client.isConnected)
+    }
+
+    func testHostSocketThatNeverAnswersIsClosedAtOpenLimit() async throws {
+        // WHY: a socket that never delivers a message must not sit as "connecting" forever.
+        let rig = Rig(serverId: serverId, dispatcher: JSONRPCDispatcher(router: FakeRouter()),
+                      pingInterval: 0.05, rxTimeout: 25, openTimeout: 0.3)
+        rig.client.start()
+        defer { rig.client.stop() }
+        for _ in 0..<300 where rig.hostMacSide.closeCode == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(rig.hostMacSide.closeCode, 1000, "silent socket closes at the open limit")
+        XCTAssertFalse(rig.client.isConnected)
+    }
+
+    func testReconnectDelayReconnectsOpenedSocketAtOnceAndCapsBackoffAt15s() {
+        // WHY: an opened socket that drops should come back fast; repeated failures must not back off past 15 s.
+        XCTAssertLessThanOrEqual(RelayHostClient.reconnectDelay(opened: true, failures: 0, roll: 1), 0.25)
+        XCTAssertEqual(RelayHostClient.reconnectDelay(opened: false, failures: 1, roll: 0.5), 1, accuracy: 1e-9)
+        XCTAssertEqual(RelayHostClient.reconnectDelay(opened: false, failures: 2, roll: 0.5), 2, accuracy: 1e-9)
+        XCTAssertEqual(RelayHostClient.reconnectDelay(opened: false, failures: 4, roll: 0.5), 8, accuracy: 1e-9)
+        XCTAssertEqual(RelayHostClient.reconnectDelay(opened: false, failures: 9, roll: 0.5), 15, accuracy: 1e-9)
+        XCTAssertEqual(RelayHostClient.reconnectDelay(opened: false, failures: 1, roll: 0), 0.8, accuracy: 1e-9)
+        XCTAssertEqual(RelayHostClient.reconnectDelay(opened: false, failures: 1, roll: 1), 1.2, accuracy: 1e-9)
+    }
+
+    func testReconnectNowSkipsPendingBackoffWait() async throws {
+        // WHY: after wake or a network switch the Mac should re-register at once, not after the failure backoff.
+        let attempts = AttemptCounter()
+        let dispatcher = JSONRPCDispatcher(router: FakeRouter())
+        let server = DirectHTTPServer(
+            port: UInt16.random(in: 44_001...54_000), loopbackOnly: true, dispatcher: dispatcher,
+            auth: RelayTestAuth(), serverId: serverId, bootEpoch: 1)
+        let client = RelayHostClient(
+            server: server, relayBase: URL(string: "wss://relay.test")!, serverId: serverId,
+            hostStatic: Key(), accessToken: { "account-token" }, trustedDeviceForRelayKey: { _ in nil },
+            webSocketFactory: { _ in
+                attempts.increment()
+                let (dead, _) = MemorySocket.pair()
+                dead.close(code: 1006)
+                return dead
+            })
+        client.start()
+        defer { client.stop() }
+        for _ in 0..<100 where attempts.value < 1 { try await Task.sleep(nanoseconds: 10_000_000) }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        client.reconnectNow()
+        for _ in 0..<50 where attempts.value < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(attempts.value, 2, "reconnectNow reopens the host socket without waiting out the backoff")
     }
 
     func testRelayCarriesHTTPAuthAndWebSocketUpgrade() async throws {
