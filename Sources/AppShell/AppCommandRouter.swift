@@ -10128,10 +10128,19 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         return try await agentAppReadGateway.activityCounts(service: ActivityService(context: context))
     }
 
+    /// The full projection takes seconds on large histories; on the main actor it
+    /// froze the app and every RPC behind it. The service snapshots main-actor
+    /// state here and the projection runs on the read gateway queue.
+    private func observeActivityChangesOffMain(_ context: AppContext) {
+        let service = ActivityService(context: context)
+        let gateway = agentAppReadGateway
+        Task.detached(priority: .utility) { _ = try? await gateway.activityCounts(service: service) }
+    }
+
     public func activitySetViewed(params: [String: JSONValue]) throws -> JSONValue {
         guard let context else { throw LayoutError.workspaceNotFound }
         let result = try ActivityService(context: context).setViewed(params)
-        try? ActivityService(context: context).observeChanges()
+        observeActivityChangesOffMain(context)
         let ids = result.objectValue?["updated_ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
         if !ids.isEmpty {
             EventBus.shared.publish(kind: .notificationRead, payload: .object([
@@ -10146,7 +10155,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     public func activityAcknowledge(params: [String: JSONValue]) throws -> JSONValue {
         guard let context else { throw LayoutError.workspaceNotFound }
         let result = try ActivityService(context: context).acknowledge(params)
-        try? ActivityService(context: context).observeChanges()
+        observeActivityChangesOffMain(context)
         let acknowledged = result.objectValue?["acknowledged"]?.boolValue == true
         let ids = result.objectValue?["item_id"]?.stringValue.map { [$0] }
             ?? result.objectValue?["updated_ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
