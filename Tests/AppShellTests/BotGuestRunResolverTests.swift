@@ -248,6 +248,37 @@ final class BotGuestRunResolverTests: XCTestCase {
         await plan.finish(.completed).value
     }
 
+    func test_contextualRunsOnOneVMHoldIndependentLeases() async throws {
+        // WHY: two conversations of one bot share its VM. A per-VM lease made
+        // the second wait for the first run's teardown; a retry of the same
+        // run must still wait for its own previous attempt.
+        let identity = try BotContextRuntimeIdentity(hostID: "host", botID: BotID(), context: .general, policyRevision: 1)
+        let leases = DistillGuestLeases()
+        let first = AgentRunID()
+        let held = try await leases.acquire(BotGuestRunResolver.contextLeaseKey(identity: identity, runID: first))
+        let other = try await leases.acquire(BotGuestRunResolver.contextLeaseKey(identity: identity, runID: AgentRunID()))
+        let retryHeld = await leases.isHeld(BotGuestRunResolver.contextLeaseKey(identity: identity, runID: first))
+        XCTAssertTrue(retryHeld, "the same run's retry keeps waiting on its own lease")
+        await other.release()
+        await held.release()
+    }
+
+    func test_delegatedPeerClaimSharesTheVMWithItsWaitingParentOnly() {
+        // WHY: a parent waiting on its delegated peer kept the VM, so the
+        // exclusive peer claim on the same VM was refused forever.
+        let registry = BotVMRunRegistry()
+        let vm = BotID()
+        let parent = BotVMRunRegistry.Entry(threadID: AgentThreadID(), runID: AgentRunID(), title: "Parent", workspace: "")
+        XCTAssertNil(registry.tryBegin(botID: BotID(), entry: parent, resourceID: vm))
+        let child = BotVMRunRegistry.Entry(threadID: AgentThreadID(), runID: AgentRunID(), title: "Peer", workspace: "", exclusive: true)
+        XCTAssertNil(registry.tryBegin(botID: BotID(), entry: child, resourceID: vm, allowsSameThreadExclusive: false,
+                                       parentRunID: parent.runID))
+        let stranger = BotVMRunRegistry.Entry(threadID: AgentThreadID(), runID: AgentRunID(), title: "Other", workspace: "", exclusive: true)
+        XCTAssertEqual(registry.tryBegin(botID: BotID(), entry: stranger, resourceID: vm, allowsSameThreadExclusive: false,
+                                         parentRunID: AgentRunID())?.runID, parent.runID,
+                       "an unrelated exclusive run still waits")
+    }
+
     func test_contextPinnedThreadWithoutAdmissionPreparesLikeANormalThread() async throws {
         for marked in [true, false] {
             let f = try await makeFixture()

@@ -12,13 +12,16 @@ case "$#:$*" in
         ;;
 esac
 [ "$(id -u)" -eq 0 ] && [ "${REMOTECODE_CONTEXT_NETWORK_POLICY:-}" = private-egress-v1 ] || exit 1
-state=/run/remotecode-context-gateway
+state_dir=/run/remotecode-context-gateways
 ready=/run/remotecode-context-network-ready
 lock=/run/remotecode-context-network.lock
-[ ! -L "$lock" ] && [ ! -L "$state" ] || exit 1
+[ ! -L "$lock" ] && [ ! -L "$state_dir" ] || exit 1
 exec 9>"$lock"
 chmod 0600 "$lock"
 flock -x -w 5 9
+mkdir -p "$state_dir"
+[ -d "$state_dir" ] && [ "$(stat -c %u "$state_dir")" -eq 0 ] || exit 1
+chmod 0700 "$state_dir"
 
 validate_endpoint() {
     /usr/bin/python3 -I -S - "$1" "$2" "$3" <<'PY'
@@ -37,38 +40,61 @@ except Exception:
 PY
 }
 
-old_run= old_ip= old_port= old_state=
-if [ -e "$state" ]; then
-    [ -f "$state" ] && [ "$(stat -c %u "$state")" -eq 0 ] || exit 1
-    [ "$(wc -l < "$state")" -eq 4 ] || exit 1
-    old_run=$(sed -n '1p' "$state")
-    old_ip=$(sed -n '2p' "$state")
-    old_port=$(sed -n '3p' "$state")
-    old_state=$(sed -n '4p' "$state")
-    validate_endpoint "$old_run" "$old_ip" "$old_port"
-    case "$old_state" in active|revoking|revoked) ;; *) exit 1 ;; esac
-fi
+# One file per run lease (ip, port, state): concurrent runs on one VM each
+# hold their own gateway endpoint.
+read_lease() {
+    f=$state_dir/$1
+    lease_ip= lease_port= lease_state=
+    [ -e "$f" ] || return 0
+    [ ! -L "$f" ] && [ -f "$f" ] && [ "$(stat -c %u "$f")" -eq 0 ] || exit 1
+    [ "$(wc -l < "$f")" -eq 3 ] || exit 1
+    lease_ip=$(sed -n '1p' "$f")
+    lease_port=$(sed -n '2p' "$f")
+    lease_state=$(sed -n '3p' "$f")
+    validate_endpoint "$1" "$lease_ip" "$lease_port"
+    case "$lease_state" in active|revoking|revoked) ;; *) exit 1 ;; esac
+}
 
-write_state() {
-    [ ! -L "$state.tmp" ] || exit 1
-    printf '%s\n%s\n%s\n%s\n' "$old_run" "$old_ip" "$old_port" "$old_state" > "$state.tmp"
-    chmod 0600 "$state.tmp"
-    mv -f "$state.tmp" "$state"
+write_lease() {
+    [ ! -L "$state_dir/$1.tmp" ] || exit 1
+    printf '%s\n%s\n%s\n' "$2" "$3" "$4" > "$state_dir/$1.tmp"
+    chmod 0600 "$state_dir/$1.tmp"
+    mv -f "$state_dir/$1.tmp" "$state_dir/$1"
+}
+
+lease_runs() {
+    for f in "$state_dir"/*; do
+        [ -e "$f" ] || continue
+        name=${f##*/}
+        case "$name" in *.tmp) rm -f "$f"; continue ;; esac
+        printf '%s\n' "$name"
+    done
 }
 
 apply_ipv4() {
-    gateway_rule=
-    case "$old_state" in
-        active) gateway_rule="-A RC_CONTEXT_GATEWAY -d $old_ip/32 -p tcp --dport $old_port -j ACCEPT" ;;
-        revoking|revoked) gateway_rule="-A RC_CONTEXT_GATEWAY -d $old_ip/32 -p tcp --dport $old_port -j REJECT" ;;
-    esac
+    # Rejects first: iptables stops at the first matching rule.
+    gateway_rules=
+    for lease_run in $(lease_runs); do
+        read_lease "$lease_run"
+        case "$lease_state" in revoking|revoked)
+            gateway_rules="$gateway_rules
+-A RC_CONTEXT_GATEWAY -d $lease_ip/32 -p tcp --dport $lease_port -j REJECT" ;;
+        esac
+    done
+    for lease_run in $(lease_runs); do
+        read_lease "$lease_run"
+        if [ "$lease_state" = active ]; then
+            gateway_rules="$gateway_rules
+-A RC_CONTEXT_GATEWAY -d $lease_ip/32 -p tcp --dport $lease_port -j ACCEPT"
+        fi
+    done
     iptables-restore --noflush <<RULES4
 *filter
 :RC_CONTEXT_NETWORK - [0:0]
 :RC_CONTEXT_GATEWAY - [0:0]
 -F RC_CONTEXT_NETWORK
 -F RC_CONTEXT_GATEWAY
-$gateway_rule
+$gateway_rules
 -A RC_CONTEXT_NETWORK -j RC_CONTEXT_GATEWAY
 -A RC_CONTEXT_NETWORK -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 -A RC_CONTEXT_NETWORK -o lo -j ACCEPT
@@ -92,49 +118,59 @@ RULES4
     fi
     iptables -C OUTPUT -j RC_CONTEXT_NETWORK
     iptables -C RC_CONTEXT_NETWORK -j RC_CONTEXT_GATEWAY
-    case "$old_state" in
-        active) iptables -C RC_CONTEXT_GATEWAY -d "$old_ip/32" -p tcp --dport "$old_port" -j ACCEPT ;;
-        revoking|revoked) iptables -C RC_CONTEXT_GATEWAY -d "$old_ip/32" -p tcp --dport "$old_port" -j REJECT ;;
-    esac
+    for lease_run in $(lease_runs); do
+        read_lease "$lease_run"
+        case "$lease_state" in
+            active) iptables -C RC_CONTEXT_GATEWAY -d "$lease_ip/32" -p tcp --dport "$lease_port" -j ACCEPT ;;
+            revoking|revoked) iptables -C RC_CONTEXT_GATEWAY -d "$lease_ip/32" -p tcp --dport "$lease_port" -j REJECT ;;
+        esac
+    done
 }
 
 if [ "$mode" != apply ]; then
     validate_endpoint "$run" "$ip" "$port"
     if [ "$mode" = --allow-gateway ]; then
         [ -f "$ready" ] || exit 1
-        [ "$old_state" != revoking ] || exit 1
-        if [ "$old_state" = active ]; then
-            [ "$old_run:$old_ip:$old_port" = "$run:$ip:$port" ] || exit 1
+        # Another run's live endpoint cannot be shared: revoking one would cut both.
+        for other in $(lease_runs); do
+            [ "$other" = "$run" ] && continue
+            read_lease "$other"
+            [ "$lease_ip:$lease_port" != "$ip:$port" ] || [ "$lease_state" = revoked ] || exit 1
+        done
+        read_lease "$run"
+        [ "$lease_state" != revoking ] || exit 1
+        if [ "$lease_state" = active ]; then
+            [ "$lease_ip:$lease_port" = "$ip:$port" ] || exit 1
         fi
-        old_run=$run; old_ip=$ip; old_port=$port; old_state=revoking
-        write_state
+        write_lease "$run" "$ip" "$port" revoking
         allow_pending=1
-        trap 'if [ "$allow_pending" -eq 1 ]; then old_state=revoking; write_state || :; apply_ipv4 || :; fi' EXIT
-        old_state=active
+        trap 'if [ "$allow_pending" -eq 1 ]; then write_lease "$run" "$ip" "$port" revoking || :; apply_ipv4 || :; fi' EXIT
+        write_lease "$run" "$ip" "$port" active
         apply_ipv4
-        write_state
         allow_pending=0
         printf '%s\n' context-gateway-lease-v1
         exit 0
     fi
-    [ "$old_run:$old_ip:$old_port" = "$run:$ip:$port" ] && [ -n "$old_state" ] || exit 1
-    old_state=revoking
-    write_state
+    read_lease "$run"
+    [ "$lease_ip:$lease_port" = "$ip:$port" ] && [ -n "$lease_state" ] || exit 1
+    write_lease "$run" "$ip" "$port" revoking
     apply_ipv4
     delete_status=0
     conntrack -D -f ipv4 -p tcp -d "$ip" --dport "$port" >/dev/null 2>&1 || delete_status=$?
     [ "$delete_status" -le 1 ] || exit 1
     flows=$(conntrack -L -f ipv4 -p tcp -d "$ip" --dport "$port" 2>/dev/null) || exit 1
     [ -z "$flows" ] || exit 1
-    old_state=revoked
-    write_state
+    write_lease "$run" "$ip" "$port" revoked
     printf '%s\n' context-gateway-revoked-v1
     exit 0
 fi
 
 rm -f "$ready"
 apply_ipv4
-[ "$old_state" != revoking ] || exit 1
+for lease_run in $(lease_runs); do
+    read_lease "$lease_run"
+    [ "$lease_state" != revoking ] || exit 1
+done
 iptables -C RC_CONTEXT_NETWORK -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -C RC_CONTEXT_NETWORK -o lo -j ACCEPT
 for subnet in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 224.0.0.0/4 240.0.0.0/4; do

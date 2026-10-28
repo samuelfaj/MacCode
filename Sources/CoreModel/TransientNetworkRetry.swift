@@ -1,8 +1,8 @@
 import Foundation
 
-/// Provider failures that are worth resuming automatically: the network or the
-/// response stream dropped mid-turn, or an owned guest process was killed.
-/// Auth, rate-limit, payment and request errors still stop the run.
+/// Failed turns resume automatically unless the failure is known to repeat on
+/// every attempt (auth, billing/quota caps, bad configuration, ownership,
+/// session-shape errors with their own recovery). When in doubt, retry.
 public enum TransientNetworkRetry {
     /// Marker the Distill/Grok ACP clients put on network-class failures.
     public static let marker = "[retryable:network]"
@@ -17,9 +17,32 @@ public enum TransientNetworkRetry {
     The previous turn was interrupted before it finished. Continue the original task from where you stopped; do not repeat work that already completed.
     """
 
+    /// Lowercased fragments of failures that a plain resume cannot fix.
+    static let permanentFailureMarkers = [
+        // Auth: needs the user to sign in again.
+        "[auth-required]", "failed to authenticate", "oauth session expired", "unauthorized",
+        // Billing and hard usage caps.
+        "payment required", "balance exhausted", "usage balance", "usage limit", "weekly limit",
+        "purchase more credits",
+        // Configuration the user must change.
+        "not advertised", "unknown model id", "select an explicit", "auto routing is off",
+        "operation unsupported", "upgrade required", "is outdated", "configuration error",
+        // Ownership and environment.
+        "belongs to another workspace", "vm unavailable", "share one vm",
+        "already has an in-flight turn",
+        // Session-shape failures recovered by a fresh session elsewhere.
+        "[start-fresh:",
+        // User or app intent.
+        "cancelled", "cancellationerror"
+    ]
+
     public static func isRetryableInterruption(_ errorMessage: String?) -> Bool {
-        guard let errorMessage else { return false }
-        return errorMessage.hasPrefix(marker) || errorMessage.hasPrefix(guestProcessMarker)
-            || errorMessage.hasPrefix(timeoutMarker)
+        guard let errorMessage, !errorMessage.isEmpty else { return false }
+        if errorMessage.hasPrefix(marker) || errorMessage.hasPrefix(guestProcessMarker)
+            || errorMessage.hasPrefix(timeoutMarker) {
+            return true
+        }
+        let normalized = errorMessage.lowercased()
+        return !permanentFailureMarkers.contains(where: normalized.contains)
     }
 }

@@ -69,7 +69,7 @@ final class BotContextGuestResourcesTests: XCTestCase {
         _ = try docker.info()
         guard try docker.imageExists(tag: BotComputerGuestSpec.imageTag),
               try docker.imageLabel(tag: BotComputerGuestSpec.imageTag, key: BotComputerGuestSpec.recipeLabelKey) == BotComputerGuestSpec.recipeRevision else {
-            throw XCTSkip("matching existing Docker r7 image required; probe never builds an image")
+            throw XCTSkip("matching existing Docker r8 image required; probe never builds an image")
         }
 
         let (root, store, repo, workspace, thread, _, host, _) = try fixture()
@@ -111,6 +111,16 @@ final class BotContextGuestResourcesTests: XCTestCase {
         XCTAssertTrue(try docker.inspect(name: second.container).running, "late cancel must not stop newer owner's runtime")
         try second.cancel()
         XCTAssertFalse(try docker.inspect(name: second.container).running)
+
+        // WHY: two live conversations share the VM; stopping one must not
+        // stop the container under the other, and the last one stops it.
+        let a = try BotContextGuestResources.prepare(request: AgentRunRequest(runId: AgentRunID(), threadId: thread.id, provider: .distill, model: "distill", cwd: workspace.cwd, prompt: "a"), hostID: host, store: store, threadRepo: repo, service: service, appSupport: support, workspace: workspace, registeredWorkspaces: [workspace.cwd], secretStore: nil)
+        let b = try BotContextGuestResources.prepare(request: AgentRunRequest(runId: AgentRunID(), threadId: thread.id, provider: .distill, model: "distill", cwd: workspace.cwd, prompt: "b"), hostID: host, store: store, threadRepo: repo, service: service, appSupport: support, workspace: workspace, registeredWorkspaces: [workspace.cwd], secretStore: nil)
+        XCTAssertEqual(a.container, b.container)
+        try a.cancel()
+        XCTAssertTrue(try docker.inspect(name: b.container).running, "stopping A must keep the VM running for B")
+        try b.cancel()
+        XCTAssertFalse(try docker.inspect(name: b.container).running, "the last run stops the VM")
     }
 
     func testPersistedRunAsUserRejectedWhenRequestOmitsIt() throws {

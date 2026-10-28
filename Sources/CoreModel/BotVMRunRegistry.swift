@@ -40,12 +40,14 @@ public final class BotVMRunRegistry: @unchecked Sendable {
     /// A run is kept out only by an exclusive claim; an exclusive claim by any
     /// claim of another thread (its own thread's agent may rebuild mid-run).
     /// New guest runs disable that maintenance exception, even on the same thread.
-    public func tryBegin(botID: BotID, entry: Entry, resourceID: BotID? = nil, allowsSameThreadExclusive: Bool = true) -> Entry? {
+    /// `parentRunID`: a delegated run shares the VM with the parent waiting on it.
+    public func tryBegin(botID: BotID, entry: Entry, resourceID: BotID? = nil, allowsSameThreadExclusive: Bool = true,
+                         parentRunID: AgentRunID? = nil) -> Entry? {
         let botID = resourceID ?? botID
         return lock.withLock {
             let held = claims[botID] ?? []
             if let holder = held.first(where: {
-                ($0.exclusive || entry.exclusive) && $0.runID != entry.runID
+                ($0.exclusive || entry.exclusive) && $0.runID != entry.runID && $0.runID != parentRunID
                     && (!allowsSameThreadExclusive || $0.threadID != entry.threadID)
             }) {
                 return holder

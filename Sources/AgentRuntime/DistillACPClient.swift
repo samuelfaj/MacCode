@@ -209,7 +209,7 @@ enum DistillACPFailureTaxonomy {
         let networkMarkers = [
             "network error", "network failure", "connection refused", "connection reset",
             "connection closed", "host unreachable", "dns failure", "socket error",
-            "transport error", "websocket closed", "offline",
+            "transport error", "error sending request", "websocket closed", "offline",
             "stream error (overloaded_error)", "stream error (service_unavailable_error)",
             "service unavailable", "temporarily unavailable", "bad gateway", "overloaded",
             "status 500", "status 502", "status 503", "status 504", "status 529"

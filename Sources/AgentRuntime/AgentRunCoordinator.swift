@@ -739,7 +739,7 @@ public final class AgentRunCoordinator: @unchecked Sendable {
     /// Backoff before each automatic resume of a turn that failed on a transient
     /// network error (e.g. Distill "error decoding response body"). The count
     /// bounds the retries; injectable so tests drive it to ~0.
-    public var networkRetryDelays: [TimeInterval] = [3, 10, 30]
+    public var networkRetryDelays: [TimeInterval] = [10, 30, 60]
     /// AG-002: normal provider shutdown gets two seconds before hard escalation;
     /// deletion never waits beyond five seconds without failing loud.
     var gracefulStopTimeout: TimeInterval = 2
@@ -4908,6 +4908,13 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         lock.withLock {
             guard let delegated = delegatedRuns[runId], delegated.threadId == threadId else { return false }
             return parentRunId == nil || delegated.parentRunId == parentRunId
+        }
+    }
+
+    public func delegatedParentRunId(_ runId: AgentRunID, threadId: AgentThreadID) -> AgentRunID? {
+        lock.withLock {
+            guard let delegated = delegatedRuns[runId], delegated.threadId == threadId else { return nil }
+            return delegated.parentRunId
         }
     }
 

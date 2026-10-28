@@ -18,7 +18,10 @@ struct BotContextGuestRecovery {
     }
     struct Report { let reconciled: [String]; let failures: [String: String] }
 
-    static func begin(identity: BotContextRuntimeIdentity, runID: AgentRunID, conversationID: BotConversationID? = nil, appSupport: URL) throws {
+    /// `liveRunIDs`: other runs of this identity live in this process; their
+    /// pending records and environments are not residue.
+    static func begin(identity: BotContextRuntimeIdentity, runID: AgentRunID, conversationID: BotConversationID? = nil,
+                      appSupport: URL, liveRunIDs: Set<AgentRunID> = []) throws {
         let directory = try scope(identity: identity, appSupport: appSupport, create: true)
         defer { directory.close() }
         let name = filename(runID)
@@ -28,11 +31,12 @@ struct BotContextGuestRecovery {
             guard let data = directory.read(entry), let record = try? JSONDecoder().decode(Record.self, from: data),
                   record.version == 1, let recordedIdentity = record.identity,
                   recordedIdentity.storageBotID == identity.storageBotID, filename(record.runID) == entry,
-                  record.state == .ended else {
+                  record.state == .ended || liveRunIDs.contains(record.runID) else {
                 throw BotComputerGuestServiceError.contextualRuntimeUnavailable
             }
         }
-        guard !entries.contains(where: { $0.hasSuffix(".env") }) else {
+        let liveEnvironments = Set(liveRunIDs.map { "\($0.value.uuidString.lowercased()).env" })
+        guard !entries.contains(where: { $0.hasSuffix(".env") && !liveEnvironments.contains($0) }) else {
             throw BotComputerGuestServiceError.contextualRuntimeUnavailable
         }
         let record = Record(version: 1, hostID: identity.hostID, botID: identity.botID, context: identity.context, policyRevision: identity.policyRevision, runID: runID, virtualMachineID: identity.virtualMachineID, conversationID: conversationID, state: .pending)

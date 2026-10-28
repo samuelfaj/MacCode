@@ -50,6 +50,19 @@ final class BotContextGuestRecoveryTests: XCTestCase {
         try f.assertState("pending")
     }
 
+    func testLiveSiblingRunOnSameVMDoesNotBlockSecondRun() throws {
+        // WHY: two conversations of one bot share its VM. A live sibling's
+        // pending record and env file are not crash residue; anything else is.
+        let f = try Fixture()
+        defer { try? FileManager.default.removeItem(at: f.support) }
+        try BotContextGuestRecovery.begin(identity: f.identity, runID: f.runID, appSupport: f.support)
+        try Data("environment".utf8).write(to: f.scope.appendingPathComponent("\(f.runID.value.uuidString.lowercased()).env"))
+        XCTAssertNoThrow(try BotContextGuestRecovery.begin(identity: f.identity, runID: AgentRunID(),
+            appSupport: f.support, liveRunIDs: [f.runID]))
+        XCTAssertThrowsError(try BotContextGuestRecovery.begin(identity: f.identity, runID: AgentRunID(),
+            appSupport: f.support, liveRunIDs: []), "a pending record nobody owns stays uncertain")
+    }
+
     func testEndedRunRefusesSameUUIDAndAllowsDifferentUUID() throws {
         let f = try Fixture()
         defer { try? FileManager.default.removeItem(at: f.support) }
