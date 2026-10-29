@@ -104,6 +104,66 @@ private final class RelayTestAuth: DirectAuthProvider, @unchecked Sendable {
     }
 }
 
+/// A relay socket whose upgrade was answered with a fixed HTTP status and then closed.
+private final class RejectedUpgradeSocket: RelayWebSocket, RelayHTTPStatusReporting, @unchecked Sendable {
+    let upgradeHTTPStatus: Int?
+    init(status: Int) { upgradeHTTPStatus = status }
+    func send(_ data: Data) async throws { throw URLError(.badServerResponse) }
+    func sendText(_ text: String) async throws { throw URLError(.badServerResponse) }
+    func receiveMessage() async throws -> RelayMessage { throw URLError(.badServerResponse) }
+    func close(code: Int) {}
+}
+
+/// 403 socket that runs `onStatusRead` when the loop reads the status, i.e.
+/// after the host socket is released and before the next wait starts.
+private final class StatusHookSocket: RelayWebSocket, RelayHTTPStatusReporting, @unchecked Sendable {
+    var onStatusRead: (() -> Void)?
+    var upgradeHTTPStatus: Int? { onStatusRead?(); onStatusRead = nil; return 403 }
+    func send(_ data: Data) async throws { throw URLError(.badServerResponse) }
+    func sendText(_ text: String) async throws { throw URLError(.badServerResponse) }
+    func receiveMessage() async throws -> RelayMessage { throw URLError(.badServerResponse) }
+    func close(code: Int) {}
+}
+
+private final class RelayLockedClient: @unchecked Sendable {
+    weak var client: RelayHostClient?
+}
+
+private final class SocketList: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [MemorySocket] = []
+    func get() -> [MemorySocket] { lock.withLock { items } }
+    func append(_ socket: MemorySocket) { lock.withLock { items.append(socket) } }
+}
+
+/// Holds a refresh until the test releases it.
+private final class RefreshGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entered = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    var hasEntered: Bool { lock.withLock { entered } }
+    func wait() async {
+        await withCheckedContinuation { cont in lock.withLock { entered = true; continuation = cont } }
+    }
+    func release() { lock.withLock { let c = continuation; continuation = nil; return c }?.resume() }
+}
+
+private final class TokenBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: String
+    private var rejectedTokens: [String] = []
+    private var requestTokens: [String] = []
+    init(_ token: String) { current = token }
+    var token: String { lock.withLock { current } }
+    var rejected: [String] { lock.withLock { rejectedTokens } }
+    var requested: [String] { lock.withLock { requestTokens } }
+    func refresh(_ rejected: String) { lock.withLock { rejectedTokens.append(rejected); current = "renewed-token" } }
+    func record(_ request: URLRequest) {
+        let header = request.value(forHTTPHeaderField: "Authorization") ?? ""
+        lock.withLock { requestTokens.append(String(header.dropFirst("Bearer ".count))) }
+    }
+}
+
 private final class AttemptCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
@@ -280,6 +340,149 @@ final class RelayHostClientTests: XCTestCase {
         client.reconnectNow()
         for _ in 0..<50 where attempts.value < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertEqual(attempts.value, 2, "reconnectNow reopens the host socket without waiting out the backoff")
+    }
+
+    func testRelay401RenewsTheAccessTokenBeforeTheNextAttempt() async throws {
+        // WHY: the relay answers 401 once the short-lived account token expires. Retrying the
+        // same token kept the Mac off the relay for good, so phones could only reach it on LAN.
+        let tokens = TokenBox("expired-token")
+        let client = RelayHostClient(
+            server: DirectHTTPServer(port: 0, loopbackOnly: true, dispatcher: JSONRPCDispatcher(router: FakeRouter()),
+                                     auth: RelayTestAuth(), serverId: serverId, bootEpoch: 1),
+            relayBase: URL(string: "wss://relay.test")!, serverId: serverId, hostStatic: Key(),
+            accessToken: { tokens.token },
+            refreshAccessToken: { tokens.refresh($0) },
+            trustedDeviceForRelayKey: { _ in nil },
+            webSocketFactory: { request in
+                tokens.record(request)
+                return RejectedUpgradeSocket(status: tokens.requested.count == 1 ? 401 : 503)
+            })
+        client.start()
+        defer { client.stop() }
+        for _ in 0..<300 where tokens.requested.count < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(tokens.rejected, ["expired-token"], "the rejected token is handed to the refresher")
+        XCTAssertEqual(Array(tokens.requested.prefix(2)), ["expired-token", "renewed-token"],
+                       "the next attempt carries the renewed token")
+        for _ in 0..<150 where tokens.requested.count < 3 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(tokens.rejected.count, 1, "a non-auth failure (503) never spends the refresh token")
+    }
+
+    func testRelay403ReportsSubscriptionAndWaitsForAnAccountChange() async throws {
+        // WHY: a 403 subscription_required retried every ~15 s forever and only showed a generic
+        // "offline". Report the reason and stop dialling until the account changes.
+        let attempts = AttemptCounter()
+        let tokens = TokenBox("subscriber-token")
+        let client = RelayHostClient(
+            server: DirectHTTPServer(port: 0, loopbackOnly: true, dispatcher: JSONRPCDispatcher(router: FakeRouter()),
+                                     auth: RelayTestAuth(), serverId: serverId, bootEpoch: 1),
+            relayBase: URL(string: "wss://relay.test")!, serverId: serverId, hostStatic: Key(),
+            accessToken: { tokens.token },
+            refreshAccessToken: { tokens.refresh($0) },
+            trustedDeviceForRelayKey: { _ in nil },
+            webSocketFactory: { _ in
+                attempts.increment()
+                return RejectedUpgradeSocket(status: 403)
+            })
+        client.start()
+        defer { client.stop() }
+        for _ in 0..<200 where RelayHostClient.currentStatus != .subscriptionRequired {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(RelayHostClient.currentStatus, .subscriptionRequired)
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        XCTAssertEqual(attempts.value, 1, "no reconnect cadence while the subscription is refused")
+        XCTAssertTrue(tokens.rejected.isEmpty, "a 403 never spends the refresh token")
+        client.accountChanged()
+        for _ in 0..<200 where attempts.value < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(attempts.value, 2, "an account change retries at once")
+    }
+
+    func testAccountChangeBeforeTheSubscriptionWaitStartsIsNotLost() async throws {
+        // WHY: an account change between releasing the host socket and starting the ~10 min
+        // 403 recheck cancelled nothing, so the new account waited the full recheck.
+        let attempts = AttemptCounter()
+        let owner = RelayLockedClient()
+        let client = RelayHostClient(
+            server: DirectHTTPServer(port: 0, loopbackOnly: true, dispatcher: JSONRPCDispatcher(router: FakeRouter()),
+                                     auth: RelayTestAuth(), serverId: serverId, bootEpoch: 1),
+            relayBase: URL(string: "wss://relay.test")!, serverId: serverId, hostStatic: Key(),
+            accessToken: { "t" }, trustedDeviceForRelayKey: { _ in nil },
+            webSocketFactory: { _ in
+                attempts.increment()
+                let socket = StatusHookSocket()
+                if attempts.value == 1 { socket.onStatusRead = { owner.client?.accountChanged() } }
+                return socket
+            })
+        owner.client = client
+        client.start()
+        defer { client.stop() }
+        for _ in 0..<200 where attempts.value < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(attempts.value, 2, "the account change that raced the wait still retries at once")
+    }
+
+    func testRepeated401WithSavingRefreshKeepsTheBackoff() async throws {
+        // WHY: a refresh that saves posts an account change. Honouring it after every 401 made the
+        // Mac re-dial and re-refresh at network speed while the relay kept rejecting the session.
+        let attempts = AttemptCounter()
+        let owner = RelayLockedClient()
+        let client = RelayHostClient(
+            server: DirectHTTPServer(port: 0, loopbackOnly: true, dispatcher: JSONRPCDispatcher(router: FakeRouter()),
+                                     auth: RelayTestAuth(), serverId: serverId, bootEpoch: 1),
+            relayBase: URL(string: "wss://relay.test")!, serverId: serverId, hostStatic: Key(),
+            accessToken: { "t" },
+            refreshAccessToken: { _ in owner.client?.accountChanged() },
+            trustedDeviceForRelayKey: { _ in nil },
+            webSocketFactory: { _ in
+                attempts.increment()
+                return RejectedUpgradeSocket(status: 401)
+            })
+        owner.client = client
+        client.start()
+        defer { client.stop() }
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        XCTAssertGreaterThanOrEqual(attempts.value, 2, "the first refresh still retries at once")
+        XCTAssertLessThanOrEqual(attempts.value, 3, "repeated 401s follow the backoff, not the refresh notifications")
+        // A restart of the same client starts without the suppression a stopped loop left behind.
+        client.stop()
+        let afterStop = attempts.value
+        client.start()
+        for _ in 0..<200 where attempts.value < afterStop + 2 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertGreaterThanOrEqual(attempts.value, afterStop + 2, "the first 401 after restart retries at once again")
+    }
+
+    func testRefreshFinishingAfterRestartDoesNotMarkTheNewConnectionDown() async throws {
+        // WHY: a stop()+start() while the 401 refresh was awaited let the cancelled loop call
+        // setConnected(false) afterwards, clearing relay availability for the new healthy socket.
+        let attempts = AttemptCounter()
+        let gate = RefreshGate()
+        let relaySides = SocketList()
+        let client = RelayHostClient(
+            server: DirectHTTPServer(port: 0, loopbackOnly: true, dispatcher: JSONRPCDispatcher(router: FakeRouter()),
+                                     auth: RelayTestAuth(), serverId: serverId, bootEpoch: 1),
+            relayBase: URL(string: "wss://relay.test")!, serverId: serverId, hostStatic: Key(),
+            accessToken: { "t" },
+            refreshAccessToken: { _ in await gate.wait() },
+            trustedDeviceForRelayKey: { _ in nil },
+            webSocketFactory: { _ in
+                attempts.increment()
+                if attempts.value == 1 { return RejectedUpgradeSocket(status: 401) }
+                let (mac, relay) = MemorySocket.pair()
+                relaySides.append(relay)
+                return mac
+            })
+        client.start()
+        defer { client.stop() }
+        for _ in 0..<200 where !gate.hasEntered { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertTrue(gate.hasEntered, "fixture: the first loop is inside the 401 refresh")
+        client.stop()
+        client.start()
+        for _ in 0..<200 where relaySides.get().isEmpty { try await Task.sleep(nanoseconds: 10_000_000) }
+        try await relaySides.get().first?.sendText(#"{"type":"hello","mux":1}"#)
+        for _ in 0..<200 where !client.isConnected { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertTrue(client.isConnected, "fixture: the restarted loop is connected")
+        gate.release()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertTrue(client.isConnected, "the cancelled loop's late refresh must not mark the new socket down")
     }
 
     func testRelayCarriesHTTPAuthAndWebSocketUpgrade() async throws {

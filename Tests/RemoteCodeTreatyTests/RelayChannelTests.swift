@@ -172,3 +172,32 @@ final class RelayChannelTests: XCTestCase {
                        "wss://relay.example.com/v1/stream/x1?server_id=s")
     }
 }
+
+import Network
+
+/// WHY: the relay host loop reacts to 401/403 only through this adapter's
+/// `upgradeHTTPStatus`; a fake socket alone would not prove URLSession reports it.
+final class URLSessionRelayWebSocketUpgradeStatusTests: XCTestCase {
+    func testRejectedUpgradeReportsTheRelayHTTPStatus() async throws {
+        for status in [401, 403] {
+            let listener = try NWListener(using: .tcp, on: .any)
+            listener.newConnectionHandler = { connection in
+                connection.start(queue: .global())
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { _, _, _, _ in
+                    let body = "HTTP/1.1 \(status) Rejected\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    connection.send(content: Data(body.utf8), completion: .contentProcessed { _ in connection.cancel() })
+                }
+            }
+            let ready = expectation(description: "listener ready")
+            listener.stateUpdateHandler = { if case .ready = $0 { ready.fulfill() } }
+            listener.start(queue: .global())
+            await fulfillment(of: [ready], timeout: 5)
+            defer { listener.cancel() }
+            let url = URL(string: "ws://127.0.0.1:\(listener.port!.rawValue)/v1/host?server_id=x")!
+            let socket = URLSessionRelayWebSocket(URLRequest(url: url))
+            _ = try? await socket.receiveMessage()
+            XCTAssertEqual(socket.upgradeHTTPStatus, status)
+            socket.close(code: 1000)
+        }
+    }
+}

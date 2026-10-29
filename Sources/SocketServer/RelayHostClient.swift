@@ -12,6 +12,8 @@ public enum RelayHostStatus: String, Sendable {
     case connecting
     /// No account session, stopped, or several failed attempts in a row.
     case offline
+    /// The relay refused the account: it has no active subscription.
+    case subscriptionRequired
 }
 
 /// Keeps the Mac's `/v1/host` socket open on the relay and bridges every relay
@@ -30,6 +32,8 @@ public final class RelayHostClient: @unchecked Sendable {
     private let serverId: String
     private let hostStatic: Curve25519.KeyAgreement.PrivateKey
     private let accessToken: @Sendable () -> String?
+    /// Renews the Private session after the relay rejected the stored token.
+    private let refreshAccessToken: @Sendable (_ rejected: String) async -> Void
     private let trustedDeviceForRelayKey: @Sendable (Data) -> String?
     private let webSocketFactory: @Sendable (URLRequest) -> RelayWebSocket
     private let pingInterval: TimeInterval
@@ -45,6 +49,9 @@ public final class RelayHostClient: @unchecked Sendable {
     private var running = false
     /// Set by `reconnectNow()`: the next reconnect wait is skipped.
     private var skipWait = false
+    /// Set for the backoff after repeated 401s: a refresh that saves posts an
+    /// account change every time, and honouring it would dial at network speed.
+    private var authBackoff = false
     private var revokeObserver: NSObjectProtocol?
 
     public var onStatusChange: ((Bool) -> Void)?
@@ -53,6 +60,9 @@ public final class RelayHostClient: @unchecked Sendable {
     public static let statusDidChangeNotification = Notification.Name("rc2RelayHostStatusDidChange")
     /// Failed attempts in a row before the badge turns red instead of yellow.
     static let offlineAfterFailures = 3
+    /// A refused subscription will not change on its own within seconds; an
+    /// account change or wake retries at once through `accountChanged`/`reconnectNow`.
+    static let subscriptionRecheckSeconds: Double = 600
     private static let statusLock = NSLock()
     private static var currentStatusValue: RelayHostStatus = .offline
     /// Last status of the running client; read when a view appears.
@@ -80,6 +90,7 @@ public final class RelayHostClient: @unchecked Sendable {
         serverId: String,
         hostStatic: Curve25519.KeyAgreement.PrivateKey,
         accessToken: @escaping @Sendable () -> String?,
+        refreshAccessToken: @escaping @Sendable (_ rejected: String) async -> Void = { _ in },
         trustedDeviceForRelayKey: @escaping @Sendable (Data) -> String?,
         webSocketFactory: @escaping @Sendable (URLRequest) -> RelayWebSocket = { URLSessionRelayWebSocket($0) },
         pingInterval: TimeInterval = 10,
@@ -91,6 +102,7 @@ public final class RelayHostClient: @unchecked Sendable {
         self.serverId = serverId
         self.hostStatic = hostStatic
         self.accessToken = accessToken
+        self.refreshAccessToken = refreshAccessToken
         self.trustedDeviceForRelayKey = trustedDeviceForRelayKey
         self.webSocketFactory = webSocketFactory
         self.pingInterval = pingInterval
@@ -102,6 +114,8 @@ public final class RelayHostClient: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard !running else { return }
         running = true
+        authBackoff = false
+        skipWait = false
         revokeObserver = NotificationCenter.default.addObserver(
             forName: DeviceTrustRepository.deviceRevokedNotification, object: nil, queue: nil
         ) { [weak self] note in
@@ -133,6 +147,10 @@ public final class RelayHostClient: @unchecked Sendable {
     /// The Private session changed: reconnect with the current token.
     public func accountChanged() {
         lock.lock()
+        if authBackoff { lock.unlock(); return }
+        // Latched like reconnectNow: a change that lands before the next wait
+        // starts must still skip it (a 403 recheck waits ~10 min).
+        skipWait = running
         let sleeper = sleepTask
         let host = hostSocket
         let open = Array(streams.values)
@@ -210,6 +228,7 @@ public final class RelayHostClient: @unchecked Sendable {
 
     private func runLoop() async {
         var failures = 0
+        var consecutiveAuthRejections = 0
         while !Task.isCancelled, isRunning() {
             guard let token = accessToken(), !token.isEmpty else {
                 publish(.offline)
@@ -225,10 +244,30 @@ public final class RelayHostClient: @unchecked Sendable {
             failures = opened ? 0 : failures + 1
             lock.lock(); hostSocket = nil; lock.unlock()
             socket.close(code: 1000)
-            setConnected(false)
+            // The relay rejected the session. Retrying the same token never
+            // succeeds: refresh it, or let the refresher clear a dead session
+            // so the loop waits for a new sign-in instead of dialling forever.
+            let upgradeStatus = opened ? nil : (socket as? RelayHTTPStatusReporting)?.upgradeHTTPStatus
+            consecutiveAuthRejections = upgradeStatus == 401 ? consecutiveAuthRejections + 1 : 0
+            if consecutiveAuthRejections >= 2 {
+                lock.withLock { authBackoff = true; skipWait = false }
+            }
+            if upgradeStatus == 401 {
+                await refreshAccessToken(token)
+            }
+            // A stop()+start() during the awaited refresh owns the state now;
+            // the cancelled loop must not mark the new connection as down.
             guard !Task.isCancelled, isRunning() else { break }
+            setConnected(false)
+            if upgradeStatus == 403 {
+                publish(.subscriptionRequired)
+                await wait(Self.subscriptionRecheckSeconds * (0.8 + 0.4 * Double.random(in: 0...1)))
+                continue
+            }
             publish(failures >= Self.offlineAfterFailures ? .offline : .connecting)
+            if lock.withLock({ authBackoff }) { lock.withLock { skipWait = false } }
             await wait(Self.reconnectDelay(opened: opened, failures: failures, roll: Double.random(in: 0...1)))
+            lock.withLock { authBackoff = false }
         }
     }
 

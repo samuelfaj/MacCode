@@ -1193,6 +1193,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             serverId: context.liveActivityHostIdentity.serverId,
             hostStatic: hostKey,
             accessToken: { accountStore.load()?.accessToken },
+            refreshAccessToken: { [bridge = context.privateNotificationBridge] in
+                await bridge.refreshRejectedAccessToken($0)
+            },
             trustedDeviceForRelayKey: { (try? trust.deviceIdForRelayKey($0)) ?? nil }
         )
         http.relayAvailable = { [weak client] in client?.isConnected ?? false }
