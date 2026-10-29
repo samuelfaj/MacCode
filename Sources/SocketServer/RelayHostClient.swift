@@ -255,8 +255,10 @@ public final class RelayHostClient: @unchecked Sendable {
             if upgradeStatus == 401 {
                 await refreshAccessToken(token)
             }
-            setConnected(false)
+            // A stop()+start() during the awaited refresh owns the state now;
+            // the cancelled loop must not mark the new connection as down.
             guard !Task.isCancelled, isRunning() else { break }
+            setConnected(false)
             if upgradeStatus == 403 {
                 publish(.subscriptionRequired)
                 await wait(Self.subscriptionRecheckSeconds * (0.8 + 0.4 * Double.random(in: 0...1)))

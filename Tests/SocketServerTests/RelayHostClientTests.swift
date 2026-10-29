@@ -129,6 +129,25 @@ private final class RelayLockedClient: @unchecked Sendable {
     weak var client: RelayHostClient?
 }
 
+private final class SocketList: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [MemorySocket] = []
+    func get() -> [MemorySocket] { lock.withLock { items } }
+    func append(_ socket: MemorySocket) { lock.withLock { items.append(socket) } }
+}
+
+/// Holds a refresh until the test releases it.
+private final class RefreshGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entered = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    var hasEntered: Bool { lock.withLock { entered } }
+    func wait() async {
+        await withCheckedContinuation { cont in lock.withLock { entered = true; continuation = cont } }
+    }
+    func release() { lock.withLock { let c = continuation; continuation = nil; return c }?.resume() }
+}
+
 private final class TokenBox: @unchecked Sendable {
     private let lock = NSLock()
     private var current: String
@@ -429,6 +448,41 @@ final class RelayHostClientTests: XCTestCase {
         client.start()
         for _ in 0..<200 where attempts.value < afterStop + 2 { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertGreaterThanOrEqual(attempts.value, afterStop + 2, "the first 401 after restart retries at once again")
+    }
+
+    func testRefreshFinishingAfterRestartDoesNotMarkTheNewConnectionDown() async throws {
+        // WHY: a stop()+start() while the 401 refresh was awaited let the cancelled loop call
+        // setConnected(false) afterwards, clearing relay availability for the new healthy socket.
+        let attempts = AttemptCounter()
+        let gate = RefreshGate()
+        let relaySides = SocketList()
+        let client = RelayHostClient(
+            server: DirectHTTPServer(port: 0, loopbackOnly: true, dispatcher: JSONRPCDispatcher(router: FakeRouter()),
+                                     auth: RelayTestAuth(), serverId: serverId, bootEpoch: 1),
+            relayBase: URL(string: "wss://relay.test")!, serverId: serverId, hostStatic: Key(),
+            accessToken: { "t" },
+            refreshAccessToken: { _ in await gate.wait() },
+            trustedDeviceForRelayKey: { _ in nil },
+            webSocketFactory: { _ in
+                attempts.increment()
+                if attempts.value == 1 { return RejectedUpgradeSocket(status: 401) }
+                let (mac, relay) = MemorySocket.pair()
+                relaySides.append(relay)
+                return mac
+            })
+        client.start()
+        defer { client.stop() }
+        for _ in 0..<200 where !gate.hasEntered { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertTrue(gate.hasEntered, "fixture: the first loop is inside the 401 refresh")
+        client.stop()
+        client.start()
+        for _ in 0..<200 where relaySides.get().isEmpty { try await Task.sleep(nanoseconds: 10_000_000) }
+        try await relaySides.get().first?.sendText(#"{"type":"hello","mux":1}"#)
+        for _ in 0..<200 where !client.isConnected { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertTrue(client.isConnected, "fixture: the restarted loop is connected")
+        gate.release()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertTrue(client.isConnected, "the cancelled loop's late refresh must not mark the new socket down")
     }
 
     func testRelayCarriesHTTPAuthAndWebSocketUpgrade() async throws {
