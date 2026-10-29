@@ -30,6 +30,8 @@ public final class RelayHostClient: @unchecked Sendable {
     private let serverId: String
     private let hostStatic: Curve25519.KeyAgreement.PrivateKey
     private let accessToken: @Sendable () -> String?
+    /// Renews the Private session after the relay rejected the stored token.
+    private let refreshAccessToken: @Sendable (_ rejected: String) async -> Void
     private let trustedDeviceForRelayKey: @Sendable (Data) -> String?
     private let webSocketFactory: @Sendable (URLRequest) -> RelayWebSocket
     private let pingInterval: TimeInterval
@@ -80,6 +82,7 @@ public final class RelayHostClient: @unchecked Sendable {
         serverId: String,
         hostStatic: Curve25519.KeyAgreement.PrivateKey,
         accessToken: @escaping @Sendable () -> String?,
+        refreshAccessToken: @escaping @Sendable (_ rejected: String) async -> Void = { _ in },
         trustedDeviceForRelayKey: @escaping @Sendable (Data) -> String?,
         webSocketFactory: @escaping @Sendable (URLRequest) -> RelayWebSocket = { URLSessionRelayWebSocket($0) },
         pingInterval: TimeInterval = 10,
@@ -91,6 +94,7 @@ public final class RelayHostClient: @unchecked Sendable {
         self.serverId = serverId
         self.hostStatic = hostStatic
         self.accessToken = accessToken
+        self.refreshAccessToken = refreshAccessToken
         self.trustedDeviceForRelayKey = trustedDeviceForRelayKey
         self.webSocketFactory = webSocketFactory
         self.pingInterval = pingInterval
@@ -225,6 +229,12 @@ public final class RelayHostClient: @unchecked Sendable {
             failures = opened ? 0 : failures + 1
             lock.lock(); hostSocket = nil; lock.unlock()
             socket.close(code: 1000)
+            // The access token is short-lived and nothing else renews it while
+            // the Mac only holds the relay socket: without this every retry
+            // reuses the expired token and the relay stays offline for good.
+            if !opened, (socket as? RelayHTTPStatusReporting)?.upgradeHTTPStatus == 401 {
+                await refreshAccessToken(token)
+            }
             setConnected(false)
             guard !Task.isCancelled, isRunning() else { break }
             publish(failures >= Self.offlineAfterFailures ? .offline : .connecting)

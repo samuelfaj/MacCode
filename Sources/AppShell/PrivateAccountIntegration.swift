@@ -1181,6 +1181,13 @@ private actor PrivatePushSessionRefresher {
         }
     }
 
+    /// Renews the stored session when its access token is `rejected`. A newer
+    /// stored token wins; only the backend's 401 on refresh clears the session.
+    func refreshRejectedAccessToken(_ rejected: String) async throws {
+        guard let session = accountStore.load(), session.accessToken == rejected else { return }
+        _ = try await refreshedSession(replacing: session)
+    }
+
     private func refreshedSession(
         replacing staleSession: PrivateAccountSession
     ) async throws -> PrivateAccountSession {
@@ -1289,6 +1296,16 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
             let handler = lock.withLock { self.handler }
             guard let handler else { throw SilentWakeOutboxError.bridgeUnavailable }
             try await handler(record)
+        }
+    }
+
+    /// The relay rejected `rejected`: renew the Private session through the
+    /// shared single-flight refresher so the relay retries with a valid token.
+    public func refreshRejectedAccessToken(_ rejected: String) async {
+        do {
+            try await sessionRefresher.refreshRejectedAccessToken(rejected)
+        } catch {
+            Self.log.error("relay token refresh failed: \(String(describing: error), privacy: .public)")
         }
     }
 

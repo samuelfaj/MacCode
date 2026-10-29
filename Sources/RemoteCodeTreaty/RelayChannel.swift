@@ -13,6 +13,12 @@ public protocol RelayWebSocket: AnyObject, Sendable {
     func close(code: Int)
 }
 
+/// A relay socket that can report the HTTP status the relay answered the upgrade with.
+public protocol RelayHTTPStatusReporting: AnyObject {
+    /// nil until the relay answered; 101 after a successful upgrade.
+    var upgradeHTTPStatus: Int? { get }
+}
+
 public enum RelayChannelError: Error, Equatable {
     case unexpectedTextFrame, untrustedKey, handshakeTimedOut
 }
@@ -27,7 +33,7 @@ public extension RelayWebSocket {
     }
 }
 
-public final class URLSessionRelayWebSocket: RelayWebSocket, @unchecked Sendable {
+public final class URLSessionRelayWebSocket: RelayWebSocket, RelayHTTPStatusReporting, @unchecked Sendable {
     public static let maximumMessageSize = 1_048_576 + 64
     private let task: URLSessionWebSocketTask
 
@@ -36,6 +42,8 @@ public final class URLSessionRelayWebSocket: RelayWebSocket, @unchecked Sendable
         task.maximumMessageSize = Self.maximumMessageSize
         task.resume()
     }
+
+    public var upgradeHTTPStatus: Int? { (task.response as? HTTPURLResponse)?.statusCode }
 
     public func send(_ data: Data) async throws {
         try await task.send(.data(data))

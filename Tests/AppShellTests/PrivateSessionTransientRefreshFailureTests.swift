@@ -216,6 +216,48 @@ final class PrivateSessionTransientRefreshFailureTests: XCTestCase {
         XCTAssertEqual(vm.privateAccountStatus, "Subscription active")
     }
 
+    /// WHY: the relay host socket is the only consumer of the access token
+    /// while no push is sent. Without a refresh on the relay's 401 the Mac
+    /// retried the expired token forever and phones could not reach it.
+    func testRelayRejectedTokenIsRenewedAndStored() async throws {
+        let ctx = try makeContext()
+        let accountStore = PrivateAccountSessionStore(repo: ctx.settingsRepo)
+        let renewed = PrivateAccountSession(
+            accessToken: "renewed-access-token", refreshToken: "renewed-refresh-token", user: Self.session.user
+        )
+        let api = ScriptedPrivateAccountAPI(refreshError: PrivateAccountAPIError.invalidResponse, refreshedSession: renewed)
+        let bridge = try makeBridge(context: ctx, accountStore: accountStore, api: api)
+
+        await bridge.refreshRejectedAccessToken(Self.session.accessToken)
+
+        XCTAssertEqual(api.refreshCallCount, 1)
+        XCTAssertEqual(accountStore.load(), renewed, "the relay's next attempt must read the renewed token")
+    }
+
+    func testRelayRejectionOfAnOlderTokenDoesNotRefreshAgain() async throws {
+        let ctx = try makeContext()
+        let accountStore = PrivateAccountSessionStore(repo: ctx.settingsRepo)
+        let api = ScriptedPrivateAccountAPI(refreshError: PrivateAccountAPIError.http(401))
+        let bridge = try makeBridge(context: ctx, accountStore: accountStore, api: api)
+
+        await bridge.refreshRejectedAccessToken("token-already-replaced")
+
+        XCTAssertEqual(api.refreshCallCount, 0, "a newer stored token is used as is, without spending the refresh token")
+        XCTAssertEqual(accountStore.load(), Self.session)
+    }
+
+    func testRelayRejectedTokenWithTransientRefreshFailureKeepsSession() async throws {
+        let ctx = try makeContext()
+        let accountStore = PrivateAccountSessionStore(repo: ctx.settingsRepo)
+        let api = ScriptedPrivateAccountAPI(refreshError: URLError(.notConnectedToInternet))
+        let bridge = try makeBridge(context: ctx, accountStore: accountStore, api: api)
+
+        await bridge.refreshRejectedAccessToken(Self.session.accessToken)
+
+        XCTAssertEqual(api.refreshCallCount, 1)
+        XCTAssertEqual(accountStore.load(), Self.session, "an offline refresh keeps the session for the next relay attempt")
+    }
+
     private func makeContext() throws -> AppContext {
         let directory = NSTemporaryDirectory() + "RC2PrivateTransientRefresh-" + UUID().uuidString
         directories.append(directory)
@@ -279,6 +321,7 @@ private final class ScriptedPrivateAccountAPI: PrivateAccountAPI, @unchecked Sen
     private let currentUserError: Error
     private let refreshError: Error
     private let beforeRefreshFails: (@Sendable () -> Void)?
+    private let refreshedSession: PrivateAccountSession?
     private var alerts: [AlertAttempt] = []
     private var refreshCount = 0
 
@@ -289,8 +332,10 @@ private final class ScriptedPrivateAccountAPI: PrivateAccountAPI, @unchecked Sen
         rejectedAccessTokens: Set<String> = [],
         currentUserError: Error = PrivateAccountAPIError.invalidResponse,
         refreshError: Error,
-        beforeRefreshFails: (@Sendable () -> Void)? = nil
+        beforeRefreshFails: (@Sendable () -> Void)? = nil,
+        refreshedSession: PrivateAccountSession? = nil
     ) {
+        self.refreshedSession = refreshedSession
         self.rejectedAccessTokens = rejectedAccessTokens
         self.currentUserError = currentUserError
         self.refreshError = refreshError
@@ -307,6 +352,7 @@ private final class ScriptedPrivateAccountAPI: PrivateAccountAPI, @unchecked Sen
 
     func refresh(refreshToken: String) async throws -> PrivateAccountSession {
         lock.withLock { refreshCount += 1 }
+        if let refreshedSession { return refreshedSession }
         beforeRefreshFails?()
         throw refreshError
     }

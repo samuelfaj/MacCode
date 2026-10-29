@@ -104,6 +104,32 @@ private final class RelayTestAuth: DirectAuthProvider, @unchecked Sendable {
     }
 }
 
+/// A relay socket whose upgrade was answered with a fixed HTTP status and then closed.
+private final class RejectedUpgradeSocket: RelayWebSocket, RelayHTTPStatusReporting, @unchecked Sendable {
+    let upgradeHTTPStatus: Int?
+    init(status: Int) { upgradeHTTPStatus = status }
+    func send(_ data: Data) async throws { throw URLError(.badServerResponse) }
+    func sendText(_ text: String) async throws { throw URLError(.badServerResponse) }
+    func receiveMessage() async throws -> RelayMessage { throw URLError(.badServerResponse) }
+    func close(code: Int) {}
+}
+
+private final class TokenBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: String
+    private var rejectedTokens: [String] = []
+    private var requestTokens: [String] = []
+    init(_ token: String) { current = token }
+    var token: String { lock.withLock { current } }
+    var rejected: [String] { lock.withLock { rejectedTokens } }
+    var requested: [String] { lock.withLock { requestTokens } }
+    func refresh(_ rejected: String) { lock.withLock { rejectedTokens.append(rejected); current = "renewed-token" } }
+    func record(_ request: URLRequest) {
+        let header = request.value(forHTTPHeaderField: "Authorization") ?? ""
+        lock.withLock { requestTokens.append(String(header.dropFirst("Bearer ".count))) }
+    }
+}
+
 private final class AttemptCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
@@ -280,6 +306,31 @@ final class RelayHostClientTests: XCTestCase {
         client.reconnectNow()
         for _ in 0..<50 where attempts.value < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertEqual(attempts.value, 2, "reconnectNow reopens the host socket without waiting out the backoff")
+    }
+
+    func testRelay401RenewsTheAccessTokenBeforeTheNextAttempt() async throws {
+        // WHY: the relay answers 401 once the short-lived account token expires. Retrying the
+        // same token kept the Mac off the relay for good, so phones could only reach it on LAN.
+        let tokens = TokenBox("expired-token")
+        let client = RelayHostClient(
+            server: DirectHTTPServer(port: 0, loopbackOnly: true, dispatcher: JSONRPCDispatcher(router: FakeRouter()),
+                                     auth: RelayTestAuth(), serverId: serverId, bootEpoch: 1),
+            relayBase: URL(string: "wss://relay.test")!, serverId: serverId, hostStatic: Key(),
+            accessToken: { tokens.token },
+            refreshAccessToken: { tokens.refresh($0) },
+            trustedDeviceForRelayKey: { _ in nil },
+            webSocketFactory: { request in
+                tokens.record(request)
+                return RejectedUpgradeSocket(status: tokens.requested.count == 1 ? 401 : 503)
+            })
+        client.start()
+        defer { client.stop() }
+        for _ in 0..<300 where tokens.requested.count < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(tokens.rejected, ["expired-token"], "the rejected token is handed to the refresher")
+        XCTAssertEqual(Array(tokens.requested.prefix(2)), ["expired-token", "renewed-token"],
+                       "the next attempt carries the renewed token")
+        for _ in 0..<150 where tokens.requested.count < 3 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(tokens.rejected.count, 1, "a non-auth failure (503) never spends the refresh token")
     }
 
     func testRelayCarriesHTTPAuthAndWebSocketUpgrade() async throws {
