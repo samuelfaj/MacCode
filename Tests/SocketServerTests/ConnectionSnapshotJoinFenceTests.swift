@@ -476,6 +476,39 @@ final class ConnectionSnapshotJoinFenceTests: XCTestCase {
         XCTAssertEqual(object["fence_tolerated_total"] as? UInt64, 2)
     }
 
+    // MARK: - Main actor stall
+
+    /// WHY: on 2026-10-29 a modal alert opened inside a main-queue job kept
+    /// the main actor busy for 84 minutes. The dispatcher's 5s snapshot
+    /// deadline never started, so every iPhone baseline waited its full 60s
+    /// and the connection never came up. The host must answer the retryable
+    /// -32013 near its own budget even when the main actor cannot run.
+    func test_http_snapshotAnswersRetryableTimeoutWhileMainActorIsStuck() async throws {
+        let router = await MainActor.run { JoinFenceSnapshotRouter() }
+        let dispatcher = await MainActor.run { JSONRPCDispatcher(router: router) }
+        let server = DirectHTTPServer(
+            port: 0,
+            loopbackOnly: true,
+            dispatcher: dispatcher,
+            serverId: "stall-host",
+            bootEpoch: 1
+        )
+        server.snapshotReadTimeoutNanosecondsForTesting = 300_000_000
+        let body = Data(#"{"jsonrpc":"2.0","id":"stall","method":"sync.snapshot","params":{"supportedStateVersion":3}}"#.utf8)
+
+        let release = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async { _ = release.wait(timeout: .now() + 10) }
+
+        let started = Date()
+        let data = await server.dispatchRPC(bodyData: body)
+        let elapsed = Date().timeIntervalSince(started)
+        release.signal()
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let error = try XCTUnwrap(object["error"] as? [String: Any], "\(object)")
+        XCTAssertEqual(error["code"] as? Int, -32013)
+        XCTAssertLessThan(elapsed, 3, "the hop to a stuck main actor must be bounded by the snapshot budget")
+    }
+
     @MainActor
     private func rpc(port: UInt16, method: String, params: [String: Any]) async throws -> [String: Any] {
         var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/v1/rpc")!)

@@ -220,7 +220,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // UX-MAC_PERSISTENCE-P1: inform the user when a corrupt database was
         // silently quarantined so they know prior data was preserved as a backup.
         if context.bootstrapReport.recoveredFromCorruption {
-            DispatchQueue.main.async {
+            // A run-loop block, not a main-queue job: runModal inside a
+            // main-queue job stalls every main-actor job (remote RPCs) until
+            // the alert is dismissed.
+            RunLoop.main.perform { MainActor.assumeIsolated {
                 let alert = NSAlert()
                 alert.alertStyle = .warning
                 alert.messageText = "Previous database was corrupt"
@@ -240,7 +243,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                         .deletingLastPathComponent()
                     NSWorkspace.shared.activateFileViewerSelecting([dir])
                 }
-            }
+            } }
         }
 
         installLifecycleRecorder(harvestedGhosttyCrashFiles: harvestedGhosttyCrashFiles)
@@ -434,11 +437,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // frame-irrelevant restore work runs. StartupPlan.deferredSteps decide
         // what lands here. Hopping back through the main queue yields one runloop
         // turn for the frame before the PTY spawns / process scan begin.
-        DispatchQueue.main.async { [weak self] in
+        // A run-loop block, not a main-queue job: the onboarding alert is a
+        // runModal, which inside a main-queue job would stall every main-actor
+        // job (remote RPCs) until dismissed.
+        RunLoop.main.perform { [weak self] in MainActor.assumeIsolated {
             // Explain folder TCC before restored surfaces/PTYs touch protected paths.
             self?.presentHostFileAccessOnboardingIfNeeded()
             self?.runDeferredStartup()
-        }
+        } }
         // Account usage % rings: wait ~8s so boot probes do not pile on top of
         // workspace restore / first Agent surface open.
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in

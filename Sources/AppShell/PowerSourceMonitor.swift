@@ -92,9 +92,14 @@ public final class MacOSExternalPowerMonitor: ExternalPowerMonitoring {
         started = false
     }
 
+    /// Runs in the main run loop's IOKit callout, already on the main thread.
+    /// The handler may open a modal alert. Calling it from here keeps its
+    /// nested event loop able to drain the main queue; a `Task { @MainActor }`
+    /// hop would run it inside a main-queue job, and every main-actor job
+    /// (all remote RPCs) would wait until the alert is dismissed.
     private func publishCurrentPowerState() {
         let state = currentPowerState
-        Task { @MainActor [onPowerStateChanged] in
+        MainActor.assumeIsolated {
             onPowerStateChanged?(state)
         }
     }
