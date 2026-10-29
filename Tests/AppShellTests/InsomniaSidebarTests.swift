@@ -57,7 +57,7 @@ final class InsomniaSidebarTests: XCTestCase {
         seedSettings: AppSettings? = nil,
         power: FakeInsomniaPowerManager = FakeInsomniaPowerManager(),
         powerMonitor: ExternalPowerMonitoring = FakeExternalPowerMonitor(),
-        insomniaBatteryPrompt: @escaping SidebarViewModel.InsomniaBatteryPrompt = { .keepEnabled },
+        insomniaBatteryPrompt: @escaping SidebarViewModel.InsomniaBatteryPrompt = { $0(.keepEnabled) },
         operationErrorPresenter: @escaping SidebarViewModel.OperationErrorPresenter = { _, _ in }
     ) throws -> (AppContext, AppCommandRouter, SidebarViewModel, FakeInsomniaPowerManager) {
         let ctx = try AppContext(channel: .debug, appSupportOverride: dir)
@@ -202,9 +202,9 @@ final class InsomniaSidebarTests: XCTestCase {
         let (ctx, _, vm, power) = try make(
             seedSettings: AppSettings(insomniaEnabled: false),
             powerMonitor: monitor,
-            insomniaBatteryPrompt: {
+            insomniaBatteryPrompt: { completion in
                 promptCount += 1
-                return .disable
+                completion(.disable)
             }
         )
 
@@ -226,9 +226,9 @@ final class InsomniaSidebarTests: XCTestCase {
         let (ctx, _, vm, power) = try make(
             seedSettings: AppSettings(insomniaEnabled: false),
             powerMonitor: monitor,
-            insomniaBatteryPrompt: {
+            insomniaBatteryPrompt: { completion in
                 promptCount += 1
-                return .keepEnabled
+                completion(.keepEnabled)
             }
         )
 
@@ -245,15 +245,46 @@ final class InsomniaSidebarTests: XCTestCase {
                        "choosing Keep Insomnia On must not release the active keep-awake assertion")
     }
 
+    /// WHY: on 2026-10-29 the battery warning was a blocking modal on the main
+    /// actor; every remote RPC waited behind it and the iPhone could not
+    /// connect for 84 minutes. The warning must return at once, ask only once
+    /// while open, and apply the answer whenever the user gives it.
+    func test_batteryWarningDoesNotBlockWhileUnanswered() throws {
+        let monitor = FakeExternalPowerMonitor(powerState: .externalPower)
+        var pending: [@MainActor (SidebarViewModel.InsomniaBatteryDecision) -> Void] = []
+        let (_, _, vm, _) = try make(
+            seedSettings: AppSettings(insomniaEnabled: false),
+            powerMonitor: monitor,
+            insomniaBatteryPrompt: { completion in pending.append(completion) }
+        )
+
+        vm.setInsomniaEnabled(true)
+        monitor.send(.battery)
+        XCTAssertEqual(pending.count, 1, "the warning is shown")
+        XCTAssertTrue(vm.insomniaEnabled, "nothing changes until the user answers")
+
+        monitor.send(.externalPower)
+        monitor.send(.battery)
+        XCTAssertEqual(pending.count, 1, "an unplug while the warning is open does not stack a second one")
+
+        pending[0](.disable)
+        XCTAssertFalse(vm.insomniaEnabled, "a late answer still applies")
+
+        vm.setInsomniaEnabled(true)
+        monitor.send(.externalPower)
+        monitor.send(.battery)
+        XCTAssertEqual(pending.count, 2, "after the answer the next unplug warns again")
+    }
+
     func test_batteryNotificationWhileInsomniaOffDoesNotPrompt() throws {
         let monitor = FakeExternalPowerMonitor(powerState: .externalPower)
         var promptCount = 0
         let (_, _, vm, _) = try make(
             seedSettings: AppSettings(insomniaEnabled: false),
             powerMonitor: monitor,
-            insomniaBatteryPrompt: {
+            insomniaBatteryPrompt: { completion in
                 promptCount += 1
-                return .disable
+                completion(.disable)
             }
         )
 
@@ -270,9 +301,9 @@ final class InsomniaSidebarTests: XCTestCase {
         let (_, _, vm, _) = try make(
             seedSettings: AppSettings(insomniaEnabled: false),
             powerMonitor: monitor,
-            insomniaBatteryPrompt: {
+            insomniaBatteryPrompt: { completion in
                 promptCount += 1
-                return .disable
+                completion(.disable)
             }
         )
 

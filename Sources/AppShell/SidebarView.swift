@@ -45,7 +45,12 @@ public final class SidebarViewModel: ObservableObject {
         case keepEnabled
     }
 
-    public typealias InsomniaBatteryPrompt = @MainActor () -> InsomniaBatteryDecision
+    /// Asks without blocking: the answer arrives through `completion`. A
+    /// blocking modal here held every main-actor job, including all remote
+    /// RPCs, until the user answered (84 minutes on 2026-10-29).
+    public typealias InsomniaBatteryPrompt = @MainActor (
+        _ completion: @escaping @MainActor (InsomniaBatteryDecision) -> Void
+    ) -> Void
     public typealias OperationErrorPresenter = @MainActor (_ message: String, _ detail: String) -> Void
 
     // MARK: - WorkspacePrompting seam (:95)
@@ -668,8 +673,8 @@ public final class SidebarViewModel: ObservableObject {
         updateChecker: AppUpdateChecking? = nil,
         insomniaPower: InsomniaPowerManaging = MacOSInsomniaPowerManager(),
         powerMonitor: ExternalPowerMonitoring = MacOSExternalPowerMonitor(),
-        insomniaBatteryPrompt: @escaping InsomniaBatteryPrompt = {
-            SidebarViewModel.defaultInsomniaBatteryPrompt()
+        insomniaBatteryPrompt: @escaping InsomniaBatteryPrompt = { completion in
+            SidebarViewModel.defaultInsomniaBatteryPrompt(completion)
         },
         operationErrorPresenter: @escaping OperationErrorPresenter = SidebarViewModel.defaultOperationErrorPresenter
     ) {
@@ -1792,14 +1797,28 @@ public final class SidebarViewModel: ObservableObject {
         finishInsomniaSession()
     }
 
-    public static func defaultInsomniaBatteryPrompt() -> InsomniaBatteryDecision {
+    public static func defaultInsomniaBatteryPrompt(
+        _ completion: @escaping @MainActor (InsomniaBatteryDecision) -> Void
+    ) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Insomnia is on while your MacBook is on battery"
         alert.informativeText = "Insomnia can drain the battery because it keeps this Mac awake. Do you want to keep Insomnia on or disable it now?"
         alert.addButton(withTitle: "Disable Insomnia")
         alert.addButton(withTitle: "Keep Insomnia On")
-        return alert.runModal() == .alertFirstButtonReturn ? .disable : .keepEnabled
+        let finish: (NSApplication.ModalResponse) -> Void = { response in
+            MainActor.assumeIsolated {
+                completion(response == .alertFirstButtonReturn ? .disable : .keepEnabled)
+            }
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow
+            ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeKey }) {
+            alert.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            // No window to attach a sheet to. A modal run from a run-loop block
+            // (never inside a main-queue job) still lets the main queue drain.
+            RunLoop.main.perform { MainActor.assumeIsolated { finish(alert.runModal()) } }
+        }
     }
 
     private func handleExternalPowerStateChanged(_ state: ExternalPowerState) {
@@ -1812,10 +1831,12 @@ public final class SidebarViewModel: ObservableObject {
     private func confirmInsomniaOnBatteryIfNeeded() {
         guard insomniaEnabled, !showingInsomniaBatteryPrompt else { return }
         showingInsomniaBatteryPrompt = true
-        let decision = insomniaBatteryPrompt()
-        showingInsomniaBatteryPrompt = false
-        if decision == .disable {
-            setInsomniaEnabled(false)
+        insomniaBatteryPrompt { [weak self] decision in
+            guard let self else { return }
+            self.showingInsomniaBatteryPrompt = false
+            if decision == .disable, self.insomniaEnabled {
+                self.setInsomniaEnabled(false)
+            }
         }
     }
 
