@@ -114,6 +114,8 @@ public final class RelayHostClient: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard !running else { return }
         running = true
+        authBackoff = false
+        skipWait = false
         revokeObserver = NotificationCenter.default.addObserver(
             forName: DeviceTrustRepository.deviceRevokedNotification, object: nil, queue: nil
         ) { [weak self] note in

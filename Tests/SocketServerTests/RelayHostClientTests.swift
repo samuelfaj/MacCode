@@ -423,6 +423,12 @@ final class RelayHostClientTests: XCTestCase {
         try await Task.sleep(nanoseconds: 1_500_000_000)
         XCTAssertGreaterThanOrEqual(attempts.value, 2, "the first refresh still retries at once")
         XCTAssertLessThanOrEqual(attempts.value, 3, "repeated 401s follow the backoff, not the refresh notifications")
+        // A restart of the same client starts without the suppression a stopped loop left behind.
+        client.stop()
+        let afterStop = attempts.value
+        client.start()
+        for _ in 0..<200 where attempts.value < afterStop + 2 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertGreaterThanOrEqual(attempts.value, afterStop + 2, "the first 401 after restart retries at once again")
     }
 
     func testRelayCarriesHTTPAuthAndWebSocketUpgrade() async throws {
