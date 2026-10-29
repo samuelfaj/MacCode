@@ -3416,7 +3416,7 @@ public struct SidebarRootView: View {
         switch vm.relayStatus {
         case .connected: return DS.Palette.success
         case .connecting: return DS.Palette.warning
-        case .offline: return DS.Palette.danger
+        case .offline, .subscriptionRequired: return DS.Palette.danger
         }
     }
 
@@ -3425,6 +3425,7 @@ public struct SidebarRootView: View {
         case .connected: return "Relay connected: your iPhone can reach this Mac from anywhere"
         case .connecting: return "Connecting to the relay…"
         case .offline: return "Relay offline: your iPhone can only reach this Mac on the same network"
+        case .subscriptionRequired: return "Relay needs an active subscription: your iPhone can only reach this Mac on the same network"
         }
     }
 

@@ -12,6 +12,8 @@ public enum RelayHostStatus: String, Sendable {
     case connecting
     /// No account session, stopped, or several failed attempts in a row.
     case offline
+    /// The relay refused the account: it has no active subscription.
+    case subscriptionRequired
 }
 
 /// Keeps the Mac's `/v1/host` socket open on the relay and bridges every relay
@@ -55,6 +57,9 @@ public final class RelayHostClient: @unchecked Sendable {
     public static let statusDidChangeNotification = Notification.Name("rc2RelayHostStatusDidChange")
     /// Failed attempts in a row before the badge turns red instead of yellow.
     static let offlineAfterFailures = 3
+    /// A refused subscription will not change on its own within seconds; an
+    /// account change or wake retries at once through `accountChanged`/`reconnectNow`.
+    static let subscriptionRecheckSeconds: Double = 600
     private static let statusLock = NSLock()
     private static var currentStatusValue: RelayHostStatus = .offline
     /// Last status of the running client; read when a view appears.
@@ -232,11 +237,17 @@ public final class RelayHostClient: @unchecked Sendable {
             // The access token is short-lived and nothing else renews it while
             // the Mac only holds the relay socket: without this every retry
             // reuses the expired token and the relay stays offline for good.
-            if !opened, (socket as? RelayHTTPStatusReporting)?.upgradeHTTPStatus == 401 {
+            let upgradeStatus = opened ? nil : (socket as? RelayHTTPStatusReporting)?.upgradeHTTPStatus
+            if upgradeStatus == 401 {
                 await refreshAccessToken(token)
             }
             setConnected(false)
             guard !Task.isCancelled, isRunning() else { break }
+            if upgradeStatus == 403 {
+                publish(.subscriptionRequired)
+                await wait(Self.subscriptionRecheckSeconds * (0.8 + 0.4 * Double.random(in: 0...1)))
+                continue
+            }
             publish(failures >= Self.offlineAfterFailures ? .offline : .connecting)
             await wait(Self.reconnectDelay(opened: opened, failures: failures, roll: Double.random(in: 0...1)))
         }

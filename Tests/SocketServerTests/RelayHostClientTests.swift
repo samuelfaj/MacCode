@@ -333,6 +333,36 @@ final class RelayHostClientTests: XCTestCase {
         XCTAssertEqual(tokens.rejected.count, 1, "a non-auth failure (503) never spends the refresh token")
     }
 
+    func testRelay403ReportsSubscriptionAndWaitsForAnAccountChange() async throws {
+        // WHY: a 403 subscription_required retried every ~15 s forever and only showed a generic
+        // "offline". Report the reason and stop dialling until the account changes.
+        let attempts = AttemptCounter()
+        let tokens = TokenBox("subscriber-token")
+        let client = RelayHostClient(
+            server: DirectHTTPServer(port: 0, loopbackOnly: true, dispatcher: JSONRPCDispatcher(router: FakeRouter()),
+                                     auth: RelayTestAuth(), serverId: serverId, bootEpoch: 1),
+            relayBase: URL(string: "wss://relay.test")!, serverId: serverId, hostStatic: Key(),
+            accessToken: { tokens.token },
+            refreshAccessToken: { tokens.refresh($0) },
+            trustedDeviceForRelayKey: { _ in nil },
+            webSocketFactory: { _ in
+                attempts.increment()
+                return RejectedUpgradeSocket(status: 403)
+            })
+        client.start()
+        defer { client.stop() }
+        for _ in 0..<200 where RelayHostClient.currentStatus != .subscriptionRequired {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(RelayHostClient.currentStatus, .subscriptionRequired)
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        XCTAssertEqual(attempts.value, 1, "no reconnect cadence while the subscription is refused")
+        XCTAssertTrue(tokens.rejected.isEmpty, "a 403 never spends the refresh token")
+        client.accountChanged()
+        for _ in 0..<200 where attempts.value < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(attempts.value, 2, "an account change retries at once")
+    }
+
     func testRelayCarriesHTTPAuthAndWebSocketUpgrade() async throws {
         let rig = try await makeRig()
         defer { rig.client.stop() }
