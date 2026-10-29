@@ -1207,6 +1207,12 @@ private actor PrivatePushSessionRefresher {
         let task = Task {
             do {
                 let session = try await api.refresh(refreshToken: refreshToken)
+                // A logout or another account stored while this refresh was in
+                // flight wins; the late result must not sign the old one back in.
+                // The catch below adopts a newer session and never clears here.
+                guard accountStore.load()?.refreshToken == refreshToken else {
+                    throw CancellationError()
+                }
                 accountStore.save(session)
                 return session
             } catch {
