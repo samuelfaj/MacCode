@@ -142,6 +142,9 @@ public final class RelayHostClient: @unchecked Sendable {
     /// The Private session changed: reconnect with the current token.
     public func accountChanged() {
         lock.lock()
+        // Latched like reconnectNow: a change that lands before the next wait
+        // starts must still skip it (a 403 recheck waits ~10 min).
+        skipWait = running
         let sleeper = sleepTask
         let host = hostSocket
         let open = Array(streams.values)

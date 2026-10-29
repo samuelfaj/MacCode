@@ -114,6 +114,21 @@ private final class RejectedUpgradeSocket: RelayWebSocket, RelayHTTPStatusReport
     func close(code: Int) {}
 }
 
+/// 403 socket that runs `onStatusRead` when the loop reads the status, i.e.
+/// after the host socket is released and before the next wait starts.
+private final class StatusHookSocket: RelayWebSocket, RelayHTTPStatusReporting, @unchecked Sendable {
+    var onStatusRead: (() -> Void)?
+    var upgradeHTTPStatus: Int? { onStatusRead?(); onStatusRead = nil; return 403 }
+    func send(_ data: Data) async throws { throw URLError(.badServerResponse) }
+    func sendText(_ text: String) async throws { throw URLError(.badServerResponse) }
+    func receiveMessage() async throws -> RelayMessage { throw URLError(.badServerResponse) }
+    func close(code: Int) {}
+}
+
+private final class RelayLockedClient: @unchecked Sendable {
+    weak var client: RelayHostClient?
+}
+
 private final class TokenBox: @unchecked Sendable {
     private let lock = NSLock()
     private var current: String
@@ -361,6 +376,29 @@ final class RelayHostClientTests: XCTestCase {
         client.accountChanged()
         for _ in 0..<200 where attempts.value < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertEqual(attempts.value, 2, "an account change retries at once")
+    }
+
+    func testAccountChangeBeforeTheSubscriptionWaitStartsIsNotLost() async throws {
+        // WHY: an account change between releasing the host socket and starting the ~10 min
+        // 403 recheck cancelled nothing, so the new account waited the full recheck.
+        let attempts = AttemptCounter()
+        let owner = RelayLockedClient()
+        let client = RelayHostClient(
+            server: DirectHTTPServer(port: 0, loopbackOnly: true, dispatcher: JSONRPCDispatcher(router: FakeRouter()),
+                                     auth: RelayTestAuth(), serverId: serverId, bootEpoch: 1),
+            relayBase: URL(string: "wss://relay.test")!, serverId: serverId, hostStatic: Key(),
+            accessToken: { "t" }, trustedDeviceForRelayKey: { _ in nil },
+            webSocketFactory: { _ in
+                attempts.increment()
+                let socket = StatusHookSocket()
+                if attempts.value == 1 { socket.onStatusRead = { owner.client?.accountChanged() } }
+                return socket
+            })
+        owner.client = client
+        client.start()
+        defer { client.stop() }
+        for _ in 0..<200 where attempts.value < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(attempts.value, 2, "the account change that raced the wait still retries at once")
     }
 
     func testRelayCarriesHTTPAuthAndWebSocketUpgrade() async throws {
