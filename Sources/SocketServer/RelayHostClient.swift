@@ -234,9 +234,9 @@ public final class RelayHostClient: @unchecked Sendable {
             failures = opened ? 0 : failures + 1
             lock.lock(); hostSocket = nil; lock.unlock()
             socket.close(code: 1000)
-            // The access token is short-lived and nothing else renews it while
-            // the Mac only holds the relay socket: without this every retry
-            // reuses the expired token and the relay stays offline for good.
+            // The relay rejected the session. Retrying the same token never
+            // succeeds: refresh it, or let the refresher clear a dead session
+            // so the loop waits for a new sign-in instead of dialling forever.
             let upgradeStatus = opened ? nil : (socket as? RelayHTTPStatusReporting)?.upgradeHTTPStatus
             if upgradeStatus == 401 {
                 await refreshAccessToken(token)
