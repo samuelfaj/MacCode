@@ -49,6 +49,9 @@ public final class RelayHostClient: @unchecked Sendable {
     private var running = false
     /// Set by `reconnectNow()`: the next reconnect wait is skipped.
     private var skipWait = false
+    /// Set for the backoff after repeated 401s: a refresh that saves posts an
+    /// account change every time, and honouring it would dial at network speed.
+    private var authBackoff = false
     private var revokeObserver: NSObjectProtocol?
 
     public var onStatusChange: ((Bool) -> Void)?
@@ -142,6 +145,7 @@ public final class RelayHostClient: @unchecked Sendable {
     /// The Private session changed: reconnect with the current token.
     public func accountChanged() {
         lock.lock()
+        if authBackoff { lock.unlock(); return }
         // Latched like reconnectNow: a change that lands before the next wait
         // starts must still skip it (a 403 recheck waits ~10 min).
         skipWait = running
@@ -222,6 +226,7 @@ public final class RelayHostClient: @unchecked Sendable {
 
     private func runLoop() async {
         var failures = 0
+        var consecutiveAuthRejections = 0
         while !Task.isCancelled, isRunning() {
             guard let token = accessToken(), !token.isEmpty else {
                 publish(.offline)
@@ -241,6 +246,10 @@ public final class RelayHostClient: @unchecked Sendable {
             // succeeds: refresh it, or let the refresher clear a dead session
             // so the loop waits for a new sign-in instead of dialling forever.
             let upgradeStatus = opened ? nil : (socket as? RelayHTTPStatusReporting)?.upgradeHTTPStatus
+            consecutiveAuthRejections = upgradeStatus == 401 ? consecutiveAuthRejections + 1 : 0
+            if consecutiveAuthRejections >= 2 {
+                lock.withLock { authBackoff = true; skipWait = false }
+            }
             if upgradeStatus == 401 {
                 await refreshAccessToken(token)
             }
@@ -252,7 +261,9 @@ public final class RelayHostClient: @unchecked Sendable {
                 continue
             }
             publish(failures >= Self.offlineAfterFailures ? .offline : .connecting)
+            if lock.withLock({ authBackoff }) { lock.withLock { skipWait = false } }
             await wait(Self.reconnectDelay(opened: opened, failures: failures, roll: Double.random(in: 0...1)))
+            lock.withLock { authBackoff = false }
         }
     }
 

@@ -401,6 +401,30 @@ final class RelayHostClientTests: XCTestCase {
         XCTAssertEqual(attempts.value, 2, "the account change that raced the wait still retries at once")
     }
 
+    func testRepeated401WithSavingRefreshKeepsTheBackoff() async throws {
+        // WHY: a refresh that saves posts an account change. Honouring it after every 401 made the
+        // Mac re-dial and re-refresh at network speed while the relay kept rejecting the session.
+        let attempts = AttemptCounter()
+        let owner = RelayLockedClient()
+        let client = RelayHostClient(
+            server: DirectHTTPServer(port: 0, loopbackOnly: true, dispatcher: JSONRPCDispatcher(router: FakeRouter()),
+                                     auth: RelayTestAuth(), serverId: serverId, bootEpoch: 1),
+            relayBase: URL(string: "wss://relay.test")!, serverId: serverId, hostStatic: Key(),
+            accessToken: { "t" },
+            refreshAccessToken: { _ in owner.client?.accountChanged() },
+            trustedDeviceForRelayKey: { _ in nil },
+            webSocketFactory: { _ in
+                attempts.increment()
+                return RejectedUpgradeSocket(status: 401)
+            })
+        owner.client = client
+        client.start()
+        defer { client.stop() }
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        XCTAssertGreaterThanOrEqual(attempts.value, 2, "the first refresh still retries at once")
+        XCTAssertLessThanOrEqual(attempts.value, 3, "repeated 401s follow the backoff, not the refresh notifications")
+    }
+
     func testRelayCarriesHTTPAuthAndWebSocketUpgrade() async throws {
         let rig = try await makeRig()
         defer { rig.client.stop() }
