@@ -846,6 +846,39 @@ public struct WebSocketHeartbeatProfile: Equatable, Sendable {
 
 /// One-shot flag for DispatchSource ready waits (C-02). Event and timeout
 /// races must signal the waiter at most once.
+/// First result wins; later results are dropped.
+private final class BoundedSnapshotReadOutcome: @unchecked Sendable {
+    typealias Value = EventBus.SnapshotBarrierResult<ConnectionSnapshotReadState>
+    private let lock = NSLock()
+    private var result: Result<Value, Error>?
+    private var continuation: CheckedContinuation<Result<Value, Error>, Never>?
+
+    func wait() async -> Result<Value, Error> {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if let result {
+                lock.unlock()
+                continuation.resume(returning: result)
+            } else {
+                self.continuation = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    @discardableResult
+    func resolve(_ next: Result<Value, Error>) -> Bool {
+        lock.lock()
+        guard result == nil else { lock.unlock(); return false }
+        result = next
+        let waiting = continuation
+        continuation = nil
+        lock.unlock()
+        waiting?.resume(returning: next)
+        return true
+    }
+}
+
 private final class SocketReadyOnceFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var set = false
@@ -4585,6 +4618,43 @@ public final class DirectHTTPServer: @unchecked Sendable {
         return object
     }
 
+    /// The dispatcher's snapshot deadline starts only once the main actor runs
+    /// it. A main thread stuck elsewhere (a modal alert inside a main-queue
+    /// job) used to hold the caller for its whole 60s RPC timeout; this bounds
+    /// the hop too and answers the retryable -32013 instead.
+    private func boundedConnectionSnapshotRead(
+        phaseMetrics: HTTPRequestPhaseMetrics?
+    ) async throws -> EventBus.SnapshotBarrierResult<ConnectionSnapshotReadState> {
+        let timeout = snapshotReadTimeoutNanosecondsForTesting
+            ?? JSONRPCDispatcher.connectionSnapshotTimeoutNanoseconds
+        let outcome = BoundedSnapshotReadOutcome()
+        let dispatcher = self.dispatcher
+        let read = Task {
+            do {
+                outcome.resolve(.success(try await dispatcher.readConnectionSnapshot(
+                    timeoutNanoseconds: timeout,
+                    phaseMetrics: phaseMetrics
+                )))
+            } catch {
+                outcome.resolve(.failure(error))
+            }
+        }
+        // Grace lets the dispatcher's own deadline win when the main actor is free.
+        let hopDeadline = Task {
+            try? await Task.sleep(nanoseconds: timeout + Self.snapshotMainActorHopGraceNanoseconds)
+            if outcome.resolve(.failure(JSONRPCDispatcher.snapshotTimedOut)) { read.cancel() }
+        }
+        defer { hopDeadline.cancel() }
+        return try await withTaskCancellationHandler {
+            try await outcome.wait().get()
+        } onCancel: {
+            read.cancel()
+            outcome.resolve(.failure(JSONRPCDispatcher.snapshotCancelled))
+        }
+    }
+
+    static let snapshotMainActorHopGraceNanoseconds: UInt64 = 1_000_000_000
+
     /// C-24: single-encode `sync.snapshot` JSON-RPC success path.
     private func dispatchSyncSnapshotRPCData(
         _ object: [String: Any],
@@ -4684,11 +4754,7 @@ public final class DirectHTTPServer: @unchecked Sendable {
         }
 
         do {
-            let snapshot = try await dispatcher.readConnectionSnapshot(
-                timeoutNanoseconds: snapshotReadTimeoutNanosecondsForTesting
-                    ?? JSONRPCDispatcher.connectionSnapshotTimeoutNanoseconds,
-                phaseMetrics: phaseMetrics
-            )
+            let snapshot = try await boundedConnectionSnapshotRead(phaseMetrics: phaseMetrics)
             let hostRevisions = snapshot.metadata.domainRevisions
             let includeDomains: Set<String>?
             if let knownRevisions {
@@ -4855,11 +4921,7 @@ public final class DirectHTTPServer: @unchecked Sendable {
         }
 
         do {
-            let snapshot = try await dispatcher.readConnectionSnapshot(
-                timeoutNanoseconds: snapshotReadTimeoutNanosecondsForTesting
-                    ?? JSONRPCDispatcher.connectionSnapshotTimeoutNanoseconds,
-                phaseMetrics: phaseMetrics
-            )
+            let snapshot = try await boundedConnectionSnapshotRead(phaseMetrics: phaseMetrics)
             let hostRevisions = snapshot.metadata.domainRevisions
             let includeDomains: Set<String>?
             if let knownRevisions {

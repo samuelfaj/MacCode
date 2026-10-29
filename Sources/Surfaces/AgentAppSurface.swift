@@ -17060,8 +17060,12 @@ public struct AgentAppView: View {
             panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
             panel.nameFieldStringValue = export.fileName
             panel.canCreateDirectories = true
-            guard panel.runModal() == .OK, let url = panel.url else { return }
-            try? export.contents.data(using: .utf8)?.write(to: url, options: .atomic)
+            // Non-blocking: a runModal inside this main-actor job would stall
+            // every other main-actor job, including remote RPCs, until dismissed.
+            panel.begin { response in
+                guard response == .OK, let url = panel.url else { return }
+                try? export.contents.data(using: .utf8)?.write(to: url, options: .atomic)
+            }
         }
     }
 
