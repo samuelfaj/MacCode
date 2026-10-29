@@ -276,6 +276,24 @@ final class PrivateSessionTransientRefreshFailureTests: XCTestCase {
         XCTAssertEqual(accountStore.load(), other, "a late refresh must not overwrite the account signed in meanwhile")
     }
 
+    /// WHY: the conditional save is the store's own atomic check, not a
+    /// load-then-save in the caller that Settings can interleave with.
+    func testConditionalSaveRefusesWhenTheStoredRefreshTokenChanged() throws {
+        let ctx = try makeContext()
+        let accountStore = PrivateAccountSessionStore(repo: ctx.settingsRepo)
+        let settingsWriter = PrivateAccountSessionStore(repo: ctx.settingsRepo)
+        XCTAssertTrue(accountStore.save(Self.session))
+        let renewed = PrivateAccountSession(
+            accessToken: "renewed-access-token", refreshToken: "renewed-refresh-token", user: Self.session.user
+        )
+        XCTAssertTrue(settingsWriter.clear())
+        XCTAssertFalse(accountStore.save(renewed, ifStoredRefreshToken: Self.session.refreshToken))
+        XCTAssertNil(accountStore.load())
+        XCTAssertTrue(settingsWriter.save(Self.session))
+        XCTAssertTrue(accountStore.save(renewed, ifStoredRefreshToken: Self.session.refreshToken))
+        XCTAssertEqual(accountStore.load(), renewed)
+    }
+
     func testRelayRejectionOfAnOlderTokenDoesNotRefreshAgain() async throws {
         let ctx = try makeContext()
         let accountStore = PrivateAccountSessionStore(repo: ctx.settingsRepo)

@@ -686,15 +686,34 @@ public final class PrivateAccountSessionStore: @unchecked Sendable {
     /// callers with a user surface must say so instead of reporting success.
     @discardableResult
     public func save(_ session: PrivateAccountSession) -> Bool {
+        write(session, onlyIfRefreshToken: nil)
+    }
+
+    /// Saves `session` only while the stored one still holds `refreshToken`,
+    /// atomically against every other writer of this settings key.
+    @discardableResult
+    func save(_ session: PrivateAccountSession, ifStoredRefreshToken refreshToken: String) -> Bool {
+        write(session, onlyIfRefreshToken: refreshToken)
+    }
+
+    /// Writers in this process use separate store instances over one settings
+    /// key; one lock keeps a conditional save from interleaving with them.
+    private static let writeLock = NSLock()
+
+    private func write(_ session: PrivateAccountSession, onlyIfRefreshToken expected: String?) -> Bool {
         guard let data = try? encoder.encode(session),
               let json = String(data: data, encoding: .utf8) else {
             Self.log.error("private account session encode failed")
             return false
         }
         do {
-            try repo.set(key, json)
-            publishAccountChanged()
-            return true
+            let written = try Self.writeLock.withLock { () -> Bool in
+                if let expected, load()?.refreshToken != expected { return false }
+                try repo.set(key, json)
+                return true
+            }
+            if written { publishAccountChanged() }
+            return written
         } catch {
             Self.log.error("private account session save failed: \(String(describing: error), privacy: .public)")
             return false
@@ -706,7 +725,7 @@ public final class PrivateAccountSessionStore: @unchecked Sendable {
     @discardableResult
     public func clear() -> Bool {
         do {
-            try repo.set(key, "")
+            try Self.writeLock.withLock { try repo.set(key, "") }
             publishAccountChanged()
             return true
         } catch {
@@ -1210,10 +1229,9 @@ private actor PrivatePushSessionRefresher {
                 // A logout or another account stored while this refresh was in
                 // flight wins; the late result must not sign the old one back in.
                 // The catch below adopts a newer session and never clears here.
-                guard accountStore.load()?.refreshToken == refreshToken else {
+                guard accountStore.save(session, ifStoredRefreshToken: refreshToken) else {
                     throw CancellationError()
                 }
-                accountStore.save(session)
                 return session
             } catch {
                 // Another refresher (Settings) may have stored a newer session
