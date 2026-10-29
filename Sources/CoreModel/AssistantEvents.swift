@@ -771,7 +771,7 @@ public struct ProviderRuntimeEvent: Codable, Sendable, Equatable, Identifiable {
     }
 
     private static let liveStatusCarrierKindPrefixes = [
-        "auto_compact_", "subagent_", "model_changed", "goal_updated", "scheduled_task_"
+        "auto_compact_", "subagent_", "model_changed", "effort_applied", "goal_updated", "scheduled_task_"
     ]
 
     /// Methods that drive the Distill live status strip (operation phase, guest
