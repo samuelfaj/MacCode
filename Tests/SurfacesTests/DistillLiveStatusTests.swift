@@ -1,5 +1,6 @@
 import XCTest
 import AgentRuntime
+import CoreModel
 @testable import Surfaces
 
 final class DistillLiveStatusTests: XCTestCase {
@@ -56,6 +57,19 @@ final class DistillLiveStatusTests: XCTestCase {
         send(&s, "main", ["sessionUpdate": "subagent_progress", "subagent_id": "a1", "child_session_id": "c1",
                           "duration_ms": 51_000, "tokens_used": 10,
                           "active_model": "meta/muse-spark-1.3-contributor", "active_reasoning_effort": "low"])
+    }
+
+    /// The strip must show the effort the call really runs at, not the session's
+    /// configured default, and say when Jev is choosing it.
+    func test_effortApplied_replacesConfiguredDefaultWithTheEffortInUse() {
+        var s = DistillLiveStatus()
+        send(&s, "main", ["sessionUpdate": "model_changed", "model_id": "claude/claude-opus-5-5", "reasoning_effort": "max"])
+        XCTAssertEqual(s.modelEffortText, "claude/claude-opus-5-5 max")
+        send(&s, "main", ["sessionUpdate": "effort_applied", "model_id": "claude-opus-5-5", "reasoning_effort": "low", "auto": true])
+        XCTAssertEqual(s.modelEffortText, "claude/claude-opus-5-5 auto (low)")
+        send(&s, "main", ["sessionUpdate": "effort_applied", "model_id": "claude-opus-5-5", "reasoning_effort": "high", "auto": false])
+        XCTAssertEqual(s.modelEffortText, "claude/claude-opus-5-5 high")
+        XCTAssertTrue(ProviderRuntimeEvent.isLiveStatusCarrier(method: "effort_applied"))
     }
 
     func test_childCompaction_namesSubagentSoUserSeesWhoIsBusy() {

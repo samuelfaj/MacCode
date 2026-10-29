@@ -280,6 +280,10 @@ public struct DistillLiveStatus: Equatable, Sendable {
         case "model_changed":
             model = Self.string(update["model_id"]) ?? model
             effort = Self.string(update["reasoning_effort"]) ?? effort
+        case "effort_applied":
+            // Per-call effort after Jev routing; the model label stays the catalog id from model_changed.
+            guard let level = Self.string(update["reasoning_effort"]) else { return }
+            effort = update["auto"] as? Bool == true ? "auto (\(level))" : level
         case "goal_updated":
             let status = Self.string(update["status"]) ?? "active"
             guard status != "cleared" else { goal = nil; return }
