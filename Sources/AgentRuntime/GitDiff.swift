@@ -284,10 +284,10 @@ public enum GitDiff {
         return decoratedStdout(run(args, cwd: cwd))
     }
 
-    /// Runs a single `git diff HEAD --no-color -- <paths>` and returns a
+    /// Runs `git diff HEAD --no-color -- <paths>` in bounded batches and returns a
     /// dictionary keyed by the path of each file that has changes. Files
     /// absent from the output had no diff (same as calling `diff(in:path:)`
-    /// and getting `""`). Pure split after one subprocess — no per-file I/O.
+    /// and getting `""`). No per-file subprocesses.
     ///
     /// Renames: git uses `diff --git a/<old> b/<new>` in the header; the key
     /// in the returned dictionary is the `b/` (new / current) path, matching
@@ -297,12 +297,20 @@ public enum GitDiff {
     /// and are preserved verbatim in the returned slice.
     public static func diffAll(in cwd: String, paths: [String]) -> [String: String] {
         guard isGitProbe(cwd) != false, !paths.isEmpty else { return [:] }
-        let args = ["diff", "HEAD", "--no-color", "--"] + paths
-        let result = run(args, cwd: cwd)
-        var byPath = Self.splitCombinedDiff(decoratedStdout(result))
-        // Files the killed diff never reached must not read as "no diff".
-        if result.timedOut {
-            for path in paths where byPath[path] == nil { byPath[path] = timeoutNotice }
+        // Foundation raises an NSException (not a Swift Error) above 4,096
+        // arguments. Leave room for git and its flags in every invocation.
+        let batchSize = 1_024
+        var byPath: [String: String] = [:]
+        for start in stride(from: 0, to: paths.count, by: batchSize) {
+            let batch = Array(paths[start..<min(start + batchSize, paths.count)])
+            let args = ["diff", "HEAD", "--no-color", "--"] + batch
+            let result = run(args, cwd: cwd)
+            byPath.merge(Self.splitCombinedDiff(decoratedStdout(result))) { _, new in new }
+            // Files the killed diff never reached must not read as "no diff".
+            if result.timedOut {
+                for path in paths[start...] where byPath[path] == nil { byPath[path] = timeoutNotice }
+                break
+            }
         }
         return byPath
     }
