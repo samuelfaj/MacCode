@@ -107,6 +107,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         : KeychainRelayHostKeyStore()
     public var palette: CommandPalette?
     public var settings: SettingsWindowController?
+    var onboardingController: OnboardingWindowController?
     public private(set) var petController: PetController?
     private let activityDockBadge = ActivityDockBadge()
     public var updater: AppUpdateChecking?
@@ -441,8 +442,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // runModal, which inside a main-queue job would stall every main-actor
         // job (remote RPCs) until dismissed.
         RunLoop.main.perform { [weak self] in MainActor.assumeIsolated {
-            // Explain folder TCC before restored surfaces/PTYs touch protected paths.
-            self?.presentHostFileAccessOnboardingIfNeeded()
+            // First-run setup replaces the folder-access tip on that launch,
+            // so two first-launch windows never stack; the tip shows next launch.
+            if self?.presentOnboardingIfNeeded() != true {
+                // Explain folder TCC before restored surfaces/PTYs touch protected paths.
+                self?.presentHostFileAccessOnboardingIfNeeded()
+            }
             self?.runDeferredStartup()
         } }
         // Account usage % rings: wait ~8s so boot probes do not pile on top of
@@ -1461,6 +1466,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         let settingsItem = NSMenuItem(title: "Settings\u{2026}", action: #selector(showSettings), keyEquivalent: ",")
         settingsItem.target = self
         appMenu.addItem(settingsItem)
+        let setupItem = NSMenuItem(title: "Set Up MacCode\u{2026}", action: #selector(showOnboarding), keyEquivalent: "")
+        setupItem.target = self
+        appMenu.addItem(setupItem)
         appMenu.addItem(.separator())
         let checkUpdatesItem = NSMenuItem(title: "Check for Updates\u{2026}", action: #selector(checkForUpdatesAction), keyEquivalent: "")
         checkUpdatesItem.target = self
