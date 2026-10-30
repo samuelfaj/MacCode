@@ -5,7 +5,7 @@ import CoreModel
 import DesignSystemKit
 import Surfaces
 
-/// First-run setup: six steps in one native window. Each step is one
+/// First-run setup: seven steps in one native window. Each step is one
 /// decision on the left and a live illustration of its effect on the right.
 struct OnboardingView: View {
     @ObservedObject var vm: OnboardingViewModel
@@ -19,7 +19,7 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            OnboardingStepper(current: vm.state.step, done: vm.state.completedSteps, reachable: vm.furthestReachable) { vm.jump(to: $0) }
+            OnboardingStepper(current: vm.state.step, done: vm.state.completedSteps, reachable: vm.isLocked ? vm.state.step : vm.furthestReachable) { vm.jump(to: $0) }
                 .padding(.horizontal, 40)
                 .padding(.top, DS.Space.xxxl)
                 .padding(.bottom, DS.Space.xl)
@@ -63,6 +63,7 @@ struct OnboardingView: View {
         case .routing: OnboardingRoutingStep(vm: vm, accounts: accounts)
         case .bots: OnboardingBotsStep(vm: vm)
         case .workspace: OnboardingWorkspaceStep(vm: vm)
+        case .follow: OnboardingFollowStep(vm: vm)
         }
     }
 }
@@ -190,7 +191,7 @@ struct OnboardingStepper: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(step.index > reachable.index)
-                .accessibilityLabel("Step \(step.index + 1) of 6, \(step.title)\(isDone ? ", done" : "")")
+                .accessibilityLabel("Step \(step.index + 1) of \(OnboardingStep.allCases.count), \(step.title)\(isDone ? ", done" : "")")
                 .accessibilityAddTraits(isCurrent ? .isSelected : [])
                 if step != OnboardingStep.allCases.last {
                     Capsule()

@@ -14,7 +14,7 @@ struct OnboardingAccountStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            eyebrow: "Step 1 of 6",
+            eyebrow: "Step 1 of 7",
             title: vm.signedInEmail == nil ? (vm.creatingAccount ? "Create your account." : "Your next project starts here.") : "You're signed in.",
             subtitle: vm.signedInEmail == nil
                 ? "One MacCode account links this Mac, your iPhone and your settings."
@@ -102,7 +102,7 @@ struct OnboardingJevStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            eyebrow: "Step 2 of 6 · Jev",
+            eyebrow: "Step 2 of 7 · Jev",
             title: "Less noise in every prompt.",
             subtitle: "Jev decides what each step needs to read and drops the rest, so agents spend fewer tokens on irrelevant context. Savings vary by task."
         ) {
@@ -218,7 +218,7 @@ struct OnboardingProvidersStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            eyebrow: "Step 3 of 6 · AI accounts",
+            eyebrow: "Step 3 of 7 · AI accounts",
             title: "Your AI subscriptions. One place.",
             subtitle: "Connect only the plans you already pay for. Agents use them directly; nothing is billed by MacCode."
         ) {
@@ -302,7 +302,7 @@ struct OnboardingRoutingStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            eyebrow: "Step 4 of 6 · Auto",
+            eyebrow: "Step 4 of 7 · Auto",
             title: "The right model, without choosing every time.",
             subtitle: "Auto picks a model from the accounts you connected. It applies to new conversations and Bots set to Auto."
         ) {
@@ -454,7 +454,7 @@ struct OnboardingBotsStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            eyebrow: "Step 5 of 6 · Bots",
+            eyebrow: "Step 5 of 7 · Bots",
             title: "You have a team. And Titio.",
             subtitle: "Bots are agents with a role, memory and their own conversations. Titio is your general assistant: it knows MacCode and can coordinate the others."
         ) {
@@ -530,7 +530,7 @@ struct OnboardingWorkspaceStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            eyebrow: "Step 6 of 6 · Project",
+            eyebrow: "Step 6 of 7 · Project",
             title: "Open something of yours.",
             subtitle: "Pick a project folder. MacCode opens it as a workspace\(vm.state.createDeveloper ? " with \(vm.state.developerName) ready" : "")."
         ) {
@@ -574,7 +574,7 @@ struct OnboardingWorkspaceStep: View {
             if vm.folder == nil {
                 OnboardingPrimaryButton(title: "Choose folder", action: pickFolder)
             } else {
-                OnboardingPrimaryButton(title: "Open workspace", busy: vm.finishing) { vm.finish() }
+                OnboardingPrimaryButton(title: "Create workspace", busy: vm.finishing) { vm.finish() }
                     .disabled(vm.finishing)
             }
         }
@@ -680,6 +680,98 @@ struct OnboardingWorkspacePreview: View {
             while typed < prompt.count, !Task.isCancelled {
                 typed = min(prompt.count, typed + 2)
                 try? await Task.sleep(nanoseconds: 16_000_000)
+            }
+        }
+    }
+}
+
+// MARK: 7 · Follow
+
+struct OnboardingFollowStep: View {
+    @ObservedObject var vm: OnboardingViewModel
+
+    var body: some View {
+        OnboardingStepLayout(
+            eyebrow: "Step 7 of 7 · Follow",
+            title: "You're all set.",
+            subtitle: "MacCode is built in the open. Follow along on X for releases, tips and what's coming next."
+        ) {
+            VStack(alignment: .leading, spacing: DS.Space.lg) {
+                Button { NSWorkspace.shared.open(OnboardingFollow.url) } label: {
+                    HStack(spacing: DS.Space.md) {
+                        Text("𝕏").font(.system(size: 20, weight: .bold)).foregroundColor(DS.Palette.text)
+                            .frame(width: 40, height: 40)
+                            .background(DS.Palette.surfaceRaised)
+                            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Samuel Fajreldines").font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
+                            Text(OnboardingFollow.handle).font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
+                        }
+                        Spacer()
+                        Text("Open again").font(DS.Font.bodyStrong).foregroundColor(DS.Palette.accent)
+                        Image(systemName: "arrow.up.right").foregroundColor(DS.Palette.accent).accessibilityHidden(true)
+                    }
+                    .padding(DS.Space.lg)
+                    .background(DS.Palette.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.modal, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: DS.Radius.modal, style: .continuous)
+                        .strokeBorder(DS.Palette.line, lineWidth: DS.Border.hairline))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Follow \(OnboardingFollow.handle) on X. Opens in your browser.")
+                Label("Your project opens when you finish.", systemImage: "folder")
+                    .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
+            }
+        } illustration: {
+            OnboardingFollowIllustration(done: vm.state.completedSteps)
+        } footer: {
+            Spacer()
+            OnboardingPrimaryButton(title: "Open my project") { vm.done() }
+        }
+    }
+}
+
+/// The finished setup: every step checked off, one after the other.
+struct OnboardingFollowIllustration: View {
+    let done: Set<OnboardingStep>
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var checked = 0
+    private let steps = OnboardingStep.allCases.filter { $0 != .follow }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
+            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                HStack(spacing: DS.Space.md) {
+                    let shown = index < checked, ok = done.contains(step)
+                    Image(systemName: shown ? (ok ? "checkmark.circle.fill" : "minus.circle") : "circle")
+                        .foregroundColor(shown && ok ? DS.Palette.accent : DS.Palette.textTertiary)
+                        .scaleEffect(index < checked || reduceMotion ? 1 : 0.85)
+                    Text(step.title).font(DS.Font.body)
+                        .foregroundColor(index < checked ? DS.Palette.text : DS.Palette.textSecondary)
+                    Spacer()
+                    if index < checked && !done.contains(step) {
+                        Text("Later").font(DS.Font.caption).foregroundColor(DS.Palette.textTertiary)
+                    }
+                }
+                .animation(reduceMotion ? OnboardingMotion.instant : DS.Motion.emphasized, value: checked)
+            }
+        }
+        .padding(DS.Space.xl)
+        .frame(maxWidth: 300)
+        .background(DS.Palette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.modal, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.modal, style: .continuous)
+            .strokeBorder(DS.Palette.line, lineWidth: DS.Border.hairline))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Setup checklist: \(done.count) done, the rest can be set up later in Settings.")
+        .task {
+            guard !reduceMotion else { checked = steps.count; return }
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            for index in steps.indices {
+                checked = index + 1
+                try? await Task.sleep(nanoseconds: 110_000_000)
             }
         }
     }

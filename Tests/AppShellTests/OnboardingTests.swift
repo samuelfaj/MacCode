@@ -65,6 +65,8 @@ final class OnboardingTests: XCTestCase {
         }
         func bindDeveloper(_ bot: BotID, workspace: WorkspaceID) throws { bindings.append((bot, workspace)) }
         func handOff(workspace: WorkspaceID, developer: BotID?, prompt: String) { handOffs.append((workspace, developer, prompt)) }
+        var opened: [URL] = []
+        func openInBrowser(_ url: URL) { opened.append(url) }
     }
 
     private func makeStore() throws -> OnboardingStateStore {
@@ -200,6 +202,10 @@ final class OnboardingTests: XCTestCase {
         XCTAssertNil(vm.finishError)
         XCTAssertEqual(services.openCalls, 1, "Retry must reuse the workspace")
         XCTAssertEqual(services.createCalls, 2)
+        XCTAssertEqual(vm.state.step, .follow, "Creating the project leads to the last step")
+        XCTAssertEqual(services.opened, [OnboardingFollow.url], "Reaching step 7 opens the X profile once")
+        XCTAssertTrue(services.handOffs.isEmpty, "The project opens only when setup finishes")
+        vm.done()
         XCTAssertEqual(vm.state.status, .completed)
         XCTAssertEqual(services.handOffs.count, 1)
         XCTAssertEqual(services.handOffs.first?.2, OnboardingDeveloperTemplate.firstPrompt)
@@ -215,7 +221,9 @@ final class OnboardingTests: XCTestCase {
         let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
         vm.chooseFolder(URL(fileURLWithPath: NSTemporaryDirectory()))
         vm.finish()
+        vm.done()
         XCTAssertEqual(services.createCalls, 0)
+        XCTAssertEqual(services.handOffs.count, 1)
         XCTAssertNil(services.handOffs.first?.1)
     }
 
@@ -233,8 +241,54 @@ final class OnboardingTests: XCTestCase {
         }
         vm.chooseFolder(URL(fileURLWithPath: NSTemporaryDirectory()))
         vm.finish()
+        vm.done()
         XCTAssertEqual(closes, 1)
         XCTAssertEqual(vm.state.status, .completed, "Closing after finish must not downgrade to dismissed")
+    }
+
+    // Step 7 only invites the user to follow on X. Closing the window there
+    // must still finish setup and open the project, never leave it dismissed
+    // with a workspace the user never saw; and the created project cannot be
+    // re-chosen by navigating back.
+    func test_followStepFinishesOnCloseAndLocksEarlierSteps() throws {
+        let services = Services(accounts: Accounts())
+        var state = OnboardingState(); state.step = .workspace; state.createDeveloper = false
+        let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
+        vm.chooseFolder(URL(fileURLWithPath: NSTemporaryDirectory()))
+        vm.finish()
+        XCTAssertEqual(vm.state.step, .follow)
+        vm.goBack(); vm.jump(to: .bots)
+        XCTAssertEqual(vm.state.step, .follow, "The created project cannot be revisited")
+        vm.close()
+        XCTAssertEqual(vm.state.status, .completed)
+        XCTAssertEqual(services.handOffs.count, 1)
+        XCTAssertEqual(OnboardingFollow.url.absoluteString, "https://x.com/samfajreldines")
+    }
+
+    // Resuming a setup that is already on step 7 must not open the browser
+    // again at launch; only the transition into the step does.
+    func test_resumingOnFollowStepDoesNotReopenBrowser() throws {
+        let services = Services(accounts: Accounts())
+        let workspace = WorkspaceID(); services.workspaces.insert(workspace)
+        var state = OnboardingState(); state.step = .follow
+        state.complete(.workspace); state.workspaceID = workspace
+        let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
+        vm.finish()
+        XCTAssertTrue(services.opened.isEmpty)
+        vm.done()
+        XCTAssertTrue(services.opened.isEmpty)
+        XCTAssertEqual(vm.state.status, .completed)
+    }
+
+    // A project deleted while setup waited on step 7 must not strand the user
+    // on a step whose only action needs it: setup returns to step 6.
+    func test_resumingOnFollowStepWithDeletedProjectReturnsToProjectStep() throws {
+        let services = Services(accounts: Accounts())
+        var state = OnboardingState(); state.step = .follow
+        state.complete(.workspace); state.workspaceID = WorkspaceID()
+        let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
+        XCTAssertEqual(vm.state.step, .workspace)
+        XCTAssertFalse(vm.isLocked)
     }
 
     // If the workspace vanished but the Developer survived, retry reuses the

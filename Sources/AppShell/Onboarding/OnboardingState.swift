@@ -2,9 +2,9 @@ import Foundation
 import CoreModel
 import Persistence
 
-/// The six first-run setup steps, in order.
+/// The first-run setup steps, in order.
 public enum OnboardingStep: String, Codable, CaseIterable, Sendable {
-    case account, jev, accounts, routing, bots, workspace
+    case account, jev, accounts, routing, bots, workspace, follow
 
     public var title: String {
         switch self {
@@ -14,6 +14,7 @@ public enum OnboardingStep: String, Codable, CaseIterable, Sendable {
         case .routing: return "Auto"
         case .bots: return "Bots"
         case .workspace: return "Project"
+        case .follow: return "Follow"
         }
     }
 
@@ -124,4 +125,10 @@ public enum OnboardingDeveloperTemplate {
         - When you finish, say what changed, how you verified it, and what is still unverified.
         """
     }
+}
+
+/// The maker's X profile, offered on the last step.
+public enum OnboardingFollow {
+    public static let handle = "@samfajreldines"
+    public static let url = URL(string: "https://x.com/samfajreldines")!
 }

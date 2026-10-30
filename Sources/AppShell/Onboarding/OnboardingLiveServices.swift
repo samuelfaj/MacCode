@@ -99,6 +99,10 @@ final class OnboardingLiveServices: OnboardingServices {
         )
     }
 
+    func openInBrowser(_ url: URL) {
+        NSWorkspace.shared.open(url)
+    }
+
     func handOff(workspace: WorkspaceID, developer: BotID?, prompt: String) {
         guard let context, let router = context.router else { return }
         try? router.selectWorkspace(workspace)

@@ -24,6 +24,8 @@ public protocol OnboardingServices: AnyObject {
     func bindDeveloper(_ bot: BotID, workspace: WorkspaceID) throws
     /// Selects the workspace's Agent App with an unsent first prompt.
     func handOff(workspace: WorkspaceID, developer: BotID?, prompt: String)
+    /// Opens `url` in the user's default browser.
+    func openInBrowser(_ url: URL)
 }
 
 @MainActor
@@ -57,6 +59,11 @@ public final class OnboardingViewModel: ObservableObject {
         var state = initial
         // Resources that disappeared since the last run are created again.
         if let id = state.workspaceID, !services.workspaceExists(id) { state.workspaceID = nil }
+        // Step 7 needs the project; without it, choose one again on step 6.
+        if state.completedSteps.contains(.workspace), state.workspaceID == nil, state.status == .inProgress {
+            state.completedSteps.remove(.workspace)
+            if state.step == .follow { state.step = .workspace }
+        }
         if let id = state.developerBotID, !services.botExists(id) { state.developerBotID = nil }
         self.state = state
         signedInEmail = services.signedInUser()?.email
@@ -66,8 +73,11 @@ public final class OnboardingViewModel: ObservableObject {
 
     // MARK: Navigation
 
+    /// The project is created on step 6; earlier choices can no longer change it.
+    public var isLocked: Bool { state.completedSteps.contains(.workspace) }
+
     public func goBack() {
-        guard let previous = state.step.previous else { return }
+        guard !isLocked, let previous = state.step.previous else { return }
         direction = -1
         update { $0.step = previous }
     }
@@ -89,7 +99,7 @@ public final class OnboardingViewModel: ObservableObject {
     }
 
     public func jump(to step: OnboardingStep) {
-        guard step.index <= furthestReachable.index else { return }
+        guard !isLocked, step.index <= furthestReachable.index else { return }
         direction = step.index >= state.step.index ? 1 : -1
         update { $0.step = step }
     }
@@ -97,16 +107,39 @@ public final class OnboardingViewModel: ObservableObject {
     /// Steps before the furthest decided one stay reachable from the stepper.
     public var furthestReachable: OnboardingStep {
         let decided = state.completedSteps.union(state.skippedSteps)
-        return OnboardingStep.allCases.first { !decided.contains($0) } ?? .workspace
+        return OnboardingStep.allCases.first { !decided.contains($0) } ?? .follow
     }
 
     /// Closing keeps progress; launch no longer reopens the window.
     /// Idempotent: the window's own close path calls back into here.
+    /// Closing on the last step still finishes: the project is already open.
     public func close() {
         guard !closed else { return }
         closed = true
-        if state.status == .inProgress { update { $0.status = .dismissed } }
+        if state.step == .follow, state.completedSteps.contains(.workspace), state.status == .inProgress {
+            completeAndHandOff()
+        } else if state.status == .inProgress {
+            update { $0.status = .dismissed }
+        }
         onClose(state)
+    }
+
+    /// Last step: mark setup done, open the workspace with the draft, close.
+    public func done() {
+        guard state.step == .follow, state.completedSteps.contains(.workspace) else { return }
+        completeAndHandOff()
+        close()
+    }
+
+    private func completeAndHandOff() {
+        guard state.status != .completed, let workspace = state.workspaceID else { return }
+        update {
+            $0.complete(.follow)
+            $0.status = .completed
+            $0.completedAt = Date()
+        }
+        let developer = state.createDeveloper ? state.developerBotID : nil
+        services.handOff(workspace: workspace, developer: developer, prompt: OnboardingDeveloperTemplate.firstPrompt)
     }
 
     private func update(_ change: (inout OnboardingState) -> Void) {
@@ -224,7 +257,7 @@ public final class OnboardingViewModel: ObservableObject {
     /// to the conversation with an unsent prompt. Ids are saved after each
     /// mutation, so a retry resumes at the first missing resource.
     public func finish() {
-        guard !finishing else { return }
+        guard !finishing, !state.completedSteps.contains(.workspace) else { return }
         guard let folder else { finishError = "Choose a project folder first."; return }
         finishing = true
         finishError = nil
@@ -237,27 +270,24 @@ public final class OnboardingViewModel: ObservableObject {
                 workspaceIsNew = true
                 update { $0.workspaceID = workspace }
             }
-            var developer: BotID?
             if state.createDeveloper {
                 if let existing = state.developerBotID {
                     // A Developer kept from an earlier attempt follows the workspace opened now.
                     if workspaceIsNew { try services.bindDeveloper(existing, workspace: workspace) }
-                    developer = existing
                 } else {
                     let name = state.developerName.trimmingCharacters(in: .whitespacesAndNewlines)
                     let created = try services.createDeveloper(
                         name: name.isEmpty ? OnboardingDeveloperTemplate.defaultName : name, workspace: workspace)
                     update { $0.developerBotID = created }
-                    developer = created
                 }
             }
+            direction = 1
             update {
                 $0.complete(.workspace)
-                $0.status = .completed
-                $0.completedAt = Date()
+                $0.step = .follow
             }
-            services.handOff(workspace: workspace, developer: developer, prompt: OnboardingDeveloperTemplate.firstPrompt)
-            close()
+            // Only on this transition, so resuming at step 7 never reopens it.
+            services.openInBrowser(OnboardingFollow.url)
         } catch {
             finishError = "Could not finish setup: \(error.localizedDescription)"
         }
