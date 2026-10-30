@@ -81,6 +81,20 @@ final class OnboardingTests: XCTestCase {
 
     // Upgrading users must never be dropped into a first-run window; only an
     // install with no projects and no account is new.
+    // The sidebar Sign in button is the natural door into setup for anyone
+    // who never finished it, including upgraders recorded as existing users.
+    // After setup is done, or once signed in, it must stay a plain sign-in.
+    func test_signInButtonOpensSetupOnlyUntilSetupIsFinished() {
+        XCTAssertTrue(OnboardingGate.signInOpensSetup(saved: nil, signedIn: false))
+        var existing = OnboardingState(); existing.status = .existingUser
+        XCTAssertTrue(OnboardingGate.signInOpensSetup(saved: existing, signedIn: false))
+        var dismissed = OnboardingState(); dismissed.status = .dismissed
+        XCTAssertTrue(OnboardingGate.signInOpensSetup(saved: dismissed, signedIn: false))
+        var done = OnboardingState(); done.status = .completed
+        XCTAssertFalse(OnboardingGate.signInOpensSetup(saved: done, signedIn: false))
+        XCTAssertFalse(OnboardingGate.signInOpensSetup(saved: nil, signedIn: true))
+    }
+
     func test_launchShowsSetupOnlyForNewInstalls() {
         XCTAssertTrue(OnboardingGate.launchDecision(saved: nil, hasWorkspaces: false, hasAccountSession: false).present)
         let upgraded = OnboardingGate.launchDecision(saved: nil, hasWorkspaces: true, hasAccountSession: false)

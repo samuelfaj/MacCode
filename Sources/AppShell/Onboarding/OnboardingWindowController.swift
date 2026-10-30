@@ -54,10 +54,14 @@ extension AppDelegate {
         return true
     }
 
-    /// Opens setup at the saved step (Help ▸ Set Up MacCode…).
-    @objc func showOnboarding() {
+    /// Opens setup at the saved step (MacCode ▸ Set Up MacCode…).
+    @objc func showOnboarding() { openOnboarding(startingAt: nil) }
+
+    /// `step` moves an unfinished setup to that step (sidebar Sign in → Account).
+    func openOnboarding(startingAt step: OnboardingStep?) {
         guard let context else { return }
         if let existing = onboardingController {
+            if let step { existing.viewModel.jump(to: step) }
             existing.show()
             return
         }
@@ -66,8 +70,10 @@ extension AppDelegate {
         if state.status != .inProgress {
             state.status = .inProgress
             if state.completedAt != nil { state.step = .account }
-            store.save(state)
         }
+        // Step 1 is always reachable; once the project exists the flow is locked.
+        if let step, !state.completedSteps.contains(.workspace) { state.step = step }
+        store.save(state)
         let vm = OnboardingViewModel(
             services: OnboardingLiveServices(context: context),
             store: store,

@@ -4820,6 +4820,14 @@ public final class SidebarView: NSObject {
 
     @objc private func showAccount() {
         guard let context else { return }
+        let setup = OnboardingStateStore(repo: context.settingsRepo)
+        if OnboardingGate.signInOpensSetup(
+            saved: setup.load(),
+            signedIn: PrivateAccountSessionStore(repo: context.settingsRepo).load() != nil
+        ), let app = NSApp.delegate as? AppDelegate {
+            app.openOnboarding(startingAt: .account)
+            return
+        }
         let controller = accountController ?? AccountWindowController(
             context: context, loadImmediately: false
         )

@@ -106,6 +106,13 @@ public enum OnboardingGate {
         }
         return (true, OnboardingState())
     }
+
+    /// Where the sidebar "Sign in" button leads. Signed-out users who never
+    /// finished setup get it from step 1; everyone else gets the account sheet.
+    public static func signInOpensSetup(saved: OnboardingState?, signedIn: Bool) -> Bool {
+        guard !signedIn else { return false }
+        return saved?.status != .completed
+    }
 }
 
 /// The example Bot offered by setup.
