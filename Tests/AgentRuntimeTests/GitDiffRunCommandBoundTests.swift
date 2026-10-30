@@ -74,9 +74,13 @@ final class GitDiffRunCommandBoundTests: XCTestCase {
         GitDiff.readOnlyCommandTimeoutForTesting = 0.5
         defer { GitDiff.readOnlyCommandTimeoutForTesting = nil }
         let patch = GitDiff.diff(in: repo, path: nil)
-        let perFile = GitDiff.diffAll(in: repo, paths: ["a.txt"])
+        let paths = ["a.txt"] + (0..<2_048).map { "missing-\($0).txt" }
+        let started = Date()
+        let perFile = GitDiff.diffAll(in: repo, paths: paths)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.5, "stop after the first timed-out batch")
         XCTAssertTrue(patch.contains(GitDiff.timeoutNotice), patch)
         XCTAssertTrue(perFile["a.txt"]?.contains(GitDiff.timeoutNotice) == true, "\(perFile)")
+        XCTAssertEqual(perFile[paths.last!], GitDiff.timeoutNotice, "unread batches must also be marked incomplete")
     }
 
     /// WHY: the drain checked its stop flag before every read, so a reader

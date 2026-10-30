@@ -2,6 +2,29 @@ import XCTest
 @testable import AgentRuntime
 
 final class GitDiffTests: XCTestCase {
+    func test_diffAll_withMorePathsThanTheProcessArgumentLimit_preservesRequestedDiffs() throws {
+        let dir = try mkTmpRepo()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        for path in ["first.txt", "last.txt", "excluded.txt"] {
+            try "before\n".write(toFile: dir + "/" + path, atomically: true, encoding: .utf8)
+        }
+        run(["git", "-C", dir, "add", "."])
+        run(["git", "-C", dir, "commit", "-q", "-m", "init"])
+        for path in ["first.txt", "last.txt", "excluded.txt"] {
+            try "after\n".write(toFile: dir + "/" + path, atomically: true, encoding: .utf8)
+        }
+        // The reported crash passed 22,490 arguments, including git and its flags.
+        let paths = ["first.txt"] + (0..<22_483).map { "unchanged-\($0).txt" } + ["last.txt"]
+
+        let diffs = GitDiff.diffAll(in: dir, paths: paths)
+
+        XCTAssertEqual(Set(diffs.keys), ["first.txt", "last.txt"])
+        for path in ["first.txt", "last.txt"] {
+            XCTAssertEqual(diffs[path], GitDiff.diff(in: dir, path: path))
+            XCTAssertTrue(diffs[path]?.contains("+after") == true)
+        }
+    }
+
     private func mkTmpRepo() throws -> String {
         let dir = NSTemporaryDirectory() + "rc2-git-" + UUID().uuidString
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
