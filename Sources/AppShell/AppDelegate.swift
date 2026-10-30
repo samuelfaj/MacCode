@@ -1210,16 +1210,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         startRelayPathMonitor(client)
     }
 
-    /// Reconnects the relay host when the set of active interfaces changes (Wi-Fi/Ethernet/VPN switch).
+    /// Reconnects the relay host when the network changes (interface, Wi-Fi network or
+    /// gateway switch, or the path coming back after going offline). Otherwise the dead
+    /// host socket lingers until the 25 s receive limit and iPhones cannot reach the Mac.
     private func startRelayPathMonitor(_ client: RelayHostClient) {
         relayPathMonitor?.cancel()
         let monitor = NWPathMonitor()
-        var lastInterfaces: Set<NWInterface.InterfaceType>?
+        var lastSignature: String?
         monitor.pathUpdateHandler = { [weak client] path in
-            guard path.status == .satisfied else { return }
-            let interfaces = Set(path.availableInterfaces.map(\.type))
-            defer { lastInterfaces = interfaces }
-            guard let previous = lastInterfaces, previous != interfaces else { return }
+            guard path.status == .satisfied else { lastSignature = "offline"; return }
+            let interfaces = path.availableInterfaces.map { "\($0.type):\($0.name)" }.sorted()
+            let gateways = path.gateways.map { "\($0)" }.sorted()
+            let signature = (interfaces + ["|"] + gateways).joined(separator: ",")
+            defer { lastSignature = signature }
+            guard let previous = lastSignature, previous != signature else { return }
             client?.reconnectNow()
         }
         monitor.start(queue: .global(qos: .utility))
