@@ -179,6 +179,14 @@ public final class DistillAccountsController: ObservableObject {
         }
         perform(accountID: nil) { try await $0.saveRouting(draft) }
     }
+    /// Saves `draft` and waits for Distill. True only when the confirmed
+    /// profile equals the draft; otherwise `lastError` explains.
+    public func saveRoutingAndWait(_ draft: DistillAutoRouting) async -> Bool {
+        saveRouting(draft)
+        await operation?.value
+        return lastError == nil && routing == draft
+    }
+
     /// Turns the shared Auto profile on without the guide. Returns false when the
     /// profile has no options yet or the save fails (`lastError` explains).
     public func enableAuto() async -> Bool {
