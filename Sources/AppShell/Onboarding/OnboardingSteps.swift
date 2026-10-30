@@ -181,7 +181,9 @@ struct OnboardingJevIllustration: View {
                     .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                     .opacity(filtered && !lane.2 ? 0.45 : 1)
                     .offset(x: filtered && lane.2 && !reduceMotion ? 8 : 0)
-                    .animation(reduceMotion ? .easeOut(duration: 0.16) : DS.Motion.emphasized.delay(Double(index) * 0.04), value: filtered)
+                    .scaleEffect(filtered && !lane.2 && !reduceMotion ? 0.98 : 1, anchor: .leading)
+                    .animation(reduceMotion ? OnboardingMotion.instant : DS.Motion.emphasized.delay(Double(index) * 0.05), value: filtered)
+                    .onboardingReveal(5 + index)
                 }
                 Text("Illustration, not a measurement.").font(DS.Font.caption2).foregroundColor(DS.Palette.textTertiary)
             }
@@ -190,7 +192,8 @@ struct OnboardingJevIllustration: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Illustration: of six kinds of tool output, Jev keeps the three relevant ones.")
         .task {
-            try? await Task.sleep(nanoseconds: 600_000_000)
+            // After the lanes have arrived, Jev filters once.
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
             filtered = true
         }
         .onTapGesture { filtered.toggle() }
@@ -246,6 +249,7 @@ struct OnboardingProvidersStep: View {
 
 struct OnboardingHubIllustration: View {
     let connected: [DistillAccountProvider]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let all: [DistillAccountProvider] = [.chatgpt, .claude, .grok]
 
     var body: some View {
@@ -256,10 +260,14 @@ struct OnboardingHubIllustration: View {
                     .frame(width: 64, height: 64)
                     .overlay(Image(systemName: "chevron.left.forwardslash.chevron.right").font(.system(size: 22, weight: .semibold)).foregroundColor(DS.Palette.accent))
                 VStack(spacing: DS.Space.lg) {
-                    ForEach(all, id: \.self) { provider in
+                    ForEach(Array(all.enumerated()), id: \.element) { index, provider in
                         let on = connected.contains(provider)
                         HStack(spacing: DS.Space.md) {
-                            Capsule().fill(on ? DS.Palette.accent : DS.Palette.line).frame(width: 36, height: 2)
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(DS.Palette.line).frame(width: 36, height: 2)
+                                Capsule().fill(DS.Palette.accent).frame(width: 36, height: 2)
+                                    .scaleEffect(x: on ? 1 : 0.001, anchor: .leading)
+                            }
                             Image(systemName: provider.onboardingSymbol)
                             Text(provider.displayName).font(DS.Font.bodyStrong)
                             Spacer()
@@ -272,7 +280,9 @@ struct OnboardingHubIllustration: View {
                         .clipShape(RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
                             .strokeBorder(on ? DS.Palette.accent.opacity(0.6) : DS.Palette.line))
-                        .animation(DS.Motion.standard, value: on)
+                        .scaleEffect(on && !reduceMotion ? 1.02 : 1)
+                        .animation(reduceMotion ? OnboardingMotion.instant : DS.Motion.emphasized, value: on)
+                        .onboardingReveal(5 + index)
                     }
                 }
             }
@@ -397,11 +407,16 @@ struct OnboardingRoutingIllustration: View {
                     .padding(.horizontal, DS.Space.xl).frame(height: 40)
                     .background(DS.Palette.surfaceRaised).clipShape(Capsule())
                 Image(systemName: "arrow.down").foregroundColor(DS.Palette.textTertiary)
+                    .onboardingReveal(6)
                 Text(strategy == .orderedFirst ? "Auto · follow my order" : "Auto · most quota left")
                     .font(DS.Font.captionStrong).foregroundColor(DS.Palette.accent)
-                    .contentTransition(.opacity)
+                    .id(strategy)
+                    .transition(.opacity.combined(with: .offset(y: 6)))
+                    .animation(DS.Motion.standard, value: strategy)
+                    .onboardingReveal(7)
                 if options.isEmpty {
                     Text("Connect an account to see Auto choose.").font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
+                        .onboardingReveal(8)
                 } else {
                     VStack(spacing: DS.Space.md) {
                         ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
@@ -415,6 +430,7 @@ struct OnboardingRoutingIllustration: View {
                             .padding(.horizontal, DS.Space.lg).frame(width: 240, height: 40)
                             .background(chosen ? DS.Palette.selection : DS.Palette.surfaceRaised)
                             .clipShape(RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous))
+                            .onboardingReveal(8 + index)
                         }
                     }
                     .animation(DS.Motion.standard, value: strategy)
@@ -468,12 +484,12 @@ struct OnboardingBotsStep: View {
             .animation(reduceMotion ? nil : DS.Motion.standard, value: vm.state.createDeveloper)
         } illustration: {
             HStack(alignment: .center, spacing: DS.Space.xxxl) {
-                botCard(avatar: AnyView(OnboardingTitioImage(size: 44)), name: "Titio", role: "General assistant", delay: 0)
+                botCard(avatar: AnyView(OnboardingTitioImage(size: 44)), name: "Titio", role: "General assistant", delay: 0.35)
                 if vm.state.createDeveloper {
                     botCard(avatar: AnyView(Image(systemName: "chevron.left.forwardslash.chevron.right")
                         .font(.system(size: 22, weight: .semibold)).foregroundColor(DS.Palette.accent)),
                             name: vm.state.developerName.isEmpty ? "Developer" : vm.state.developerName,
-                            role: "Your project", delay: 0.04)
+                            role: "Your project", delay: 0.5)
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
             }
@@ -499,8 +515,9 @@ struct OnboardingBotsStep: View {
         .clipShape(RoundedRectangle(cornerRadius: DS.Radius.modal, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: DS.Radius.modal, style: .continuous).strokeBorder(DS.Palette.line))
         .opacity(arrived ? 1 : 0)
-        .offset(y: arrived || reduceMotion ? 0 : 10)
-        .animation(reduceMotion ? nil : DS.Motion.emphasized.delay(delay), value: arrived)
+        .offset(y: arrived || reduceMotion ? 0 : 14)
+        .rotation3DEffect(.degrees(arrived || reduceMotion ? 0 : 8), axis: (x: 1, y: 0, z: 0), anchor: .bottom)
+        .animation(reduceMotion ? OnboardingMotion.instant : DS.Motion.emphasized.delay(delay), value: arrived)
         .accessibilityElement(children: .combine)
     }
 }
@@ -593,6 +610,11 @@ struct OnboardingWorkspacePreview: View {
     var highlightSidebar: Bool
     var folderName: String? = nil
     var botName: String? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Characters of the first prompt shown; types in once, then stays.
+    @State private var typed = 0
+
+    private var prompt: String { OnboardingDeveloperTemplate.firstPrompt }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -604,16 +626,20 @@ struct OnboardingWorkspacePreview: View {
                     Text("Titio").font(DS.Font.caption)
                 }
                 .foregroundColor(DS.Palette.textSecondary)
+                .onboardingReveal(6)
                 Text("WORKSPACES").font(DS.Font.caption2).foregroundColor(DS.Palette.textTertiary).padding(.top, DS.Space.md)
+                    .onboardingReveal(7)
                 HStack(spacing: DS.Space.sm) {
                     Image(systemName: "folder.fill").font(.system(size: 10))
-                    Text(folderName ?? "my-project").font(DS.Font.caption).lineLimit(1)
+                    Text(folderName ?? "my-project").font(DS.Font.caption).lineLimit(1).truncationMode(.middle)
                 }
                 .foregroundColor(highlightSidebar ? DS.Palette.text : DS.Palette.textSecondary)
                 .padding(.horizontal, DS.Space.sm).padding(.vertical, DS.Space.xs)
                 .background(highlightSidebar ? DS.Palette.selection : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control))
-                .animation(DS.Motion.emphasized, value: highlightSidebar)
+                .scaleEffect(highlightSidebar && !reduceMotion ? 1.04 : 1, anchor: .leading)
+                .animation(reduceMotion ? OnboardingMotion.instant : DS.Motion.emphasized, value: folderName)
+                .onboardingReveal(8)
                 Spacer()
             }
             .padding(DS.Space.lg)
@@ -622,12 +648,14 @@ struct OnboardingWorkspacePreview: View {
             VStack(alignment: .leading, spacing: DS.Space.md) {
                 ForEach(0..<4, id: \.self) { row in
                     Capsule().fill(DS.Palette.line).frame(width: CGFloat([170, 120, 150, 90][row]), height: 6)
+                        .onboardingReveal(6 + row)
                 }
                 Spacer()
                 VStack(alignment: .leading, spacing: DS.Space.sm) {
                     Text(botName.map { "@\($0)  " } ?? "")
                         .font(DS.Font.caption2.weight(.semibold)).foregroundColor(DS.Palette.accent)
-                    + Text(OnboardingDeveloperTemplate.firstPrompt).font(DS.Font.caption2).foregroundColor(DS.Palette.textSecondary)
+                    + Text(String(prompt.prefix(typed))).font(DS.Font.caption2).foregroundColor(DS.Palette.textSecondary)
+                    + Text(String(prompt.dropFirst(typed))).font(DS.Font.caption2).foregroundColor(.clear)
                 }
                 .lineLimit(3)
                 .padding(DS.Space.md)
@@ -644,5 +672,15 @@ struct OnboardingWorkspacePreview: View {
         .shadow(color: .black.opacity(0.35), radius: 24, y: 12)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Preview of the MacCode window with your project and Titio in the sidebar.")
+        .task {
+            // One pass of typing, after the window has assembled. Hidden text
+            // keeps the bubble's size fixed, so nothing reflows while typing.
+            guard !reduceMotion else { typed = prompt.count; return }
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            while typed < prompt.count, !Task.isCancelled {
+                typed = min(prompt.count, typed + 2)
+                try? await Task.sleep(nanoseconds: 16_000_000)
+            }
+        }
     }
 }

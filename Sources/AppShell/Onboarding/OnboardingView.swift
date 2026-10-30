@@ -46,10 +46,12 @@ struct OnboardingView: View {
 
     private var stepTransition: AnyTransition {
         guard !reduceMotion else { return .opacity }
-        let edge: Edge = vm.direction >= 0 ? .trailing : .leading
+        // The new step's parts stage themselves in; the old one leaves the
+        // way the user is heading, faster than the entrance.
+        let forward = vm.direction >= 0
         return .asymmetric(
-            insertion: .opacity.combined(with: .offset(x: edge == .trailing ? 12 : -12)),
-            removal: .opacity.combined(with: .offset(x: edge == .trailing ? -12 : 12))
+            insertion: .opacity,
+            removal: .opacity.combined(with: .offset(x: forward ? -16 : 16))
         )
     }
 
@@ -88,23 +90,28 @@ struct OnboardingStepLayout<Decision: View, Illustration: View, Footer: View>: V
                                     .font(DS.Font.captionStrong)
                                     .tracking(1.2)
                                     .foregroundColor(DS.Palette.accent)
+                                    .onboardingReveal(0)
                                 Text(title)
                                     .font(.system(size: 34, weight: .semibold))
                                     .tracking(-0.6)
                                     .foregroundColor(DS.Palette.text)
                                     .fixedSize(horizontal: false, vertical: true)
                                     .accessibilityAddTraits(.isHeader)
+                                    .onboardingReveal(1)
                                 Text(subtitle)
                                     .font(.system(size: 16))
                                     .foregroundColor(DS.Palette.textSecondary)
                                     .fixedSize(horizontal: false, vertical: true)
+                                    .onboardingReveal(2)
                             }
                             decision
+                                .onboardingReveal(3)
                         }
                         .frame(maxWidth: wide ? 440 : .infinity, alignment: .leading)
                         if wide {
                             illustration
                                 .frame(maxWidth: .infinity)
+                                .onboardingReveal(4, scale: true)
                         }
                     }
                     .padding(.horizontal, 48)
@@ -346,5 +353,39 @@ struct OnboardingTitioImage: View {
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Motion
+
+/// Rare, first-run motion: each step enters once in reading order
+/// (eyebrow, title, text, choices, illustration). Footers never move.
+enum OnboardingMotion {
+    static func reveal(_ index: Int) -> Double { 0.06 + Double(index) * 0.07 }
+    static let instant = Animation.easeOut(duration: 0.16)
+}
+
+struct OnboardingReveal: ViewModifier {
+    let index: Int
+    var scale = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown || reduceMotion ? 0 : 10)
+            .scaleEffect(shown || reduceMotion || !scale ? 1 : 0.97)
+            .onAppear {
+                withAnimation(reduceMotion ? OnboardingMotion.instant : DS.Motion.emphasized.delay(OnboardingMotion.reveal(index))) {
+                    shown = true
+                }
+            }
+    }
+}
+
+extension View {
+    func onboardingReveal(_ index: Int, scale: Bool = false) -> some View {
+        modifier(OnboardingReveal(index: index, scale: scale))
     }
 }
