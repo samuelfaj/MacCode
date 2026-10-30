@@ -435,6 +435,7 @@ public struct PrivateLiveActivityV2DeliveryRequest: Codable, Equatable, Sendable
 
 public protocol PrivateAccountAPI: Sendable {
     func login(email: String, password: String) async throws -> PrivateAccountSession
+    func register(email: String, password: String) async throws -> PrivateAccountSession
     func currentUser(accessToken: String) async throws -> PrivateAccountUser
     func refresh(refreshToken: String) async throws -> PrivateAccountSession
     func logout(refreshToken: String) async throws
@@ -447,6 +448,10 @@ public protocol PrivateAccountAPI: Sendable {
 }
 
 public extension PrivateAccountAPI {
+    func register(email: String, password: String) async throws -> PrivateAccountSession {
+        throw PrivateAccountAPIError.invalidResponse
+    }
+
     func registerLiveActivityTokenV2(
         accessToken: String,
         registration: PrivateLiveActivityV2TokenRegistration
@@ -485,6 +490,11 @@ public final class URLSessionPrivateAccountAPI: PrivateAccountAPI, @unchecked Se
     public func login(email: String, password: String) async throws -> PrivateAccountSession {
         struct Body: Encodable { let email: String; let password: String }
         return try await request(path: "/v1/private/auth/login", method: "POST", body: Body(email: email, password: password))
+    }
+
+    public func register(email: String, password: String) async throws -> PrivateAccountSession {
+        struct Body: Encodable { let email: String; let password: String }
+        return try await request(path: "/v1/private/auth/register", method: "POST", body: Body(email: email, password: password))
     }
 
     public func currentUser(accessToken: String) async throws -> PrivateAccountUser {
