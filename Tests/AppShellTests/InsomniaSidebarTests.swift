@@ -345,6 +345,59 @@ final class InsomniaSidebarTests: XCTestCase {
         ), "adjusting options while active must immediately restart the active keep-awake assertion")
     }
 
+    func test_windowlessOperationErrorDoesNotStarveMainQueue() async {
+        let app = NSApplication.shared
+        guard app.keyWindow == nil, app.modalWindow == nil else {
+            XCTFail("windowless error regression requires no existing key or modal window")
+            return
+        }
+        let returned = expectation(description: "error presenter returned")
+        let delivered = expectation(description: "main-queue work delivered")
+        var probeEnqueued = false
+        var deliveredDuringModal = false
+
+        // A run-loop timer can dismiss the alert even if the main queue is starved.
+        let watchdog = Timer(timeInterval: 3, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                if let window = app.modalWindow {
+                    app.abortModal()
+                    window.orderOut(nil)
+                }
+            }
+        }
+        let probe = Timer(timeInterval: 0.02, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                guard !probeEnqueued, let window = app.modalWindow else { return }
+                probeEnqueued = true
+                DispatchQueue.main.async {
+                    deliveredDuringModal = app.modalWindow === window
+                    app.abortModal()
+                    window.orderOut(nil)
+                    delivered.fulfill()
+                }
+            }
+        }
+        for timer in [watchdog, probe] {
+            RunLoop.main.add(timer, forMode: .common)
+            RunLoop.main.add(timer, forMode: .modalPanel)
+        }
+        defer {
+            watchdog.invalidate()
+            probe.invalidate()
+        }
+
+        DispatchQueue.main.async {
+            SidebarViewModel.defaultOperationErrorPresenter(
+                message: "Connection regression test",
+                detail: "Remote RPC work must run before this alert is dismissed."
+            )
+            returned.fulfill()
+        }
+        await fulfillment(of: [returned, delivered], timeout: 5)
+        XCTAssertTrue(deliveredDuringModal,
+                      "a windowless operation error must not hold main-actor RPC work until dismissal")
+    }
+
     func test_powerAssertionFailurePersistsOff() throws {
         let power = FakeInsomniaPowerManager()
         power.shouldActivate = false
