@@ -2500,7 +2500,11 @@ public final class SidebarViewModel: ObservableObject {
         if let window = NSApp.keyWindow {
             alert.beginSheetModal(for: window)
         } else {
-            alert.runModal()
+            // No key window while MacCode is in the background. Callers are
+            // often main-queue jobs (Task, DispatchQueue.main.async); a runModal
+            // there stalls every main-actor job, remote RPCs included, until
+            // dismissed. A run-loop block keeps the main queue draining.
+            RunLoop.main.perform { MainActor.assumeIsolated { _ = alert.runModal() } }
         }
     }
 
