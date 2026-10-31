@@ -275,20 +275,26 @@ public final class RelayHostClient: @unchecked Sendable {
     private func serveHost(_ socket: RelayWebSocket) async -> Bool {
         let rx = RxClock(openLimit: openTimeout, steadyLimit: rxTimeout)
         let pinger = Task {
-            var nextPing = Date.distantPast
+            while !Task.isCancelled {
+                do { try await socket.sendText(#"{"type":"ping"}"#) }
+                catch { socket.close(code: 1000); return }
+                do { try await Task.sleep(nanoseconds: UInt64(pingInterval * 1_000_000_000)) }
+                catch { return }
+            }
+        }
+        // Receive deadlines must progress even if the outbound socket stalls.
+        let watchdog = Task {
             let tick = min(1, pingInterval)
             while !Task.isCancelled {
-                if Date() >= nextPing {
-                    do { try await socket.sendText(#"{"type":"ping"}"#) } catch { return }
-                    nextPing = Date().addingTimeInterval(pingInterval)
-                }
                 if rx.expired { socket.close(code: 1000); return }
-                try? await Task.sleep(nanoseconds: UInt64(tick * 1_000_000_000))
+                do { try await Task.sleep(nanoseconds: UInt64(tick * 1_000_000_000)) }
+                catch { return }
             }
         }
         var sessions: [UUID: RelayVirtualSocket] = [:]
         defer {
             pinger.cancel()
+            watchdog.cancel()
             // The host socket carried these sessions; without it they are gone.
             for session in sessions.values { session.remoteClosed() }
         }
