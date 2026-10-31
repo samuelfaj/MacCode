@@ -197,6 +197,7 @@ public final class LoopbackHTTPListener: @unchecked Sendable {
             buffer.append(chunk)
             headEnd = buffer.range(of: separator)
         }
+        if let headEnd, headEnd.lowerBound > maxHeaderBytes { return .reject(431) }
         guard let headEnd,
               let head = String(data: buffer[buffer.startIndex..<headEnd.lowerBound], encoding: .utf8) else {
             return .reject(400)
@@ -221,9 +222,11 @@ public final class LoopbackHTTPListener: @unchecked Sendable {
             return .reject(411)
         }
         guard length <= maxBodyBytes else { return .reject(413) }
+        guard buffer.count - headEnd.upperBound <= length else { return .reject(400) }
         var body = Data(buffer[headEnd.upperBound...])
         while body.count < length {
             guard let chunk = receive(fd: fd, deadline: deadline) else { return .closed }
+            guard chunk.count <= length - body.count else { return .reject(400) }
             body.append(chunk)
         }
         guard body.count == length else { return .reject(400) }

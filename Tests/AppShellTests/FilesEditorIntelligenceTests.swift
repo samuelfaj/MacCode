@@ -243,6 +243,42 @@ final class FilesEditorIntelligenceTests: XCTestCase {
         XCTAssertFalse(textView.hasGhost)
     }
 
+    private func completionFixture(_ body: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("inline-transport-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let binary = directory.appendingPathComponent("distill-fixture")
+        try ("#!/bin/sh\n" + body + "\n").write(to: binary, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: binary.path)
+        return binary
+    }
+
+    func test_realTransportCannotDeadlockOnUndrainedDiagnostics() async throws {
+        let binary = try completionFixture("exec /usr/bin/perl -e 'print STDERR \"x\" x 131072; print qq({\"type\":\"text\",\"data\":\"done\"}\\n);'")
+        defer { try? FileManager.default.removeItem(at: binary.deletingLastPathComponent()) }
+        let text = try await DistillCLIInlineCompletionTransport(binary: binary.path).send(prompt: "fixture")
+        XCTAssertEqual(text, "done", "Diagnostics larger than the pipe buffer must not block an editor completion")
+    }
+
+    func test_realTransportCancellationHonorsProviderDeadlineAndReapsOwnedProcess() async throws {
+        let binary = try completionFixture("trap '' TERM\necho $$ > \"$0.pid\"\n/bin/sleep 30 &\necho $! > \"$0.child\"\nwait")
+        defer { try? FileManager.default.removeItem(at: binary.deletingLastPathComponent()) }
+        let transport = DistillCLIInlineCompletionTransport(binary: binary.path)
+        let provider = DistillInlineCompletionProvider(timeout: 0.5) { try await transport.send(prompt: $0) }
+        let started = ProcessInfo.processInfo.systemUptime
+        do {
+            _ = try await provider.complete(InlineCompletionRequest(path: "/w/a.swift", language: "swift", text: "let x = ", caret: 8))
+            XCTFail("A suspended CLI must not outlive the completion deadline")
+        } catch {
+            XCTAssertEqual(error as? InlineCompletionError, .timedOut)
+        }
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - started, 1)
+        let pid = try XCTUnwrap(Int32(String(contentsOfFile: binary.path + ".pid", encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        let child = try XCTUnwrap(Int32(String(contentsOfFile: binary.path + ".child", encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        for _ in 0..<200 where kill(pid, 0) == 0 || kill(child, 0) == 0 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNotEqual(kill(pid, 0), 0, "Cancelling ghost text must terminate the exact child even when it ignores SIGTERM")
+        XCTAssertNotEqual(kill(child, 0), 0, "The owned descendant holding stdout must be reaped with its isolated process group")
+    }
+
     func test_providerErrorPropagatesWithoutMutatingAnything() async {
         let provider = DistillInlineCompletionProvider { _ in throw InlineCompletionError.unavailable }
         let request = InlineCompletionRequest(path: "/w/a.swift", language: "swift", text: "let x = ", caret: 8)

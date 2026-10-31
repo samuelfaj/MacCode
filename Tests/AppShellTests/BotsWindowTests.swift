@@ -5380,6 +5380,26 @@ final class BotsWindowTests: XCTestCase {
         )
     }
 
+    func test_previewBrainPermissionFollowsCurrentConversationAndInvalidatesCachedReceipt() throws {
+        let context = try makeContext()
+        let vm = BotsViewModel(context: context)
+        let bot = try vm.create(name: "Preview", title: "", provider: .distill)
+        vm.openDesk(bot)
+        vm.composerText = "permission preview"
+        vm.deskRouting.permissionMode = .supervised
+        let supervised = try XCTUnwrap(vm.previewBrain())
+        XCTAssertEqual(supervised.permissionMode, .supervised)
+        XCTAssertEqual(vm.studioApprovalLabel, "Supervised")
+        let before = vm.previewBrainAssembleCountForTesting
+        vm.deskRouting.permissionMode = .fullAccess
+        let full = try XCTUnwrap(vm.previewBrain())
+        XCTAssertEqual(full.permissionMode, .fullAccess)
+        XCTAssertEqual(vm.studioApprovalLabel, "Full access")
+        XCTAssertTrue(full.compiledPayload.contains("Full access. Run tools without asking."))
+        XCTAssertGreaterThan(vm.previewBrainAssembleCountForTesting, before, "Changing the permission must retire the cached context receipt")
+        XCTAssertNotEqual(full.payloadDigest, supervised.payloadDigest)
+    }
+
     func test_previewBrainIncludesAdvertisedApprovalMode_becauseDestMustNotInviteAHop() throws {
         // WHY: Studio already says Approval mode. Compile listed Permission,
         // so first-chat "what's your Approval mode?" invented a hop. Dest
@@ -5389,6 +5409,7 @@ final class BotsWindowTests: XCTestCase {
         let vm = BotsViewModel(context: context)
         let piper = try vm.create(name: "Piper", title: "Scout", soul: "Own the inbox.", provider: .claude)
         vm.openDesk(piper)
+        vm.deskRouting.permissionMode = .supervised
         vm.composerText = "What's your Approval mode?"
         let preview = try XCTUnwrap(vm.previewBrain())
         XCTAssertEqual(vm.studioApprovalLabel, "Supervised")
@@ -5400,14 +5421,15 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertTrue(preview.compiledPayload.contains("Own the inbox."))
         XCTAssertEqual(
             preview.compiledPayload,
-            BotsDeskFollowThrough.composeRunPrompt(
+            BotBrainCompiler.composeRunPrompt(
                 bot: piper,
                 revision: try XCTUnwrap(vm.selectedRevision),
                 userText: "What's your Approval mode?",
                 memoryFiles: vm.selectedBot.map { vm.memoryFileTexts(for: $0) } ?? [],
                 skills: vm.skillBindings,
                 routines: vm.routines,
-                workspace: vm.advertisedWorkspace
+                workspace: vm.advertisedWorkspace,
+                liveRunMode: vm.deskRouting.permissionMode
             )
         )
     }
@@ -5421,6 +5443,7 @@ final class BotsWindowTests: XCTestCase {
         let vm = BotsViewModel(context: context)
         let piper = try vm.create(name: "Piper", title: "Scout", soul: "Own the inbox.", provider: .claude)
         vm.openDesk(piper)
+        vm.deskRouting.permissionMode = .supervised
         vm.composerText = "Allow once"
         let preview = try XCTUnwrap(vm.previewBrain())
         XCTAssertTrue(preview.compiledPayload.contains(BotBrainCompiler.approvalsHonesty))
@@ -5435,14 +5458,15 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertTrue(preview.compiledPayload.contains("Own the inbox."))
         XCTAssertEqual(
             preview.compiledPayload,
-            BotsDeskFollowThrough.composeRunPrompt(
+            BotBrainCompiler.composeRunPrompt(
                 bot: piper,
                 revision: try XCTUnwrap(vm.selectedRevision),
                 userText: "Allow once",
                 memoryFiles: vm.selectedBot.map { vm.memoryFileTexts(for: $0) } ?? [],
                 skills: vm.skillBindings,
                 routines: vm.routines,
-                workspace: vm.advertisedWorkspace
+                workspace: vm.advertisedWorkspace,
+                liveRunMode: vm.deskRouting.permissionMode
             )
         )
     }
@@ -11779,7 +11803,7 @@ final class BotsWindowTests: XCTestCase {
 
         guard ProcessInfo.processInfo.environment["RC_LIVE_DOCKER"] == "1" else {
             vm.openStudio(piper)
-            vm.studioDraft.desktopKind = .dockerDesktop
+            vm.studioExecutionDestination = .ownVM
             XCTAssertThrowsError(try vm.saveStudio())
             return
         }
@@ -11795,7 +11819,7 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertEqual(service.lastReady?.pngMagic, "89504e47")
         XCTAssertEqual(service.lastReady?.screenURL.host, "127.0.0.1")
         vm.openStudio(piper)
-        vm.studioDraft.desktopKind = .dockerDesktop
+        vm.studioExecutionDestination = .ownVM
         try vm.saveStudio()
         XCTAssertEqual(vm.selectedRevision?.desktopKind, .dockerDesktop)
         let launched = await waitUntil(timeout: 30) { vm.isGuestRunning(piper.id) }
@@ -12354,7 +12378,7 @@ final class BotsWindowTests: XCTestCase {
         fake.startGate = startGate
 
         vm.openStudio(bot)
-        vm.studioDraft.desktopKind = .dockerDesktop
+        vm.studioExecutionDestination = .ownVM
         var heartbeat = false
         Task { @MainActor in heartbeat = true }
         let startedAt = Date()
@@ -12808,7 +12832,7 @@ final class BotsWindowTests: XCTestCase {
                 vm.dockerGuestReadyOverrideForTesting = true
                 let created = try vm.create(name: "Piper", title: "Scout", provider: .claude)
                 vm.openStudio(created)
-                vm.studioDraft.desktopKind = .dockerDesktop
+                vm.studioExecutionDestination = .ownVM
                 bot = try vm.saveStudio()
             }
             vm.reload()
@@ -13160,7 +13184,7 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertTrue(vm.send("use my own browser"))
 
         vm.openStudio(piper)
-        vm.studioDraft.desktopKind = .dockerDesktop
+        vm.studioExecutionDestination = .ownVM
         XCTAssertThrowsError(try vm.saveStudio())
         XCTAssertEqual(vm.errorMessage, "Docker desktop is not ready.")
         XCTAssertEqual(vm.selectedRevision?.desktopKind, .botOwnedBrowser)
@@ -13178,7 +13202,7 @@ final class BotsWindowTests: XCTestCase {
         let piper = try vm.create(name: "Piper", title: "Scout", provider: .claude)
         vm.openStudio(piper)
         vm.dockerGuestReadyOverrideForTesting = true
-        vm.studioDraft.desktopKind = .dockerDesktop
+        vm.studioExecutionDestination = .ownVM
         try vm.saveStudio()
         XCTAssertEqual(vm.selectedRevision?.desktopKind, .dockerDesktop)
 
@@ -13279,7 +13303,7 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertEqual(vm.selectedRevision?.desktopKind, .botOwnedBrowser)
 
         vm.dockerGuestReadyOverrideForTesting = true
-        vm.studioDraft.desktopKind = .dockerDesktop
+        vm.studioExecutionDestination = .ownVM
         try vm.saveStudio()
         XCTAssertEqual(vm.selectedRevision?.desktopKind, .dockerDesktop)
     }
@@ -14183,7 +14207,7 @@ final class BotsWindowTests: XCTestCase {
         let context = try makeContext()
         let vm = BotsViewModel(context: context)
         let bot = try vm.create(name: "Piper", title: "Scout", provider: .claude)
-        let thread = AgentThread(title: "Standup", provider: .claude, model: "opus")
+        let thread = AgentThread(title: "Standup", provider: .claude, model: "opus", permissionMode: .supervised)
         try context.threadRepo.upsert(thread)
         let finishedAt = Date(timeIntervalSince1970: 1_700_000_040)
         let run = AgentRun(
@@ -19127,7 +19151,7 @@ final class BotsWindowTests: XCTestCase {
         vm.dockerGuestReadyOverrideForTesting = true
         let created = try vm.create(name: "Piper", title: "Scout", provider: .claude)
         vm.openStudio(created)
-        vm.studioDraft.desktopKind = .dockerDesktop
+        vm.studioExecutionDestination = .ownVM
         let bot = try vm.saveStudio()
         return (context, vm, bot, docker)
     }

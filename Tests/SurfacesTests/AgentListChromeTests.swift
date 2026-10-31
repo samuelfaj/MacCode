@@ -112,7 +112,7 @@ final class AgentListChromeTests: XCTestCase {
         XCTAssertTrue(agent.contains("ScheduledTaskCard("))
         XCTAssertTrue(dest.contains("BotScheduleTaskCard("))
         XCTAssertTrue(agent.contains("private struct ScheduledTaskCard"))
-        XCTAssertTrue(dest.contains("private struct BotScheduleTaskCard"))
+        XCTAssertTrue(dest.contains("struct BotScheduleTaskCard"))
     }
 
     private func source(_ relative: String) throws -> String {

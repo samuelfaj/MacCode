@@ -528,7 +528,7 @@ final class AgentUndoToastOverlayTests: XCTestCase {
         let surface = try chatChromeSource("Sources/Surfaces/AgentAppSurface.swift")
         let column = try chatChromeSlice(
             surface,
-            from: "private var conversationColumn: some View {",
+            from: "private func conversationColumn(availableHeight: CGFloat) -> some View {",
             to: "backgroundAwaitBanner"
         )
         // The floating slot holds one toast at a time...

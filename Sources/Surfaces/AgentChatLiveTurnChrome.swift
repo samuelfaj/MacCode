@@ -1362,10 +1362,7 @@ public struct AgentChatWorkingStatusStrip: View {
                                         .font(DS.Font.caption)
                                         .foregroundColor(DS.Palette.textTertiary)
                                     ScrollView {
-                                        Text(output)
-                                            .font(DS.Font.monoSmall)
-                                            .foregroundColor(DS.Palette.textSecondary)
-                                            .textSelection(.enabled)
+                                        AgentSelectablePlainText(text: output, fontSize: 11, monospaced: true, textColor: DS.NS.textSecondary)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                     .frame(maxHeight: 120)

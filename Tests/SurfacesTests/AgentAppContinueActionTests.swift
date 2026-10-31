@@ -227,6 +227,9 @@ final class AgentAppContinueActionTests: XCTestCase {
         XCTAssertTrue(fixture.vm.selectedThreadHasRecoverableContext,
                       "the off-main open bundle must arm Continue for a relaunch-interrupted thread")
         await fixture.vm.continueInterruptedThread()
+        for _ in 0..<200 where !fixture.vm.statusMessage.contains("Failed to start") {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
 
         XCTAssertTrue(fixture.vm.selectedThreadHasRecoverableContext,
                       "a transient provider start failure must restore Continue on the same selected thread")
@@ -370,7 +373,7 @@ final class AgentAppContinueActionTests: XCTestCase {
             accentColor: "#2F80ED",
             continuationGroup: "distill",
             interactionModes: [.default, .plan],
-            permissionModes: [.supervised],
+            permissionModes: [.supervised, .fullAccess],
             enabled: true,
             installed: installed,
             status: status,

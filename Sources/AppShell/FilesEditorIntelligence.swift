@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import AgentRuntime
 
 // MARK: - Editor completions
@@ -365,19 +366,24 @@ struct DistillCLIInlineCompletionTransport: Sendable {
     var model: String = "auto"
 
     func send(prompt: String) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    continuation.resume(returning: try run(prompt: prompt))
-                } catch {
-                    continuation.resume(throwing: error)
+        let owner = InlineCompletionProcess()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        continuation.resume(returning: try run(prompt: prompt, owner: owner))
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
                 }
             }
+        } onCancel: {
+            owner.cancel()
         }
     }
 
-    private func run(prompt: String) throws -> String {
-        let process = Process()
+    private func run(prompt: String, owner: InlineCompletionProcess) throws -> String {
+        let process = owner.process
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = [
             "-p", prompt,
@@ -385,19 +391,46 @@ struct DistillCLIInlineCompletionTransport: Sendable {
             "--model", model,
         ]
         let stdout = Pipe()
-        let stderr = Pipe()
         process.standardOutput = stdout
-        process.standardError = stderr
+        process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
         var environment = ProcessInfo.processInfo.environment
         environment["RC2_INLINE_COMPLETION"] = "1"
         process.environment = environment
+        defer { owner.cancel() }
         do {
-            try process.run()
+            try owner.start()
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw InlineCompletionError.unavailable
         }
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        try? stdout.fileHandleForWriting.close()
+        let handle = stdout.fileHandleForReading
+        defer { try? handle.close() }
+        var data = Data()
+        var bytes = [UInt8](repeating: 0, count: 4_096)
+        let deadline = ProcessInfo.processInfo.systemUptime + 2.5
+        while true {
+            try owner.checkCancellation()
+            guard ProcessInfo.processInfo.systemUptime < deadline else { throw InlineCompletionError.timedOut }
+            var descriptor = pollfd(fd: handle.fileDescriptor, events: Int16(POLLIN), revents: 0)
+            let ready = Darwin.poll(&descriptor, 1, 20)
+            if ready < 0 { throw InlineCompletionError.unavailable }
+            if ready == 0 {
+                if !process.isRunning { break }
+                continue
+            }
+            let count = Darwin.read(handle.fileDescriptor, &bytes, bytes.count)
+            guard count > 0 else { break }
+            guard data.count + count <= 1_048_576 else { throw InlineCompletionError.unavailable }
+            data.append(contentsOf: bytes.prefix(count))
+        }
+        while process.isRunning {
+            try owner.checkCancellation()
+            guard ProcessInfo.processInfo.systemUptime < deadline else { throw InlineCompletionError.timedOut }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { throw InlineCompletionError.unavailable }
         let output = String(data: data, encoding: .utf8) ?? ""
@@ -411,6 +444,42 @@ struct DistillCLIInlineCompletionTransport: Sendable {
         }
         guard !text.isEmpty else { throw InlineCompletionError.empty }
         return text
+    }
+}
+
+private final class InlineCompletionProcess: @unchecked Sendable {
+    let process = Process()
+    private let lock = NSLock()
+    private var cancelled = false
+    private var processGroup: Int32?
+
+    func start() throws {
+        lock.lock(); defer { lock.unlock() }
+        guard !cancelled else { throw CancellationError() }
+        try process.run()
+        let pid = process.processIdentifier
+        _ = setpgid(pid, 0)
+        guard getpgid(pid) == pid, pid != getpgrp() else {
+            process.terminate()
+            throw InlineCompletionError.unavailable
+        }
+        processGroup = pid
+    }
+
+    func checkCancellation() throws {
+        lock.lock(); defer { lock.unlock() }
+        if cancelled { throw CancellationError() }
+    }
+
+    func cancel() {
+        lock.lock(); defer { lock.unlock() }
+        guard !cancelled else { return }
+        cancelled = true
+        guard let processGroup else { return }
+        _ = kill(-processGroup, SIGTERM)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.25) {
+            _ = kill(-processGroup, SIGKILL)
+        }
     }
 }
 

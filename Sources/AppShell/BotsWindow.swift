@@ -7563,7 +7563,7 @@ public final class BotsViewModel: ObservableObject {
         resolvedDesktopKind(studioDraft.desktopKind).displayTitle
     }
 
-    public var studioApprovalLabel: String { "Supervised" }
+    public var studioApprovalLabel: String { deskRouting.permissionMode.displayName }
 
     public var inspectedBrain: ContextAssemblyReceipt? {
         if screen == .studio {
@@ -7611,6 +7611,7 @@ public final class BotsViewModel: ObservableObject {
             request,
             previewProvider.rawValue,
             previewModel,
+            deskRouting.permissionMode.rawValue,
             memoryFiles.map { "\($0.path):\($0.body)" }.joined(separator: "\u{1e}"),
             skillBindings.map(\.skillID).joined(separator: ","),
             routines.map {
@@ -7641,6 +7642,7 @@ public final class BotsViewModel: ObservableObject {
             workspace: advertisedWorkspace,
             browser: advertisedBrowser,
             conversationID: selectedConversation?.id,
+            liveRunMode: deskRouting.permissionMode,
             runProvider: previewProvider,
             runModel: previewModel,
             turnDirective: turnDirective,

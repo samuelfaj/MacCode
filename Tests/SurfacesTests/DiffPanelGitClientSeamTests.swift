@@ -23,6 +23,7 @@ final class FakeGitClient: GitClient, @unchecked Sendable {
     private var _summaryCallCount = 0
     private var _diffCallCount = 0
     private var _actionCallCount = 0
+    private var _logCallCount = 0
 
     var summaryCallCount: Int { lock.lock(); defer { lock.unlock() }; return _summaryCallCount }
     var diffCallCount: Int   { lock.lock(); defer { lock.unlock() }; return _diffCallCount }
@@ -54,6 +55,8 @@ final class FakeGitClient: GitClient, @unchecked Sendable {
     /// When set, answers `summary(in:)` instead of `stubbedSummary`, with the
     /// 1-based call number, so a test can hold one read while another lands.
     var summaryProvider: ((Int) -> GitSummary?)?
+    var checkoutProvider: (() -> GitActionResult)?
+    var logProvider: ((Int) -> [GitCommit])?
 
     func summary(in cwd: String) -> GitSummary? {
         lock.lock(); _summaryCallCount += 1; let call = _summaryCallCount; lock.unlock()
@@ -61,7 +64,10 @@ final class FakeGitClient: GitClient, @unchecked Sendable {
         return stubbedSummary
     }
     func branches(in cwd: String) -> GitBranches { stubbedBranches }
-    func log(in cwd: String, limit: Int) -> [GitCommit] { stubbedLog }
+    func log(in cwd: String, limit: Int) -> [GitCommit] {
+        lock.lock(); _logCallCount += 1; let call = _logCallCount; lock.unlock()
+        return logProvider?(call) ?? stubbedLog
+    }
     func diff(in cwd: String, path: String?, ignoreWhitespace: Bool) -> String {
         lock.lock(); _diffCallCount += 1; lock.unlock()
         return stubbedDiff
@@ -70,7 +76,7 @@ final class FakeGitClient: GitClient, @unchecked Sendable {
     func synthesizeUntrackedDiff(content: String, path: String) -> String { stubbedSynthesized }
     func checkout(in cwd: String, branch: String) -> GitActionResult {
         lock.lock(); _actionCallCount += 1; lock.unlock()
-        return stubbedActionResult
+        return checkoutProvider?() ?? stubbedActionResult
     }
     func stashAndCheckout(in cwd: String, branch: String) -> GitActionResult {
         lock.lock(); _actionCallCount += 1; lock.unlock()
@@ -320,6 +326,75 @@ final class DiffPanelGitClientSeamTests: XCTestCase {
         XCTAssertFalse(outcomes.map(\.0).joined().contains("secret-branch"))
         XCTAssertFalse(outcomes.map(\.0).joined().contains("private commit message"))
         XCTAssertFalse(outcomes.map(\.0).joined().contains("hunter2"))
+    }
+
+    func test_mutationsRemainSingleFlightUntilTheirOutcomeIsPublished() {
+        let fake = FakeGitClient()
+        let vm = DiffPanelViewModel(cwd: "/fake", gitClient: fake)
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        fake.checkoutProvider = {
+            release.wait()
+            return GitActionResult(ok: true, message: "switched")
+        }
+        var outcomes = 0
+        vm.gitOutcomeHandler = { _, _ in outcomes += 1 }
+        vm.switchBranch("next")
+        waitUntil("checkout started") { fake.actionCallCount == 1 }
+        vm.push()
+        vm.fetch()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertEqual(fake.actionCallCount, 1, "Overlapping mutations must not race on the same Git index or retire the active spinner")
+        XCTAssertTrue(vm.isBusy)
+        release.signal()
+        waitUntil("checkout settled") { !vm.isBusy }
+        XCTAssertEqual(outcomes, 1, "The accepted mutation must publish its canonical outcome exactly once")
+    }
+
+    func test_oldReloadCannotReplaceBranchesAfterNewerActionReadback() {
+        let fake = FakeGitClient()
+        let vm = DiffPanelViewModel(cwd: "/fake", gitClient: fake)
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        fake.logProvider = { _ in
+            entered.signal()
+            release.wait()
+            return []
+        }
+        vm.reloadAll()
+        XCTAssertEqual(entered.wait(timeout: .now() + 2), .success)
+        fake.logProvider = nil
+        fake.stubbedBranches = GitBranches(current: "new", locals: ["new"])
+        vm.switchBranch("new")
+        waitUntil("new action readback") { !vm.isBusy && vm.branches.current == "new" }
+        release.signal()
+        waitUntil("old reload settled") { !vm.isLoading }
+        XCTAssertEqual(vm.branches.current, "new", "A retired reload may finish its spinner but must not repaint old branch metadata")
+    }
+
+    func test_oldReloadCannotHideLoadingOwnedByNewerHistoryPage() {
+        let fake = FakeGitClient()
+        let vm = DiffPanelViewModel(cwd: "/fake", gitClient: fake)
+        let firstEntered = DispatchSemaphore(value: 0)
+        let secondEntered = DispatchSemaphore(value: 0)
+        let firstRelease = DispatchSemaphore(value: 0)
+        let secondRelease = DispatchSemaphore(value: 0)
+        defer { firstRelease.signal(); secondRelease.signal() }
+        fake.logProvider = { call in
+            if call == 1 { firstEntered.signal(); firstRelease.wait() }
+            else { secondEntered.signal(); secondRelease.wait() }
+            return []
+        }
+        vm.reloadAll()
+        XCTAssertEqual(firstEntered.wait(timeout: .now() + 2), .success)
+        vm.loadMoreHistory()
+        XCTAssertEqual(secondEntered.wait(timeout: .now() + 2), .success)
+        firstRelease.signal()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertTrue(vm.isLoading, "The old reload must finish only its own loading token, not the newer history page")
+        secondRelease.signal()
+        waitUntil("all read owners settled") { !vm.isLoading }
     }
 
     // MARK: - production default unchanged
