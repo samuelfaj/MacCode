@@ -196,6 +196,7 @@ public enum AccountUsageWidgetDigest {
                 "id": .string(entry.id),
                 "provider": .string(entry.provider.rawValue),
                 "label": .string(entry.label),
+                "usage_is_stale": .bool(entry.usageIsStale),
             ]
             if let email = entry.email { row["email"] = .string(email) }
             if let session = entry.usage?.sessionUsedPercent { row["session_used_percent"] = .number(session) }

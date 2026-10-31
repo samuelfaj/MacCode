@@ -1119,7 +1119,41 @@ public final class BotRemoteControlAuthority: @unchecked Sendable {
         }
     }
 
-    private func conversationList(params: [String: Any]) throws -> [String: Any] {
+    private func conversationList(params supplied: [String: Any]) throws -> [String: Any] {
+        var params = supplied
+        var taskReadback: [String: Any]?
+        if supplied["task_run_id"] != nil || supplied["source_thread_id"] != nil {
+            guard Set(supplied.keys).isSubset(of: ["bot_id", "task_run_id", "source_thread_id"]),
+                  let runUUID = string(supplied, "task_run_id").flatMap(UUID.init(uuidString:)),
+                  let sourceUUID = string(supplied, "source_thread_id").flatMap(UUID.init(uuidString:)),
+                  let message = try AgentMessageRepository(db: db).get(id: AgentMessageID(runUUID)),
+                  message.threadId == AgentThreadID(sourceUUID), message.role == .assistant,
+                  let task = BotParallelTask.parse(message.content), task.runID.value == runUUID,
+                  let requestedBot = string(supplied, "bot_id"), requestedBot.lowercased() == task.botID.value.uuidString.lowercased(),
+                  let conversation = try store.conversation(id: task.conversationID),
+                  conversation.botID == task.botID, conversation.linkedAgentThreadID == task.threadID,
+                  let run = try AgentRunRepository(db: db).get(id: task.runID), run.threadId == task.threadID else {
+                throw Error(code: -32084, message: "The task link is not available to this conversation.")
+            }
+            for threadID in [message.threadId, task.threadID] {
+                if let pin = try store.conversationContextPin(linkedTo: threadID) {
+                    guard try store.authorizes(hostID: pin.hostID, botID: pin.botID, context: pin.context,
+                        action: .read, policyRevision: pin.policyRevision) else {
+                        throw Error(code: -32084, message: "Task context read access was revoked.")
+                    }
+                }
+            }
+            if let pin = try store.conversationContextPin(linkedTo: task.threadID) {
+                params["host_id"] = pin.hostID
+                params["context_key"] = pin.context.storageKey
+                params["context_version"] = pin.contextVersion
+                params["policy_revision"] = pin.policyRevision
+            }
+            taskReadback = ["run_id": task.runID.value.uuidString.lowercased(),
+                "thread_id": task.threadID.value.uuidString.lowercased(),
+                "conversation_id": task.conversationID.value.uuidString.lowercased(),
+                "status": run.status.rawValue]
+        }
         let bot = try requireBot(params)
         let botID = id(bot)
         let inboxID = bot.handle.lowercased() == TitioIdentity.handle
@@ -1176,6 +1210,7 @@ public final class BotRemoteControlAuthority: @unchecked Sendable {
             return row
         }
         var result: [String: Any] = ["conversations": rows]
+        if let taskReadback { result["task"] = taskReadback }
         if selectedIsVisible, let selected = selectedConversation[botID] { result["selected_id"] = selected }
         return result
     }

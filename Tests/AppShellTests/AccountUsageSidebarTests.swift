@@ -8,6 +8,14 @@ import AgentRuntime
 /// honest provider usage and never read as savings.
 final class AccountUsageSidebarTests: XCTestCase {
 
+    func testWidgetWirePreservesUnavailableQuotaWithoutDroppingLastKnownValues() {
+        let entry = AccountUsageEntry(id: "claude", provider: .claude, label: "Claude",
+            usage: DistillAccountUsage(sessionUsedPercent: 0, weeklyUsedPercent: 100), usageIsStale: true)
+        let row = AccountUsageWidgetDigest.accountsJSON([entry]).arrayValue?.first
+        XCTAssertEqual(row?.objectValue?["usage_is_stale"], .bool(true))
+        XCTAssertEqual(row?.objectValue?["weekly_used_percent"], .number(100))
+    }
+
     // MARK: - lastUpdatedLabel
 
     func test_lastUpdatedLabel_nil_returnsNever() {

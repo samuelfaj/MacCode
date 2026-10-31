@@ -37,6 +37,52 @@ final class BotRemoteControlAuthorityTests: XCTestCase {
         supportDir = nil
     }
 
+    func testTaskReadbackUsesExactRunAndRejectsForeignSource() throws {
+        let bot = try store.create(name: "Reader", title: "Task", description: "", handle: "reader", avatarSymbol: "circle")
+        let source = AgentThread(workspaceId: nil, title: "Parent", provider: .distill, model: "main")
+        let child = AgentThread(workspaceId: nil, title: "Task", provider: .distill, model: "main")
+        let threads = AgentThreadRepository(db: db)
+        try threads.upsert(source); try threads.upsert(child)
+        let conversation = BotConversation(botID: bot.id, title: "Task", linkedAgentThreadID: child.id)
+        try store.upsertConversation(conversation)
+        let run = AgentRun(threadId: child.id, provider: .distill, model: "main", status: .failed)
+        try AgentRunRepository(db: db).upsert(run)
+        let task = BotParallelTask(botID: bot.id, conversationID: conversation.id, threadID: child.id, runID: run.id, title: "Task")
+        try AgentMessageRepository(db: db).append(AgentMessage(id: AgentMessageID(run.id.value),
+            threadId: source.id, role: .assistant, content: task.transcript))
+        let params: [String: Any] = ["bot_id": bot.id.value.uuidString,
+            "source_thread_id": source.id.value.uuidString, "task_run_id": run.id.value.uuidString]
+        let result = try authority.dispatch(method: "bot.conversation.list", params: params)
+        XCTAssertEqual((result["task"] as? [String: Any])?["status"] as? String, "failed")
+        XCTAssertEqual((result["task"] as? [String: Any])?["run_id"] as? String, run.id.value.uuidString.lowercased())
+        var forged = params; forged["source_thread_id"] = child.id.value.uuidString
+        XCTAssertThrowsError(try authority.dispatch(method: "bot.conversation.list", params: forged))
+        let after = try authority.dispatch(method: "bot.conversation.list", params: ["bot_id": bot.id.value.uuidString])
+        XCTAssertNil(after["selected_id"], "Observing a task never selects the destination conversation")
+    }
+
+    func testTaskReadbackResolvesAuthorizedContextAndRefusesRevokedGrant() throws {
+        let bot = try store.create(name: "Scoped Reader", title: "Task", description: "", handle: "scoped-reader")
+        let source = AgentThread(workspaceId: nil, title: "Parent", provider: .distill, model: "main")
+        try AgentThreadRepository(db: db).upsert(source)
+        let grant = try store.grantContext(hostID: "audit-host", botID: bot.id, context: .general, actions: [.read, .send], expectedRevision: nil)
+        let child = AgentThread(workspaceId: nil, title: "Scoped task", provider: .distill, model: "main")
+        let conversation = BotConversation(botID: bot.id, title: "Scoped", linkedAgentThreadID: child.id)
+        _ = try store.createContextualConversation(conversation, newThread: child, hostID: "audit-host", context: .general, policyRevision: grant.policyRevision)
+        let run = AgentRun(threadId: child.id, provider: .distill, model: "main", status: .completed)
+        try AgentRunRepository(db: db).upsert(run)
+        let task = BotParallelTask(botID: bot.id, conversationID: conversation.id, threadID: child.id, runID: run.id, title: "Scoped")
+        try AgentMessageRepository(db: db).append(AgentMessage(id: AgentMessageID(run.id.value), threadId: source.id, role: .assistant, content: task.transcript))
+        let params: [String: Any] = ["bot_id":bot.id.value.uuidString, "source_thread_id":source.id.value.uuidString, "task_run_id":run.id.value.uuidString]
+        let legacy = try authority.dispatch(method: "bot.conversation.list", params: ["bot_id":bot.id.value.uuidString])
+        XCTAssertTrue((legacy["conversations"] as? [[String:Any]])?.isEmpty == true)
+        let result = try authority.dispatch(method: "bot.conversation.list", params: params)
+        XCTAssertEqual((result["task"] as? [String:Any])?["status"] as? String, "completed")
+        XCTAssertEqual((result["conversations"] as? [[String:Any]])?.first?["context_key"] as? String, "general:v1")
+        _ = try store.grantContext(hostID: "audit-host", botID: bot.id, context: .general, actions: [], expectedRevision: grant.policyRevision)
+        XCTAssertThrowsError(try authority.dispatch(method: "bot.conversation.list", params: params), "A persisted source link is not a permanent authorization grant")
+    }
+
     private func guestState(botID: String) throws -> [String: Any] {
         try authority.dispatch(method: "bot.guest.state", params: [
             "bot_id": botID,
