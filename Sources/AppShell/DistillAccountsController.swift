@@ -45,6 +45,7 @@ public final class DistillAccountsController: ObservableObject {
     @Published public private(set) var isRefreshing = false
     private(set) var stateError: String?
     private var refreshTask: Task<Void, Never>?
+    private var usageRefreshTask: Task<Bool, Never>?
     private var refreshGeneration: UInt64 = 0
     private var catalogGeneration: UInt64 = 0
     private let accounts: any DistillAccountManaging
@@ -166,11 +167,32 @@ public final class DistillAccountsController: ObservableObject {
     }
     /// Re-reads every connected account's quota, then the account list, without
     /// taking the busy slot the Accounts settings use for sign-in and edits.
-    public func refreshAllUsage() async {
-        guard !isBusy else { return }
-        let ids = statuses.filter(\.connected).map(\.id)
-        for id in ids { _ = try? await accounts.refreshUsage(id: id) }
-        await refreshAndWait()
+    @discardableResult
+    public func refreshAllUsage() async -> Bool {
+        if let usageRefreshTask { return await usageRefreshTask.value }
+        guard !isBusy else { return false }
+        let token = generation
+        let task = Task { @MainActor in
+            await self.refreshAndWait()
+            guard self.hasLoadedState, self.stateError == nil, !self.isBusy, self.generation == token else { return false }
+            let ids = self.statuses.filter { $0.connected && $0.provider != .openrouter }.map(\.id)
+            var succeeded = true
+            for id in ids {
+                guard !self.isBusy, self.generation == token, !Task.isCancelled else { return false }
+                do {
+                    let quota = try await self.accounts.refreshUsage(id: id)
+                    if quota.status != "available" { succeeded = false }
+                } catch {
+                    succeeded = false
+                }
+            }
+            await self.refreshAndWait()
+            return succeeded && self.stateError == nil && self.generation == token
+        }
+        usageRefreshTask = task
+        let succeeded = await task.value
+        usageRefreshTask = nil
+        return succeeded
     }
     public func saveRouting(_ draft: DistillAutoRouting) {
         if let error = DistillRoutingValidation.error(draft, saved: routing, accounts: statuses, models: models) {

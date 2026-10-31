@@ -4,7 +4,7 @@ import CoreModel
 import AgentRuntime
 import DesignSystemKit
 
-/// One logged-in Distill account as a ring: every account counts, so two
+/// One connected subscription account as a ring, so two
 /// Claude logins show two rings.
 public struct AccountUsageEntry: Equatable, Identifiable, Sendable {
     public let id: String
@@ -12,16 +12,19 @@ public struct AccountUsageEntry: Equatable, Identifiable, Sendable {
     public let label: String
     public let email: String?
     public let usage: DistillAccountUsage?
+    public let usageIsStale: Bool
 
-    public init(id: String, provider: DistillAccountProvider, label: String, email: String? = nil, usage: DistillAccountUsage?) {
+    public init(id: String, provider: DistillAccountProvider, label: String, email: String? = nil, usage: DistillAccountUsage?, usageIsStale: Bool = false) {
         self.id = id; self.provider = provider; self.label = label; self.email = email; self.usage = usage
+        self.usageIsStale = usageIsStale
     }
 
-    /// Connected accounts only, in the order Distill lists them.
+    /// Connected subscription accounts only, in the order Distill lists them.
     public static func entries(_ statuses: [DistillAccountStatus]) -> [AccountUsageEntry] {
-        statuses.filter(\.connected).map {
+        statuses.filter { $0.connected && $0.provider != .openrouter }.map {
             AccountUsageEntry(id: $0.id, provider: $0.provider, label: displayLabel($0), email: $0.email,
-                              usage: DistillAccountUsage(quota: $0.quota))
+                              usage: DistillAccountUsage(quota: $0.quota),
+                              usageIsStale: $0.quota?.status != "available")
         }
     }
 
@@ -41,11 +44,16 @@ public enum AccountUsageDisplay {
 
     /// Ring fill (0...1); nil means not loaded and must never draw as 0%.
     public static func ringProgress(_ entry: AccountUsageEntry) -> Double? {
-        entry.usage?.ringPercent.map { min(max($0 / 100.0, 0), 1) }
+        guard !entry.usageIsStale else { return nil }
+        return entry.usage?.ringPercent.map { min(max($0 / 100.0, 0), 1) }
     }
 
     /// "Claude session 12%", "ChatGPT week 42%" or "Grok no usage data".
     static func ringCaption(_ entry: AccountUsageEntry) -> String {
+        guard !entry.usageIsStale else { return "\(entry.label) usage unavailable" }
+        if let weekly = entry.usage?.weeklyUsedPercent, weekly > (entry.usage?.sessionUsedPercent ?? -1) {
+            return "\(entry.label) week \(formatPercent(weekly / 100))"
+        }
         if let session = entry.usage?.sessionUsedPercent { return "\(entry.label) session \(formatPercent(session / 100))" }
         if let weekly = entry.usage?.weeklyUsedPercent { return "\(entry.label) week \(formatPercent(weekly / 100))" }
         return "\(entry.label) no usage data"
@@ -83,6 +91,7 @@ public enum AccountUsageDisplay {
 struct AccountUsageSidebarControl: View {
     @ObservedObject var vm: SidebarViewModel
     let onOpenAccount: () -> Void
+    let onOpenAccountsSettings: () -> Void
     @State private var showsDetails = false
 
     var body: some View {
@@ -106,7 +115,7 @@ struct AccountUsageSidebarControl: View {
         .popover(isPresented: $showsDetails, arrowEdge: .bottom) { details }
         .accessibilityLabel("Account usage")
         .accessibilityValue(AccountUsageDisplay.ringsAccessibilityValue(signedIn: signedIn, entries: entries))
-        .accessibilityHint(signedIn ? "Shows session and weekly limits for every account" : "Opens your account")
+        .accessibilityHint(signedIn ? "Shows session and weekly limits for every subscription account" : "Opens your account")
         .accessibilityIdentifier("sidebar.accountUsage")
     }
 
@@ -126,14 +135,22 @@ struct AccountUsageSidebarControl: View {
                         .accessibilityIdentifier("sidebar.accountUsage.refreshSpinner")
                 }
                 TimelineView(.periodic(from: .now, by: 60)) { timeline in
-                    Text(SidebarRootView.accountUsageLastUpdatedLabel(vm.accountUsageLastUpdated, now: timeline.date))
+                    Text(vm.accountUsageRefreshError == nil
+                         ? SidebarRootView.accountUsageLastUpdatedLabel(vm.accountUsageLastUpdated, now: timeline.date)
+                         : "Usage refresh incomplete")
                         .font(DS.Font.caption2)
                         .foregroundColor(DS.Palette.textTertiary)
                         .lineLimit(1)
                 }
                 .accessibilityIdentifier("sidebar.accountUsage.lastUpdated")
             }
-            Text("One ring per logged-in account, outer to inner in this order. A ring shows the session limit used, or the weekly limit when no session is live. A faint ring has no data yet.")
+            HStack {
+                Spacer()
+                AccountUsageRings(rings: vm.accountUsageEntries.map { ($0.provider, AccountUsageDisplay.ringProgress($0)) })
+                    .frame(width: 112, height: 112)
+                Spacer()
+            }
+            Text("One ring per subscription account, outer to inner in this order. Each ring shows the most-used limit. A faint ring means usage is unavailable.")
                 .font(DS.Font.caption2)
                 .foregroundColor(DS.Palette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -145,6 +162,18 @@ struct AccountUsageSidebarControl: View {
             ForEach(Array(vm.accountUsageEntries.enumerated()), id: \.element.id) { index, entry in
                 accountRow(entry, index: index)
             }
+            if let error = vm.accountUsageRefreshError {
+                Text(error)
+                    .font(DS.Font.caption2)
+                    .foregroundColor(DS.Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Divider()
+            Button("Accounts & Auto routing…") {
+                showsDetails = false
+                onOpenAccountsSettings()
+            }
+            .accessibilityIdentifier("sidebar.accountUsage.settings")
         }
         .padding(DS.Space.md)
         .frame(width: 300, alignment: .leading)
@@ -166,6 +195,10 @@ struct AccountUsageSidebarControl: View {
                 if let email = entry.email {
                     Text(email).font(DS.Font.caption2).foregroundColor(DS.Palette.textTertiary).lineLimit(1).truncationMode(.middle)
                 }
+            }
+            if entry.usageIsStale {
+                Text("Usage unavailable. Last known values:")
+                    .font(DS.Font.caption2).foregroundColor(DS.Palette.textTertiary)
             }
             Text(AccountUsageDisplay.sessionCaption(entry.usage))
                 .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary).monospacedDigit()

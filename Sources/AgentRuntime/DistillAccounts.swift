@@ -584,8 +584,8 @@ public struct DistillAccountUsage: Equatable, Sendable {
         self.weeklyResetsAt = weeklyResetsAt
     }
 
-    /// Ring fill: the live session window, else the weekly one; nil = no data.
-    public var ringPercent: Double? { sessionUsedPercent ?? weeklyUsedPercent }
+    /// The most-used window determines availability; either limit can block use.
+    public var ringPercent: Double? { [sessionUsedPercent, weeklyUsedPercent].compactMap { $0 }.max() }
 
     public init?(quota: DistillAccountQuota?) {
         guard let quota else { return nil }

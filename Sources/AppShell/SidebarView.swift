@@ -613,6 +613,7 @@ public final class SidebarViewModel: ObservableObject {
     private var accountStatusesSink: AnyCancellable?
     /// True while a background account-usage refresh (CLI probe) is in flight.
     @Published public private(set) var accountUsageIsRefreshing: Bool = false
+    @Published public private(set) var accountUsageRefreshError: String?
     /// Timestamp of the last completed account-usage refresh, or nil when never refreshed.
     @Published public private(set) var accountUsageLastUpdated: Date? = nil
     public var draggingWorkspaceID: WorkspaceID?
@@ -1758,11 +1759,16 @@ public final class SidebarViewModel: ObservableObject {
         guard !accountUsageIsRefreshing else { return }
         guard privateAccountUser != nil, let controller = context?.distillAccountsController else { return }
         accountUsageIsRefreshing = true
+        accountUsageRefreshError = nil
         Task { @MainActor [weak self] in
-            await controller.refreshAllUsage()
+            let refreshed = await controller.refreshAllUsage()
             guard let self else { return }
             self.accountUsageIsRefreshing = false
-            self.accountUsageLastUpdated = Date()
+            if refreshed {
+                self.accountUsageLastUpdated = Date()
+            } else {
+                self.accountUsageRefreshError = "Some usage could not be refreshed. Check the account connection in Accounts & Auto routing."
+            }
             self.context?.publishAccountUsageDigestFromDisk(isRefreshing: false)
         }
     }
@@ -2797,6 +2803,7 @@ public struct SidebarRootView: View {
     /// Workspace whose "New conversation" popover is open.
     @State private var newConversationMenuWorkspace: WorkspaceID?
     private let onOpenSettings: () -> Void
+    private let onOpenAccountsSettings: () -> Void
     private let onOpenAccount: () -> Void
     private let onOpenScheduledTasks: () -> Void
     private let onOpenActiveThreads: () -> Void
@@ -2806,6 +2813,7 @@ public struct SidebarRootView: View {
         vm: SidebarViewModel,
         botsVM: BotsViewModel? = nil,
         onOpenSettings: @escaping () -> Void = {},
+        onOpenAccountsSettings: @escaping () -> Void = {},
         onOpenAccount: @escaping () -> Void = {},
         onOpenScheduledTasks: @escaping () -> Void = {},
         onOpenActiveThreads: @escaping () -> Void = {}
@@ -2813,6 +2821,7 @@ public struct SidebarRootView: View {
         self.vm = vm
         self.botsVM = botsVM
         self.onOpenSettings = onOpenSettings
+        self.onOpenAccountsSettings = onOpenAccountsSettings
         self.onOpenAccount = onOpenAccount
         self.onOpenScheduledTasks = onOpenScheduledTasks
         self.onOpenActiveThreads = onOpenActiveThreads
@@ -2865,7 +2874,7 @@ public struct SidebarRootView: View {
                 .accessibilityAddTraits(vm.isSettingsSelected ? .isSelected : [])
 
                 // Account usage sits left of the avatar it describes.
-                AccountUsageSidebarControl(vm: vm, onOpenAccount: onOpenAccount)
+                AccountUsageSidebarControl(vm: vm, onOpenAccount: onOpenAccount, onOpenAccountsSettings: onOpenAccountsSettings)
 
                 if vm.privateAccountUser != nil {
                     Button(action: onOpenAccount) {
@@ -4718,6 +4727,7 @@ public final class SidebarView: NSObject {
             vm: viewModel,
             botsVM: botsViewModel,
             onOpenSettings: { [weak self] in self?.showSettings() },
+            onOpenAccountsSettings: { [weak self] in self?.router?.openAccountsSettings?() },
             onOpenAccount: { [weak self] in self?.showAccount() },
             onOpenScheduledTasks: { [weak self] in self?.showScheduledTasks() },
             onOpenActiveThreads: { [weak self] in self?.showActiveThreads() }

@@ -8,6 +8,10 @@ import CoreModel
 final class DistillAccountsControllerTests: XCTestCase {
     private final class Accounts: DistillAccountManaging, @unchecked Sendable {
         var statusesValue = DistillAccountProvider.allCases.map { DistillAccountStatus(provider: $0, connected: false) }
+        var quotaByID: [String: DistillAccountQuota] = [:]
+        var refreshedIDs: [String] = []
+        var holdUsage = false
+        var usageContinuation: CheckedContinuation<Void, Never>?
         var loginCount = 0
         var fail = false
         var delay = false
@@ -30,7 +34,16 @@ final class DistillAccountsControllerTests: XCTestCase {
         }
         func rename(id: String, label: String) async throws { lastID = id }
         func remove(id: String) async throws { lastID = id; statusesValue.removeAll { $0.id == id } }
-        func refreshUsage(id: String) async throws -> DistillAccountQuota { lastID = id; throw DistillAccountError.failed("Quota unavailable") }
+        func refreshUsage(id: String) async throws -> DistillAccountQuota {
+            lastID = id
+            refreshedIDs.append(id)
+            if holdUsage { await withCheckedContinuation { usageContinuation = $0 } }
+            guard let quota = quotaByID[id] else { throw DistillAccountError.failed("Quota unavailable") }
+            statusesValue = statusesValue.map {
+                $0.id == id ? .init(provider: $0.provider, connected: $0.connected, id: id, label: $0.label, quota: quota) : $0
+            }
+            return quota
+        }
         func saveRouting(_ routing: DistillAutoRouting) async throws {
             if holdSave { await withCheckedContinuation { saveContinuation = $0 } }
             saveCount += 1
@@ -47,6 +60,60 @@ final class DistillAccountsControllerTests: XCTestCase {
             lastID = id
             statusesValue = statusesValue.map { $0.id == id ? DistillAccountStatus(provider: $0.provider, connected: false, id: id, label: $0.label, legacy: $0.legacy) : $0 }
         }
+    }
+
+    func test_usageRefreshLoadsAccountsAndSkipsPrepaidAndDisconnectedAccounts() async {
+        let accounts = Accounts()
+        let controller = DistillAccountsController(accounts: accounts)
+        accounts.statusesValue = [
+            .init(provider: .claude, connected: true, id: "a"),
+            .init(provider: .claude, connected: true, id: "b"),
+            .init(provider: .openrouter, connected: true),
+            .init(provider: .grok, connected: false)
+        ]
+        accounts.quotaByID = Dictionary(uniqueKeysWithValues: ["a", "b"].map {
+            ($0, DistillAccountQuota(accountID: $0, checkedAt: "now", status: "available", remainingPercent: 0))
+        })
+        let refreshed = await controller.refreshAllUsage()
+        XCTAssertTrue(refreshed)
+        XCTAssertEqual(accounts.refreshedIDs, ["a", "b"], "Load current logins before probing, not the initial disconnected list")
+        XCTAssertEqual(AccountUsageEntry.entries(controller.statuses).compactMap { $0.usage?.ringPercent }, [100, 100])
+    }
+
+    func test_failedQuotaDoesNotReportSuccessButOtherAccountsStillRefresh() async {
+        let accounts = Accounts()
+        accounts.statusesValue = [.init(provider: .claude, connected: true, id: "a"), .init(provider: .claude, connected: true, id: "b")]
+        accounts.quotaByID["b"] = .init(accountID: "b", checkedAt: "now", status: "available", remainingPercent: 0)
+        let controller = DistillAccountsController(accounts: accounts)
+        let refreshed = await controller.refreshAllUsage()
+        XCTAssertFalse(refreshed, "A CLI error must fail the refresh without skipping other accounts")
+        XCTAssertEqual(accounts.refreshedIDs, ["a", "b"])
+    }
+
+    func test_unavailableCachedQuotaIsNotASuccessfulRefresh() async {
+        let accounts = Accounts()
+        accounts.statusesValue = [.init(provider: .claude, connected: true, id: "a")]
+        accounts.quotaByID["a"] = .init(accountID: "a", checkedAt: "now", status: "unavailable", remainingPercent: 6)
+        let controller = DistillAccountsController(accounts: accounts)
+        let refreshed = await controller.refreshAllUsage()
+        XCTAssertFalse(refreshed, "The CLI can return successfully while retaining an unavailable cached quota")
+        XCTAssertTrue(AccountUsageEntry.entries(controller.statuses)[0].usageIsStale)
+    }
+
+    func test_overlappingUsageRefreshesShareOneProbe() async {
+        let accounts = Accounts()
+        accounts.statusesValue = [.init(provider: .claude, connected: true, id: "a")]
+        accounts.quotaByID["a"] = .init(accountID: "a", checkedAt: "now", status: "available", remainingPercent: 0)
+        accounts.holdUsage = true
+        let controller = DistillAccountsController(accounts: accounts)
+        let first = Task { await controller.refreshAllUsage() }
+        for _ in 0..<100 where accounts.usageContinuation == nil { await Task.yield() }
+        let second = Task { await controller.refreshAllUsage() }
+        for _ in 0..<10 { await Task.yield() }
+        accounts.usageContinuation?.resume()
+        let results = await (first.value, second.value)
+        XCTAssertTrue(results.0 && results.1)
+        XCTAssertEqual(accounts.refreshedIDs, ["a"], "The timer and open popover must not issue duplicate quota requests")
     }
 
     func test_missingDistillInstallsOnceAndRefreshesAfterSuccess() async {
