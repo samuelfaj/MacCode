@@ -33,6 +33,18 @@ final class MergeTranscriptEntriesTests: XCTestCase {
         XCTAssertEqual(merged(m, t), reference(m, t), message, file: file, line: line)
     }
 
+    func test_taskLinksFollowSameSecondUserMessagesRegardlessOfRandomIDs() {
+        let task = BotParallelTask(botID: BotID(), conversationID: BotConversationID(),
+            threadID: Self.tid, runID: AgentRunID(), title: "Inspect webhooks")
+        let user = msg(UUID(uuidString: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")!, 5)
+        let link = AgentMessage(id: AgentMessageID(UUID(uuidString: "00000000-0000-0000-0000-000000000001")!),
+            threadId: Self.tid, role: .assistant, content: task.transcript, createdAt: user.createdAt)
+        let entries = AgentAppView.mergeTranscriptEntries(messages: [user, link], turns: [])
+        XCTAssertEqual(entries.map(\.id), [AgentAppView.TranscriptEntry.message(user).id,
+                                         AgentAppView.TranscriptEntry.message(link).id],
+            "The task must never appear above the user's instruction after timestamp precision is lost on disk")
+    }
+
     func test_merge_interleavedDistinctTimestamps_matchesSort() {
         let m = [msg(UUID(), 1), msg(UUID(), 3), msg(UUID(), 5)]
         let t = [turn("a", 2000), turn("b", 4000)]   // sortTime = ms/1000 -> 2s, 4s

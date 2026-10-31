@@ -556,6 +556,170 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertEqual(user.agentMessageID != nil, true)
     }
 
+    func test_botParallelTasksKeepBothRunsAndOpenTheirExactSideConversation() async throws {
+        let context = try makeContext()
+        let router = AppCommandRouter(context: context)
+        context.router = router
+        let runner = ControlledBotHandoffRunner(provider: .distill)
+        context.coordinator.replaceProvider(.distill, runner: runner)
+        router.rememberProviderSnapshotsForSend([
+            AgentProviderSnapshotFactory.snapshot(provider: .distill,
+                models: [AgentModelDescriptor(id: "main-model", label: "Grok 4.6", provider: .distill)],
+                binaryPath: "/usr/bin/true", authenticated: true, id: "distill")
+        ])
+        let bots = BotsViewModel(context: context, router: router)
+        router.botsViewModel = bots
+        let bot = try bots.create(name: "Task Bot", title: "Parallel work", provider: .distill)
+        let caller = try seedBotCaller(context: context, provider: .distill,
+            model: "main-model", permissionMode: .fullAccess)
+        let origin = BotConversation(botID: bot.id, title: "Original chat", linkedAgentThreadID: caller.thread.id)
+        try context.botStore.upsertConversation(origin)
+        try context.messageRepo.append(AgentMessage(threadId: caller.thread.id, role: .user,
+            content: "Inspect webhooks and review logs independently."))
+        let first = try await router.sendHostBot(botID: bot.id, text: "Inspect webhooks",
+            conversationID: nil, callerThread: caller.thread.id, callerRun: caller.run.id)
+        let second = try await router.sendHostBot(botID: bot.id, text: "Review logs",
+            conversationID: nil, callerThread: caller.thread.id, callerRun: caller.run.id)
+        let bothStarted = await waitUntil(timeout: 5) { runner.requests.count == 2 }
+        XCTAssertTrue(bothStarted, "The same Bot must start the second task before its first task finishes")
+        let links = try context.messageRepo.listRecent(threadId: caller.thread.id, limit: 20)
+            .compactMap { BotParallelTask.parse($0.content) }
+        XCTAssertEqual(links.count, 2)
+        XCTAssertNotEqual(links[0].threadID, links[1].threadID)
+        XCTAssertEqual(Set(links.map(\.runID)), Set(runner.requests.map(\.runId)))
+        XCTAssertNotEqual(first.objectValue?["conversation_id"], second.objectValue?["conversation_id"])
+        XCTAssertTrue(runner.requests.allSatisfy { $0.model == "main-model" && $0.permissionMode == .fullAccess })
+        XCTAssertEqual(try context.botStore.conversation(id: origin.id)?.linkedAgentThreadID, caller.thread.id)
+
+        let parent = AgentAppViewModel(workspaceID: BotsViewModel.botDeskWorkspaceID, cwd: directory,
+            coordinator: context.coordinator, threadRepo: context.threadRepo, messageRepo: context.messageRepo,
+            initialThreadId: caller.thread.id,
+            embedding: AgentAppEmbedding(pinnedThreadId: caller.thread.id, pinnedThread: caller.thread))
+        defer { parent.closeParallelTask(); parent.dispose() }
+        router.configureBotTaskLinks(on: parent)
+        parent.prompt = "Keep this draft"
+        parent.openParallelTask(links[0])
+        XCTAssertEqual(parent.selectedThreadId, caller.thread.id, "Opening a task must leave the original chat selected")
+        XCTAssertEqual(parent.parallelTaskPreview?.selectedThreadId, links[0].threadID)
+        XCTAssertEqual(parent.prompt, "Keep this draft")
+        XCTAssertEqual(parent.parallelTaskPreview?.embedding?.ownsComposerDraft, false)
+        let firstPreview = parent.parallelTaskPreview
+        parent.openParallelTask(links[1])
+        XCTAssertEqual(parent.parallelTaskPreview?.selectedThreadId, links[1].threadID)
+        XCTAssertFalse(parent.parallelTaskPreview === firstPreview)
+        parent.closeParallelTask(clearSelection: false)
+        parent.restoreParallelTask()
+        XCTAssertEqual(parent.parallelTaskPreview?.selectedThreadId, links[1].threadID,
+            "Reopening the original chat must restore its chosen parallel conversation")
+        XCTAssertThrowsError(try router.authorizedBotTask(links[0], source: AgentThreadID()),
+            "A task link must never open from an unrelated conversation")
+        let forged = BotParallelTask(botID: links[0].botID, conversationID: links[0].conversationID,
+            threadID: links[1].threadID, runID: links[0].runID, title: links[0].title)
+        XCTAssertThrowsError(try router.authorizedBotTask(forged, source: caller.thread.id))
+
+        for request in runner.requests {
+            XCTAssertTrue(runner.finish(runID: request.runId, status: .completed,
+                reply: request.prompt.contains("Inspect webhooks") ? "Webhook inspection complete." : "Log review complete."))
+        }
+        let settled = await waitUntil(timeout: 5) {
+            links.allSatisfy { (try? context.runRepo.status(of: $0.runID)) == .completed }
+        }
+        XCTAssertTrue(settled)
+        let status = try await parent.parallelTaskStatus?(links[0], caller.thread.id)
+        XCTAssertEqual(status, .completed, "The card must use its exact child run's terminal state")
+        if let receipt = ProcessInfo.processInfo.environment["RC_BOT_TASK_FIXTURE_RECEIPT"] {
+            try context.runRepo.upsert(AgentRun(id: caller.run.id, threadId: caller.thread.id,
+                provider: .distill, model: "main-model", status: .completed))
+            var restoredOrigin = origin
+            restoredOrigin.updatedAt = Date()
+            restoredOrigin.pinned = true
+            try context.botStore.upsertConversation(restoredOrigin)
+            try context.threadRepo.updateStatusPreservingUnread(id: caller.thread.id, status: .completed, at: Date())
+            try context.settingsRepo.set("shell.botsSelected", "bots")
+            let fixture = URL(fileURLWithPath: receipt).deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: fixture, withIntermediateDirectories: true)
+            let backup = Process()
+            backup.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+            backup.arguments = [context.db.path, ".backup '\(fixture.appendingPathComponent("fixture.sqlite").path)'"]
+            try backup.run()
+            backup.waitUntilExit()
+            XCTAssertEqual(backup.terminationStatus, 0)
+            try "\(bot.id.value.uuidString.lowercased())\n\(caller.thread.id.value.uuidString)".write(
+                toFile: receipt, atomically: true, encoding: .utf8)
+        }
+    }
+
+    func test_botParallelTaskKeepsItsContextGrantAndRejectsRevocation() async throws {
+        let context = try makeContext()
+        let router = AppCommandRouter(context: context)
+        context.router = router
+        let runner = ControlledBotHandoffRunner(provider: .distill)
+        context.coordinator.replaceProvider(.distill, runner: runner)
+        router.rememberProviderSnapshotsForSend([
+            AgentProviderSnapshotFactory.snapshot(provider: .distill,
+                models: [AgentModelDescriptor(id: "main-model", label: "Main", provider: .distill)],
+                binaryPath: "/usr/bin/true", authenticated: true, id: "distill")
+        ])
+        let bots = BotsViewModel(context: context, router: router)
+        router.botsViewModel = bots
+        let bot = try bots.create(name: "Context Task Bot", title: "Scoped work", provider: .distill)
+        let workspace = try router.createWorkspace(name: "Task workspace", cwd: directory)
+        let scope = BotContext.workspace(workspace.id)
+        let hostID = context.liveActivityHostIdentity.serverId
+        let grant = try context.botStore.grantContext(hostID: hostID, botID: bot.id, context: scope,
+            actions: [.read, .send, .delegate, .files, .configure], expectedRevision: nil)
+        let made = try bots.makeContextualConversation(bot: bot, context: scope,
+            route: BotDeskRouting(provider: .distill, model: "main-model", routingMode: .manual),
+            snapshot: nil, title: "Source")
+        let threadID = try XCTUnwrap(made.conversation.linkedAgentThreadID)
+        var pinnedSource = try XCTUnwrap(context.threadRepo.get(id: threadID))
+        pinnedSource.executionMode = .worktree
+        pinnedSource.worktreePath = directory
+        pinnedSource.baseBranch = "main"
+        try context.threadRepo.upsert(pinnedSource)
+        let run = AgentRun(threadId: threadID, provider: .distill, model: "main-model", status: .running)
+        try context.runRepo.upsert(run)
+        let result = try await router.sendHostBot(botID: bot.id, text: "Scoped task",
+            conversationID: nil, callerThread: threadID, callerRun: run.id)
+        let childID = AgentThreadID(try XCTUnwrap(result.objectValue?["thread_id"]?.stringValue.flatMap(UUID.init)))
+        let childPin = try XCTUnwrap(context.botStore.conversationContextPin(linkedTo: childID))
+        XCTAssertEqual(childPin.context, scope)
+        XCTAssertEqual(childPin.policyRevision, grant.policyRevision,
+            "A parallel task must never silently escape its source's pinned context")
+        let child = try XCTUnwrap(context.threadRepo.get(id: childID))
+        XCTAssertEqual(child.executionMode, .worktree)
+        XCTAssertEqual(child.worktreePath, directory)
+        XCTAssertEqual(child.baseBranch, "main")
+        let links = try context.messageRepo.listRecent(threadId: threadID, limit: 20)
+            .compactMap { BotParallelTask.parse($0.content) }
+        let link = try XCTUnwrap(links.first)
+        _ = try router.authorizedBotTask(link, source: threadID)
+        let source = try XCTUnwrap(context.threadRepo.get(id: threadID))
+        let parent = AgentAppViewModel(workspaceID: BotsViewModel.botDeskWorkspaceID, cwd: directory,
+            coordinator: context.coordinator, threadRepo: context.threadRepo, messageRepo: context.messageRepo,
+            initialThreadId: threadID,
+            embedding: AgentAppEmbedding(pinnedThreadId: threadID, pinnedThread: source))
+        defer { parent.closeParallelTask(); parent.dispose() }
+        router.configureBotTaskLinks(on: parent)
+        parent.openParallelTask(link)
+        XCTAssertNotNil(parent.parallelTaskPreview)
+        _ = try context.botStore.grantContext(hostID: hostID, botID: bot.id, context: scope,
+            actions: [], expectedRevision: grant.policyRevision)
+        XCTAssertThrowsError(try router.authorizedBotTask(link, source: threadID),
+            "Revoking a context must also revoke the parallel conversation preview")
+        await parent.monitorParallelTaskAccess()
+        XCTAssertNil(parent.parallelTaskPreview, "An already-open preview must close when its read grant is revoked")
+        XCTAssertTrue(parent.statusMessage.contains("access is unavailable"))
+        let count = try context.botStore.listConversations(botID: bot.id).count
+        do {
+            _ = try await router.sendHostBot(botID: bot.id, text: "Denied task",
+                conversationID: nil, callerThread: threadID, callerRun: run.id)
+            XCTFail("A revoked source must not start a task through a general fallback")
+        } catch { }
+        XCTAssertEqual(try context.botStore.listConversations(botID: bot.id).count, count)
+        for thread in context.coordinator.activeThreadIdsSnapshot() { context.coordinator.stopRun(threadId: thread) }
+    }
+
     func test_hostCatalogBotSendUsesTheFullDeskBrainPipeline() async throws {
         // WHY: a host MCP send must not bypass the Bot's soul/skills/VM routing
         // by forwarding the user's raw text as a generic Agent App prompt.

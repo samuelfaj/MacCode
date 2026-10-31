@@ -178,3 +178,10 @@ Every screen must work at any window width, from the narrowest the window allows
 - Duplicate lookalikes to merge: settings `settingRow` vs keybindings `settingRow` vs scheduled `formRow`; `statusPill` (Activity) vs `runStatusPill` (Scheduled); `DistillAccountsPanel` add/rename sheets do not use `AgentChoiceSheet`.
 - Error surfaces differ (inline strip in Bots, alerts in Activity and Scheduled) → prefer inline.
 - `DS.NS` lacks `surfaceOverlay`, `hover`, `pressed`, `selection`, `focusRing`, `ultracode`.
+
+
+## Bot parallel-task links
+
+A Bot can start independent work in separate conversations through the existing host send tools. Persist one compact capsule in the originating transcript for each accepted new run. The capsule shows the task title, the exact run's honest state, and a trailing chevron. A running task uses the native small progress indicator; terminal failure remains distinct from success. Status lookup failure must read as unavailable, never completed.
+
+Clicking a capsule opens that exact conversation in a trailing, resizable pane without selecting another main chat, stopping either run, or touching either draft. Keep the originating chat usable. The task pane is an observing surface with a labeled close action and a note that the Bot manages the task. Reuse the shared Agent App transcript with no composer or draft ownership. Remember the selected task per originating thread and restore it when that chat reopens. Validate the persisted source link, destination identity, and current context read grants before displaying it; revoke the preview if context access is withdrawn. Closing the pane only closes the preview, not the conversation or run.
