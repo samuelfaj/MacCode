@@ -15,6 +15,7 @@ private final class MemorySocket: RelayWebSocket, @unchecked Sendable {
     weak var peer: MemorySocket?
     /// When set, sends stall briefly and then fail, like a dying relay link.
     var stallThenFailSends = false
+    var suspendTextSendsUntilClosed = false
 
     var closeCode: Int? { lock.lock(); defer { lock.unlock() }; return code }
 
@@ -43,7 +44,12 @@ private final class MemorySocket: RelayWebSocket, @unchecked Sendable {
         }
         peer?.deliver(.binary(data))
     }
-    func sendText(_ text: String) async throws { peer?.deliver(.text(text)) }
+    func sendText(_ text: String) async throws {
+        if suspendTextSendsUntilClosed {
+            while true { _ = try await receiveMessage() }
+        }
+        peer?.deliver(.text(text))
+    }
 
     func receiveMessage() async throws -> RelayMessage {
         try await withCheckedThrowingContinuation { cont in
@@ -293,6 +299,40 @@ final class RelayHostClientTests: XCTestCase {
         for _ in 0..<300 where rig.hostMacSide.closeCode == nil { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertEqual(rig.hostMacSide.closeCode, 1000, "no rx for the limit closes the host socket")
         XCTAssertFalse(rig.client.isConnected)
+    }
+
+    func testStalledPingCannotBlockHostOpenDeadline() async throws {
+        let rig = Rig(serverId: serverId, dispatcher: JSONRPCDispatcher(router: FakeRouter()),
+                      pingInterval: 0.05, rxTimeout: 25, openTimeout: 0.15)
+        rig.hostMacSide.suspendTextSendsUntilClosed = true
+        rig.client.start()
+        defer { rig.client.stop() }
+        for _ in 0..<100 where rig.hostMacSide.closeCode == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(rig.hostMacSide.closeCode, 1000, "The receive watchdog must close a silent registration even while the ping send never completes")
+        XCTAssertFalse(rig.client.isConnected)
+    }
+
+    func testStalledRegistrationIsRetiredAndNextSocketConnects() async throws {
+        let attempts = AttemptCounter()
+        let (first, firstPeer) = MemorySocket.pair()
+        first.suspendTextSendsUntilClosed = true
+        let (second, secondPeer) = MemorySocket.pair()
+        let server = DirectHTTPServer(port: UInt16.random(in: 44_001...54_000), loopbackOnly: true,
+            dispatcher: JSONRPCDispatcher(router: FakeRouter()), auth: RelayTestAuth(), serverId: serverId, bootEpoch: 1)
+        let client = RelayHostClient(server: server, relayBase: URL(string: "wss://relay.test")!, serverId: serverId,
+            hostStatic: Key(), accessToken: { "test-token" }, trustedDeviceForRelayKey: { _ in nil },
+            webSocketFactory: { _ in
+                attempts.increment()
+                if attempts.value == 1 { return first }
+                Task { try? await secondPeer.sendText(#"{"type":"pong"}"#) }
+                return second
+            }, pingInterval: 0.05, rxTimeout: 5, openTimeout: 0.15)
+        client.start()
+        defer { client.stop(); firstPeer.close(code: 1000); secondPeer.close(code: 1000) }
+        for _ in 0..<400 where !client.isConnected { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(first.closeCode, 1000)
+        XCTAssertEqual(attempts.value, 2, "Exactly one replacement registration must restore connectivity after the stalled send")
+        XCTAssertTrue(client.isConnected, "Closing the stalled socket must let the actual reconnect loop register a healthy replacement")
     }
 
     func testHostSocketThatNeverAnswersIsClosedAtOpenLimit() async throws {
