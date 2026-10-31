@@ -73,6 +73,30 @@ final class AccountUsageSidebarTests: XCTestCase {
         XCTAssertEqual(AccountUsageDisplay.weeklyCaption(entries[1].usage), "Week used 49%")
     }
 
+    func test_weeklyExhaustionWinsEvenWithAnUnusedSession() {
+        let usage = DistillAccountUsage(sessionUsedPercent: 0, weeklyUsedPercent: 100)
+        let entry = AccountUsageEntry(id: "claude", provider: .claude, label: "Claude", usage: usage)
+        XCTAssertEqual(AccountUsageDisplay.ringProgress(entry), 1, "A weekly limit blocks use even when the session is empty")
+        XCTAssertEqual(AccountUsageDisplay.ringCaption(entry), "Claude week 100%")
+    }
+
+    func test_prepaidAccountsHaveNoSubscriptionRing() {
+        let entries = AccountUsageEntry.entries([
+            .init(provider: .openrouter, connected: true),
+            .init(provider: .claude, connected: true)
+        ])
+        XCTAssertEqual(entries.map(\.provider), [.claude])
+    }
+
+    func test_failedRefreshDoesNotPresentCachedPercentAsCurrent() {
+        let quota = DistillAccountQuota(accountID: "claude", checkedAt: "now", status: "unavailable", remainingPercent: 6)
+        let entry = AccountUsageEntry.entries([.init(provider: .claude, connected: true, quota: quota)])[0]
+        XCTAssertTrue(entry.usageIsStale)
+        XCTAssertNil(AccountUsageDisplay.ringProgress(entry), "A failed OAuth request must not paint yesterday's usage as current")
+        XCTAssertEqual(entry.usage?.weeklyUsedPercent, 94, "Keep last known values available in the description")
+        XCTAssertEqual(AccountUsageDisplay.ringCaption(entry), "Claude usage unavailable")
+    }
+
     func test_chatGPTWindowsMapByLength() throws {
         let usage = try XCTUnwrap(DistillAccountUsage(quota: quota(#"{"account_id":"c","checked_at":"x","status":"available","remaining_percent":61,"detail":{"rate_limit":{"primary_window":{"used_percent":39,"limit_window_seconds":604800,"reset_at":1792874449}}}}"#)))
         XCTAssertEqual(usage.weeklyUsedPercent, 39)

@@ -748,7 +748,7 @@ public struct AgentChatComposerBar: View {
                     suggestionPopupDismissed = false
                     onTextEdited()
                 },
-                onFileDrop: onFileDrop ?? onAttach,
+                onFileDrop: insertDroppedFilePaths,
                 onCursorMoved: { offset in onCursorMoved?(offset) },
                 onCaretRectChanged: { _ in },
                 popupIsOpen: {
@@ -944,13 +944,22 @@ public struct AgentChatComposerBar: View {
         }
     }
 
-    private func loadDroppedFiles(from providers: [NSItemProvider]) -> Bool {
+    func insertDroppedFilePaths(_ paths: [String]) {
+        if let onFileDrop {
+            onFileDrop(paths)
+        } else {
+            text = DroppedFilePaths.appending(DroppedFilePaths.composerInputText(for: paths), to: text)
+            onTextEdited()
+        }
+    }
+
+    func loadDroppedFiles(from providers: [NSItemProvider]) -> Bool {
         let fileProviders = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
         guard !fileProviders.isEmpty else { return false }
         for provider in fileProviders {
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 guard let url, url.isFileURL else { return }
-                DispatchQueue.main.async { onAttach([url.path]) }
+                DispatchQueue.main.async { insertDroppedFilePaths([url.path]) }
             }
         }
         return true

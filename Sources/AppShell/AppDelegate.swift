@@ -812,6 +812,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
 
     private func refreshAccountUsageOnLaunch() {
         context?.refreshAccountUsage(reason: "launch")
+        Task { @MainActor [weak self] in
+            await self?.context?.distillAccountsController.refreshAllUsage()
+        }
     }
 
     private func startAccountUsageRefreshLoop() {
@@ -825,6 +828,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                 // Grok stays independent from slow Claude/Codex probes, but the
                 // combined operation issues only one Grok credits request.
                 self.context?.refreshPeriodicAccountUsage()
+                await self.context?.distillAccountsController.refreshAllUsage()
             }
         }
     }

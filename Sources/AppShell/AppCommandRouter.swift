@@ -506,7 +506,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     public weak var context: AppContext?
 
     /// Accounts & Auto lives in Settings; the Agent App's empty state links there.
-    private var openAccountsSettings: (() -> Void)? {
+    var openAccountsSettings: (() -> Void)? {
         guard context != nil else { return nil }
         return { [weak self] in
             if let windowController = self?.windowController {
