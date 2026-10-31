@@ -5593,12 +5593,13 @@ public final class BotsViewModel: ObservableObject {
 
     /// Creates the contextual thread and its conversation in the store. Throws the
     /// user-facing reason when the context, grant, or route cannot host a thread.
-    private func makeContextualConversation(
+    func makeContextualConversation(
         bot: BotDefinition,
         context: BotContext,
         route: BotDeskRouting,
         snapshot: AgentProviderSnapshot?,
-        title: String
+        title: String,
+        inheriting parentThreadID: AgentThreadID? = nil
     ) throws -> (conversation: BotConversation, routing: BotDeskRouting) {
         if case .workspace(let id) = context, self.context.state.workspaces[id] == nil {
             throw BotStoreError.invalidInput("This workspace no longer exists.")
@@ -5625,10 +5626,18 @@ public final class BotsViewModel: ObservableObject {
         routing.provider = .distill
         routing.model = model
         let workspaceID: WorkspaceID? = if case .workspace(let id) = context { id } else { nil }
+        let parent = try parentThreadID.flatMap { try self.context.threadRepo.get(id: $0) }
+        if parentThreadID != nil, parent == nil {
+            throw BotStoreError.invalidInput("The task's source conversation no longer exists.")
+        }
         var thread = AgentThread(
+            projectId: parent?.projectId,
             workspaceId: workspaceID, title: title, provider: .distill,
             providerInstanceId: route.providerInstanceID, model: model,
             permissionMode: route.permissionMode, reasoningEffort: route.reasoningEffort,
+            executionMode: parent?.executionMode ?? .local,
+            baseBranch: parent?.baseBranch,
+            worktreePath: parent?.worktreePath,
             serviceTier: route.serviceTier,
             modelSelection: AgentModelSelection(
                 provider: .distill, modelId: model,
@@ -11295,6 +11304,7 @@ public final class BotsViewModel: ObservableObject {
             orchestrationRuntime: context.orchestrationRuntime,
             embedding: embedding
         )
+        router.configureBotTaskLinks(on: vm)
         vm.providerSnapshotLoader = { [weak router] in
             await router?.listAgentProviderSnapshots(runAsUser: nil) ?? []
         }

@@ -1176,6 +1176,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                             await self?.listAgentProviderSnapshots(runAsUser: agent?.viewModel.runAsUser) ?? []
                         }
                         agent.viewModel.refreshProviderSnapshotsInBackground()
+                        configureBotTaskLinks(on: agent.viewModel)
                         agent.viewModel.providerLaunchConfig = { [weak self] provider, instanceId in
                             (
                                 self?.providerBinary(provider: provider, instanceId: instanceId),
@@ -3371,6 +3372,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             await self?.listAgentProviderSnapshots(runAsUser: agent?.viewModel.runAsUser) ?? []
         }
         agent.viewModel.refreshProviderSnapshotsInBackground()
+        configureBotTaskLinks(on: agent.viewModel)
         agent.viewModel.providerLaunchConfig = { [weak self] provider, instanceId in
             (
                 self?.providerBinary(provider: provider, instanceId: instanceId),
@@ -4062,12 +4064,58 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
               let policy = try ctx.threadRepo.deskPolicy(of: callerThread) else {
             throw JSONRPCError(code: -32045, message: "MacCode Bot runtime is unavailable.")
         }
-        return try botsViewModel.enqueueHostMessage(
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw JSONRPCError(code: -32602, message: "The task message cannot be empty.")
+        }
+        let isBotCaller = try ctx.botStore.conversationLinked(to: callerThread) != nil
+        let routing = BotDeskRouting(route: route, policy: policy)
+        var destination = conversationID
+        if destination == nil,
+           let pin = try ctx.botStore.conversationContextPin(linkedTo: callerThread) {
+            guard try ctx.botStore.authorizes(hostID: pin.hostID, botID: pin.botID,
+                context: pin.context, action: .send, policyRevision: pin.policyRevision),
+                  let bot = try ctx.botStore.get(id: botID) else {
+                throw JSONRPCError(code: -32047, message: "The task's context is no longer authorized.")
+            }
+            if botID != pin.botID {
+                guard try ctx.botStore.authorizes(hostID: pin.hostID, botID: pin.botID,
+                    context: pin.context, action: .delegate, policyRevision: pin.policyRevision) else {
+                    throw JSONRPCError(code: -32047, message: "This context does not allow delegation.")
+                }
+            }
+            destination = try botsViewModel.makeContextualConversation(bot: bot,
+                context: pin.context, route: routing, snapshot: nil,
+                title: String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(72)),
+                inheriting: callerThread).conversation.id
+        }
+        let result = try botsViewModel.enqueueHostMessage(
             botID: botID,
             text: text,
-            conversationID: conversationID,
-            routing: BotDeskRouting(route: route, policy: policy)
+            conversationID: destination,
+            routing: routing
         )
+        guard isBotCaller, let object = result.objectValue,
+              let child = object["thread_id"]?.stringValue.flatMap(UUID.init),
+              AgentThreadID(child) != callerThread,
+              let conversation = object["conversation_id"]?.stringValue.flatMap(UUID.init),
+              let run = object["run_id"]?.stringValue.flatMap(UUID.init),
+              object["queued_follow_up"] == .bool(false) else { return result }
+        let title = (try? ctx.botStore.conversation(id: BotConversationID(conversation)))?.title
+            ?? String(text.prefix(72))
+        let task = BotParallelTask(botID: botID, conversationID: BotConversationID(conversation),
+            threadID: AgentThreadID(child), runID: AgentRunID(run), title: title)
+        var receipt = object
+        do {
+            let message = AgentMessage(id: AgentMessageID(run), threadId: callerThread,
+                role: .assistant, content: task.transcript, createdAt: Date())
+            try ctx.messageRepo.append(message)
+            projectAgentAppPeerMessage(threadID: callerThread, messageID: message.id, terminalStatus: nil)
+            receipt["task_message_id"] = .string(message.id.value.uuidString.lowercased())
+        } catch {
+            // The run was accepted: preserve its receipt so a missing link cannot cause duplicate work.
+            receipt["task_link_error"] = .string("The task started, but its conversation link could not be saved: \(error)")
+        }
+        return .object(receipt)
     }
 
     public func createHostBotThread(botID: BotID, title: String) throws -> JSONValue {

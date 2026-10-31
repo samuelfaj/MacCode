@@ -544,6 +544,61 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     /// A Bot desk with Verbosity Human shows only the Bot's messages: no tool,
     /// command, edit or work-log rows. The live turn keeps a "Working" line.
     @Published public var hidesToolActivity = false
+    @Published public var parallelTaskPreview: AgentAppViewModel?
+    @Published public var parallelTaskTitle = ""
+    @Published public private(set) var selectedParallelTask: BotParallelTask?
+    public var parallelTaskLoader: ((BotParallelTask, AgentThreadID) throws -> AgentAppViewModel)?
+    public var parallelTaskStatus: ((BotParallelTask, AgentThreadID) async throws -> AgentRunStatus?)?
+
+    public func openParallelTask(_ task: BotParallelTask) {
+        guard let source = selectedThreadId, let parallelTaskLoader else { return }
+        do {
+            let preview = try parallelTaskLoader(task, source)
+            parallelTaskPreview?.dispose()
+            parallelTaskTitle = task.title
+            selectedParallelTask = task
+            parallelTaskPreview = preview
+            if let data = try? JSONEncoder().encode(task) {
+                UserDefaults.standard.set(data, forKey: "agent.parallelTask.\(source.value.uuidString)")
+            }
+        } catch {
+            statusMessage = "Could not open parallel conversation: \(error)"
+        }
+    }
+
+    public func closeParallelTask(clearSelection: Bool = true) {
+        parallelTaskPreview?.dispose()
+        parallelTaskPreview = nil
+        selectedParallelTask = nil
+        if clearSelection, let source = selectedThreadId {
+            UserDefaults.standard.removeObject(forKey: "agent.parallelTask.\(source.value.uuidString)")
+        }
+    }
+
+    public func monitorParallelTaskAccess() async {
+        guard let task = selectedParallelTask, let source = selectedThreadId,
+              let load = parallelTaskStatus else { return }
+        while !Task.isCancelled, selectedParallelTask == task, selectedThreadId == source {
+            do {
+                _ = try await load(task, source)
+            } catch {
+                guard !Task.isCancelled, selectedParallelTask == task, selectedThreadId == source else { return }
+                closeParallelTask()
+                statusMessage = "Parallel conversation access is unavailable: \(error)"
+                return
+            }
+            do { try await Task.sleep(nanoseconds: 2_000_000_000) }
+            catch { return }
+        }
+    }
+
+    public func restoreParallelTask() {
+        closeParallelTask(clearSelection: false)
+        guard let source = selectedThreadId,
+              let data = UserDefaults.standard.data(forKey: "agent.parallelTask.\(source.value.uuidString)"),
+              let task = try? JSONDecoder().decode(BotParallelTask.self, from: data) else { return }
+        openParallelTask(task)
+    }
     @Published public var threads: [AgentThread] = [] { didSet { filteredThreadsCache = nil } }
     @Published public var selectedThreadId: AgentThreadID?
     /// Distill `/loop` tasks of the selected thread; AppShell mirrors them from the loop store.
@@ -1572,6 +1627,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     /// tab closes. Without this, multi-tab sessions keep routing stream batches
     /// onto closed VMs until ARC collects the weak observer.
     public func dispose() {
+        closeParallelTask(clearSelection: false)
         guard !isDisposed else { return }
         if let selectedThreadId { persistComposerDraft(for: selectedThreadId) }
         isDisposed = true
@@ -2441,6 +2497,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     public func selectThread(_ id: AgentThreadID, markRead: Bool = true) {
         guard !isDisposed else { return }
         if let embedding, id != embedding.pinnedThreadId { return }
+        if id != selectedThreadId { closeParallelTask(clearSelection: false) }
         let isPinned = embedding?.pinnedThreadId == id
         let selectedThread: AgentThread
         if let cached = Self.railThreadForSelection(
@@ -14081,7 +14138,10 @@ public struct AgentAppView: View {
 
         var id: String {
             switch self {
-            case .message(let message): return "message-\(message.id.value.uuidString)"
+            case .message(let message):
+                // Stored timestamps have second precision; task links follow their same-second instruction.
+                let prefix = BotParallelTask.parse(message.content) == nil ? "message-" : "message-task-"
+                return prefix + message.id.value.uuidString
             case .turn(let turn): return "turn-\(turn.turnId)"
             }
         }
@@ -15453,8 +15513,37 @@ public struct AgentAppView: View {
                 }
                 conversationColumn(availableHeight: proxy.size.height)
                     .frame(minWidth: 0, maxWidth: .infinity)
+                if let preview = vm.parallelTaskPreview {
+                    VStack(spacing: 0) {
+                        HStack {
+                            Text(vm.parallelTaskTitle)
+                                .font(DS.Font.body.weight(.medium))
+                                .lineLimit(1)
+                            Spacer()
+                            Button { vm.closeParallelTask() } label: {
+                                Image(systemName: "xmark")
+                            }
+                            .buttonStyle(.plain)
+                            .help("Close parallel conversation")
+                            .accessibilityLabel("Close parallel conversation")
+                            .accessibilityIdentifier("agent.botTask.close")
+                        }
+                        .padding(DS.Space.md)
+                        .dsBar(edge: .bottom)
+                        AgentAppView(vm: preview, layout: AgentAppViewLayout(
+                            showsThreadRail: false, showsHeader: false, showsComposer: false))
+                        Text("This Bot is managing the task. You can keep chatting in the original conversation.")
+                            .font(DS.Font.caption)
+                            .foregroundStyle(DS.Palette.textSecondary)
+                            .padding(DS.Space.md)
+                    }
+                    .frame(minWidth: 240, idealWidth: max(240, proxy.size.width * 0.46))
+                    .accessibilityIdentifier("agent.botTask.sideConversation")
+                }
             }
             .onAppear { applyAdaptiveSidebars(width: proxy.size.width, event: .structural) }
+            .task(id: vm.selectedThreadId) { vm.restoreParallelTask() }
+            .task(id: vm.selectedParallelTask?.threadID) { await vm.monitorParallelTaskAccess() }
             .onChange(of: proxy.size.width) { width in
                 applyAdaptiveSidebars(width: width, event: .resize)
             }
@@ -17477,6 +17566,12 @@ public struct AgentAppView: View {
                         .italic()
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityLabel("Content omitted: message body was too large to display")
+                } else if let task = BotParallelTask.parse(msg.content) {
+                    AgentBotTaskLink(task: task, loadStatus: { task in
+                        guard let source = vm.selectedThreadId,
+                              let load = vm.parallelTaskStatus else { return nil }
+                        return try await load(task, source)
+                    }, open: vm.openParallelTask)
                 } else if let activity = BotPeerTranscript.parseActivity(msg.content) {
                     AgentChatPeerActivityRow(
                         snapshot: activity,
