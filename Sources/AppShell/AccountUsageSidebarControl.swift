@@ -144,23 +144,29 @@ struct AccountUsageSidebarControl: View {
                 }
                 .accessibilityIdentifier("sidebar.accountUsage.lastUpdated")
             }
-            HStack {
-                Spacer()
-                AccountUsageRings(rings: vm.accountUsageEntries.map { ($0.provider, AccountUsageDisplay.ringProgress($0)) })
-                    .frame(width: 112, height: 112)
-                Spacer()
-            }
-            Text("One ring per subscription account, outer to inner in this order. Each ring shows the most-used limit. A faint ring means usage is unavailable.")
-                .font(DS.Font.caption2)
-                .foregroundColor(DS.Palette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            if vm.accountUsageEntries.isEmpty {
-                Text(AccountUsageDisplay.noAccountsPrompt)
-                    .font(DS.Font.caption)
-                    .foregroundColor(DS.Palette.textSecondary)
-            }
-            ForEach(Array(vm.accountUsageEntries.enumerated()), id: \.element.id) { index, entry in
-                accountRow(entry, index: index)
+            HStack(alignment: .top, spacing: DS.Space.xl) {
+                VStack(alignment: .center, spacing: DS.Space.md) {
+                    AccountUsageRings(rings: vm.accountUsageEntries.map { ($0.provider, AccountUsageDisplay.ringProgress($0)) })
+                        .frame(width: 128, height: 128)
+                    Text("One ring per subscription account, outer to inner in list order. Each ring shows the most-used limit. A faint ring means usage is unavailable.")
+                        .font(DS.Font.caption2)
+                        .foregroundColor(DS.Palette.textTertiary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(width: 148)
+                VStack(alignment: .leading, spacing: DS.Space.lg) {
+                    if vm.accountUsageEntries.isEmpty {
+                        Text(AccountUsageDisplay.noAccountsPrompt)
+                            .font(DS.Font.caption)
+                            .foregroundColor(DS.Palette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    ForEach(Array(vm.accountUsageEntries.enumerated()), id: \.element.id) { index, entry in
+                        accountRow(entry, index: index)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             if let error = vm.accountUsageRefreshError {
                 Text(error)
@@ -168,46 +174,91 @@ struct AccountUsageSidebarControl: View {
                     .foregroundColor(DS.Palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Divider()
-            Button("Accounts & Auto routing…") {
+            Button {
                 showsDetails = false
                 onOpenAccountsSettings()
+            } label: {
+                HStack(spacing: DS.Space.sm) {
+                    Image(systemName: "person.2.badge.gearshape")
+                        .accessibilityHidden(true)
+                    Text("Accounts & Auto routing")
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(DS.Font.caption2.weight(.semibold))
+                        .foregroundColor(DS.Palette.textTertiary)
+                        .accessibilityHidden(true)
+                }
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(DSSecondaryButtonStyle())
+            .accessibilityLabel("Accounts & Auto routing")
             .accessibilityIdentifier("sidebar.accountUsage.settings")
         }
-        .padding(DS.Space.md)
-        .frame(width: 300, alignment: .leading)
+        .padding(DS.Space.lg)
+        .frame(width: 460, alignment: .leading)
         .background(DS.Palette.surface)
         .accessibilityIdentifier("sidebar.accountUsage.details")
     }
 
     private func accountRow(_ entry: AccountUsageEntry, index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let color = AccountUsageRings.color(for: entry.provider, index: index, in: vm.accountUsageEntries.map(\.provider))
+        return VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(spacing: DS.Space.xs) {
                 Circle()
-                    .fill(AccountUsageRings.color(for: entry.provider, index: index, in: vm.accountUsageEntries.map(\.provider)))
+                    .fill(color)
                     .frame(width: 8, height: 8)
                     .accessibilityHidden(true)
                 Text(entry.label)
                     .font(DS.Font.captionStrong)
                     .foregroundColor(DS.Palette.text)
                     .lineLimit(1)
-                if let email = entry.email {
-                    Text(email).font(DS.Font.caption2).foregroundColor(DS.Palette.textTertiary).lineLimit(1).truncationMode(.middle)
-                }
+                    .truncationMode(.middle)
+            }
+            if let email = entry.email {
+                Text(email).font(DS.Font.caption2).foregroundColor(DS.Palette.textTertiary).lineLimit(1).truncationMode(.middle)
+                    .padding(.leading, 12)
             }
             if entry.usageIsStale {
-                Text("Usage unavailable. Last known values:")
+                Text(entry.usage == nil ? "Usage unavailable" : "Usage unavailable. Last known values:")
                     .font(DS.Font.caption2).foregroundColor(DS.Palette.textTertiary)
             }
-            Text(AccountUsageDisplay.sessionCaption(entry.usage))
-                .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary).monospacedDigit()
-            Text(AccountUsageDisplay.weeklyCaption(entry.usage))
-                .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary).monospacedDigit()
+            usageBar("Session", percent: entry.usage?.sessionUsedPercent, color: color, stale: entry.usageIsStale)
+                .accessibilityLabel(AccountUsageDisplay.sessionCaption(entry.usage))
+            usageBar("Week", percent: entry.usage?.weeklyUsedPercent, color: color, stale: entry.usageIsStale)
+                .accessibilityLabel(AccountUsageDisplay.weeklyCaption(entry.usage))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("sidebar.accountUsage.account.\(entry.id)")
+    }
+
+    /// "Session ▬▬▬── 75%"; a missing value shows "—" over an empty track, never 0%.
+    private func usageBar(_ title: String, percent: Double?, color: Color, stale: Bool) -> some View {
+        HStack(spacing: DS.Space.sm) {
+            Text(title)
+                .font(DS.Font.caption)
+                .foregroundColor(DS.Palette.textSecondary)
+                .frame(width: 48, alignment: .leading)
+            Capsule()
+                .fill(DS.Palette.line)
+                .frame(height: 4)
+                .overlay(alignment: .leading) {
+                    if let percent {
+                        GeometryReader { proxy in
+                            Capsule()
+                                .fill(stale ? color.opacity(0.35) : color)
+                                .frame(width: proxy.size.width * min(max(percent / 100, 0), 1))
+                        }
+                    }
+                }
+            Text(percent.map { AccountUsageDisplay.formatPercent($0 / 100) } ?? "—")
+                .font(DS.Font.caption)
+                .foregroundColor(percent == nil ? DS.Palette.textTertiary : DS.Palette.textSecondary)
+                .monospacedDigit()
+                .frame(width: 34, alignment: .trailing)
+        }
+        .accessibilityElement(children: .ignore)
     }
 }
 
