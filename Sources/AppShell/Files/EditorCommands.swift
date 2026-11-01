@@ -171,7 +171,7 @@ enum EditorCommands {
 
     /// Tab: indent selected lines, or insert spaces up to the next tab stop.
     static func tab(text: NSString, selection: NSRange) -> EditorEdit {
-        let spansLines = selection.length > 0 && text.substring(with: selection).contains("\n")
+        let spansLines = selection.length > 0 && text.rangeOfCharacter(from: .newlines, options: [], range: selection).location != NSNotFound
         if !spansLines {
             let lineStart = text.lineRange(for: NSRange(location: selection.location, length: 0)).location
             let column = selection.location - lineStart
@@ -194,7 +194,7 @@ enum EditorCommands {
         var out = ""
         var firstDelta = 0, total = 0
         var isFirst = true
-        text.enumerateSubstrings(in: region, options: [.byLines, .substringNotRequired, .substringNotRequired]) { _, line, _, _ in
+        text.enumerateSubstrings(in: region, options: [.byLines, .substringNotRequired]) { _, line, enclosing, _ in
             var content = text.substring(with: line)
             let before = content.utf16.count
             if outdent {
@@ -208,12 +208,8 @@ enum EditorCommands {
             let change = content.utf16.count - before
             if isFirst { firstDelta = change; isFirst = false }
             total += change
-            out += content + "\n"
+            out += content + text.substring(with: NSRange(location: NSMaxRange(line), length: NSMaxRange(enclosing) - NSMaxRange(line)))
         }
-        if !region.length.isMultiple(of: 1) { out = "" }
-        // enumerateSubstrings drops the final terminator; restore it only if the region had one.
-        let hadTerminator = region.length > 0 && text.character(at: NSMaxRange(region) - 1) == 0x0A
-        if !hadTerminator, out.hasSuffix("\n") { out.removeLast() }
         let start = max(region.location, selection.location + (firstDelta < 0 ? max(firstDelta, region.location - selection.location) : firstDelta))
         let newSel = NSRange(location: start, length: max(0, selection.length + total - firstDelta))
         return EditorEdit(range: region, replacement: out, selection: newSel)

@@ -1062,6 +1062,10 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     /// selectedSurfaceID per pane.
     public func reinstantiateRestoredSurfaces() {
         guard let ctx = context else { return }
+        for id in Array(ctx.state.workspaces.keys) {
+            do { try consolidateFilesTabs(workspace: id) }
+            catch { appRouterLog.error("files.restore.consolidation_failed error=\(String(describing: error), privacy: .public)") }
+        }
         let terminalFontSize = SettingsStore(db: ctx.db).load().terminalFontSize
         var idMap: [SurfaceID: SurfaceID] = [:]
         for (wid, ws) in ctx.state.workspaces {
@@ -1281,7 +1285,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                         }
                         surface = agent
                     case .files:
-                        surface = FilesSurface(workspaceID: wid, cwd: cwd, title: title, router: self, initialState: desc.metadata["files_state"], selectedPath: desc.metadata["selected_path"] ?? desc.metadata["selected_relative_path"])
+                        surface = FilesSurface(workspaceID: wid, cwd: cwd, title: title, router: self, initialState: desc.metadata["files_state"], selectedPath: desc.metadata["selected_path"] ?? desc.metadata["selected_relative_path"], restoredSurfaceID: desc.id)
                     case .markdown:
                         surface = MarkdownSurface(workspaceID: wid, filePath: desc.metadata["path"], title: title)
                     case .filePreview:
@@ -1380,12 +1384,44 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         return selectedSurfaceIDs(in: workspace.layout).first
     }
 
+    /// Earlier versions opened a global Files surface for every file. Retain their paths
+    /// as internal tabs when restoring the one Files surface for the workspace.
+    private func consolidateFilesTabs(workspace: WorkspaceID) throws {
+        guard let ctx = context, let ws = ctx.state.workspaces[workspace] else { return }
+        var files: [SurfaceDescriptor] = []
+        forEachSurface(in: ws.layout) { if $0.type == .files { files.append($0) } }
+        let focused = ws.focusedPaneID.flatMap { ws.layout.find(paneID: $0)?.selectedSurfaceID }
+        guard var kept = files.first(where: { $0.id == focused }) ?? files.first else { return }
+        kept.title = "Files"
+        if files.count > 1 {
+            var state = Self.decodeFilesState(kept.metadata["files_state"]) ?? [:]
+            var seen = Set<String>()
+            var paths: [String] = []
+            var dirty = Set<String>()
+            for file in files {
+                let old = Self.decodeFilesState(file.metadata["files_state"]) ?? [:]
+                let open = old["open_tabs"]?.arrayValue?.compactMap(\.stringValue) ?? []
+                let selected = file.metadata["selected_path"] ?? file.metadata["selected_relative_path"] ?? old["selected_path"]?.stringValue
+                for path in open + (selected.map { [$0] } ?? []) where !path.isEmpty && seen.insert(path).inserted {
+                    paths.append(path)
+                }
+                dirty.formUnion(old["dirty_paths"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+            }
+            state["open_tabs"] = .array(paths.map(JSONValue.string))
+            state["dirty_paths"] = .array(dirty.sorted().map(JSONValue.string))
+            state["surface_id"] = .string(kept.id.value.uuidString)
+            kept.metadata["files_state"] = encodeFilesState(state)
+            for file in files where file.id != kept.id { try ctx.apply(.closeSurface(workspace, file.id)) }
+        }
+        updateSurfaceDescriptor(workspace: workspace, surface: kept.id) { $0 = kept }
+    }
+
     private func remapIDs(in node: LayoutNode, idMap: [SurfaceID: SurfaceID]) -> LayoutNode {
         switch node {
         case .pane(var p):
             p.surfaces = p.surfaces.map { d in
                 let new = idMap[d.id] ?? d.id
-                return SurfaceDescriptor(id: new, type: d.type, title: d.title, iconName: d.iconName,
+                return SurfaceDescriptor(id: new, type: d.type, title: d.type == .files ? "Files" : d.title, iconName: d.iconName,
                                           isDirty: d.isDirty, hasUnreadActivity: d.hasUnreadActivity, metadata: d.metadata)
             }
             if let sel = p.selectedSurfaceID { p.selectedSurfaceID = idMap[sel] ?? sel }
@@ -2000,6 +2036,9 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         if let paneID, let ws = ctx.state.workspaces[workspace], ws.layout.find(paneID: paneID) == nil {
             throw LayoutError.paneNotFound
         }
+        if type == .files, let existing = try reuseFilesSurface(workspace: workspace, path: nil) {
+            return existing
+        }
         let desc = makeSurface(type: type, title: title, workspace: workspace, cwd: ctx.state.workspaces[workspace]?.cwd ?? "/")
         try ctx.apply(.addSurface(workspace, paneID: paneID, descriptor: desc))
         windowController?.refreshFromState()
@@ -2095,6 +2134,10 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         if let ws = ctx.state.workspaces[workspace], ws.layout.find(paneID: paneID) == nil {
             throw LayoutError.paneNotFound
         }
+        if surfaceType == .files, let existing = try reuseFilesSurface(workspace: workspace, path: nil) {
+            try splitFilesSurface(workspace: workspace, paneID: paneID, surface: existing.id, direction: direction)
+            return existing
+        }
         let desc = makeSurface(type: surfaceType, title: title, workspace: workspace, cwd: ctx.state.workspaces[workspace]?.cwd ?? "/")
         try ctx.apply(.splitPane(workspace, paneID: paneID, direction: direction, newSurface: desc))
         windowController?.refreshFromState()
@@ -2106,8 +2149,12 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     public func filesOpenTab(workspace: WorkspaceID, sourceSurface: SurfaceID?, paneID: PaneID?, path: String) throws -> SurfaceDescriptor {
         guard let ctx = context, let ws = ctx.state.workspaces[workspace] else { throw LayoutError.workspaceNotFound }
         let info = try fileTabInfo(workspace: workspace, path: path)
-        let desc = makeFilesSurface(workspace: workspace, cwd: ws.cwd, title: info.title, selectedPath: info.relativePath)
         let targetPane = paneID ?? sourceSurface.flatMap { paneIDContaining(surface: $0, in: ws.layout) }
+        if let targetPane, ws.layout.find(paneID: targetPane) == nil { throw LayoutError.paneNotFound }
+        if let existing = try reuseFilesSurface(workspace: workspace, path: info.relativePath) {
+            return existing
+        }
+        let desc = makeFilesSurface(workspace: workspace, cwd: ws.cwd, title: "Files", selectedPath: info.relativePath)
         try ctx.apply(.addSurface(workspace, paneID: targetPane, descriptor: desc))
         windowController?.refreshFromState()
         reconcileSurfaceVisibility()
@@ -2115,17 +2162,39 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         return desc
     }
 
+    private func reuseFilesSurface(workspace: WorkspaceID, path: String?) throws -> SurfaceDescriptor? {
+        guard let ctx = context, let ws = ctx.state.workspaces[workspace] else { return nil }
+        var existing: SurfaceDescriptor?
+        forEachSurface(in: ws.layout) { if $0.type == .files, existing == nil { existing = $0 } }
+        guard let descriptor = existing else { return nil }
+        let files: FilesSurface
+        if let mounted = SurfaceRegistry.shared.surface(descriptor.id) as? FilesSurface {
+            files = mounted
+        } else {
+            files = FilesSurface(workspaceID: workspace, cwd: ws.cwd, router: self,
+                initialState: descriptor.metadata["files_state"],
+                selectedPath: descriptor.metadata["selected_path"], restoredSurfaceID: descriptor.id)
+            SurfaceRegistry.shared.register(files)
+        }
+        if let path { files.reveal(relativePath: path) }
+        try focusSurface(workspace: workspace, surface: descriptor.id)
+        return files.descriptor
+    }
+
     public func filesSplitTab(workspace: WorkspaceID, sourceSurface: SurfaceID?, paneID: PaneID?, direction: SplitDirection, path: String) throws -> SurfaceDescriptor {
         guard let ctx = context, let ws = ctx.state.workspaces[workspace] else { throw LayoutError.workspaceNotFound }
         let info = try fileTabInfo(workspace: workspace, path: path)
         let targetPane = paneID ?? sourceSurface.flatMap { paneIDContaining(surface: $0, in: ws.layout) } ?? ws.focusedPaneID ?? ws.layout.paneIDs().first
         guard let targetPane else { throw LayoutError.paneNotFound }
-        let desc = makeFilesSurface(workspace: workspace, cwd: ws.cwd, title: info.title, selectedPath: info.relativePath)
-        try ctx.apply(.splitPane(workspace, paneID: targetPane, direction: direction, newSurface: desc))
-        windowController?.refreshFromState()
-        reconcileSurfaceVisibility()
-        publishPaneSplit(workspace: workspace, surface: desc)
+        let desc = try filesOpenTab(workspace: workspace, sourceSurface: sourceSurface, paneID: targetPane, path: info.relativePath)
+        try splitFilesSurface(workspace: workspace, paneID: targetPane, surface: desc.id, direction: direction)
         return desc
+    }
+
+    private func splitFilesSurface(workspace: WorkspaceID, paneID: PaneID, surface: SurfaceID, direction: SplitDirection) throws {
+        if let pane = context?.state.workspaces[workspace]?.layout.find(paneID: paneID),
+           pane.surfaces.count == 1, pane.surfaces.first?.id == surface { return }
+        try splitSurface(workspace: workspace, paneID: paneID, surface: surface, direction: direction)
     }
 
     // MARK: Agent App "open in adjacent split" (UX-MAC_AGENT-OPEN-SPLIT)
@@ -2144,20 +2213,22 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             return
         }
         let sourcePane = paneIDContaining(surface: sourceSurface, in: ws.layout)
-        if let sourcePane, let neighbor = ws.layout.rightNeighborPane(of: sourcePane) {
-            if let filesDesc = neighbor.surfaces.first(where: { $0.type == .files }),
-               let files = SurfaceRegistry.shared.surface(filesDesc.id) as? FilesSurface {
-                files.reveal(relativePath: info.relativePath)
-                updateSurfaceDescriptor(workspace: workspace, surface: filesDesc.id) { descriptor in
-                    descriptor.title = info.title
-                    descriptor.metadata["selected_path"] = info.relativePath
-                    descriptor.metadata["selected_relative_path"] = info.relativePath
+        do {
+            if let existing = try reuseFilesSurface(workspace: workspace, path: info.relativePath) {
+                if let sourcePane, let neighbor = ws.layout.rightNeighborPane(of: sourcePane) {
+                    if !neighbor.surfaces.contains(where: { $0.id == existing.id }) {
+                        try surfaceMove(workspace: workspace, surface: existing.id, targetPane: neighbor.id)
+                    }
+                } else if let sourcePane {
+                    try splitFilesSurface(workspace: workspace, paneID: sourcePane, surface: existing.id, direction: .right)
                 }
-                try? ctx.apply(.focusSurface(workspace, filesDesc.id))
-                windowController?.refreshFromState()
-                reconcileSurfaceVisibility()
                 return
             }
+        } catch {
+            appRouterLog.error("files.adjacent.failed error=\(String(describing: error), privacy: .public)")
+            return
+        }
+        if let sourcePane, let neighbor = ws.layout.rightNeighborPane(of: sourcePane) {
             let desc = makeFilesSurface(workspace: workspace, cwd: ws.cwd, title: info.title, selectedPath: info.relativePath)
             try? ctx.apply(.addSurface(workspace, paneID: neighbor.id, descriptor: desc))
             windowController?.refreshFromState()
@@ -2381,6 +2452,13 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     public func reopenClosedSurface(workspace: WorkspaceID) throws -> SurfaceDescriptor? {
         guard let ctx = context else { throw LayoutError.workspaceNotFound }
         guard let entry = closedTabBuffer.pop(for: workspace) else { return nil }
+        if entry.descriptor.type == .files, let existing = try reuseFilesSurface(workspace: workspace, path: nil) {
+            let state = Self.decodeFilesState(entry.descriptor.metadata["files_state"])
+            let paths = state?["open_tabs"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            let selected = entry.descriptor.metadata["selected_path"] ?? state?["selected_path"]?.stringValue
+            (SurfaceRegistry.shared.surface(existing.id) as? FilesSurface)?.reopen(paths: paths, selectedPath: selected)
+            return existing
+        }
         let cwd = entry.workspaceCwd.isEmpty
             ? (ctx.state.workspaces[workspace]?.cwd ?? "/")
             : entry.workspaceCwd
@@ -10534,8 +10612,12 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         let root = try workspaceCwd(located.workspaceID)
         let opened = try FileEditSessionStore.shared.open(surfaceID: surface, workspaceID: located.workspaceID, root: root, path: path)
         if let sessionID = opened.objectValue?["session_id"]?.stringValue {
+            let relativePath = opened.objectValue?["relative_path"]?.stringValue ?? path
+            var paths = try filesStateGet(surface: surface).objectValue?["open_tabs"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            if !paths.contains(relativePath) { paths.append(relativePath) }
             let _ = try filesStateUpdate(surface: surface, patch: [
-                "selected_path": .string(path),
+                "selected_path": .string(relativePath),
+                "open_tabs": .array(paths.map(JSONValue.string)),
                 "edit_session_id": .string(sessionID)
             ], baseRevision: nil, deviceID: "mac-host")
         }
@@ -10551,6 +10633,32 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             )
         }
         return session
+    }
+
+    public func filesAIComplete(sessionID: String, draftRevision: Int, caretUTF16: Int) async throws -> JSONValue {
+        let body = try filesEditSession(sessionID: sessionID).objectValue ?? [:]
+        guard body["draft_revision"]?.intValue == draftRevision else {
+            throw JSONRPCError(code: -32012, message: "draft revision conflict")
+        }
+        guard let text = body["content"]?.stringValue, caretUTF16 >= 0, caretUTF16 <= (text as NSString).length,
+              Range(NSRange(location: caretUTF16, length: 0), in: text) != nil else {
+            throw JSONRPCError.invalidParams
+        }
+        let request = InlineCompletionRequest(path: body["path"]?.stringValue ?? "", language: body["language"]?.stringValue, text: text, caret: caretUTF16)
+        let completion: String?
+        do { completion = try await DistillInlineCompletionProvider.distillCLI().complete(request) }
+        catch let error as InlineCompletionError {
+            throw JSONRPCError(code: -32000, message: error.localizedDescription)
+        }
+        guard try filesEditSession(sessionID: sessionID).objectValue?["draft_revision"]?.intValue == draftRevision else {
+            throw JSONRPCError(code: -32012, message: "draft changed during AI suggestion")
+        }
+        return .object([
+            "session_id": .string(sessionID),
+            "draft_revision": .number(Double(draftRevision)),
+            "caret_utf16": .number(Double(caretUTF16)),
+            "completion": completion.map(JSONValue.string) ?? .null
+        ])
     }
 
     public func filesEditApplyPatch(sessionID: String, baseDraftRevision: Int, rangeLocation: Int, rangeLength: Int, replacement: String, deviceID: String?) throws -> JSONValue {

@@ -92,6 +92,66 @@ final class FilesEditorLSPIntegrationTests: XCTestCase {
         XCTAssertNotNil(textView.textLayoutManager, "diagnostics must not downgrade the view to TextKit 1")
     }
 
+    func test_backspaceExpandsWordSuggestionsAndCompositionDoesNotOpenThem() {
+        let (_, view) = makeEditor("priv")
+        let coordinator = CodeTextEditor.Coordinator(onChange: { _ in }, onCaretChange: { _, _ in })
+        coordinator.textView = view
+        coordinator.language = "swift"
+        view.delegate = coordinator
+        view.setSelectedRange(NSRange(location: 4, length: 0))
+        coordinator.requestCompletion(in: view, explicit: true)
+        XCTAssertEqual(view.suggest.model?.items.map(\.insertText), ["private"])
+        view.deleteBackward(nil)
+        XCTAssertTrue(view.suggest.model?.items.contains { $0.insertText == "print" } ?? false,
+            "backspacing to pri must restore print even when the priv popup was already visible")
+        view.suggest.hide()
+        view.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0),
+                           replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(view.hasMarkedText())
+        coordinator.requestCompletion(in: view, explicit: true)
+        XCTAssertFalse(view.suggest.isVisible, "IME composition must retain control of its candidates")
+    }
+
+    /// Opt-in: needs `sourcekit-lsp` on PATH. Run with RC_LIVE_LSP=1.
+    func test_manualAIRequestShowsGhostAndAcceptsOneUndoableEdit() async throws {
+        let (_, view) = makeEditor("return ")
+        view.configureForEditing()
+        view.setSelectedRange(NSRange(location: 7, length: 0))
+        let coordinator = CodeTextEditor.Coordinator(onChange: { _ in }, onCaretChange: { _, _ in })
+        coordinator.textView = view
+        coordinator.automaticInlineSuggestions = false
+        coordinator.inlineProvider = DistillInlineCompletionProvider { _ in "value * value" }
+        var state = InlineSuggestionState.idle
+        coordinator.onInlineSuggestionState = { state = $0 }
+        coordinator.scheduleInlineCompletion(in: view, explicit: true)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(state, .available)
+        XCTAssertEqual(view.string, "return ", "AI must never edit until explicitly accepted")
+        XCTAssertTrue(view.hasGhost)
+        view.keyDown(with: keyEvent(48, characters: "\t"))
+        XCTAssertEqual(view.string, "return value * value")
+        view.undoManager?.undo()
+        XCTAssertEqual(view.string, "return ")
+        coordinator.tearDown()
+    }
+
+    func test_AIRequestReportsFailureWithoutChangingTheDocument() async throws {
+        let (_, view) = makeEditor("return ")
+        view.setSelectedRange(NSRange(location: 7, length: 0))
+        let coordinator = CodeTextEditor.Coordinator(onChange: { _ in }, onCaretChange: { _, _ in })
+        coordinator.textView = view
+        coordinator.inlineProvider = DistillInlineCompletionProvider { _ in throw InlineCompletionError.unavailable }
+        var state = InlineSuggestionState.idle
+        coordinator.onInlineSuggestionState = { state = $0 }
+        coordinator.scheduleInlineCompletion(in: view, explicit: true)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        guard case .failed(let message) = state else { return XCTFail("AI failures must be visible") }
+        XCTAssertTrue(message.contains("Accounts"))
+        XCTAssertEqual(view.string, "return ")
+        XCTAssertFalse(view.hasGhost)
+        coordinator.tearDown()
+    }
+
     /// Opt-in: needs `sourcekit-lsp` on PATH. Run with RC_LIVE_LSP=1.
     func test_liveSourceKitCompletionReturnsAppend() async throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["RC_LIVE_LSP"] == "1",

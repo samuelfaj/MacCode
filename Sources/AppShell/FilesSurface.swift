@@ -32,15 +32,16 @@ final class FilesSurface: NSObject, Surface {
     private(set) var descriptor: SurfaceDescriptor
     let view: NSView
     private let model: FilesViewModel
+    private var initialStateLoaded = false
 
-    init(workspaceID: WorkspaceID, cwd: String, title: String = "Files", router: AppCommandRouter, initialState: String?, selectedPath: String? = nil) {
+    init(workspaceID: WorkspaceID, cwd: String, title: String = "Files", router: AppCommandRouter, initialState: String?, selectedPath: String? = nil, restoredSurfaceID: SurfaceID? = nil) {
         var metadata = ["workspace": workspaceID.value.uuidString, "cwd": cwd]
         if let initialState { metadata["files_state"] = initialState }
         if let selectedPath {
             metadata["selected_path"] = selectedPath
             metadata["selected_relative_path"] = selectedPath
         }
-        self.descriptor = SurfaceDescriptor(type: .files, title: title, iconName: "folder", metadata: metadata)
+        self.descriptor = SurfaceDescriptor(id: restoredSurfaceID ?? SurfaceID(), type: .files, title: "Files", iconName: "folder", metadata: metadata)
         self.model = FilesViewModel(
             surfaceID: descriptor.id,
             workspaceID: workspaceID,
@@ -49,11 +50,12 @@ final class FilesSurface: NSObject, Surface {
             inlineCompletionProvider: DistillInlineCompletionProvider.distillCLI()
         )
         self.view = NSHostingView(rootView: FilesSurfaceRoot(model: model))
+        self.model.openAISettings = router.openAccountsSettings
         super.init()
-        DispatchQueue.main.async { [model] in model.loadInitialState() }
+        DispatchQueue.main.async { [weak self] in self?.loadInitialStateIfNeeded() }
     }
 
-    func focus() { view.window?.makeFirstResponder(view) }
+    func focus() { view.window?.makeFirstResponder(model.editorTextView ?? view) }
     func unfocus() {}
     func close() { model.close() }
     func sendText(_ text: String) { model.insertText(text) }
@@ -62,7 +64,22 @@ final class FilesSurface: NSObject, Surface {
 
     /// UX-MAC_AGENT-OPEN-SPLIT: programmatic navigation used when the Agent App
     /// reuses this panel as the right-hand split for a clicked file mention.
-    func reveal(relativePath: String) { model.reveal(relativePath: relativePath) }
+    func reveal(relativePath: String) {
+        loadInitialStateIfNeeded()
+        model.reveal(relativePath: relativePath)
+    }
+
+    func reopen(paths: [String], selectedPath: String?) {
+        loadInitialStateIfNeeded()
+        model.mergeOpenTabs(paths)
+        if let selectedPath { model.reveal(relativePath: selectedPath) }
+    }
+
+    private func loadInitialStateIfNeeded() {
+        guard !initialStateLoaded else { return }
+        initialStateLoaded = true
+        model.loadInitialState()
+    }
 }
 
 struct FileTabDragPayload {
@@ -388,6 +405,7 @@ extension FileEntry: FileNameFilterable {}
 
 @MainActor
 protocol FilesSurfaceRouting: AnyObject {
+    func filesEditSession(sessionID: String) throws -> JSONValue
     func filesEditClose(sessionID: String) throws -> JSONValue
     func filesStateGet(surface: SurfaceID) throws -> JSONValue
     func fsWorkspaceList(workspace: WorkspaceID, path: String?) throws -> JSONValue
@@ -406,6 +424,10 @@ protocol FilesSurfaceRouting: AnyObject {
 }
 
 extension AppCommandRouter: FilesSurfaceRouting {}
+
+extension FilesSurfaceRouting {
+    func filesEditSession(sessionID: String) throws -> JSONValue { throw JSONRPCError.notSupported("files.edit.session") }
+}
 
 // MARK: - Pure per-extension icon helper (no AppKit, no MainActor; tested in FileExtensionIconTests)
 
@@ -1091,6 +1113,9 @@ func filesDeleteSelectionUpdate(
 
 @MainActor
 final class FilesViewModel: ObservableObject {
+    weak var editorTextView: CodeEditorTextView?
+    var openAISettings: (() -> Void)?
+    @Published var inlineSuggestionState: InlineSuggestionState = .idle
     @Published var currentDirectory = ""
     @Published var entries: [FileEntry] = []
     @Published var selectedEntry: FileEntry?
@@ -1166,6 +1191,7 @@ final class FilesViewModel: ObservableObject {
     private var editorDebounceTimer: Timer?
     /// Text captured by the most recent editorChanged call, applied when the timer fires.
     private var pendingDebounceText: String?
+    private var syncedDirty = false
 
     private struct EditSessionSnapshot {
         var sessionID: String
@@ -1208,12 +1234,7 @@ final class FilesViewModel: ObservableObject {
     func close() {
         // Flush any buffered keystroke before tearing down: apply the pending draft
         // immediately so no unsaved content is lost when the surface closes.
-        editorDebounceTimer?.invalidate()
-        editorDebounceTimer = nil
-        if let text = pendingDebounceText {
-            pendingDebounceText = nil
-            if !applying { applyFullDraft(text) }
-        }
+        flushPendingEditorChange()
         if let eventToken { EventBus.shared.unsubscribe(eventToken) }
         if let sessionID { _ = try? router?.filesEditClose(sessionID: sessionID) }
         fileWatcher?.stop()
@@ -1286,7 +1307,7 @@ final class FilesViewModel: ObservableObject {
             selectedEntry = entry
             treeRevision &+= 1
         } else {
-            select(entry)
+            selectIfNeeded(entry)
         }
     }
 
@@ -1414,6 +1435,7 @@ final class FilesViewModel: ObservableObject {
 
     private func removeTab(at index: Int, closeSession: Bool) {
         guard openTabs.indices.contains(index) else { return }
+        if sessionPath == openTabs[index].relativePath { flushPendingEditorChange() }
         let removed = openTabs.remove(at: index)
         guard closeSession else { return }
         if sessionPath == removed.relativePath, let sessionID {
@@ -1440,10 +1462,19 @@ final class FilesViewModel: ObservableObject {
     /// Rebuild tabs from persisted relative paths without listing their
     /// directories. Identity (kind/language) is refreshed when the tab loads.
     private func restoreOpenTabs(_ paths: [String]) {
-        openTabs = paths.prefix(Self.maximumOpenTabs).compactMap { relative in
+        openTabs = paths.compactMap { relative in
             guard !relative.isEmpty else { return nil }
             return FileEntry.placeholder(relativePath: relative, root: root)
         }
+    }
+
+    func mergeOpenTabs(_ paths: [String]) {
+        var seen = Set(openTabs.map(\.relativePath))
+        openTabs += paths.compactMap { path in
+            guard seen.insert(path).inserted else { return nil }
+            return FileEntry.placeholder(relativePath: path, root: root)
+        }
+        persistOpenTabs()
     }
 
     func selectIfNeeded(_ entry: FileEntry) {
@@ -1452,7 +1483,9 @@ final class FilesViewModel: ObservableObject {
     }
 
     func loadFile(_ entry: FileEntry) {
+        flushPendingEditorChange()
         snapshotCurrentSession()
+        pendingDebounceText = nil
         // Close the previous clean session now that it has been snapshotted (or there was nothing
         // to snapshot). Dirty sessions stay open so the snapshotted sessionID remains valid for a
         // later restore. This bounds the number of live host edit sessions to (dirty open files + 1).
@@ -1507,7 +1540,21 @@ final class FilesViewModel: ObservableObject {
     }
 
     func editorChanged(_ value: String) {
-        guard !suppressEditorChange, sessionID != nil, value != lastSyncedText else { return }
+        guard !suppressEditorChange, sessionID != nil else { return }
+        // AppKit owns the active edit, but SwiftUI must see it on this turn. Otherwise
+        // a caret/status update writes the old binding back over the user's keystroke.
+        draftText = value
+        isDirty = value != lastSyncedText || syncedDirty
+        if let sessionPath {
+            if isDirty { dirtyPaths.insert(sessionPath) } else { dirtyPaths.remove(sessionPath) }
+        }
+        setSyncLabel(isDirty ? "Unsaved" : "Up to date", revision: draftRevision)
+        if value == lastSyncedText {
+            editorDebounceTimer?.invalidate()
+            editorDebounceTimer = nil
+            pendingDebounceText = nil
+            return
+        }
         // Capture the latest text so the timer always applies the final state of the burst.
         pendingDebounceText = value
         // Cancel any in-flight timer and reschedule; the last keystroke wins.
@@ -1528,7 +1575,17 @@ final class FilesViewModel: ObservableObject {
         }
     }
 
+    private func flushPendingEditorChange() {
+        editorDebounceTimer?.invalidate()
+        editorDebounceTimer = nil
+        guard let text = pendingDebounceText else { return }
+        pendingDebounceText = nil
+        if applying { pendingText = text } else { applyFullDraft(text) }
+    }
+
     func save() {
+        flushPendingEditorChange()
+        guard pendingDebounceText == nil, pendingText == nil else { return }
         guard let sessionID else { return }
         do {
             let result = try router?.filesEditSave(sessionID: sessionID)
@@ -1545,6 +1602,9 @@ final class FilesViewModel: ObservableObject {
     func dismissSaveError() { saveError = nil }
 
     func discard() {
+        editorDebounceTimer?.invalidate()
+        editorDebounceTimer = nil
+        pendingDebounceText = nil
         guard let sessionID else { return }
         do {
             let result = try router?.filesEditDiscard(sessionID: sessionID)
@@ -1728,7 +1788,9 @@ final class FilesViewModel: ObservableObject {
             applyEditPayload(result?.objectValue ?? [:], remote: false)
         } catch {
             logFailure("patch", error: error)
-            errorText = String(describing: error)
+            // Keep the editor and its unsynced text available for Save to retry.
+            pendingDebounceText = newText
+            saveError = String(describing: error)
         }
         applying = false
         if let pendingText, pendingText != lastSyncedText {
@@ -1759,11 +1821,21 @@ final class FilesViewModel: ObservableObject {
                   let state = payload["state"]?.objectValue else { return }
             currentDirectory = state["current_directory"]?.stringValue ?? currentDirectory
             readerMode = state["reader_mode"]?.stringValue ?? readerMode
+            if let paths = state["open_tabs"]?.arrayValue?.compactMap(\.stringValue) {
+                restoreOpenTabs(paths)
+            }
             dirtyPaths = Self.dirtyPaths(from: state)
+            if pendingDebounceText != nil, let sessionPath { dirtyPaths.insert(sessionPath) }
             isDirty = selectedPath.map { dirtyPaths.contains($0) } ?? isDirty
             setSyncLabel(isDirty ? "Unsaved" : "Up to date", revision: state["revision"]?.intValue ?? 0)
+            if payload["updated_by_device"]?.stringValue != "mac-local",
+               let path = state["selected_path"]?.stringValue, !path.isEmpty, path != selectedPath {
+                reveal(relativePath: path)
+            }
         case "files.edit.opened", "files.edit.patch_applied", "files.edit.saved", "files.edit.discarded":
-            guard payload["surface_id"]?.stringValue == surfaceID.value.uuidString else { return }
+            guard payload["surface_id"]?.stringValue == surfaceID.value.uuidString,
+                  payload["session_id"]?.stringValue == sessionID,
+                  (payload["draft_revision"]?.intValue ?? 0) >= draftRevision else { return }
             applyEditPayload(
                 payload,
                 remote: filesEditEventIsRemote(updatedByDevice: payload["updated_by_device"]?.stringValue)
@@ -1828,9 +1900,10 @@ final class FilesViewModel: ObservableObject {
         if let id = payload["session_id"]?.stringValue { sessionID = id }
         if let revision = payload["draft_revision"]?.intValue { draftRevision = revision }
         if let dirty = payload["dirty"]?.boolValue {
-            isDirty = dirty
+            syncedDirty = dirty
+            isDirty = dirty || (pendingDebounceText != nil && pendingDebounceText != payload["content"]?.stringValue)
             if let path = payload["path"]?.stringValue {
-                if dirty {
+                if isDirty {
                     dirtyPaths.insert(path)
                 } else {
                     dirtyPaths.remove(path)
@@ -1859,6 +1932,11 @@ final class FilesViewModel: ObservableObject {
                     setDraft(update.draftText)
                     renderedText = update.renderedText
                 }
+            } else if pendingDebounceText != nil {
+                // An acknowledgement can arrive after the user has typed again.
+                // Advance the host revision without replacing that newer local draft.
+                lastSyncedText = content
+                renderedText = content
             } else if draftText != content {
                 setDraft(content)
                 renderedText = content
@@ -1935,10 +2013,19 @@ final class FilesViewModel: ObservableObject {
         sessionID = snapshot.sessionID
         draftRevision = snapshot.draftRevision
         isDirty = snapshot.isDirty
+        syncedDirty = snapshot.isDirty
         setDraft(snapshot.draftText)
         lastSyncedText = snapshot.lastSyncedText
+        pendingDebounceText = draftText == lastSyncedText ? nil : draftText
         renderedText = snapshot.draftText
         setSyncLabel(isDirty ? "Unsaved" : "Up to date", revision: draftRevision)
+        // A paired device may have edited this inactive tab since the snapshot.
+        // Only refresh when every local keystroke already reached the host.
+        if snapshot.draftText == snapshot.lastSyncedText,
+           let current = try? router?.filesEditSession(sessionID: snapshot.sessionID),
+           let payload = current.objectValue {
+            applyEditPayload(payload, remote: false)
+        }
     }
 }
 
@@ -2029,9 +2116,12 @@ struct FilesSurfaceRoot: View {
     @AppStorage("files.sidebar.width.v2") private var sidebarWidth: Double = 260
     @AppStorage("files.sidebar.intent.v1") private var sidebarIntentRaw = AdaptiveSidebarIntent.auto.rawValue
     @AppStorage("files.sidebar.showHidden.v1") private var showHidden = false
+    @AppStorage("files.aiSuggestions.enabled.v1") private var inlineSuggestionsEnabled = true
     @State private var sidebarVisible = true
     @State private var lastAutomaticSidebarChange: TimeInterval?
     @State private var confirmDiscard = false
+    @State private var confirmCloseFile = false
+    @State private var closingFile: FileEntry?
     @State private var showNewFileDialog = false
     @State private var newFileName = ""
     @State private var newItemDirectory: String?
@@ -2053,9 +2143,106 @@ struct FilesSurfaceRoot: View {
     @State private var cachedPreviewHTML = ""
     @State private var previewDebounceTimer: Timer? = nil
 
+    /// Commands belong to this Files surface, even while a menu owns keyboard focus.
+    private func edit(_ action: (CodeEditorTextView) -> Void) {
+        guard let editor = model.editorTextView else { return }
+        editor.window?.makeFirstResponder(editor)
+        action(editor)
+    }
+
+    private var editorMenuBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DS.Space.lg) {
+                Menu("File") {
+                    Button("New File…") { newItemDirectory = model.currentDirectory; newFileName = ""; showNewFileDialog = true }
+                    Button("New Folder…") { newItemDirectory = model.currentDirectory; newFolderName = ""; showNewFolderDialog = true }
+                    Divider()
+                    Button("Save") { model.save() }.disabled(!model.isDirty)
+                    Button("Discard Changes…") { confirmDiscard = true }.disabled(!model.isDirty)
+                    Button("Close File") { if let entry = model.selectedEntry { requestCloseFile(entry) } }
+                        .disabled(model.openTabs.isEmpty)
+                }.accessibilityIdentifier("files.menu.file")
+                Menu("Edit") {
+                    Button("Undo") { edit { $0.undoManager?.undo() } }
+                        .disabled(model.editorTextView?.undoManager?.canUndo != true)
+                    Button("Redo") { edit { $0.undoManager?.redo() } }
+                        .disabled(model.editorTextView?.undoManager?.canRedo != true)
+                    Divider()
+                    Button("Cut") { edit { $0.cut(nil) } }
+                    Button("Copy") { edit { $0.copy(nil) } }
+                    Button("Paste") { edit { $0.paste(nil) } }
+                    Divider()
+                    Button("Find…") { edit { editor in
+                        let item = NSMenuItem(); item.tag = NSTextFinder.Action.showFindInterface.rawValue
+                        editor.performTextFinderAction(item)
+                    } }
+                    Button("Toggle Line Comment") { edit { $0.toggleLineComment() } }
+                }.disabled(model.selectedEntry?.isEditable != true)
+                    .accessibilityIdentifier("files.menu.edit")
+                Menu("Selection") {
+                    Button("Select All") { edit { $0.selectAll(nil) } }
+                    Button("Select Line") { edit { $0.selectLine(nil) } }
+                }.disabled(model.selectedEntry?.isEditable != true)
+                    .accessibilityIdentifier("files.menu.selection")
+                Menu("View") {
+                    Button(sidebarVisible ? "Hide Explorer" : "Show Explorer") {
+                        sidebarVisible.toggle()
+                        sidebarIntent = sidebarVisible ? .forcedVisible : .forcedHidden
+                    }
+                    if model.selectedEntry?.kind == "markdown" || model.selectedEntry?.kind == "html" {
+                        Divider()
+                        ForEach(["source", "split", "preview"], id: \.self) { mode in
+                            Button(mode.capitalized) { model.readerMode = mode; model.setReaderMode(mode) }
+                        }
+                    }
+                }.accessibilityIdentifier("files.menu.view")
+                Menu("Go") {
+                    Button("Go to Line…") { edit { $0.promptGoToLine() } }
+                        .disabled(model.selectedEntry?.isEditable != true)
+                    Button("Next File") { activateAdjacentFile(1) }.disabled(model.openTabs.count < 2)
+                    Button("Previous File") { activateAdjacentFile(-1) }.disabled(model.openTabs.count < 2)
+                }.accessibilityIdentifier("files.menu.go")
+                Menu("AI") {
+                    Toggle("Inline Suggestions", isOn: $inlineSuggestionsEnabled)
+                    Button("Suggest Code") { edit { $0.onInlineCompletionRequest?() } }
+                        .disabled(model.selectedEntry?.isEditable != true)
+                    Button("Accept Suggestion") { edit { $0.acceptGhost() } }
+                        .disabled(model.inlineSuggestionState != .available)
+                    Button("Dismiss Suggestion") { edit { $0.clearGhost(); $0.onInlineCompletionCancel?() } }
+                    Divider()
+                    if case .failed(let message) = model.inlineSuggestionState { Text(message) }
+                    Button("Accounts & Auto…") { model.openAISettings?() }
+                }.accessibilityIdentifier("files.menu.ai")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize(horizontal: true, vertical: false)
+            .font(DS.Font.body)
+            .padding(.horizontal, DS.Space.lg)
+            .frame(height: 30)
+        }
+        .frame(height: 30)
+        .background(DS.Palette.surface)
+        .overlay(alignment: .bottom) { DS.Palette.line.frame(height: DS.Border.hairline) }
+        .accessibilityIdentifier("files.menu.bar")
+    }
+
+    private func activateAdjacentFile(_ delta: Int) {
+        guard !model.openTabs.isEmpty else { return }
+        let index = model.openTabs.firstIndex { $0.id == model.selectedEntry?.id } ?? 0
+        model.activateTab(model.openTabs[(index + delta + model.openTabs.count) % model.openTabs.count])
+    }
+
+    private func requestCloseFile(_ entry: FileEntry) {
+        guard model.isTabDirty(entry) else { model.closeTab(entry); return }
+        model.activateTab(entry)
+        closingFile = entry
+        confirmCloseFile = true
+    }
+
     var body: some View {
         GeometryReader { proxy in
             VStack(spacing: 0) {
+            editorMenuBar
             HStack(spacing: 0) {
                 if sidebarVisible {
                     sidebar
@@ -2084,6 +2271,19 @@ struct FilesSurfaceRoot: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This reverts the current draft to the last saved version.")
+        }
+        .alert("Save Changes Before Closing?", isPresented: $confirmCloseFile) {
+            Button("Save") {
+                model.save()
+                if !model.isDirty, let closingFile { model.closeTab(closingFile) }
+            }
+            Button("Don't Save", role: .destructive) {
+                model.discard()
+                if !model.isDirty, let closingFile { model.closeTab(closingFile) }
+            }
+            Button("Cancel", role: .cancel) { closingFile = nil }
+        } message: {
+            Text("Save your changes to \(closingFile?.name ?? "this file") before closing it.")
         }
         .alert("New File", isPresented: $showNewFileDialog) {
             TextField("File name", text: $newFileName)
@@ -2592,7 +2792,7 @@ struct FilesSurfaceRoot: View {
                 .font(.system(size: 13))
                 .lineLimit(1)
             Button {
-                model.closeTab(entry)
+                requestCloseFile(entry)
             } label: {
                 ZStack {
                     if showDot {
@@ -2787,7 +2987,14 @@ struct FilesSurfaceRoot: View {
             filePath: model.selectedPath ?? model.root,
             absolutePath: model.selectedEntry?.path,
             rootPath: model.root,
+            openPaths: Set(model.openTabs.map(\.path)),
             inlineCompletionProvider: model.inlineCompletionProvider,
+            automaticInlineSuggestions: inlineSuggestionsEnabled,
+            onEditorReady: { model.editorTextView = $0 },
+            onInlineSuggestionState: { state in
+                guard model.inlineSuggestionState != state else { return }
+                DispatchQueue.main.async { model.inlineSuggestionState = state }
+            },
             onCaretChange: { line, column in
                 model.caretLine = line
                 model.caretColumn = column
@@ -2821,10 +3028,10 @@ struct FilesSurfaceRoot: View {
                     .accessibilityIdentifier("files.status.language")
                 HStack(spacing: 3) {
                     Image(systemName: "sparkles")
-                    Text("Distill")
+                    Text(inlineSuggestionsEnabled ? model.inlineSuggestionState.label : "AI Off")
                 }
                 .foregroundStyle(model.inlineCompletionProvider != nil ? VSCodeTheme.statusBarForeground : VSCodeTheme.statusBarForeground.opacity(0.5))
-                .accessibilityIdentifier("files.status.distill")
+                .accessibilityIdentifier("files.status.ai")
             }
         }
         .font(.system(size: 12))
@@ -3278,7 +3485,11 @@ struct CodeTextEditor: NSViewRepresentable {
     let filePath: String
     let absolutePath: String?
     let rootPath: String
+    let openPaths: Set<String>
     let inlineCompletionProvider: (any InlineCompletionProviding)?
+    var automaticInlineSuggestions = true
+    var onEditorReady: (CodeEditorTextView) -> Void = { _ in }
+    var onInlineSuggestionState: (InlineSuggestionState) -> Void = { _ in }
     var onCaretChange: (Int, Int) -> Void = { _, _ in }
     let onChange: (String) -> Void
 
@@ -3302,16 +3513,19 @@ struct CodeTextEditor: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = false
-        textView.string = text
+        textView.switchDocument(to: absolutePath ?? filePath, text: text, openPaths: openPaths)
         textView.language = language
         textView.completionItemsForPrefix = { [weak textView] _, caret in
             guard let textView else { return [] }
-            return FileCompletionEngine.completions(in: textView.string, caret: caret, language: language)
+            return FileCompletionEngine.completions(in: textView.string, caret: caret, language: textView.language)
         }
         context.coordinator.textView = textView
         context.coordinator.language = language
         context.coordinator.filePath = filePath
         context.coordinator.inlineProvider = inlineCompletionProvider
+        context.coordinator.automaticInlineSuggestions = automaticInlineSuggestions
+        context.coordinator.onInlineSuggestionState = onInlineSuggestionState
+        onEditorReady(textView)
         let coordinator = context.coordinator
         textView.onCompletionRequest = { [weak coordinator, weak textView] explicit in
             guard let coordinator, let textView else { return }
@@ -3321,6 +3535,11 @@ struct CodeTextEditor: NSViewRepresentable {
             guard let coordinator, let textView else { return }
             coordinator.requestHover(in: textView, at: index)
         }
+        textView.onInlineCompletionRequest = { [weak coordinator, weak textView] in
+            guard let coordinator, let textView else { return }
+            coordinator.scheduleInlineCompletion(in: textView, explicit: true)
+        }
+        textView.onInlineCompletionCancel = { [weak coordinator] in coordinator?.cancelInlineCompletion() }
         textView.suggest.onDismiss = { [weak coordinator] in coordinator?.cancelCompletion() }
         context.coordinator.rootPath = rootPath
         context.coordinator.absolutePath = absolutePath
@@ -3337,10 +3556,20 @@ struct CodeTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView ?? scroll.documentView as? NSTextView else { return }
+        if let editor = textView as? CodeEditorTextView,
+           editor.switchDocument(to: absolutePath ?? filePath, text: text, openPaths: openPaths) {
+            context.coordinator.applyHighlight(to: editor)
+            context.coordinator.documentReplacedExternally()
+        }
         let languageChanged = context.coordinator.language != language
         context.coordinator.language = language
         context.coordinator.filePath = filePath
         context.coordinator.inlineProvider = inlineCompletionProvider
+        if context.coordinator.automaticInlineSuggestions != automaticInlineSuggestions {
+            context.coordinator.cancelInlineCompletion()
+            (textView as? CodeEditorTextView)?.clearGhost()
+        }
+        context.coordinator.automaticInlineSuggestions = automaticInlineSuggestions
         (textView as? CodeEditorTextView)?.language = language
         if languageChanged, textView.string == text { context.coordinator.applyHighlight(to: textView) }
         if absolutePath != context.coordinator.absolutePath || rootPath != context.coordinator.rootPath {
@@ -3355,7 +3584,6 @@ struct CodeTextEditor: NSViewRepresentable {
             (textView as? CodeEditorTextView)?.applyEditorStyle(newPalette)
             context.coordinator.lineNumberRuler?.currentPalette = newPalette
             context.coordinator.applyHighlight(to: textView)
-            return
         }
         if textView.string != text {
             (textView as? CodeEditorTextView)?.clearGhost()
@@ -3391,10 +3619,12 @@ struct CodeTextEditor: NSViewRepresentable {
         var language: String?
         var filePath = ""
         var inlineProvider: (any InlineCompletionProviding)?
+        var automaticInlineSuggestions = true
+        var onInlineSuggestionState: (InlineSuggestionState) -> Void = { _ in }
         private var applyingHighlight = false
         private var inlineTask: Task<Void, Never>?
-        private var inlineDebounceTimer: Timer?
         private var inlineGeneration = 0
+        private var inlineCaret: Int?
         var absolutePath: String?
         var rootPath = ""
         private var lspClient: LanguageServerClient?
@@ -3423,7 +3653,6 @@ struct CodeTextEditor: NSViewRepresentable {
 
         deinit {
             inlineTask?.cancel()
-            inlineDebounceTimer?.invalidate()
         }
 
         /// New-text range of the edit about to happen, consumed by `highlightEditedRange`.
@@ -3452,6 +3681,7 @@ struct CodeTextEditor: NSViewRepresentable {
         /// completions. Any other typed character hides the list.
         private func updateSuggestions(in textView: CodeEditorTextView) {
             guard !textView.isAcceptingSuggestion else { return }
+            guard !textView.hasMarkedText() else { textView.suggest.hide(); return }
             let caret = textView.selectedRange().location
             guard caret > 0 else {
                 textView.suggest.hide()
@@ -3493,7 +3723,7 @@ struct CodeTextEditor: NSViewRepresentable {
         /// Word entries show at once; LSP entries merge in when they return, if still current.
         func requestCompletion(in textView: CodeEditorTextView, explicit: Bool) {
             let selection = textView.selectedRange()
-            guard selection.length == 0 else { return }
+            guard selection.length == 0, !textView.hasMarkedText() else { return }
             let text = textView.string
             let caret = selection.location
             let prefix = currentPrefix(in: textView)
@@ -3501,16 +3731,22 @@ struct CodeTextEditor: NSViewRepresentable {
             completionGeneration += 1
             let generation = completionGeneration
             completionTask?.cancel()
-            if explicit || !textView.suggest.isVisible {
-                showSuggestions(words, prefix: prefix, in: textView)
-            }
-            guard let client = lspClient, let path = lspPath else { return }
+            let existing = textView.suggest.isVisible && !explicit
+                ? completionEntries.filter { $0.source == .languageServer } : []
+            showSuggestions(existing + words, prefix: prefix, in: textView)
+            guard lspClient != nil || lspOpenTask != nil else { return }
             let position = LSPText.position(forUTF16Offset: caret, in: text)
-            let pending = flushLanguageServerChange()
+            let opening = lspOpenTask
             completionTask = Task { @MainActor [weak self, weak textView] in
+                await opening?.value
+                guard !Task.isCancelled, let self, let textView,
+                      generation == self.completionGeneration,
+                      textView.string == text, textView.selectedRange() == selection,
+                      let client = self.lspClient, let path = self.lspPath else { return }
+                let pending = self.flushLanguageServerChange()
                 await pending?.value
                 let items = (try? await client.completion(path: path, position: position)) ?? []
-                guard !Task.isCancelled, let self, let textView, generation == self.completionGeneration,
+                guard !Task.isCancelled, generation == self.completionGeneration,
                       textView.string == text,
                       textView.selectedRange() == NSRange(location: caret, length: 0),
                       textView.window?.firstResponder === textView else { return }
@@ -3538,6 +3774,7 @@ struct CodeTextEditor: NSViewRepresentable {
 
         /// Text changed without typing (remote/disk update). Hides suggestions and syncs the server.
         func documentReplacedExternally() {
+            cancelInlineCompletion()
             cancelCompletion()
             textView?.suggest.hide()
             scheduleLanguageServerChange()
@@ -3643,6 +3880,7 @@ struct CodeTextEditor: NSViewRepresentable {
         }
 
         func tearDown() {
+            cancelInlineCompletion()
             lspGeneration += 1
             lspChangeTimer?.invalidate()
             lspChangeTimer = nil
@@ -3660,6 +3898,7 @@ struct CodeTextEditor: NSViewRepresentable {
             releaseLanguageServer()
             textView?.suggest.hide()
             textView?.hideHover()
+            textView?.clearDocumentHistory()
         }
 
         /// Removes this coordinator's diagnostics subscriber and drops its pool lease.
@@ -3732,36 +3971,60 @@ struct CodeTextEditor: NSViewRepresentable {
 
         /// One request per typing pause. The result is stored as ghost text
         /// only; the document is never mutated until the user presses Tab.
-        private func scheduleInlineCompletion(in textView: CodeEditorTextView) {
-            inlineDebounceTimer?.invalidate()
+        func cancelInlineCompletion() {
             inlineTask?.cancel()
-            guard let provider = inlineProvider, !textView.string.isEmpty else { return }
+            inlineTask = nil
             inlineGeneration += 1
+            inlineCaret = nil
+            onInlineSuggestionState(.idle)
+        }
+
+        func scheduleInlineCompletion(in textView: CodeEditorTextView, explicit: Bool = false) {
+            cancelInlineCompletion()
+            if explicit { textView.suggest.hide() }
+            guard explicit || automaticInlineSuggestions,
+                  let provider = inlineProvider, !textView.string.isEmpty, !textView.hasMarkedText() else { return }
             let generation = inlineGeneration
             let path = filePath
             let language = language
             let text = textView.string
             let caret = textView.selectedRange().location
             guard textView.selectedRange().length == 0 else { return }
-            inlineDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.65, repeats: false) { [weak self, weak textView] _ in
-                guard let self, let textView else { return }
+            inlineCaret = caret
+            inlineTask = Task { @MainActor [weak self, weak textView] in
+                if !explicit { try? await Task.sleep(nanoseconds: 650_000_000) }
+                guard !Task.isCancelled, let self, let textView, generation == self.inlineGeneration else { return }
+                self.onInlineSuggestionState(.loading)
                 let request = InlineCompletionRequest(path: path, language: language, text: text, caret: caret)
-                self.inlineTask = Task { [weak self, weak textView] in
-                    let completion = try? await provider.complete(request)
-                    guard !Task.isCancelled, let self, let textView, let completion else { return }
-                    await MainActor.run {
-                        guard generation == self.inlineGeneration,
-                              textView.string == text,
-                              textView.selectedRange().location == caret,
-                              textView.selectedRange().length == 0 else { return }
-                        textView.showGhost(completion, at: caret)
+                do {
+                    let completion = try await provider.complete(request)
+                    guard !Task.isCancelled, generation == self.inlineGeneration else { return }
+                    guard textView.string == text, textView.selectedRange() == NSRange(location: caret, length: 0) else {
+                        self.onInlineSuggestionState(.idle)
+                        return
                     }
+                    if let completion {
+                        guard explicit || !textView.suggest.isVisible else {
+                            self.onInlineSuggestionState(.idle)
+                            return
+                        }
+                        textView.showGhost(completion, at: caret)
+                        self.onInlineSuggestionState(.available)
+                    } else {
+                        self.onInlineSuggestionState(.idle)
+                    }
+                } catch {
+                    guard !Task.isCancelled, generation == self.inlineGeneration else { return }
+                    self.onInlineSuggestionState(.failed(error.localizedDescription))
                 }
             }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? CodeEditorTextView else { return }
+            if let inlineCaret, textView.selectedRange() != NSRange(location: inlineCaret, length: 0) {
+                cancelInlineCompletion()
+            }
             if textView.selectedRange().length > 0 { textView.clearGhost() }
             let caret = caretLineColumn(text: textView.string, utf16Offset: textView.selectedRange().location)
             guard lastCaret?.line != caret.line || lastCaret?.column != caret.column else { return }
@@ -3845,10 +4108,30 @@ struct CodeTextEditor: NSViewRepresentable {
 /// AI completions stay non-destructive: they are painted after the caret and inserted only
 /// on Tab or Cmd+Right (next word).
 final class CodeEditorTextView: NSTextView {
+    private struct DocumentState {
+        let text: String
+        let selections: [NSValue]
+        let undo: UndoManager
+        let scrollOrigin: NSPoint
+    }
+    private var documentPath: String?
+    private var documents: [String: DocumentState] = [:]
+    private var documentUndo = UndoManager()
+    override var undoManager: UndoManager? { documentUndo }
+    // AppKit's standard Edit menu otherwise reaches NSWindow's unrelated undo manager.
+    @objc func undo(_ sender: Any?) { documentUndo.undo() }
+    @objc func redo(_ sender: Any?) { documentUndo.redo() }
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(undo(_:)) { return documentUndo.canUndo }
+        if menuItem.action == #selector(redo(_:)) { return documentUndo.canRedo }
+        return super.validateMenuItem(menuItem)
+    }
     var language: String?
     var completionItemsForPrefix: ((String, Int) -> [FileCompletionItem])?
     /// `true` for explicit Ctrl+Space, `false` for automatic triggers.
     var onCompletionRequest: ((Bool) -> Void)?
+    var onInlineCompletionRequest: (() -> Void)?
+    var onInlineCompletionCancel: (() -> Void)?
     /// Character index under a rested mouse.
     var onHoverRequest: ((Int) -> Void)?
     /// True while a suggestion is inserted so the insert does not reopen the list.
@@ -3901,6 +4184,7 @@ final class CodeEditorTextView: NSTextView {
 
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool) {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
+        if selectedRange() != NSRange(location: ghostCaret, length: 0) { clearGhost() }
         refreshBracketPair()
         needsDisplay = true
     }
@@ -4049,9 +4333,48 @@ final class CodeEditorTextView: NSTextView {
         guard string != newText else { return nil }
         let old = string
         let selection = selectedRanges
+        breakUndoCoalescing()
+        documentUndo.removeAllActions()
         string = newText
         selectedRanges = selection
         return old
+    }
+
+    /// The same AppKit view serves several tabs; undo ranges must stay with their document.
+    @discardableResult
+    func switchDocument(to path: String, text: String, openPaths: Set<String>) -> Bool {
+        documents = documents.filter { openPaths.contains($0.key) }
+        guard documentPath != path else { return false }
+        breakUndoCoalescing()
+        if let documentPath, openPaths.contains(documentPath) {
+            documents[documentPath] = DocumentState(text: string, selections: selectedRanges,
+                undo: documentUndo, scrollOrigin: enclosingScrollView?.contentView.bounds.origin ?? .zero)
+        }
+        let saved = documents.removeValue(forKey: path)
+        documentPath = path
+        // Assigning `string` may reset undo. Keep the saved manager detached until after loading.
+        documentUndo = UndoManager()
+        string = text
+        clearGhost()
+        suggest.hide()
+        hideHover()
+        applyDiagnostics([])
+        if let saved, saved.text == text {
+            documentUndo = saved.undo
+            selectedRanges = saved.selections
+            enclosingScrollView?.contentView.scroll(to: saved.scrollOrigin)
+        } else {
+            setSelectedRange(NSRange(location: 0, length: 0))
+            enclosingScrollView?.contentView.scroll(to: .zero)
+        }
+        return true
+    }
+
+    func clearDocumentHistory() {
+        breakUndoCoalescing()
+        documentUndo.removeAllActions()
+        for state in documents.values { state.undo.removeAllActions() }
+        documents.removeAll()
     }
 
     func showGhost(_ text: String, at caret: Int) {
@@ -4180,8 +4503,9 @@ final class CodeEditorTextView: NSTextView {
         var edit = EditorCommands.newline(text: string as NSString, selection: selectedRange(), language: language)
         // Keep CRLF files CRLF: the first line break of the document decides.
         if FilesViewModel.detectLineEnding(string) == "CRLF" {
+            let beforeCaret = (edit.replacement as NSString).substring(to: edit.selection.location - edit.range.location)
             let grown = edit.replacement.replacingOccurrences(of: "\n", with: "\r\n")
-            edit.selection.location += grown.utf16.count - edit.replacement.utf16.count
+            edit.selection.location += beforeCaret.filter { $0 == "\n" }.count
             edit.replacement = grown
         }
         apply(edit)
@@ -4224,6 +4548,15 @@ final class CodeEditorTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        guard !hasMarkedText() else { super.keyDown(with: event); return }
+        if event.keyCode == 53 {
+            onInlineCompletionCancel?()
+            if !suggest.isVisible { suggest.onDismiss?() }
+        }
+        if event.keyCode == 42, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .option {
+            onInlineCompletionRequest?()
+            return
+        }
         if suggest.isVisible, suggest.handleKeyDown(event) { return }
         let command = event.modifierFlags.contains(.command)
         if event.keyCode == 5, event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.control), !command { // Ctrl+G

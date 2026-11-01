@@ -489,11 +489,15 @@ private final class SuggestCellView: NSTableCellView {
         }
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
+        title.maximumNumberOfLines = 1
+        title.cell?.usesSingleLineMode = true
         title.setContentHuggingPriority(.required, for: .horizontal)
         detail.font = .systemFont(ofSize: 12)
         detail.textColor = suggestColor(0x9D9D9D)
         detail.alignment = .right
         detail.lineBreakMode = .byTruncatingTail
+        detail.maximumNumberOfLines = 1
+        detail.cell?.usesSingleLineMode = true
         detail.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         detail.setContentHuggingPriority(.defaultLow, for: .horizontal)
 

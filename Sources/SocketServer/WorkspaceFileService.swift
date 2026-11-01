@@ -604,9 +604,14 @@ public final class FileEditSessionStore: @unchecked Sendable {
             activeWriterDevice: nil
         )
         lock.lock()
-        sessions[id] = session
+        // Mac and paired devices edit one host draft for each open document.
+        // Reopening must not replace an unsaved draft with the disk contents.
+        let active = sessions.values.first {
+            $0.surfaceID == surfaceID && $0.workspaceID == workspaceID && $0.path == absPath && $0.root == root
+        } ?? session
+        sessions[active.id] = active
         lock.unlock()
-        let payload = sessionJSON(session, includeContent: true)
+        let payload = sessionJSON(active, includeContent: true)
         EventBus.shared.publish(kind: .filesEditOpened, payload: .object(payload))
         return .object(payload)
     }

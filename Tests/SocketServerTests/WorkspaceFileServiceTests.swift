@@ -31,6 +31,20 @@ final class WorkspaceFileServiceTests: XCTestCase {
                        "Files navigation must return workspace-relative parent paths so macOS and iOS do not navigate by absolute host paths")
     }
 
+    func testReopeningDocumentSharesUnsavedHostDraft() throws {
+        try "let value = 1".write(to: root.appendingPathComponent("a.swift"), atomically: true, encoding: .utf8)
+        let store = FileEditSessionStore.shared
+        let surface = SurfaceID(), workspace = WorkspaceID()
+        let first = try store.open(surfaceID: surface, workspaceID: workspace, root: root.path, path: "a.swift")
+        let id = try XCTUnwrap(first.objectValue?["session_id"]?.stringValue)
+        _ = try store.applyPatch(sessionID: id, baseDraftRevision: 1, rangeLocation: 12, rangeLength: 1, replacement: "2", deviceID: "ios-local")
+        let reopened = try store.open(surfaceID: surface, workspaceID: workspace, root: root.path, path: "./a.swift")
+        XCTAssertEqual(reopened.objectValue?["session_id"]?.stringValue, id)
+        XCTAssertEqual(reopened.objectValue?["content"]?.stringValue, "let value = 2")
+        XCTAssertEqual(reopened.objectValue?["draft_revision"]?.intValue, 2)
+        XCTAssertEqual(reopened.objectValue?["dirty"]?.boolValue, true)
+    }
+
     func testListRelativePathsStayWorkspaceRelativeWhenTmpRootIsSymlinked() throws {
         let tmpRootPath = "/tmp/rc2-files-symlink-\(UUID().uuidString)"
         let tmpRoot = URL(fileURLWithPath: tmpRootPath, isDirectory: true)

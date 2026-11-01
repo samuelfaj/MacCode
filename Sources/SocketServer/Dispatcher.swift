@@ -383,6 +383,7 @@ public protocol CommandRouting: AnyObject {
     func fsWorkspaceRename(workspace: WorkspaceID, path: String, newName: String) throws -> JSONValue
     func fsWorkspaceDelete(workspace: WorkspaceID, paths: [String]) throws -> JSONValue
     func filesEditSession(sessionID: String) throws -> JSONValue
+    func filesAIComplete(sessionID: String, draftRevision: Int, caretUTF16: Int) async throws -> JSONValue
     func filesEditOpen(surface: SurfaceID, path: String) throws -> JSONValue
     func filesEditApplyPatch(sessionID: String, baseDraftRevision: Int, rangeLocation: Int, rangeLength: Int, replacement: String, deviceID: String?) throws -> JSONValue
     func filesEditSave(sessionID: String) throws -> JSONValue
@@ -422,6 +423,9 @@ public protocol CommandRouting: AnyObject {
 }
 
 public extension CommandRouting {
+    func filesAIComplete(sessionID: String, draftRevision: Int, caretUTF16: Int) async throws -> JSONValue {
+        throw JSONRPCError.notSupported("files.ai.complete")
+    }
     func threadLoops(thread: AgentThreadID) -> [DistillLoopState] { [] }
     func stopThreadLoop(thread: AgentThreadID, taskId: String) async throws -> Bool { throw JSONRPCError.notSupported("agent.thread.loop.stop") }
     func activityList(params: [String: JSONValue]) throws -> JSONValue { throw JSONRPCError.notSupported("agent.activity.list") }
@@ -2964,6 +2968,7 @@ public final class JSONRPCDispatcher {
                             .string("files.state.get"),
                             .string("files.state.update"),
                             .string("files.edit.session"),
+                            .string("files.ai.complete"),
                             .string("files.edit.open"),
                             .string("files.edit.apply_patch"),
                             .string("files.edit.save"),
@@ -3294,6 +3299,11 @@ public final class JSONRPCDispatcher {
             case "files.edit.session":
                 guard let sessionID = params["session_id"]?.stringValue else { throw JSONRPCError.invalidParams }
                 return .init(id: id, result: try router.filesEditSession(sessionID: sessionID))
+            case "files.ai.complete":
+                guard let sessionID = params["session_id"]?.stringValue,
+                      let revision = params["draft_revision"]?.intValue,
+                      let caret = params["caret_utf16"]?.intValue else { throw JSONRPCError.invalidParams }
+                return .init(id: id, result: try await router.filesAIComplete(sessionID: sessionID, draftRevision: revision, caretUTF16: caret))
             case "files.edit.open":
                 guard let sid = params["surface_id"]?.stringValue.flatMap(UUID.init).map(SurfaceID.init),
                       let path = params["path"]?.stringValue else { throw JSONRPCError.invalidParams }
