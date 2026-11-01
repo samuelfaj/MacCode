@@ -42,10 +42,14 @@ public enum AccountUsageDisplay {
     static let signedOutPrompt = "Sign in to track account usage"
     static let noAccountsPrompt = "Log in to an account in Settings › Accounts & Auto"
 
-    /// Ring fill (0...1); nil means not loaded and must never draw as 0%.
+    /// Ring fill (0...1); nil means never loaded and must never draw as 0%.
+    /// A stale entry keeps its last known value; the ring paints it faded, like the bars.
     public static func ringProgress(_ entry: AccountUsageEntry) -> Double? {
-        guard !entry.usageIsStale else { return nil }
-        return entry.usage?.ringPercent.map { min(max($0 / 100.0, 0), 1) }
+        entry.usage?.ringPercent.map { min(max($0 / 100.0, 0), 1) }
+    }
+
+    static func ring(_ entry: AccountUsageEntry) -> AccountUsageRings.Ring {
+        .init(provider: entry.provider, progress: ringProgress(entry), stale: entry.usageIsStale)
     }
 
     /// "Claude session 12%", "ChatGPT week 42%" or "Grok no usage data".
@@ -105,7 +109,7 @@ struct AccountUsageSidebarControl: View {
             if !showsDetails { vm.refreshAccountUsageForDetails() }
             showsDetails.toggle()
         } label: {
-            AccountUsageRings(rings: signedIn ? entries.map { ($0.provider, AccountUsageDisplay.ringProgress($0)) } : [])
+            AccountUsageRings(rings: signedIn ? entries.map(AccountUsageDisplay.ring) : [])
                 .frame(width: 20, height: 20)
                 .frame(width: 28, height: 32)
                 .contentShape(Rectangle())
@@ -146,9 +150,9 @@ struct AccountUsageSidebarControl: View {
             }
             HStack(alignment: .top, spacing: DS.Space.xl) {
                 VStack(alignment: .center, spacing: DS.Space.md) {
-                    AccountUsageRings(rings: vm.accountUsageEntries.map { ($0.provider, AccountUsageDisplay.ringProgress($0)) })
+                    AccountUsageRings(rings: vm.accountUsageEntries.map(AccountUsageDisplay.ring))
                         .frame(width: 128, height: 128)
-                    Text("One ring per subscription account, outer to inner in list order. Each ring shows the most-used limit. A faint ring means usage is unavailable.")
+                    Text("One ring per subscription account, outer to inner in list order. Each ring shows the most-used limit. A faded ring shows the last known usage.")
                         .font(DS.Font.caption2)
                         .foregroundColor(DS.Palette.textTertiary)
                         .multilineTextAlignment(.center)
@@ -265,7 +269,12 @@ struct AccountUsageSidebarControl: View {
 /// Concentric account rings, outer to inner in account order. Ring width shrinks
 /// as accounts are added so every ring fits; same colors as the iOS rings.
 struct AccountUsageRings: View {
-    let rings: [(provider: DistillAccountProvider, progress: Double?)]
+    struct Ring {
+        let provider: DistillAccountProvider
+        let progress: Double?
+        var stale = false
+    }
+    let rings: [Ring]
 
     static func baseColor(for provider: DistillAccountProvider) -> Color {
         switch provider {
@@ -299,7 +308,8 @@ struct AccountUsageRings: View {
                         color: Self.color(for: ring.provider, index: index, in: rings.map(\.provider)),
                         inset: 1 + CGFloat(index) * step + lineWidth / 2,
                         lineWidth: lineWidth,
-                        dimmed: ring.progress == nil
+                        dimmed: ring.progress == nil,
+                        stale: ring.stale
                     )
                 }
             }
@@ -317,6 +327,8 @@ private struct AccountUsageRing: View {
     let inset: CGFloat
     let lineWidth: CGFloat
     var dimmed: Bool = false
+    /// Last known value after a failed refresh: same faded fill as the bars.
+    var stale: Bool = false
 
     var body: some View {
         ZStack {
@@ -329,7 +341,7 @@ private struct AccountUsageRing: View {
             if !dimmed {
                 AccountUsageRingShape(progress: progress)
                     .stroke(
-                        color,
+                        stale ? color.opacity(0.35) : color,
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
                     )
             }

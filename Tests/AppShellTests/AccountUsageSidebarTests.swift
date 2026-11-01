@@ -100,7 +100,10 @@ final class AccountUsageSidebarTests: XCTestCase {
         let quota = DistillAccountQuota(accountID: "claude", checkedAt: "now", status: "unavailable", remainingPercent: 6)
         let entry = AccountUsageEntry.entries([.init(provider: .claude, connected: true, quota: quota)])[0]
         XCTAssertTrue(entry.usageIsStale)
-        XCTAssertNil(AccountUsageDisplay.ringProgress(entry), "A failed OAuth request must not paint yesterday's usage as current")
+        // The ring paints the last known value faded, like the bars: an empty
+        // ring hid usage the list still shows (only ChatGPT's ring painted).
+        XCTAssertEqual(try XCTUnwrap(AccountUsageDisplay.ringProgress(entry)), 0.94, accuracy: 0.001)
+        XCTAssertTrue(AccountUsageDisplay.ring(entry).stale, "A failed OAuth request must not paint yesterday's usage as current")
         XCTAssertEqual(entry.usage?.weeklyUsedPercent, 94, "Keep last known values available in the description")
         XCTAssertEqual(AccountUsageDisplay.ringCaption(entry), "Claude usage unavailable")
     }
