@@ -366,7 +366,8 @@ public final class DistillAccounts: Sendable {
     private func jsonCLI<T: Decodable>(_ arguments: [String], onURL: (@Sendable (URL) -> Void)? = nil) async throws -> T {
         let data = try await runCLI(arguments, onURL: onURL)
         guard let value = try? JSONDecoder().decode(T.self, from: data) else {
-            throw DistillAccountError.updateRequired
+            // An old CLI fails on stderr (runCLI); exit 0 with unreadable JSON means a wrong binary.
+            throw DistillAccountError.failed("\(binaryPath) returned an unreadable account response. Check the Distill path in Settings.")
         }
         return value
     }
