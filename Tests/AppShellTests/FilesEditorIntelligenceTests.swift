@@ -138,9 +138,9 @@ final class FilesEditorIntelligenceTests: XCTestCase {
         textView.setSelectedRange(NSRange(location: 8, length: 0))
         textView.insertText("1", replacementRange: textView.selectedRange())
         XCTAssertEqual(textView.string, "let a = 1")
-        textView.undoManager?.undo()
+        XCTAssertTrue(textView.tryToPerform(Selector(("undo:")), with: nil), "the standard Edit menu must reach this document")
         XCTAssertEqual(textView.string, "let a = ")
-        textView.undoManager?.redo()
+        XCTAssertTrue(textView.tryToPerform(Selector(("redo:")), with: nil))
         XCTAssertEqual(textView.string, "let a = 1")
     }
 

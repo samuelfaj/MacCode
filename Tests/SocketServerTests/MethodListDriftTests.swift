@@ -25,6 +25,7 @@ final class MethodListDriftTests: XCTestCase {
         "files.state.get",
         "files.state.update",
         "files.edit.session",
+        "files.ai.complete",
         "files.edit.open",
         "files.edit.apply_patch",
         "files.edit.save",

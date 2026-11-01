@@ -285,10 +285,31 @@ protocol InlineCompletionProviding: Sendable {
     func complete(_ request: InlineCompletionRequest) async throws -> String?
 }
 
-enum InlineCompletionError: Error, Equatable {
+enum InlineSuggestionState: Equatable {
+    case idle, loading, available, failed(String)
+
+    var label: String {
+        switch self {
+        case .idle: return "AI Ready"
+        case .loading: return "AI Suggesting…"
+        case .available: return "Tab to Accept"
+        case .failed: return "AI Unavailable"
+        }
+    }
+}
+
+enum InlineCompletionError: Error, Equatable, LocalizedError {
     case timedOut
     case unavailable
     case empty
+
+    var errorDescription: String? {
+        switch self {
+        case .timedOut: return "The AI suggestion took too long. Try again."
+        case .unavailable: return "AI suggestions are unavailable. Check Accounts & Auto in Settings."
+        case .empty: return "No code suggestion was returned."
+        }
+    }
 }
 
 /// Distill-backed inline completion.
@@ -303,7 +324,7 @@ final class DistillInlineCompletionProvider: InlineCompletionProviding {
     let timeout: TimeInterval
     private let transport: Transport
 
-    init(timeout: TimeInterval = 2.5, transport: @escaping Transport) {
+    init(timeout: TimeInterval = 15, transport: @escaping Transport) {
         self.timeout = timeout
         self.transport = transport
     }
@@ -389,6 +410,9 @@ struct DistillCLIInlineCompletionTransport: Sendable {
             "-p", prompt,
             "--output-format", "streaming-json",
             "--model", model,
+            "--tools", "",
+            "--disable-web-search", "--no-subagents", "--max-turns", "1",
+            "--verbatim", "--reasoning-effort", "low",
         ]
         let stdout = Pipe()
         process.standardOutput = stdout
@@ -410,7 +434,7 @@ struct DistillCLIInlineCompletionTransport: Sendable {
         defer { try? handle.close() }
         var data = Data()
         var bytes = [UInt8](repeating: 0, count: 4_096)
-        let deadline = ProcessInfo.processInfo.systemUptime + 2.5
+        let deadline = ProcessInfo.processInfo.systemUptime + 15
         while true {
             try owner.checkCancellation()
             guard ProcessInfo.processInfo.systemUptime < deadline else { throw InlineCompletionError.timedOut }

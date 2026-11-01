@@ -111,6 +111,54 @@ final class PersistenceRestoreTests: XCTestCase {
                        "browser tab title must persist with the last visited page")
     }
 
+    func test_filesReuseOneGlobalTabAndRestoreLegacyPathsInsideIt() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("files-unified-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root); closeAndUnregisterAllSurfaces() }
+        try "let first = 1".write(to: root.appendingPathComponent("a.swift"), atomically: true, encoding: .utf8)
+        try "let second = 2".write(to: root.appendingPathComponent("b.swift"), atomically: true, encoding: .utf8)
+        let ctx = try AppContext(channel: .debug, appSupportOverride: root.appendingPathComponent("support").path)
+        let router = AppCommandRouter(context: ctx)
+        ctx.router = router
+        let workspace = try router.createWorkspace(name: "FILES", cwd: root.path)
+        let a = try router.filesOpenTab(workspace: workspace.id, sourceSurface: nil, paneID: nil, path: "a.swift")
+        let b = try router.filesOpenTab(workspace: workspace.id, sourceSurface: a.id, paneID: nil, path: "b.swift")
+        let generic = try router.createSurface(workspace: workspace.id, type: .files, paneID: nil, title: "Files")
+        XCTAssertEqual(a.id, b.id)
+        XCTAssertEqual(a.id, generic.id)
+        XCTAssertEqual(b.title, "Files")
+        // Seed a descriptor from the older one-global-tab-per-file format.
+        let legacy = SurfaceDescriptor(type: .files, title: "b.swift", metadata: ["selected_path": "b.swift"])
+        let initialPane = try XCTUnwrap(ctx.state.workspaces[workspace.id]?.layout.paneIDs().first)
+        try ctx.apply(.splitPane(workspace.id, paneID: initialPane, direction: .right, newSurface: legacy))
+        try ctx.apply(.focusSurface(workspace.id, legacy.id))
+        closeAndUnregisterAllSurfaces()
+        router.reinstantiateRestoredSurfaces()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        let restored = try XCTUnwrap(ctx.state.workspaces[workspace.id])
+        let panes = restored.layout.paneIDs().compactMap { restored.layout.find(paneID: $0) }
+        let files = panes.flatMap(\.surfaces).filter { $0.type == .files }
+        let pane = try XCTUnwrap(panes.first { $0.surfaces.contains(where: { $0.id == legacy.id }) })
+        XCTAssertEqual(files.count, 1, "legacy global tabs must become internal file tabs")
+        let descriptor = try XCTUnwrap(files.first)
+        XCTAssertEqual(descriptor.id, legacy.id, "the selected Files surface must keep its identity on restore")
+        XCTAssertNotNil(SurfaceRegistry.shared.surface(descriptor.id), "restored tabs must have a mounted runtime")
+        let state = try router.filesStateGet(surface: descriptor.id).objectValue
+        XCTAssertEqual(Set(state?["open_tabs"]?.arrayValue?.compactMap(\.stringValue) ?? []), ["a.swift", "b.swift"])
+        let split = try router.splitPane(workspace: workspace.id, paneID: pane.id, direction: .right, surfaceType: .files, title: nil)
+        XCTAssertEqual(split.id, descriptor.id, "Split must move the unique Files surface")
+        let layout = try XCTUnwrap(ctx.state.workspaces[workspace.id]?.layout)
+        let left = try XCTUnwrap(layout.paneIDs().first { layout.find(paneID: $0)?.surfaces.contains(where: { $0.type == .agentApp }) == true })
+        let openedFromOtherPane = try router.filesOpenTab(workspace: workspace.id, sourceSurface: nil, paneID: left, path: "a.swift")
+        XCTAssertEqual(openedFromOtherPane.id, descriptor.id)
+        let allFiles = layout.paneIDs().flatMap { layout.find(paneID: $0)?.surfaces ?? [] }.filter { $0.type == .files }
+        XCTAssertEqual(allFiles.count, 1, "Files is unique across the entire workspace")
+        try router.closeSurface(workspace: workspace.id, surface: descriptor.id)
+        let fresh = try router.filesOpenTab(workspace: workspace.id, sourceSurface: nil, paneID: nil, path: "a.swift")
+        let reopened = try XCTUnwrap(try router.reopenClosedSurface(workspace: workspace.id))
+        XCTAssertEqual(reopened.id, fresh.id, "reopening must not duplicate an existing Files surface")
+    }
+
     func test_terminalHistoryKeepsRestoredSurfaceIDAcrossRelaunch() throws {
         let dir = NSTemporaryDirectory() + "RC2Persist-" + UUID().uuidString
         let marker = "remote-code-update-history-marker\n"

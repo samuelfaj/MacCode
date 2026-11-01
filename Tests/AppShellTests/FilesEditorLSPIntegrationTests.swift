@@ -113,6 +113,46 @@ final class FilesEditorLSPIntegrationTests: XCTestCase {
     }
 
     /// Opt-in: needs `sourcekit-lsp` on PATH. Run with RC_LIVE_LSP=1.
+    func test_manualAIRequestShowsGhostAndAcceptsOneUndoableEdit() async throws {
+        let (_, view) = makeEditor("return ")
+        view.configureForEditing()
+        view.setSelectedRange(NSRange(location: 7, length: 0))
+        let coordinator = CodeTextEditor.Coordinator(onChange: { _ in }, onCaretChange: { _, _ in })
+        coordinator.textView = view
+        coordinator.automaticInlineSuggestions = false
+        coordinator.inlineProvider = DistillInlineCompletionProvider { _ in "value * value" }
+        var state = InlineSuggestionState.idle
+        coordinator.onInlineSuggestionState = { state = $0 }
+        coordinator.scheduleInlineCompletion(in: view, explicit: true)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(state, .available)
+        XCTAssertEqual(view.string, "return ", "AI must never edit until explicitly accepted")
+        XCTAssertTrue(view.hasGhost)
+        view.keyDown(with: keyEvent(48, characters: "\t"))
+        XCTAssertEqual(view.string, "return value * value")
+        view.undoManager?.undo()
+        XCTAssertEqual(view.string, "return ")
+        coordinator.tearDown()
+    }
+
+    func test_AIRequestReportsFailureWithoutChangingTheDocument() async throws {
+        let (_, view) = makeEditor("return ")
+        view.setSelectedRange(NSRange(location: 7, length: 0))
+        let coordinator = CodeTextEditor.Coordinator(onChange: { _ in }, onCaretChange: { _, _ in })
+        coordinator.textView = view
+        coordinator.inlineProvider = DistillInlineCompletionProvider { _ in throw InlineCompletionError.unavailable }
+        var state = InlineSuggestionState.idle
+        coordinator.onInlineSuggestionState = { state = $0 }
+        coordinator.scheduleInlineCompletion(in: view, explicit: true)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        guard case .failed(let message) = state else { return XCTFail("AI failures must be visible") }
+        XCTAssertTrue(message.contains("Accounts"))
+        XCTAssertEqual(view.string, "return ")
+        XCTAssertFalse(view.hasGhost)
+        coordinator.tearDown()
+    }
+
+    /// Opt-in: needs `sourcekit-lsp` on PATH. Run with RC_LIVE_LSP=1.
     func test_liveSourceKitCompletionReturnsAppend() async throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["RC_LIVE_LSP"] == "1",
                           "live LSP test is opt-in via RC_LIVE_LSP=1")
