@@ -34,6 +34,7 @@ final class DistillAccountsTests: XCTestCase {
           echo "error: unrecognized subcommand 'accounts'" >&2
           echo "For more information, try --help." >&2; exit 2
         fi
+        if [ "$FAKE_MODE" = junk ]; then echo '{}'; exit 0; fi
         if [ "$2" = login ]; then
           echo "Signing in..." >&2
           echo "  https://example.com/auth?x=1" >&2
@@ -207,6 +208,18 @@ final class DistillAccountsTests: XCTestCase {
             XCTFail("unsupported CLI must fail")
         } catch { XCTAssertEqual(error as? DistillAccountError, .updateRequired) }
         XCTAssertEqual(logLines().first, "argv: accounts login work")
+    }
+
+    /// A wrong binary (e.g. a leftover test stub in `cli.distill.path`) must name
+    /// itself instead of telling the user to update a Distill that is current.
+    func test_unreadableResponseNamesBinaryInsteadOfRequiringUpdate() async {
+        do {
+            _ = try await makeAccounts(mode: "junk").loadRouting()
+            XCTFail("unreadable response must fail")
+        } catch {
+            XCTAssertNotEqual(error as? DistillAccountError, .updateRequired)
+            XCTAssertTrue(error.localizedDescription.contains(script.path), error.localizedDescription)
+        }
     }
 
     func test_namedMetadataProbeKeepsSameProviderIdentitiesAndRejectsSymlink() throws {
