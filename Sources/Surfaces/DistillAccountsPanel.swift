@@ -394,11 +394,14 @@ public struct DistillAccountsPanel: View {
                     Menu {
                         Button("Refresh quota") { refreshQuota(account.id) }.disabled(!account.connected)
                         Button("Rename") { renamedLabel = account.label; renameAccount = account }
-                        Divider()
+                        if account.connected || !account.legacy { Divider() }
                         if account.connected {
                             Button("Disconnect…", role: .destructive) { removing = false; confirmation = account }
                         }
-                        Button("Remove…", role: .destructive) { removing = true; confirmation = account }
+                        // Distill refuses to remove a provider's default (legacy) account; Disconnect covers it.
+                        if !account.legacy {
+                            Button("Remove…", role: .destructive) { removing = true; confirmation = account }
+                        }
                     } label: {
                         Image(systemName: "ellipsis").frame(width: 24, height: 24)
                     }
