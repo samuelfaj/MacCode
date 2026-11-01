@@ -102,6 +102,8 @@ final class DistillProcessScopeRefreshTests: ProviderProcessTestCase {
             elif method == "session/prompt":
                 send({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"scope-session","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}})
                 send({"jsonrpc":"2.0", "id":message["id"], "result":{"stopReason":"end_turn"}})
+            elif method == "_x.ai/session/execution_mode/set":
+                send({"jsonrpc":"2.0", "id":message["id"], "result":{"mode":params.get("mode")}})
             elif "id" in message:
                 send({"jsonrpc":"2.0", "id":message["id"], "result":{}})
         """

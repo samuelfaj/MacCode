@@ -84,6 +84,7 @@ public enum HostMutationContract {
     distill.accounts.remove
     distill.accounts.usage
     distill.accounts.routing.set
+    fs.mkdir
     fs.workspace.create_file
     fs.workspace.delete
     fs.workspace.rename
@@ -100,6 +101,8 @@ public enum HostMutationContract {
     git.create_branch
     git.deliver
     git.push
+    git.fetch
+    git.pull
     browser.navigate
     browser.back
     browser.forward
@@ -123,6 +126,9 @@ public enum HostMutationContract {
     ssh.host.delete
     ssh.transfer.upload
     ssh.transfer.download
+    ssh.files.remote.mkdir
+    ssh.files.remote.rename
+    ssh.files.remote.delete
     notification.create
     notification.dismiss
     notification.mark_read
@@ -589,6 +595,7 @@ public enum HostMutationContract {
         case "host.bot.delegate": return [.string("bot", nonempty: true), .string("text", nonempty: true)]
         case "host.scheduled_task.run_next": return [.string("workspace", nonempty: true)]
         case "host.browser.screenshot": return [.uuid("thread_id"), .optionalUUID("surface_id"), .optionalString("reason")]
+        case "fs.mkdir": return [.string("path", nonempty: true)]
         case "fs.workspace.create_file": return [.uuid("workspace_id"), .string("path")]
         case "fs.workspace.delete": return [.uuid("workspace_id")]
         case "fs.workspace.rename": return [.uuid("workspace_id"), .string("path"), .string("new_name")]
@@ -601,7 +608,7 @@ public enum HostMutationContract {
         case "git.checkout": return [.uuid("workspace_id"), .string("branch")]
         case "git.commit": return [.uuid("workspace_id"), .string("message")]
         case "git.create_branch": return [.uuid("workspace_id"), .string("name")]
-        case "git.deliver", "git.push", "project.open_in_editor": return [.uuid("workspace_id")]
+        case "git.deliver", "git.push", "git.fetch", "git.pull", "project.open_in_editor": return [.uuid("workspace_id")]
         case "browser.navigate": return [.uuid("id"), .string("url")]
         case "browser.back", "browser.forward", "browser.reload", "browser.stop", "browser.mirror_url.get", "browser.screenshot": return [.uuid("id")]
         case "browser.click", "browser.fill", "browser.type", "browser.focus", "browser.hover", "browser.check", "browser.uncheck", "browser.select": return [.uuid("id"), .string("ref")]
@@ -611,6 +618,8 @@ public enum HostMutationContract {
         case "ssh.host.upsert": return [.anyUUID(["workspace_id", "workspaceId"]), .requiredSSHProfile]
         case "ssh.host.delete": return [.anyUUID(["workspace_id", "workspaceId"]), .uuid("id")]
         case "ssh.transfer.upload", "ssh.transfer.download": return [.anyUUID(["surface_id", "id"]), .string("local_path"), .string("remote_path")]
+        case "ssh.files.remote.mkdir", "ssh.files.remote.delete": return [.anyUUID(["surface_id", "id"]), .string("path", nonempty: true)]
+        case "ssh.files.remote.rename": return [.anyUUID(["surface_id", "id"]), .string("from_path", nonempty: true), .string("to_path", nonempty: true)]
         case "notification.dismiss", "notification.mark_read": return [.string("id")]
         case "settings.set": return [.string("key"), .string("value")]
         case "project.run_script": return [.uuid("workspace_id"), .string("name")]

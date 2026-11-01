@@ -573,14 +573,14 @@ final class RemoteCodeHostCatalogDispatcherTests: XCTestCase {
         // tools over the public HTTP mutation catalog.
         XCTAssertEqual(
             HostMutationContract.managedProviderMutationMethods,
-            RemoteCodeHostCatalog.rpcMutationMethods.union(["bot.peer.ask", "bot.peer.self_config"])
+            RemoteCodeHostCatalog.rpcMutationMethods.union(["bot.peer.ask", "bot.peer.self_config", "bot.peer.cancel"])
         )
         XCTAssertTrue(
-            HostMutationContract.methods.isDisjoint(with: ["bot.peer.ask", "bot.peer.self_config"])
+            HostMutationContract.methods.isDisjoint(with: ["bot.peer.ask", "bot.peer.self_config", "bot.peer.cancel"])
         )
         XCTAssertEqual(
             JSONRPCDispatcher.managedPeerReceiptMethods,
-            ["bot.peer.ask", "bot.peer.self_config"]
+            ["bot.peer.ask", "bot.peer.self_config", "bot.peer.cancel"]
         )
     }
 
@@ -757,6 +757,9 @@ private final class HostCatalogReceiptRouter: FakeRouter, CommandReceiptStateRou
     var pairedBotCalls: [(method: String, params: [String: JSONValue])] = []
 
     override func managedHostCallerIsTitio(threadID: AgentThreadID) throws -> Bool { callerIsTitio }
+
+    /// The real host checks the activity belongs to the caller; this fake owns every receipt it issued.
+    override func validateBotPeerReceipt(callerThread: AgentThreadID, result: JSONValue) throws {}
 
     override func dispatchPairedBotRemote(method: String, params: [String: JSONValue]) async throws -> JSONValue {
         pairedBotCalls.append((method, params))

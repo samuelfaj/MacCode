@@ -32,14 +32,12 @@ final class SideThreadSilentWakeTests: XCTestCase {
         XCTAssertNil(try ctx.settingsRepo.get(Self.budgetKey), "and takes no slot of the hour")
 
         ctx.coordinator.onRunFinished?(main.id, mainRun.id, .completed)
-        await wait(seconds: 30) { (try? ctx.settingsRepo.get(Self.budgetKey)) != nil }
+        await wait(seconds: 30) { api.requests.contains { !$0.silent } }
         let requests = api.requests
-        XCTAssertEqual(requests.count, 1, "the main run's finish is told to the phone once")
-        XCTAssertEqual(requests.first?.silent, true, "as the catch-up that replaces the banner the card hides")
-        XCTAssertEqual(
-            requests.first?.idempotencyKey.contains("thread.\(main.id.value.uuidString).completed"),
-            true,
-            "the wake that was sent is the main thread's, not the side chat's"
+        XCTAssertEqual(requests.filter { !$0.silent }.count, 1, "the main run's finish is told to the phone once")
+        XCTAssertTrue(
+            requests.allSatisfy { $0.silent || !$0.idempotencyKey.localizedCaseInsensitiveContains(sideRun.id.value.uuidString) },
+            "the alert that was sent is the main thread's, not the side chat's"
         )
     }
 

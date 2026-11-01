@@ -6169,7 +6169,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
               let queued = try ctx.queuedMessageRepo.get(id: id),
               let admission = try ctx.threadRepo.sendAdmission(of: queued.threadId) else {
             // Already drained or never queued: nothing was updated.
-            throw DefiniteMutationRejection(JSONRPCError.invalidParams)
+            throw DefiniteMutationRejection(Self.queuedMessageGone)
         }
         let resolved = try resolveInboundAgentAttachments(attachments)
         do {
@@ -6186,12 +6186,18 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             throw DefiniteMutationRejection(error)
         }
         guard let updated = try ctx.queuedMessageRepo.update(id: id, text: text, attachments: resolved) else {
-            throw DefiniteMutationRejection(JSONRPCError.invalidParams)
+            throw DefiniteMutationRejection(Self.queuedMessageGone)
         }
         publishQueuedMessage(kind: "agent.message.queue.updated", updated)
         refreshAgentSurfaces(thread: updated.threadId)
         return updated
     }
+
+    /// iOS shows a bare "Invalid params" as an app/host version mismatch; name the real cause.
+    static let queuedMessageGone = JSONRPCError(
+        code: JSONRPCError.invalidParams.code,
+        message: "This message already left the queue. Refresh the queue and try again."
+    )
 
     public func cancelAgentQueuedMessage(id: AgentQueuedMessageID) throws -> AgentQueuedMessage {
         // A prepared row keeps its lease (e.g. after a relaunch interrupted its start),
@@ -6200,7 +6206,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
               let cancelled = try ctx.queuedMessageRepo.delete(id: id)
                 ?? ctx.queuedMessageRepo.abandonPrepared(id: id) else {
             // Already drained or never queued: nothing was deleted.
-            throw DefiniteMutationRejection(JSONRPCError.invalidParams)
+            throw DefiniteMutationRejection(Self.queuedMessageGone)
         }
         publishQueuedMessage(kind: "agent.message.queue.cancelled", cancelled)
         refreshAgentSurfaces(thread: cancelled.threadId)
@@ -9147,6 +9153,12 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     public func gitPush(workspace: WorkspaceID) throws -> GitActionResult {
         GitDiff.push(in: try workspaceCwd(workspace))
     }
+    public func gitFetch(workspace: WorkspaceID) throws -> GitActionResult {
+        GitDiff.fetch(in: try workspaceCwd(workspace))
+    }
+    public func gitPull(workspace: WorkspaceID) throws -> GitActionResult {
+        GitDiff.pull(in: try workspaceCwd(workspace))
+    }
     public func gitPullRequestURL(workspace: WorkspaceID) throws -> String? {
         GitDiff.pullRequestURL(in: try workspaceCwd(workspace))
     }
@@ -11096,6 +11108,29 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             throw JSONRPCError(code: -32020, message: "remote list failed", data: .string(result.output))
         }
         return makeRemoteSSHFileListing(output: result.output, requestedPath: requested)
+    }
+
+    public func sshFilesRemoteManage(surface: SurfaceID, operation: SSHRemoteFileOperation) async throws -> JSONValue {
+        let profile = try sshTransferProfile(for: surface)
+        let args: [String]
+        switch operation {
+        case .mkdir(let path):
+            args = SSHRemoteManagementCommand.mkdirArguments(profile: profile, path: path)
+        case .rename(let from, let to):
+            args = SSHRemoteManagementCommand.renameArguments(profile: profile, from: from, to: to)
+        case .delete(let path):
+            // `rm -rf` covers files and folders; the phone does not send the entry kind.
+            args = SSHRemoteManagementCommand.deleteArguments(profile: profile, path: path, isDirectory: true)
+        }
+        let password = profile.password
+        let commandRunner = sshCommandRunner
+        let result = try await ProviderCLIProbe.runOffCooperativePool {
+            Result { try commandRunner("/usr/bin/ssh", args, password) }
+        }.get()
+        guard result.exitCode == 0 else {
+            throw JSONRPCError(code: -32020, message: "Remote file change failed.", data: .string(result.output))
+        }
+        return .object(["ok": .bool(true)])
     }
 
     private func sshTransferProfile(for surface: SurfaceID) throws -> SSHHostProfile {

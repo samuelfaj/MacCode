@@ -242,6 +242,8 @@ final class SettingsPaletteGapTests: XCTestCase {
         let expected: Set<String> = [
             "diffWordWrap", "diffIgnoreWhitespace",
             "sidebarSort",
+            "notificationSoundEnabled", "notificationCompletionAlertsEnabled",
+            "notificationActionAlertsEnabled", "notificationMutedWorkspaceIDs",
             "insomniaEnabled", "insomniaAllowDisplaySleep",
             "insomniaAllowSystemSleepWhenDisplayClosed",
             "insomniaAllowScreenSaverAfter45MinutesOfInactivity",

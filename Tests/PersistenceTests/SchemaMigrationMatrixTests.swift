@@ -524,9 +524,18 @@ final class SchemaMigrationMatrixTests: XCTestCase {
             90,
             91,
             92,
-            93
+            93,
+            94,
+            95,
+            96,
+            97,
+            98,
+            99,
+            100,
+            101,
+            102
         ])
-        XCTAssertEqual(Schema.currentVersion, 93)
+        XCTAssertEqual(Schema.currentVersion, 102)
         XCTAssertFalse(
             Schema.steps.contains { (63...66).contains($0.version) },
             "schema versions 63-66 are retired and must never be reused"
@@ -553,7 +562,7 @@ final class SchemaMigrationMatrixTests: XCTestCase {
 
         try Schema.migrateSteps(db, Schema.steps)
         XCTAssertEqual(try maxVersion(db), Schema.currentVersion)
-        XCTAssertEqual(Schema.currentVersion, 93)
+        XCTAssertEqual(Schema.currentVersion, 102)
         XCTAssertEqual(try rowCount(db, table: "agent_run_results"), 0,
                        "v91 creates empty result projection without unsafe historical backfill")
 
@@ -636,10 +645,10 @@ final class SchemaMigrationMatrixTests: XCTestCase {
             Schema.steps.filter { $0.version == 71 }.count, 1,
             "HEAD/origin production last published step is 71"
         )
-        XCTAssertEqual(Schema.currentVersion, 93)
+        XCTAssertEqual(Schema.currentVersion, 102)
         XCTAssertEqual(
-            Schema.steps.filter { $0.version > 71 }.map(\.version), [72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93],
-            "v72 remains the first unpublished C10 step; v73 admits winner rcs1; v74 owns context-slot receipts; v75 owns Bot context receipts; v76 owns Bot routine schedule spec; v77 owns nullable agent_runs.terminal_reason; v78 deduplicates savings retries; v79 preserves host attestations outside rolling replay; v80 owns Bot queued follow-ups; v81 indexes running thread IDs; v82 indexes audit_log(action, id); v83 indexes agent_threads(workspace_id, updated_at DESC, id DESC) for the rail list; v84 adds agent_threads.reasoning_model; v85 adds scheduled-task model fields; v86 adds thread actor/execution target; v87 adds thread guest_runtime; v88 adds Bot teams and group conversations; v89 adds bot_conversation_routing; v90 adds thread parent/fork + is_ephemeral; v91 adds agent_run_results; v92 adds Bot reply style columns; v93 adds the Titio notice ledger"
+            Schema.steps.filter { $0.version > 71 }.map(\.version), [72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102],
+            "v72 remains the first unpublished C10 step; v73 admits winner rcs1; v74 owns context-slot receipts; v75 owns Bot context receipts; v76 owns Bot routine schedule spec; v77 owns nullable agent_runs.terminal_reason; v78 deduplicates savings retries; v79 preserves host attestations outside rolling replay; v80 owns Bot queued follow-ups; v81 indexes running thread IDs; v82 indexes audit_log(action, id); v83 indexes agent_threads(workspace_id, updated_at DESC, id DESC) for the rail list; v84 adds agent_threads.reasoning_model; v85 adds scheduled-task model fields; v86 adds thread actor/execution target; v87 adds thread guest_runtime; v88 adds Bot teams and group conversations; v89 adds bot_conversation_routing; v90 adds thread parent/fork + is_ephemeral; v91 adds agent_run_results; v92 adds Bot reply style columns; v93 adds the Titio notice ledger; v94-v102 add Bot contexts, delegations, restore holds, relay keys, Bot sort order, scheduled-task run options, virtual machines and Titio observations"
         )
         let v72 = try XCTUnwrap(Schema.steps.first { $0.version == 72 })
         XCTAssertTrue(v72.sql.contains("CHECK(format IN ('human', 'rcw1', 'rcs1'))"))
@@ -1774,7 +1783,7 @@ final class SchemaMigrationMatrixTests: XCTestCase {
         let thread = AgentThread(title: "v79-host-proof", provider: .codex, model: "gpt-test")
         try insertPreReasoningModelThread(db, thread)
         let run = AgentRun(threadId: thread.id, provider: .codex, model: "gpt-test")
-        try AgentRunRepository(db: db).upsert(run)
+        try insertPreTerminalReasonRun(db, run)
         let proof = AssistantItemHostAttestation(
             itemType: .tool,
             body: AssistantContentFingerprint(

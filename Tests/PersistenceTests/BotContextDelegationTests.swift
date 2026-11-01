@@ -157,23 +157,37 @@ final class BotContextDelegationTests: XCTestCase {
     func test_migration95To96PreservesExistingBotBindingConversationAndPin() throws {
         let db = try SQLiteDB(path: ":memory:")
         try Schema.migrateSteps(db, Schema.steps.filter { $0.version <= 95 })
+        // Seed with v95 SQL: head repositories write columns added after v95.
         let store = BotStore(db: db)
-        let bot = try store.create(name: "Migration", title: "Migration", description: "", handle: "migration", soul: "", provider: .claude, model: "opus")
-        let context = BotContext.workspace(WorkspaceID())
-        let binding = try store.grantContext(hostID: "migration-host", botID: bot.id, context: context, actions: [.read, .send], expectedRevision: nil)
-        let workspaceID: WorkspaceID = { if case .workspace(let id) = context { return id }; fatalError("workspace context required") }()
-        let thread = AgentThread(workspaceId: workspaceID, title: "Migration", provider: .distill, model: "distill")
-        let conversation = BotConversation(botID: bot.id, title: "Migration", linkedAgentThreadID: thread.id)
-        let pin = try store.createContextualConversation(conversation, newThread: thread, hostID: "migration-host", context: context, policyRevision: binding.policyRevision)
+        let bot = BotID()
+        let workspaceID = WorkspaceID()
+        let context = BotContext.workspace(workspaceID)
+        let thread = AgentThreadID()
+        let conversation = BotConversationID()
+        let botRaw = bot.value.uuidString.lowercased()
+        let conversationRaw = conversation.value.uuidString.lowercased()
+        try db.execute("""
+            INSERT INTO bots(id, handle, name, title, description, avatar_symbol, created_at, updated_at)
+            VALUES('\(botRaw)', 'migration', 'Migration', 'Migration', '', 'person', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z');
+            INSERT INTO agent_threads(id, workspace_id, title, provider, provider_instance_id, model, status, created_at, updated_at)
+            VALUES('\(thread.value.uuidString)', '\(workspaceID.value.uuidString)', 'Migration', 'distill', 'distill', 'distill', 'idle', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z');
+            INSERT INTO bot_conversations(id, bot_id, title, linked_agent_thread_id, created_at, updated_at)
+            VALUES('\(conversationRaw)', '\(botRaw)', 'Migration', '\(thread.value.uuidString)', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z');
+            INSERT INTO bot_context_bindings(host_id, bot_id, context_key, contract_version, state, policy_revision, actions)
+            VALUES('migration-host', '\(botRaw)', '\(context.storageKey)', \(BotContext.contractVersion), 'active', 1, 'read,send');
+            INSERT INTO bot_conversation_contexts(conversation_id, host_id, bot_id, context_key, policy_revision, context_version, thread_id)
+            VALUES('\(conversationRaw)', 'migration-host', '\(botRaw)', '\(context.storageKey)', 1, \(BotContext.contractVersion), '\(thread.value.uuidString)');
+            """)
+        let pin = BotConversationContextPin(conversationID: conversation, hostID: "migration-host", botID: bot, context: context, policyRevision: 1)
         try Schema.migrate(db)
-        XCTAssertEqual(try store.get(id: bot.id)?.id, bot.id)
-        XCTAssertTrue(try store.authorizes(hostID: "migration-host", botID: bot.id, context: context, action: .read, policyRevision: binding.policyRevision))
-        XCTAssertTrue(try store.authorizes(hostID: "migration-host", botID: bot.id, context: context, action: .send, policyRevision: binding.policyRevision))
-        let savedConversation = try store.conversation(id: conversation.id)
-        XCTAssertEqual(savedConversation?.id, conversation.id)
-        XCTAssertEqual(savedConversation?.botID, conversation.botID)
-        XCTAssertEqual(savedConversation?.linkedAgentThreadID, thread.id)
-        XCTAssertEqual(try store.conversationContextPin(linkedTo: thread.id), pin)
+        XCTAssertEqual(try store.get(id: bot)?.id, bot)
+        XCTAssertTrue(try store.authorizes(hostID: "migration-host", botID: bot, context: context, action: .read, policyRevision: 1))
+        XCTAssertTrue(try store.authorizes(hostID: "migration-host", botID: bot, context: context, action: .send, policyRevision: 1))
+        let savedConversation = try store.conversation(id: conversation)
+        XCTAssertEqual(savedConversation?.id, conversation)
+        XCTAssertEqual(savedConversation?.botID, bot)
+        XCTAssertEqual(savedConversation?.linkedAgentThreadID, thread)
+        XCTAssertEqual(try store.conversationContextPin(linkedTo: thread), pin)
         XCTAssertTrue(try store.contextDelegations().isEmpty)
     }
 

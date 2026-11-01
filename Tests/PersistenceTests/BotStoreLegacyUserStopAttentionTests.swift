@@ -210,8 +210,9 @@ final class BotStoreLegacyUserStopAttentionTests: XCTestCase {
             linkedAgentThreadID: thread.id
         )
         try store.upsertConversation(conversation)
+        // The run that raised these items started before them; a newer run would resolve `blocked`.
         try AgentRunRepository(db: db).upsert(
-            AgentRun(threadId: thread.id, provider: .grok, model: "test", status: .failed, finishedAt: stamp)
+            AgentRun(threadId: thread.id, provider: .grok, model: "test", status: .failed, startedAt: stamp.addingTimeInterval(-60), finishedAt: stamp)
         )
         let question = BotAttentionItem(
             botID: bot.id,
