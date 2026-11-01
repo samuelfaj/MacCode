@@ -6194,8 +6194,11 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     }
 
     public func cancelAgentQueuedMessage(id: AgentQueuedMessageID) throws -> AgentQueuedMessage {
+        // A prepared row keeps its lease (e.g. after a relaunch interrupted its start),
+        // so plain delete misses it; abandon it the way the Mac queue Remove does.
         guard let ctx = context,
-              let cancelled = try ctx.queuedMessageRepo.delete(id: id) else {
+              let cancelled = try ctx.queuedMessageRepo.delete(id: id)
+                ?? ctx.queuedMessageRepo.abandonPrepared(id: id) else {
             // Already drained or never queued: nothing was deleted.
             throw DefiniteMutationRejection(JSONRPCError.invalidParams)
         }

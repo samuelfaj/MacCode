@@ -97,6 +97,24 @@ final class QueueWorkspaceIdProbeTests: XCTestCase {
         )
     }
 
+    /// WHY: a queued message left `prepared` (its start was interrupted by a relaunch)
+    /// keeps its lease. iOS Remove calls agent.message.queue.cancel; it used to throw
+    /// invalidParams and the message could never be removed from the phone.
+    func test_cancelQueuedMessage_removesPreparedMessageLeftByInterruptedStart() throws {
+        let (ctx, router, _) = try makeRouter("queue-cancel-prepared")
+        let thread = AgentThread(workspaceId: WorkspaceID(), title: "queue-cancel-prepared", provider: .codex, model: "fake-model")
+        try ctx.threadRepo.upsert(thread)
+        let queued = try ctx.queuedMessageRepo.enqueue(threadId: thread.id, text: "merge all", attachments: [], interactionMode: .default)
+        let lease = try XCTUnwrap(try ctx.queuedMessageRepo.claim(id: queued.id))
+        XCTAssertTrue(try ctx.queuedMessageRepo.prepareDispatch(lease, runId: AgentRunID(queued.id.value)))
+
+        let cancelled = try router.cancelAgentQueuedMessage(id: queued.id)
+
+        XCTAssertEqual(cancelled.id, queued.id)
+        XCTAssertNil(try ctx.queuedMessageRepo.get(id: queued.id))
+        XCTAssertThrowsError(try router.cancelAgentQueuedMessage(id: queued.id), "second cancel finds nothing to remove")
+    }
+
     func test_queueChrome_sourceUsesWorkspaceIdProbe() throws {
         let source = try String(
             contentsOf: URL(fileURLWithPath: #filePath)
