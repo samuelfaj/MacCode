@@ -2,6 +2,8 @@ import XCTest
 import Foundation
 import CoreModel
 import SocketServer
+import AppKit
+import SwiftUI
 @testable import AppShell
 
 /// Drives the shipped `FilesViewModel` against the real file-edit session store and
@@ -137,6 +139,138 @@ final class FilesEditorPersistenceTests: XCTestCase {
         XCTAssertFalse(model.isDirty)
     }
 
+    func test_hostedEditorPreservesContinuousTypingAcrossSwiftUIUpdatesAndSaveReopen() throws {
+        let file = root.appendingPathComponent("main.swift")
+        try "let café = \"🧑🏽‍💻\"\n".write(to: file, atomically: true, encoding: .utf8)
+        let model = makeModel()
+        defer { model.close() }
+        model.loadDirectory("")
+        let entry = try XCTUnwrap(model.entries.first { $0.relativePath == "main.swift" })
+        model.select(entry)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let host = NSHostingView(rootView: HostedFileEditor(model: model))
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        func findEditor(_ view: NSView) -> CodeEditorTextView? {
+            if let editor = view as? CodeEditorTextView { return editor }
+            return view.subviews.lazy.compactMap(findEditor).first
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        let editor = try XCTUnwrap(findEditor(host))
+        window.makeFirstResponder(editor)
+        editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
+        let initial = editor.string
+        var typed = ""
+        for character in "// edição 日本語" {
+            let value = String(character)
+            typed += value
+            editor.insertText(value, replacementRange: NSRange(location: NSNotFound, length: 0))
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            XCTAssertEqual(editor.string, initial + typed, "rendering the latest caret must never replay an older model draft")
+            XCTAssertEqual(editor.selectedRange(), NSRange(location: editor.string.utf16.count, length: 0))
+            XCTAssertEqual(model.draftText, editor.string)
+        }
+        model.save()
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), initial + typed)
+        model.loadFile(entry)
+        XCTAssertEqual(model.draftText, initial + typed, "reopening must read the text persisted by the hosted editor")
+        try "other".write(to: root.appendingPathComponent("other.swift"), atomically: true, encoding: .utf8)
+        model.loadDirectory("")
+        model.select(try XCTUnwrap(model.entries.first { $0.relativePath == "other.swift" }))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(editor.string, "other")
+        let line = (editor.string as NSString).substring(to: editor.selectedRange().location)
+            .components(separatedBy: "\n").count
+        XCTAssertEqual(model.caretLine, line, "status bar caret must describe the newly shown file, not the previous one")
+        XCTAssertFalse(editor.undoManager?.canUndo ?? false, "a reused editor must never apply the previous file's undo history to this file")
+
+        // VS Code keeps each open model's undo stack: an unsaved edit survives a round trip.
+        editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
+        editor.insertText("!", replacementRange: NSRange(location: NSNotFound, length: 0))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertTrue(editor.undoManager?.canUndo ?? false)
+        model.select(entry)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(editor.string, initial + typed)
+        model.select(try XCTUnwrap(model.entries.first { $0.relativePath == "other.swift" }))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(editor.string, "other!")
+        XCTAssertTrue(editor.undoManager?.canUndo ?? false, "returning to a dirty file must restore its undo stack")
+        editor.undo(nil)  // Cmd+Z responder action
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(editor.string, "other", "returning to a dirty file must keep its own undo history")
+        XCTAssertEqual(model.draftText, "other")
+    }
+
+    func test_discardWithinTypingDebounceDoesNotReapplyDiscardedText() throws {
+        let file = root.appendingPathComponent("main.swift")
+        try "original".write(to: file, atomically: true, encoding: .utf8)
+        let model = makeModel()
+        defer { model.close() }
+        model.loadDirectory("")
+        model.select(try XCTUnwrap(model.entries.first { $0.relativePath == "main.swift" }))
+        model.editorChanged("discard me")
+        model.discard()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        XCTAssertEqual(model.draftText, "original", "discard must cancel buffered typing as well as the host draft")
+        XCTAssertFalse(model.isDirty)
+    }
+
+    func test_typingPublishesDraftBeforeAnyCaretDrivenViewUpdate() throws {
+        let file = root.appendingPathComponent("main.swift")
+        try "let value = 1\n".write(to: file, atomically: true, encoding: .utf8)
+        let model = makeModel()
+        defer { model.close() }
+        model.loadDirectory("")
+        model.select(try XCTUnwrap(model.entries.first { $0.relativePath == "main.swift" }))
+
+        model.editorChanged("let value = 12\n")
+
+        XCTAssertEqual(model.draftText, "let value = 12\n",
+            "the real editor callback must update the text read by SwiftUI without waiting for the patch debounce")
+        XCTAssertTrue(model.isDirty, "Save and tab-close must see unsaved typing immediately")
+    }
+
+    func test_saveImmediatelyAfterTypingPersistsFinalKeystroke() throws {
+        let file = root.appendingPathComponent("main.swift")
+        try "old".write(to: file, atomically: true, encoding: .utf8)
+        let model = makeModel()
+        defer { model.close() }
+        model.loadDirectory("")
+        model.select(try XCTUnwrap(model.entries.first { $0.relativePath == "main.swift" }))
+
+        model.editorChanged("new 🧑🏽‍💻")
+        model.save()
+
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "new 🧑🏽‍💻",
+            "Cmd+S must flush the final local edit, not save the pre-debounce session")
+        XCTAssertEqual(model.draftText, "new 🧑🏽‍💻")
+        XCTAssertFalse(model.isDirty)
+    }
+
+    func test_switchingFilesWithinTypingDebounceKeepsEachDraftInItsOwnSession() throws {
+        try "first".write(to: root.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        try "second".write(to: root.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+        let model = makeModel()
+        defer { model.close() }
+        model.loadDirectory("")
+        let first = try XCTUnwrap(model.entries.first { $0.relativePath == "a.txt" })
+        let second = try XCTUnwrap(model.entries.first { $0.relativePath == "b.txt" })
+        model.select(first)
+        model.editorChanged("edited first")
+        model.select(second)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        XCTAssertEqual(model.draftText, "second", "a timer for the old file must never patch the newly selected file")
+        model.select(first)
+        XCTAssertEqual(model.draftText, "edited first")
+        model.save()
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("a.txt"), encoding: .utf8), "edited first")
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("b.txt"), encoding: .utf8), "second")
+    }
+
     func test_renameMovesTheFileOnDiskAndTheTabFollows() throws {
         let file = root.appendingPathComponent("old.swift")
         try "let a = 1".write(to: file, atomically: true, encoding: .utf8)
@@ -173,6 +307,18 @@ final class FilesEditorPersistenceTests: XCTestCase {
             "Delete must remove the file from the workspace")
         XCTAssertTrue(model.openTabs.isEmpty, "the deleted file's tab must close")
         XCTAssertNil(model.selectedEntry)
+    }
+}
+
+private struct HostedFileEditor: View {
+    @ObservedObject var model: FilesViewModel
+
+    var body: some View {
+        CodeTextEditor(text: $model.draftText, language: "swift", filePath: model.selectedPath ?? "",
+                       absolutePath: model.selectedEntry?.path, rootPath: "",
+                       openPaths: Set(model.openTabs.map(\.path)), inlineCompletionProvider: nil,
+                       onCaretChange: { model.caretLine = $0; model.caretColumn = $1 },
+                       onChange: model.editorChanged)
     }
 }
 
