@@ -171,6 +171,45 @@ final class FilesEditorIntelligenceTests: XCTestCase {
 
     // MARK: Inline completion request/provider boundary
 
+    @MainActor
+    func test_switchingDocumentsKeepsUndoAndCaretWithEachFile() {
+        let view = CodeEditorTextView()
+        view.configureForEditing()
+        let paths: Set<String> = ["a.swift", "b.swift"]
+        view.switchDocument(to: "a.swift", text: "first", openPaths: paths)
+        view.setSelectedRange(NSRange(location: 5, length: 0))
+        view.insertText(" edited", replacementRange: view.selectedRange())
+        view.switchDocument(to: "b.swift", text: "second", openPaths: paths)
+        XCTAssertFalse(view.undoManager?.canUndo ?? true, "Undo in B must never apply an edit from A")
+        view.setSelectedRange(NSRange(location: 6, length: 0))
+        view.insertText("!", replacementRange: view.selectedRange())
+        view.switchDocument(to: "a.swift", text: "first edited", openPaths: paths)
+        XCTAssertEqual(view.selectedRange().location, 12)
+        view.undoManager?.undo()
+        XCTAssertEqual(view.string, "first")
+        view.undoManager?.redo()
+        XCTAssertEqual(view.string, "first edited")
+        view.switchDocument(to: "b.swift", text: "second!", openPaths: paths)
+        view.undoManager?.undo()
+        XCTAssertEqual(view.string, "second")
+    }
+
+    @MainActor
+    func test_movingCaretClearsGhostAndExternalReplacementClearsStaleUndo() {
+        let view = CodeEditorTextView()
+        view.configureForEditing()
+        view.string = "abc"
+        view.setSelectedRange(NSRange(location: 3, length: 0))
+        view.showGhost("def", at: 3)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        XCTAssertFalse(view.hasGhost, "a completion must not be accepted at the previous caret")
+        view.acceptGhost()
+        XCTAssertEqual(view.string, "abc")
+        view.insertText("x", replacementRange: view.selectedRange())
+        view.replaceTextPreservingSelection("remote")
+        XCTAssertFalse(view.undoManager?.canUndo ?? true, "old undo ranges are invalid after a full external replacement")
+    }
+
     func test_requestCarriesPathLanguageAndSurroundingContext() {
         let text = "let value = compute(\nnext"
         let caret = (text as NSString).range(of: "compute(").upperBound

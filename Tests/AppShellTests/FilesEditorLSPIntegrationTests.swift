@@ -92,6 +92,26 @@ final class FilesEditorLSPIntegrationTests: XCTestCase {
         XCTAssertNotNil(textView.textLayoutManager, "diagnostics must not downgrade the view to TextKit 1")
     }
 
+    func test_backspaceExpandsWordSuggestionsAndCompositionDoesNotOpenThem() {
+        let (_, view) = makeEditor("priv")
+        let coordinator = CodeTextEditor.Coordinator(onChange: { _ in }, onCaretChange: { _, _ in })
+        coordinator.textView = view
+        coordinator.language = "swift"
+        view.delegate = coordinator
+        view.setSelectedRange(NSRange(location: 4, length: 0))
+        coordinator.requestCompletion(in: view, explicit: true)
+        XCTAssertEqual(view.suggest.model?.items.map(\.insertText), ["private"])
+        view.deleteBackward(nil)
+        XCTAssertTrue(view.suggest.model?.items.contains { $0.insertText == "print" } ?? false,
+            "backspacing to pri must restore print even when the priv popup was already visible")
+        view.suggest.hide()
+        view.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0),
+                           replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(view.hasMarkedText())
+        coordinator.requestCompletion(in: view, explicit: true)
+        XCTAssertFalse(view.suggest.isVisible, "IME composition must retain control of its candidates")
+    }
+
     /// Opt-in: needs `sourcekit-lsp` on PATH. Run with RC_LIVE_LSP=1.
     func test_liveSourceKitCompletionReturnsAppend() async throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["RC_LIVE_LSP"] == "1",

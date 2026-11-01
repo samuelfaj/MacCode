@@ -75,6 +75,30 @@ final class FilesEditorPersistenceTests: XCTestCase {
             "the created file must open in an editor tab")
     }
 
+    func test_failedPatchPreservesDraftAndSaveRetriesBeforeWriting() throws {
+        let file = root.appendingPathComponent("a.swift")
+        try "original".write(to: file, atomically: true, encoding: .utf8)
+        let model = makeModel()
+        defer { model.close() }
+        model.loadDirectory("")
+        model.select(try XCTUnwrap(model.entries.first))
+        router?.rejectPatches = true
+        model.editorChanged("edited")
+        model.save()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertEqual(model.draftText, "edited")
+        XCTAssertTrue(model.isDirty)
+        XCTAssertNotNil(model.saveError)
+        XCTAssertNil(model.errorText, "a patch error must leave the editor visible")
+        XCTAssertEqual(router?.saveCount, 0, "Save must not write the old host text after a patch failure")
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "original")
+        router?.rejectPatches = false
+        model.save()
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "edited")
+        XCTAssertNil(model.saveError)
+        XCTAssertFalse(model.isDirty)
+    }
+
     func test_switchingFilesImmediatelyKeepsBufferedTypingInItsOwnFile() throws {
         try "first".write(to: root.appendingPathComponent("a.swift"), atomically: true, encoding: .utf8)
         try "second".write(to: root.appendingPathComponent("b.swift"), atomically: true, encoding: .utf8)
@@ -154,6 +178,8 @@ final class FilesEditorPersistenceTests: XCTestCase {
 
 /// Router that delegates every file operation to the real stores on a temp root.
 private final class DiskRouter: FilesSurfaceRouting {
+    var rejectPatches = false
+    var saveCount = 0
     let root: URL
     let service: WorkspaceFileService
     private var state: [String: JSONValue] = ["current_directory": .string(""), "reader_mode": .string("source")]
@@ -187,7 +213,8 @@ private final class DiskRouter: FilesSurfaceRouting {
     }
 
     func filesEditSave(sessionID: String) throws -> JSONValue {
-        try FileEditSessionStore.shared.save(sessionID: sessionID)
+        saveCount += 1
+        return try FileEditSessionStore.shared.save(sessionID: sessionID)
     }
 
     func filesEditDiscard(sessionID: String) throws -> JSONValue {
@@ -195,7 +222,8 @@ private final class DiskRouter: FilesSurfaceRouting {
     }
 
     func filesEditApplyPatch(sessionID: String, baseDraftRevision: Int, rangeLocation: Int, rangeLength: Int, replacement: String, deviceID: String?) throws -> JSONValue {
-        try FileEditSessionStore.shared.applyPatch(
+        if rejectPatches { throw NSError(domain: "PatchUnavailable", code: 1) }
+        return try FileEditSessionStore.shared.applyPatch(
             sessionID: sessionID,
             baseDraftRevision: baseDraftRevision,
             rangeLocation: rangeLocation,

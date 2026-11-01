@@ -1451,6 +1451,7 @@ final class FilesViewModel: ObservableObject {
     func loadFile(_ entry: FileEntry) {
         flushPendingEditorChange()
         snapshotCurrentSession()
+        pendingDebounceText = nil
         // Close the previous clean session now that it has been snapshotted (or there was nothing
         // to snapshot). Dirty sessions stay open so the snapshotted sessionID remains valid for a
         // later restore. This bounds the number of live host edit sessions to (dirty open files + 1).
@@ -1550,6 +1551,7 @@ final class FilesViewModel: ObservableObject {
 
     func save() {
         flushPendingEditorChange()
+        guard pendingDebounceText == nil, pendingText == nil else { return }
         guard let sessionID else { return }
         do {
             let result = try router?.filesEditSave(sessionID: sessionID)
@@ -1752,7 +1754,9 @@ final class FilesViewModel: ObservableObject {
             applyEditPayload(result?.objectValue ?? [:], remote: false)
         } catch {
             logFailure("patch", error: error)
-            errorText = String(describing: error)
+            // Keep the editor and its unsynced text available for Save to retry.
+            pendingDebounceText = newText
+            saveError = String(describing: error)
         }
         applying = false
         if let pendingText, pendingText != lastSyncedText {
@@ -1971,6 +1975,7 @@ final class FilesViewModel: ObservableObject {
         syncedDirty = snapshot.isDirty
         setDraft(snapshot.draftText)
         lastSyncedText = snapshot.lastSyncedText
+        pendingDebounceText = draftText == lastSyncedText ? nil : draftText
         renderedText = snapshot.draftText
         setSyncLabel(isDirty ? "Unsaved" : "Up to date", revision: draftRevision)
     }
@@ -2821,6 +2826,7 @@ struct FilesSurfaceRoot: View {
             filePath: model.selectedPath ?? model.root,
             absolutePath: model.selectedEntry?.path,
             rootPath: model.root,
+            openPaths: Set(model.openTabs.map(\.path)),
             inlineCompletionProvider: model.inlineCompletionProvider,
             onCaretChange: { line, column in
                 model.caretLine = line
@@ -3312,6 +3318,7 @@ struct CodeTextEditor: NSViewRepresentable {
     let filePath: String
     let absolutePath: String?
     let rootPath: String
+    let openPaths: Set<String>
     let inlineCompletionProvider: (any InlineCompletionProviding)?
     var onCaretChange: (Int, Int) -> Void = { _, _ in }
     let onChange: (String) -> Void
@@ -3336,11 +3343,11 @@ struct CodeTextEditor: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = false
-        textView.string = text
+        textView.switchDocument(to: absolutePath ?? filePath, text: text, openPaths: openPaths)
         textView.language = language
         textView.completionItemsForPrefix = { [weak textView] _, caret in
             guard let textView else { return [] }
-            return FileCompletionEngine.completions(in: textView.string, caret: caret, language: language)
+            return FileCompletionEngine.completions(in: textView.string, caret: caret, language: textView.language)
         }
         context.coordinator.textView = textView
         context.coordinator.language = language
@@ -3371,6 +3378,11 @@ struct CodeTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView ?? scroll.documentView as? NSTextView else { return }
+        if let editor = textView as? CodeEditorTextView,
+           editor.switchDocument(to: absolutePath ?? filePath, text: text, openPaths: openPaths) {
+            context.coordinator.applyHighlight(to: editor)
+            context.coordinator.documentReplacedExternally()
+        }
         let languageChanged = context.coordinator.language != language
         context.coordinator.language = language
         context.coordinator.filePath = filePath
@@ -3389,7 +3401,6 @@ struct CodeTextEditor: NSViewRepresentable {
             (textView as? CodeEditorTextView)?.applyEditorStyle(newPalette)
             context.coordinator.lineNumberRuler?.currentPalette = newPalette
             context.coordinator.applyHighlight(to: textView)
-            return
         }
         if textView.string != text {
             (textView as? CodeEditorTextView)?.clearGhost()
@@ -3486,6 +3497,7 @@ struct CodeTextEditor: NSViewRepresentable {
         /// completions. Any other typed character hides the list.
         private func updateSuggestions(in textView: CodeEditorTextView) {
             guard !textView.isAcceptingSuggestion else { return }
+            guard !textView.hasMarkedText() else { textView.suggest.hide(); return }
             let caret = textView.selectedRange().location
             guard caret > 0 else {
                 textView.suggest.hide()
@@ -3527,7 +3539,7 @@ struct CodeTextEditor: NSViewRepresentable {
         /// Word entries show at once; LSP entries merge in when they return, if still current.
         func requestCompletion(in textView: CodeEditorTextView, explicit: Bool) {
             let selection = textView.selectedRange()
-            guard selection.length == 0 else { return }
+            guard selection.length == 0, !textView.hasMarkedText() else { return }
             let text = textView.string
             let caret = selection.location
             let prefix = currentPrefix(in: textView)
@@ -3535,16 +3547,22 @@ struct CodeTextEditor: NSViewRepresentable {
             completionGeneration += 1
             let generation = completionGeneration
             completionTask?.cancel()
-            if explicit || !textView.suggest.isVisible {
-                showSuggestions(words, prefix: prefix, in: textView)
-            }
-            guard let client = lspClient, let path = lspPath else { return }
+            let existing = textView.suggest.isVisible && !explicit
+                ? completionEntries.filter { $0.source == .languageServer } : []
+            showSuggestions(existing + words, prefix: prefix, in: textView)
+            guard lspClient != nil || lspOpenTask != nil else { return }
             let position = LSPText.position(forUTF16Offset: caret, in: text)
-            let pending = flushLanguageServerChange()
+            let opening = lspOpenTask
             completionTask = Task { @MainActor [weak self, weak textView] in
+                await opening?.value
+                guard !Task.isCancelled, let self, let textView,
+                      generation == self.completionGeneration,
+                      textView.string == text, textView.selectedRange() == selection,
+                      let client = self.lspClient, let path = self.lspPath else { return }
+                let pending = self.flushLanguageServerChange()
                 await pending?.value
                 let items = (try? await client.completion(path: path, position: position)) ?? []
-                guard !Task.isCancelled, let self, let textView, generation == self.completionGeneration,
+                guard !Task.isCancelled, generation == self.completionGeneration,
                       textView.string == text,
                       textView.selectedRange() == NSRange(location: caret, length: 0),
                       textView.window?.firstResponder === textView else { return }
@@ -3677,6 +3695,9 @@ struct CodeTextEditor: NSViewRepresentable {
         }
 
         func tearDown() {
+            inlineTask?.cancel()
+            inlineDebounceTimer?.invalidate()
+            inlineGeneration += 1
             lspGeneration += 1
             lspChangeTimer?.invalidate()
             lspChangeTimer = nil
@@ -3694,6 +3715,7 @@ struct CodeTextEditor: NSViewRepresentable {
             releaseLanguageServer()
             textView?.suggest.hide()
             textView?.hideHover()
+            textView?.clearDocumentHistory()
         }
 
         /// Removes this coordinator's diagnostics subscriber and drops its pool lease.
@@ -3769,7 +3791,7 @@ struct CodeTextEditor: NSViewRepresentable {
         private func scheduleInlineCompletion(in textView: CodeEditorTextView) {
             inlineDebounceTimer?.invalidate()
             inlineTask?.cancel()
-            guard let provider = inlineProvider, !textView.string.isEmpty else { return }
+            guard let provider = inlineProvider, !textView.string.isEmpty, !textView.hasMarkedText() else { return }
             inlineGeneration += 1
             let generation = inlineGeneration
             let path = filePath
@@ -3879,6 +3901,16 @@ struct CodeTextEditor: NSViewRepresentable {
 /// AI completions stay non-destructive: they are painted after the caret and inserted only
 /// on Tab or Cmd+Right (next word).
 final class CodeEditorTextView: NSTextView {
+    private struct DocumentState {
+        let text: String
+        let selections: [NSValue]
+        let undo: UndoManager
+        let scrollOrigin: NSPoint
+    }
+    private var documentPath: String?
+    private var documents: [String: DocumentState] = [:]
+    private var documentUndo = UndoManager()
+    override var undoManager: UndoManager? { documentUndo }
     var language: String?
     var completionItemsForPrefix: ((String, Int) -> [FileCompletionItem])?
     /// `true` for explicit Ctrl+Space, `false` for automatic triggers.
@@ -3935,6 +3967,7 @@ final class CodeEditorTextView: NSTextView {
 
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool) {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
+        if selectedRange() != NSRange(location: ghostCaret, length: 0) { clearGhost() }
         refreshBracketPair()
         needsDisplay = true
     }
@@ -4083,9 +4116,48 @@ final class CodeEditorTextView: NSTextView {
         guard string != newText else { return nil }
         let old = string
         let selection = selectedRanges
+        breakUndoCoalescing()
+        documentUndo.removeAllActions()
         string = newText
         selectedRanges = selection
         return old
+    }
+
+    /// The same AppKit view serves several tabs; undo ranges must stay with their document.
+    @discardableResult
+    func switchDocument(to path: String, text: String, openPaths: Set<String>) -> Bool {
+        documents = documents.filter { openPaths.contains($0.key) }
+        guard documentPath != path else { return false }
+        breakUndoCoalescing()
+        if let documentPath, openPaths.contains(documentPath) {
+            documents[documentPath] = DocumentState(text: string, selections: selectedRanges,
+                undo: documentUndo, scrollOrigin: enclosingScrollView?.contentView.bounds.origin ?? .zero)
+        }
+        let saved = documents.removeValue(forKey: path)
+        documentPath = path
+        // Assigning `string` may reset undo. Keep the saved manager detached until after loading.
+        documentUndo = UndoManager()
+        string = text
+        clearGhost()
+        suggest.hide()
+        hideHover()
+        applyDiagnostics([])
+        if let saved, saved.text == text {
+            documentUndo = saved.undo
+            selectedRanges = saved.selections
+            enclosingScrollView?.contentView.scroll(to: saved.scrollOrigin)
+        } else {
+            setSelectedRange(NSRange(location: 0, length: 0))
+            enclosingScrollView?.contentView.scroll(to: .zero)
+        }
+        return true
+    }
+
+    func clearDocumentHistory() {
+        breakUndoCoalescing()
+        documentUndo.removeAllActions()
+        for state in documents.values { state.undo.removeAllActions() }
+        documents.removeAll()
     }
 
     func showGhost(_ text: String, at caret: Int) {
@@ -4259,6 +4331,8 @@ final class CodeEditorTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        guard !hasMarkedText() else { super.keyDown(with: event); return }
+        if event.keyCode == 53, !suggest.isVisible { suggest.onDismiss?() }
         if suggest.isVisible, suggest.handleKeyDown(event) { return }
         let command = event.modifierFlags.contains(.command)
         if event.keyCode == 5, event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.control), !command { // Ctrl+G
