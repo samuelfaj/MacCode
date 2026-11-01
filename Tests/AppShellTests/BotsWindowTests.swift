@@ -135,6 +135,8 @@ final class BotsWindowTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "bots.unpublishedNewBotIDs")
         UserDefaults.standard.removeObject(forKey: "bots.deskThreadRail")
         UserDefaults.standard.removeObject(forKey: "bots.deskThreadRailWidth")
+        // Other suites remember a last-used model per provider; a Distill route here must start empty.
+        UserDefaults.standard.removeObject(forKey: "agent.lastModel.byProvider.v1")
     }
 
     override func tearDown() {
@@ -1049,9 +1051,11 @@ final class BotsWindowTests: XCTestCase {
         )
         // Every wait in this window is a main-thread SQLite sync. The print is
         // the count to compare before and after on the same machine.
+        // 12 since execution destinations (2026-10-20): the thread create,
+        // lock and destination pin are writes this send must make.
         XCTAssertLessThanOrEqual(
             acknowledgementMainSyncs,
-            5,
+            12,
             "the acknowledgement must not gain main-thread SQLite reads"
         )
         print("PERF bot.send acknowledgement unselectedBot mainThreadSQLiteSyncs=\(acknowledgementMainSyncs)")
@@ -1096,6 +1100,7 @@ final class BotsWindowTests: XCTestCase {
             authenticated: true,
             id: "claude"
         )
+        router.providerSnapshotsOverrideForTesting = [snapshot]
         router.rememberProviderSnapshotsForSend([snapshot])
         router.preflightListedProviderSnapshotsForTesting = false
         let vm = BotsViewModel(context: context, router: router)
@@ -4812,20 +4817,20 @@ final class BotsWindowTests: XCTestCase {
             contentsOf: sourceURL("Sources/AppShell/BotScheduleTasksWindow.swift"),
             encoding: .utf8
         )
-        guard let start = source.range(of: "private func labeled<Content: View>") else {
-            return XCTFail("schedule editor labeled helper must exist")
+        // The editor now uses the shared ScheduleEditor* controls; each must
+        // carry its own VoiceOver name instead of relying on a caption.
+        let chrome = try String(
+            contentsOf: sourceURL("Sources/AppShell/ScheduleEditorChrome.swift"),
+            encoding: .utf8
+        )
+        for control in ["struct ScheduleEditorTextField", "struct ScheduleEditorPromptBox"] {
+            let start = try XCTUnwrap(chrome.range(of: control), control)
+            let rest = chrome[start.lowerBound...]
+            let end = rest.range(of: "\n}\n")?.upperBound ?? rest.endIndex
+            XCTAssertTrue(chrome[start.lowerBound..<end].contains(".accessibilityLabel(label)"),
+                          "\(control) must expose its label as the control name")
         }
-        let rest = source[start.lowerBound...]
-        let end = rest.range(of: "\n}\n")?.upperBound ?? rest.endIndex
-        let helper = String(source[start.lowerBound..<end])
-        XCTAssertTrue(
-            helper.contains(".accessibilityHidden(true)"),
-            "visual Name/When/Instruction captions must not double-speak"
-        )
-        XCTAssertTrue(
-            helper.contains(".accessibilityLabel(title)"),
-            "Name, When, and Instruction must expose the caption as the control name"
-        )
+        XCTAssertTrue(source.contains("label: \"Instruction\""))
         XCTAssertTrue(
             source.contains("Picker(\"\", selection: $draft.botID)"),
             "Picker title must stay empty so VoiceOver does not speak Bot, Bot"
@@ -5888,6 +5893,7 @@ final class BotsWindowTests: XCTestCase {
                 supportsDistillReasoningModelEffort: true
             )
         )
+        router.providerSnapshotsOverrideForTesting = [snapshot]
         router.rememberProviderSnapshotsForSend([snapshot])
         let vm = BotsViewModel(context: context, router: router)
         vm.replaceProvidersForTests([snapshot])
@@ -8220,6 +8226,8 @@ final class BotsWindowTests: XCTestCase {
                 send({"jsonrpc":"2.0", "id":message["id"], "result":{"_meta":ack}})
             elif method in ("session/set_mode", "session/set_config_option"):
                 send({"jsonrpc":"2.0", "id":message["id"], "result":{}})
+            elif method == "_x.ai/session/execution_mode/set":
+                send({"jsonrpc":"2.0", "id":message["id"], "result":{"mode":params.get("mode")}})
             elif method == "session/prompt":
                 count = int(counter.read_text()) if counter.exists() else 0
                 count += 1
@@ -8251,6 +8259,7 @@ final class BotsWindowTests: XCTestCase {
                 supportsDistillReasoningModelEffort: true
             )
         )
+        router.providerSnapshotsOverrideForTesting = [snapshot]
         router.rememberProviderSnapshotsForSend([snapshot])
 
         let vm = BotsViewModel(context: context, router: router)
@@ -8285,6 +8294,7 @@ final class BotsWindowTests: XCTestCase {
         reopenedContext.router = reopenedRouter
         reopenedAdapter = DistillACPAdapter(binaryNameOverride: harnessURL.path)
         reopenedContext.coordinator.replaceProviderAdapter(.distill, adapter: try XCTUnwrap(reopenedAdapter))
+        reopenedRouter.providerSnapshotsOverrideForTesting = [snapshot]
         reopenedRouter.rememberProviderSnapshotsForSend([snapshot])
         let reopenedVM = BotsViewModel(context: reopenedContext, router: reopenedRouter)
         reopenedVM.openDesk(bot)
@@ -8734,6 +8744,7 @@ final class BotsWindowTests: XCTestCase {
             provider: .distill, models: models, binaryPath: "/usr/bin/true", authenticated: true, id: "distill",
             capabilitiesOverride: AgentProviderCapabilities(supportsDistillMainEffortAuto: true)
         )
+        router.providerSnapshotsOverrideForTesting = [snapshot]
         router.rememberProviderSnapshotsForSend([snapshot])
         let vm = BotsViewModel(context: context, router: router)
         vm.replaceProvidersForTests([snapshot])
@@ -16620,7 +16631,7 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertEqual(revision.desktopKind, .logicalExecutionSpace)
         XCTAssertEqual(saved.notificationsEnabled, false)
         XCTAssertEqual(vm.studioDesktopSummary, BotDesktopKind.logicalExecutionSpace.displayTitle)
-        XCTAssertEqual(vm.studioApprovalLabel, "Supervised")
+        XCTAssertEqual(vm.studioApprovalLabel, "Full access", "Studio saves publish Full access since 2026-10-19")
     }
 
     func test_botCreateAndSaveDoNotPersistProviderOrModel() throws {
@@ -17354,7 +17365,7 @@ final class BotsWindowTests: XCTestCase {
         let bots = try String(contentsOf: sourceURL("Sources/AppShell/BotsWindow.swift"), encoding: .utf8)
         let sidebar = try String(contentsOf: sourceURL("Sources/AppShell/SidebarView.swift"), encoding: .utf8)
         XCTAssertTrue(sidebar.contains("SidebarSearchField("))
-        XCTAssertTrue(sidebar.contains("placeholder: \"Search workspaces and Bots\""))
+        XCTAssertTrue(sidebar.contains("placeholder: \"Search workspaces, Bots and VMs\""))
         XCTAssertFalse(bots.contains("SidebarSearchField("), "the Bots shell has no second search field")
     }
 
@@ -17852,7 +17863,8 @@ final class BotsWindowTests: XCTestCase {
         let start = try XCTUnwrap(source.range(of: "private func deskUnlinkedComposer"))
         let end = try XCTUnwrap(source.range(of: "AgentChatComposerBar(", range: start.upperBound..<source.endIndex))
         let empty = String(source[start.lowerBound..<end.lowerBound])
-        XCTAssertTrue(empty.contains("DSEmptyState("))
+        // The unlinked Desk shares the Agent App's empty conversation state.
+        XCTAssertTrue(empty.contains("AgentNewConversationEmptyState("))
         XCTAssertTrue(empty.contains("title: \"Message \\(BotsViewModel.displayName(bot.name))\""))
         XCTAssertTrue(empty.contains("subtitle: \"This thread has no messages yet.\""))
         // The limit set from outside reaches the subtitle as well as the
@@ -17871,7 +17883,7 @@ final class BotsWindowTests: XCTestCase {
             empty.range(of: "if vm.deskMessages.isEmpty {"),
             "the empty copy is shown only while the thread has no message"
         )
-        let state = try XCTUnwrap(empty.range(of: "DSEmptyState("))
+        let state = try XCTUnwrap(empty.range(of: "AgentNewConversationEmptyState("))
         XCTAssertLessThan(guardLine.lowerBound, state.lowerBound)
         // The linked surface must keep saying the same thing.
         XCTAssertEqual(
@@ -18410,6 +18422,7 @@ final class BotsWindowTests: XCTestCase {
         let runner = ControlledBotHandoffRunner(provider: .distill)
         context.coordinator.replaceProvider(.distill, runner: runner)
         let snapshot = unlinkedDeskDistillSnapshot()
+        router.providerSnapshotsOverrideForTesting = [snapshot]
         router.rememberProviderSnapshotsForSend([snapshot])
         router.preflightListedProviderSnapshotsForTesting = false
         let vm = BotsViewModel(context: context, router: router)

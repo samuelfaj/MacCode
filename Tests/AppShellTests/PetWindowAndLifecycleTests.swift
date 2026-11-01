@@ -1765,6 +1765,8 @@ final class PetWindowAndLifecycleTests: XCTestCase {
         controller.windowControllerForTests.dockFrameProviderForTests = { screen in
             Self.centeredDockFrame(for: screen)
         }
+        // start() already cached the real Dock; place against the fixture Dock.
+        controller.windowControllerForTests.invalidateDockPlacementCacheForTests()
         let panel = try XCTUnwrap(controller.windowControllerForTests.petPanelForTests)
         let screen = try XCTUnwrap(panel.screen ?? NSScreen.main)
         let placementFrame = PetScreenGeometry.petPlacementFrame(

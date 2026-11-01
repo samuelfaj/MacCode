@@ -574,6 +574,8 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     /// Fires after send preflight resolves, whether from cache or a catalog list.
     var sendAgentMessageAfterPreflightProbeForTesting: (() async -> Void)?
     var listAgentProviderSnapshotsCallCountForTesting = 0
+    /// Tests: answer provider probes with these snapshots instead of the real CLIs.
+    var providerSnapshotsOverrideForTesting: [AgentProviderSnapshot]?
     var preflightListedProviderSnapshotsForTesting = false
     private var cachedProviderSnapshots: [AgentProviderSnapshot] = []
     private var cachedProviderSnapshotsAt: Date?
@@ -8395,6 +8397,10 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     /// + auth match the account Claude will actually run as through the helper.
     public func listAgentProviderSnapshots(runAsUser: AgentRunAsUser?, forceCatalogRefresh: Bool = false) async -> [AgentProviderSnapshot] {
         listAgentProviderSnapshotsCallCountForTesting += 1
+        if let providerSnapshotsOverrideForTesting {
+            rememberProviderSnapshotsForSend(providerSnapshotsOverrideForTesting)
+            return providerSnapshotsOverrideForTesting
+        }
         var snapshots: [AgentProviderSnapshot] = []
         let configuredInstances = providerInstanceConfigs().filter { $0.provider.isSelectable }
         if !configuredInstances.isEmpty {

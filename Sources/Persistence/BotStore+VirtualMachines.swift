@@ -58,15 +58,20 @@ public extension BotStore {
     }
 
     func executionDestination(botID: BotID) throws -> BotExecutionDestination {
-        guard let bot = try get(id: botID), bot.deletedAt == nil,
-              let revisionID = bot.currentRevisionID, let revision = try getRevision(id: revisionID) else {
-            throw BotStoreError.notFound
+        // One queue hop: every send reads this several times on the main thread.
+        let (revision, raw): (BotRevision, String?) = try db.performSync { database in
+            guard let bot = try loadBot(id: botID, database: database), bot.deletedAt == nil,
+                  let revisionID = bot.currentRevisionID,
+                  let revision = try loadRevision(id: revisionID, database: database) else {
+                throw BotStoreError.notFound
+            }
+            let query = try database.prepare("SELECT execution_destination FROM bots WHERE id=?;")
+            defer { query.reset() }
+            try query.bind(1, botID.value.uuidString.lowercased())
+            guard try query.step() else { throw BotStoreError.notFound }
+            return (revision, query.columnText(0))
         }
-        let query = try db.prepare("SELECT execution_destination FROM bots WHERE id=?;")
-        defer { query.reset() }
-        try query.bind(1, botID.value.uuidString.lowercased())
-        guard try query.step() else { throw BotStoreError.notFound }
-        guard let raw = query.columnText(0) else {
+        guard let raw else {
             return BotExecutionDefault.target(for: revision) == .vm ? .ownVM : .mac
         }
         guard let destination = BotExecutionDestination(storageValue: raw) else {
@@ -124,6 +129,17 @@ public extension BotStore {
         try statement.bind(1, destination.storageValue)
         try statement.bind(2, botID.value.uuidString.lowercased())
         _ = try statement.step()
+        guard destination == .mac else { return }
+        // The Bot no longer has its own VM: its own-VM conversations follow it
+        // to the Mac. Shared VM pins stay; reconcile then retargets them.
+        let repin = try db.prepare("""
+            UPDATE agent_threads SET execution_destination='mac'
+            WHERE execution_destination='own_vm'
+              AND lower(id) IN (SELECT lower(linked_agent_thread_id) FROM bot_conversations WHERE bot_id=?);
+            """)
+        defer { repin.reset() }
+        try repin.bind(1, botID.value.uuidString.lowercased())
+        _ = try repin.step()
     }
 
     func threadExecutionDestination(_ threadID: AgentThreadID) throws -> BotExecutionDestination? {

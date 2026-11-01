@@ -2340,7 +2340,7 @@ public final class BotStore: @unchecked Sendable {
         return try statement.step() ? try decodeBot(statement) : nil
     }
 
-    private func loadRevision(id: BotRevisionID, database: SQLiteDB) throws -> BotRevision? {
+    func loadRevision(id: BotRevisionID, database: SQLiteDB) throws -> BotRevision? {
         let statement = try database.prepare(Self.revisionSelect + " WHERE id = ? LIMIT 1;")
         defer { statement.reset() }
         try statement.bind(1, id.value.uuidString.lowercased())

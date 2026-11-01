@@ -17,6 +17,8 @@ final class BotDeskRoutingParityTests: XCTestCase {
         directory = NSTemporaryDirectory() + "rc-bot-desk-routing-\(UUID().uuidString)"
         UserDefaults.standard.removeObject(forKey: "bots.deskThreadRouting")
         UserDefaults.standard.removeObject(forKey: "bots.selectedBotID")
+        // A view model reads the shared last-used model before a test injects its own store.
+        UserDefaults.standard.removeObject(forKey: "agent.lastModel.byProvider.v1")
     }
 
     override func tearDown() {
@@ -50,6 +52,7 @@ final class BotDeskRoutingParityTests: XCTestCase {
             id: "distill-acp",
             capabilitiesOverride: AgentProviderCapabilities(supportsDistillMainEffortAuto: true)
         )
+        router.providerSnapshotsOverrideForTesting = [snapshot]
         router.rememberProviderSnapshotsForSend([snapshot])
         router.preflightListedProviderSnapshotsForTesting = false
         let vm = BotsViewModel(context: context, router: router)
@@ -366,8 +369,10 @@ final class BotDeskRoutingParityTests: XCTestCase {
         let other = try XCTUnwrap(f.vm.selectedConversation)
         let empty = BotDeskRouting(provider: .distill, providerInstanceID: "distill-acp", model: "")
         let emptyJSON = try XCTUnwrap(String(data: try JSONEncoder().encode(empty), encoding: .utf8))
+        // Both rows exist and the first view model has no write left that
+        // could land after the route below is emptied.
         let drained = await waitUntil {
-            (try? f.context.botStore.listDeskRoutingJSON().count) == 2
+            (try? f.context.botStore.listDeskRoutingJSON().count) == 2 && !f.vm.deskRoutingWritesPendingForTesting
         }
         XCTAssertTrue(drained)
         XCTAssertTrue(try f.context.botStore.setDeskRoutingJSON(emptyJSON, conversationID: target.id))

@@ -2499,6 +2499,15 @@ public final class AgentThreadRepository {
     /// internal contextual admissions retain their explicitly isolated runtime.
     public func reconcileBotExecutionTarget(_ thread: AgentThread, forUserSend: Bool = false) throws -> AgentThread {
         guard thread.executionTarget == .vm else { return thread }
+        if try BotStore(db: db).threadExecutionDestination(thread.id) == .ownVM, forUserSend,
+           let pin = try BotStore(db: db).conversationContextPin(linkedTo: thread.id),
+           try BotStore(db: db).authorizes(hostID: pin.hostID, botID: pin.botID, context: pin.context,
+                                           action: .send, policyRevision: pin.policyRevision),
+           try BotStore(db: db).executionDestination(botID: pin.botID) == .mac {
+            // A contextual thread locked to the VM before its Bot ran on the
+            // Mac follows the Bot on a user send, like unpinned threads below.
+            try BotStore(db: db).pinExecutionDestination(threadID: thread.id, botID: pin.botID, destination: .mac, replace: true)
+        }
         if let pinned = try BotStore(db: db).threadExecutionDestination(thread.id) {
             // A conversation pinned to This Mac must not keep a VM target, or the
             // guest resolver refuses it ("no longer has a Docker desktop").

@@ -148,11 +148,14 @@ final class BotPeerDestinationTests: XCTestCase {
         ctx.router = router
         let runner = ControlledBotHandoffRunner(provider: .distill)
         ctx.coordinator.replaceProvider(.distill, runner: runner)
-        router.rememberProviderSnapshotsForSend([AgentProviderSnapshotFactory.snapshot(
+        let snapshot = AgentProviderSnapshotFactory.snapshot(
             provider: .distill,
             models: [AgentModelDescriptor(id: "fake-model", label: "Fake Model", provider: .distill)],
             binaryPath: "/usr/bin/true", authenticated: true, id: "distill"
-        )])
+        )
+        // Background probes of the real Distill CLI must not replace this signed-in snapshot.
+        router.providerSnapshotsOverrideForTesting = [snapshot]
+        router.rememberProviderSnapshotsForSend([snapshot])
         let workspace = try router.createWorkspace(name: "Peer destination", cwd: workspaceDirectory.path)
         let callerBot = try ctx.botStore.create(name: "Caller", title: "Coordinator", description: "")
         let peer = try ctx.botStore.create(name: "Peer", title: "Reviewer", description: "")
