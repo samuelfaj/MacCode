@@ -3642,6 +3642,7 @@ struct CodeTextEditor: NSViewRepresentable {
         /// Entries last shown and the document text they were computed for.
         private var completionEntries: [SuggestEntry] = []
         private var completionDocumentText: String?
+        private var completionSelection: NSRange?
         private static var loggedLanguageFailures = Set<String>()
         /// Last applied palette; compared in `updateNSView` to skip redundant attribute churn.
         var currentPalette: EditorColorPalette = EditorColorPalette.resolve(isDark: true)
@@ -3762,6 +3763,7 @@ struct CodeTextEditor: NSViewRepresentable {
             }
             completionEntries = entries
             completionDocumentText = textView.string
+            completionSelection = textView.selectedRange()
             textView.suggest.show(entries: entries, prefix: prefix, anchor: textView.caretRect(), in: textView)
         }
 
@@ -4022,6 +4024,12 @@ struct CodeTextEditor: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? CodeEditorTextView else { return }
+            // Caret moved without typing: suggestions for the old position must not take Return/Tab.
+            if textView.suggest.isVisible, textView.string == completionDocumentText,
+               textView.selectedRange() != completionSelection {
+                cancelCompletion()
+                textView.suggest.hide()
+            }
             if let inlineCaret, textView.selectedRange() != NSRange(location: inlineCaret, length: 0) {
                 cancelInlineCompletion()
             }
@@ -4119,8 +4127,9 @@ final class CodeEditorTextView: NSTextView {
     private var documentUndo = UndoManager()
     override var undoManager: UndoManager? { documentUndo }
     // AppKit's standard Edit menu otherwise reaches NSWindow's unrelated undo manager.
-    @objc func undo(_ sender: Any?) { documentUndo.undo() }
-    @objc func redo(_ sender: Any?) { documentUndo.redo() }
+    // A restored document stack replays without a delegate text callback; report the result.
+    @objc func undo(_ sender: Any?) { documentUndo.undo(); didChangeText() }
+    @objc func redo(_ sender: Any?) { documentUndo.redo(); didChangeText() }
     override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(undo(_:)) { return documentUndo.canUndo }
         if menuItem.action == #selector(redo(_:)) { return documentUndo.canRedo }
