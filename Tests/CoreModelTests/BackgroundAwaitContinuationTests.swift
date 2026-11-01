@@ -167,7 +167,7 @@ final class BackgroundAwaitContinuationTests: XCTestCase {
             "After each real reply, author any follow-up prompt yourself",
             "only the prior-reply context relevant to the next Bot",
             "You remain responsible for mediation and final synthesis",
-            "RemoteCode does not semantically route, sequence, or set a fixed iteration count",
+            "You decide the semantic routing and sequence",
             "`reply_only` is terminal",
             "never choose it while comparison, follow-up, mediation, or synthesis remains",
         ]

@@ -127,8 +127,9 @@ final class BotContextDispatcherTests: XCTestCase {
         let threadIDValue = try XCTUnwrap(UUID(uuidString: threadID))
         let persistedThread = try XCTUnwrap(AgentThreadRepository(db: fixture.db).get(id: AgentThreadID(threadIDValue)))
         XCTAssertEqual(persistedThread.actor, .bot(BotID(try XCTUnwrap(UUID(uuidString: botID)))))
-        XCTAssertEqual(persistedThread.executionTarget, .vm)
-        XCTAssertTrue(try XCTUnwrap(AgentThreadRepository(db: fixture.db).guestPlacement(of: AgentThreadID(threadIDValue))).runsInGuest)
+        // A bot without a Docker desktop runs on the Mac (BotExecutionDefault).
+        XCTAssertEqual(persistedThread.executionTarget, .mac)
+        XCTAssertNotEqual(try AgentThreadRepository(db: fixture.db).guestPlacement(of: AgentThreadID(threadIDValue))?.runsInGuest, true)
         XCTAssertNil(persistedThread.workspaceId)
         XCTAssertNil(persistedThread.providerThreadId)
         let pin = try fixture.db.prepare("SELECT host_id, context_key, policy_revision FROM bot_conversation_contexts WHERE conversation_id=?;")

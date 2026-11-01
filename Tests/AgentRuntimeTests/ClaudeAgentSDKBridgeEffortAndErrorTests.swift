@@ -1591,7 +1591,7 @@ final class ClaudeAgentSDKBridgeEffortAndErrorTests: ProviderProcessTestCase {
 
     func test_nativeForkDuplicateMarkerCleansAllChildrenAndFailsLoud() async throws {
         let key = "remotecode-thread-fork:duplicate"
-        let marker = "RemoteCode fork \(key)"
+        let marker = "MacCode fork \(key)"
         let mutator = ClaudeForkMutationMock(sessions: [
             ClaudeSDKSessionRecord(sessionId: "claude-parent", customTitle: nil),
             ClaudeSDKSessionRecord(sessionId: "duplicate-a", customTitle: marker),
@@ -1624,7 +1624,7 @@ final class ClaudeAgentSDKBridgeEffortAndErrorTests: ProviderProcessTestCase {
     func test_nativeForkCompensationIsIdempotentAfterLostDeleteResponse() async throws {
         let key = "remotecode-thread-fork:compensate"
         let childId = "claude-child"
-        let marker = "RemoteCode fork \(key)"
+        let marker = "MacCode fork \(key)"
         let mutator = ClaudeForkMutationMock(sessions: [
             ClaudeSDKSessionRecord(sessionId: "claude-parent", customTitle: marker),
             ClaudeSDKSessionRecord(sessionId: childId, customTitle: marker)

@@ -692,7 +692,7 @@ final class BotBrainCompilerTests: XCTestCase {
         XCTAssertEqual(receipt.layers.first(where: { $0.kind == .identity })?.included, true)
         XCTAssertEqual(
             receipt.layers.first(where: { $0.kind == .identity })?.text,
-            "You are Piper (@piper). \(BotBrainCompiler.handleCreateOnlyHonesty) Role: Scout. Avatar: Person."
+            "You are Piper (@piper). \(BotBrainCompiler.handleCreateOnlyHonesty) Role: Scout. Avatar: Auto."
         )
         XCTAssertEqual(
             receipt.layers.first(where: { $0.kind == .identity })?.reason,
@@ -738,7 +738,7 @@ final class BotBrainCompilerTests: XCTestCase {
         let receipt = BotBrainCompiler.assemble(bot: bot, revision: revision, userText: "Change your handle")
         XCTAssertEqual(
             receipt.compiledPayload.split(separator: "\n").first.map(String.init),
-            "You are Piper. Role: Scout. Avatar: Person."
+            "You are Piper. Role: Scout. Avatar: Auto."
         )
         XCTAssertFalse(receipt.compiledPayload.contains(BotBrainCompiler.handleCreateOnlyHonesty))
     }
@@ -772,7 +772,7 @@ final class BotBrainCompilerTests: XCTestCase {
         XCTAssertEqual(receipt.layers.first(where: { $0.kind == .identity })?.included, true)
         XCTAssertEqual(
             receipt.layers.first(where: { $0.kind == .identity })?.text,
-            "You are Piper (@piper). \(BotBrainCompiler.handleCreateOnlyHonesty) Role: Scout. Avatar: Person."
+            "You are Piper (@piper). \(BotBrainCompiler.handleCreateOnlyHonesty) Role: Scout. Avatar: Auto."
         )
         XCTAssertFalse(
             BotStandingInstructions.fallback(name: "Piper", title: "Scout").contains("Role:"),
@@ -1913,7 +1913,8 @@ final class BotReplyStylePromptTests: XCTestCase {
     func test_cavemanFlagDoesNotShapeSimpleReplies() {
         // WHY: Caveman telegraphed replies for owners who are not technical;
         // a stored caveman flag must not change the Simple prompt.
-        let bot = BotDefinition(handle: "ceo", name: "Ceo", title: "", description: "")
+        var bot = BotDefinition(handle: "ceo", name: "Ceo", title: "", description: "")
+        bot.verbosity = .human
         XCTAssertTrue(bot.cavemanEnabled)
         let payload = prompt(for: bot)
         XCTAssertTrue(payload.contains(BotStandingInstructions.replyStyleLine))

@@ -74,6 +74,9 @@ class FakeRouter: CommandRouting, TerminalCommandRouting {
     }
 
     func managedHostCallerIsTitio(threadID: AgentThreadID) throws -> Bool { false }
+    func validateBotPeerReceipt(callerThread: AgentThreadID, result: JSONValue) throws {
+        throw JSONRPCError.notSupported("Bot receipt authorization")
+    }
 
     func askBotPeer(
         callerThread: AgentThreadID,
@@ -281,6 +284,10 @@ class FakeRouter: CommandRouting, TerminalCommandRouting {
     func sshTransferUploadAsync(surface: SurfaceID, localPath: String, remotePath: String) async throws -> JSONValue { sshAsyncCalls.append("upload"); return .object(["ok": .bool(true)]) }
     func sshTransferDownloadAsync(surface: SurfaceID, remotePath: String, localPath: String) async throws -> JSONValue { sshAsyncCalls.append("download"); return .object(["ok": .bool(true)]) }
     func sshFilesRemoteListAsync(surface: SurfaceID, path: String?) async throws -> JSONValue { sshAsyncCalls.append("remote.list"); return .object(["path": .string(path ?? "/"), "entries": .array([])]) }
+    func sshFilesRemoteManage(surface: SurfaceID, operation: SSHRemoteFileOperation) async throws -> JSONValue {
+        sshAsyncCalls.append(operation.method)
+        return .object(["ok": .bool(true)])
+    }
     func openAgentApp(workspace: WorkspaceID) throws -> SurfaceDescriptor {
         SurfaceDescriptor(type: .agentApp, title: "Agent App")
     }
@@ -1024,6 +1031,8 @@ class FakeRouter: CommandRouting, TerminalCommandRouting {
         return GitDiff.diff(in: gitCwd, path: path, ignoreWhitespace: ignoreWhitespace)
     }
     func gitPush(workspace: WorkspaceID) throws -> GitActionResult { GitDiff.push(in: gitCwd) }
+    func gitFetch(workspace: WorkspaceID) throws -> GitActionResult { GitDiff.fetch(in: gitCwd) }
+    func gitPull(workspace: WorkspaceID) throws -> GitActionResult { GitDiff.pull(in: gitCwd) }
     func gitPullRequestURL(workspace: WorkspaceID) throws -> String? { GitDiff.pullRequestURL(in: gitCwd) }
     func gitDeliveryPlan(workspace: WorkspaceID, copy: GitDeliveryCopy?) throws -> GitDeliveryPlan { GitDiff.deliveryPlan(in: gitCwd, copy: copy) }
     func gitDeliver(workspace: WorkspaceID, copy: GitDeliveryCopy?) throws -> GitDeliveryResult { GitDiff.deliver(in: gitCwd, copy: copy, environment: nil) }
@@ -1971,6 +1980,47 @@ final class DispatcherTests: XCTestCase {
 
         let missing = await d.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(3), method: "agent.thread.rename", params: ["thread_id": tidParam, "title": .string("x")]))
         XCTAssertNotNil(missing.error, "renaming a deleted thread must fail loudly, not silently succeed")
+    }
+
+    /// WHY: the iOS file picker and SSH browser show New Folder, Rename, Delete,
+    /// Fetch and Pull, and the host advertises them in system.capabilities. Before
+    /// these cases existed every one of them answered -32601 Method not found.
+    @MainActor
+    func test_iOSFolderGitAndSSHFileControls_reachTheHost() async throws {
+        let dir = NSTemporaryDirectory() + "rc2-disp-mkdir-" + UUID().uuidString
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let router = FakeRouter()
+        let d = JSONRPCDispatcher(router: router)
+
+        let created = await d.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(1), method: "fs.mkdir", params: ["path": .string(dir + "/New Folder")]))
+        XCTAssertNil(created.error)
+        var isDir: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir + "/New Folder", isDirectory: &isDir) && isDir.boolValue)
+
+        let again = await d.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(2), method: "fs.mkdir", params: ["path": .string(dir + "/New Folder")]))
+        XCTAssertEqual(again.error?.message, "A file or folder with that name already exists.")
+        let orphan = await d.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(3), method: "fs.mkdir", params: ["path": .string(dir + "/missing/child")]))
+        XCTAssertEqual(orphan.error?.message, "The parent folder does not exist.", "a typo must not create a whole chain")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir + "/missing"))
+        let relative = await d.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(4), method: "fs.mkdir", params: ["path": .string("relative")]))
+        XCTAssertEqual(relative.error?.message, "Folder path must be absolute.")
+
+        let sid = JSONValue.string(UUID().uuidString)
+        for (index, (method, params)) in [
+            ("ssh.files.remote.mkdir", ["surface_id": sid, "path": .string("/r/new")]),
+            ("ssh.files.remote.rename", ["surface_id": sid, "from_path": .string("/r/new"), "to_path": .string("/r/old")]),
+            ("ssh.files.remote.delete", ["surface_id": sid, "path": .string("/r/old")]),
+        ].enumerated() {
+            let response = await d.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(10 + index), method: method, params: params))
+            XCTAssertNil(response.error, method)
+        }
+        XCTAssertEqual(router.sshAsyncCalls, ["ssh.files.remote.mkdir", "ssh.files.remote.rename", "ssh.files.remote.delete"])
+
+        router.gitCwd = dir
+        let fetch = await d.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(20), method: "git.fetch", params: ["workspace_id": .string(UUID().uuidString)]))
+        XCTAssertNotEqual(fetch.error?.code, JSONRPCError.methodNotFound.code)
+        XCTAssertEqual(fetch.result?.objectValue?["ok"], .bool(false), "a non-repository answers a readable git result")
     }
 
     @MainActor

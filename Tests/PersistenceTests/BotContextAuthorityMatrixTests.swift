@@ -245,7 +245,7 @@ final class BotContextRoutinePeerReplayTests: XCTestCase {
         let host = "host"
         let bot = try XCTUnwrap(try authority.dispatch(method: "bot.create", params: ["client_request_id": "c", "name": "Routine"])["bot_id"] as? String)
         _ = try authority.dispatch(method: "bot.routing.set", params: ["client_request_id": "r", "bot_id": bot, "host_id": host, "provider": "distill", "provider_instance_id": "distill", "model": "m", "routing_mode": "explicit"])
-        let created = try authority.dispatch(method: "bot.routine.create", params: ["client_request_id": "rc", "bot_id": bot, "name": "R", "prompt": "p", "schedule_spec_json": "{}"])
+        let created = try authority.dispatch(method: "bot.routine.create", params: ["client_request_id": "rc", "bot_id": bot, "name": "R", "prompt": "p", "schedule_spec_json": BotScheduleSpec().encodedJSON()])
         let routine = try XCTUnwrap((created["readback"] as? [String: Any])?["routine_id"] as? String)
         let run: [String: Any] = ["client_request_id": "run-1", "bot_id": bot, "routine_id": routine, "host_id": host]
         _ = try authority.dispatch(method: "bot.routine.run", params: run)

@@ -432,6 +432,21 @@ private final class Phase4ReceiptFakeRouter: FakeRouter, CommandReceiptStateRout
         return GitActionResult(ok: true, message: "pushed")
     }
 
+    override func gitFetch(workspace: WorkspaceID) throws -> GitActionResult {
+        synchronousBatchEffectCallCount += 1
+        return GitActionResult(ok: true, message: "fetched")
+    }
+
+    override func gitPull(workspace: WorkspaceID) throws -> GitActionResult {
+        synchronousBatchEffectCallCount += 1
+        return GitActionResult(ok: true, message: "pulled")
+    }
+
+    override func sshFilesRemoteManage(surface: SurfaceID, operation: SSHRemoteFileOperation) async throws -> JSONValue {
+        synchronousBatchEffectCallCount += 1
+        return .object(["ok": .bool(true)])
+    }
+
     override func gitDeliver(workspace: WorkspaceID, copy: GitDeliveryCopy?) throws -> GitDeliveryResult {
         synchronousBatchEffectCallCount += 1
         let plan = GitDeliveryPlan(
@@ -1278,7 +1293,9 @@ final class Phase4MutationReceiptContractTests: XCTestCase {
         // + agent.thread.loop.stop and host.browser.screenshot,
         // + scheduled_task.save/delete/enable/run (Schedule Tasks on iPhone),
         // + bot.vm.save and bot.execution.set (shared virtual machines).
-        XCTAssertEqual(canonical.count, 192)
+        // + fs.mkdir, git.fetch/pull and ssh.files.remote.mkdir/rename/delete (iOS controls),
+        // + bot.notice.reply.
+        XCTAssertEqual(canonical.count, 200)
         XCTAssertEqual(JSONRPCDispatcher.hostMutationMethods, canonical,
                        "every and only canonical host mutators must enter the Phase 4 gate")
     }
@@ -1351,7 +1368,8 @@ final class Phase4MutationReceiptContractTests: XCTestCase {
             bootEpoch: 1
         )
 
-        for method in try canonicalMutationMethods().sorted() {
+        // host.* methods are Unix-only managed-provider tools; HTTP answers -32601 for them.
+        for method in try canonicalMutationMethods().sorted() where !method.hasPrefix("host.") {
             let response = await dispatcher.dispatch(JSONRPCRequest(
                 jsonrpc: "2.0",
                 id: .string(method),
@@ -1402,7 +1420,8 @@ final class Phase4MutationReceiptContractTests: XCTestCase {
             }
             XCTAssertEqual(probes.isEmpty, parameterless.contains(method), method)
             covered.insert(method)
-            for (index, probe) in probes.enumerated() {
+            // host.* is Unix-only, so its HTTP probes cannot reach preflight.
+            for (index, probe) in probes.enumerated() where !method.hasPrefix("host.") {
                 probeCount += 1
                 var params = probe.params
                 // Request ids admit only [A-Za-z0-9_-]; dotted method names would
@@ -2571,12 +2590,17 @@ final class Phase4MutationReceiptContractTests: XCTestCase {
             ("git.create_branch", ["workspace_id": workspaceID, "name": "phase4"], ["git.branch_created"]),
             ("git.deliver", ["workspace_id": workspaceID], ["git.deliver"]),
             ("git.push", ["workspace_id": workspaceID], ["git.push"]),
+            ("git.fetch", ["workspace_id": workspaceID], ["git.fetch"]),
+            ("git.pull", ["workspace_id": workspaceID], ["git.pull"]),
             ("ssh.connect", ["workspace_id": workspaceID, "destination": "host.example"], ["surface.created", "ssh.session.updated"]),
             ("ssh.disconnect", ["surface_id": surfaceID], ["ssh.session.updated"]),
             ("ssh.host.upsert", ["workspace_id": workspaceID, "id": hostID, "destination": "host.example", "password": "secret-ssh-password"], ["ssh.host.updated"]),
             ("ssh.host.delete", ["workspace_id": workspaceID, "id": hostID], ["ssh.host.deleted"]),
             ("ssh.transfer.upload", ["surface_id": surfaceID, "local_path": "/tmp/local", "remote_path": "/remote"], ["ssh.transfer.started", "ssh.transfer.finished"]),
             ("ssh.transfer.download", ["surface_id": surfaceID, "remote_path": "/remote", "local_path": "/tmp/local"], ["ssh.transfer.started", "ssh.transfer.finished"]),
+            ("ssh.files.remote.mkdir", ["surface_id": surfaceID, "path": "/remote/new"], ["ssh.files.remote.changed"]),
+            ("ssh.files.remote.rename", ["surface_id": surfaceID, "from_path": "/remote/a", "to_path": "/remote/b"], ["ssh.files.remote.changed"]),
+            ("ssh.files.remote.delete", ["surface_id": surfaceID, "path": "/remote/b"], ["ssh.files.remote.changed"]),
             ("project.run_script", ["workspace_id": workspaceID, "name": "test"], ["surface.created", "project.script_started"]),
         ]
 
@@ -3779,7 +3803,7 @@ final class Phase4MutationReceiptContractTests: XCTestCase {
         let manifestKinds = Set(mutations.flatMap { $0["eventKinds"] as? [String] ?? [] })
         let treatyKinds = Set(RemoteCodeEventKind.allCases.map(\.rawValue))
 
-        XCTAssertEqual(treatyKinds.count, 153)
+        XCTAssertEqual(treatyKinds.count, 157)
         XCTAssertTrue(
             manifestKinds.isSubset(of: treatyKinds),
             "Treaty is missing manifest kinds: \(manifestKinds.subtracting(treatyKinds).sorted())"

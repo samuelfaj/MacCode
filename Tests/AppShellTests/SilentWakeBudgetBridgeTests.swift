@@ -398,13 +398,13 @@ final class SilentWakeBudgetBridgeTests: XCTestCase {
         XCTAssertFalse(foreignFirst.silent, "another phone's card does not hide this phone's banner")
         XCTAssertEqual(foreignFirst.title, "Thread finished")
 
-        // Today's behaviour kept: a legacy target without a device id cannot
-        // be matched to a row, so any fresh card still replaces the banner.
+        // A fresh card no longer hides the banner either: finishes keep their
+        // alert until a durable receipt proves the card covered the same run.
         let legacy = try makeFixture(deviceId: nil)
         try legacy.targetStore.upsert(Self.activityRow(deviceId: "device-1"))
         await legacy.makeBridge().deliverThreadOutcomeRemote(content, phase: .completed)
         XCTAssertEqual(legacy.api.requests.count, 1)
-        XCTAssertEqual(legacy.api.requests.first?.silent, true)
+        XCTAssertEqual(legacy.api.requests.first?.silent, false)
     }
 
     // MARK: - Helpers

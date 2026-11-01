@@ -81,6 +81,7 @@
     {"method": "agent.thread.delete_many", "family": "agent-thread", "risk": "destructive", "eventKinds": ["agent.thread.deleted_many"], "readbackMethods": ["agent.thread.list"]},
     {"method": "agent.thread.rename", "family": "agent-thread", "risk": "lowMutation", "eventKinds": ["agent.thread.renamed"], "readbackMethods": ["agent.thread.read"]},
     {"method": "agent.thread.loop.stop", "family": "agent-thread", "risk": "lowMutation", "eventKinds": ["agent.thread.loops.updated"], "readbackMethods": ["agent.thread.list"]},
+    {"method": "host.browser.screenshot", "family": "agent-thread", "risk": "lowMutation", "eventKinds": ["agent.message.appended"], "readbackMethods": ["agent.message.list"]},
     {"method": "agent.thread.set_pinned", "family": "agent-thread", "risk": "lowMutation", "eventKinds": ["agent.thread.updated", "agent.thread.reordered"], "readbackMethods": ["agent.thread.read", "agent.thread.list"]},
     {"method": "agent.thread.set_color", "family": "agent-thread", "risk": "lowMutation", "eventKinds": ["agent.thread.updated"], "readbackMethods": ["agent.thread.read"]},
     {"method": "agent.thread.reorder", "family": "agent-thread", "risk": "lowMutation", "eventKinds": ["agent.thread.reordered"], "readbackMethods": ["agent.thread.list"]},
@@ -122,6 +123,7 @@
     {"method": "distill.accounts.usage", "family": "agent-execution", "risk": "lowMutation", "eventKinds": [], "readbackMethods": ["distill.accounts.list"]},
     {"method": "distill.accounts.routing.set", "family": "agent-execution", "risk": "lowMutation", "eventKinds": [], "readbackMethods": ["distill.accounts.list", "distill.accounts.routing.get"]},
 
+    {"method": "fs.mkdir", "family": "files", "risk": "lowMutation", "eventKinds": ["fs.changed"], "readbackMethods": ["fs.list"]},
     {"method": "fs.workspace.create_file", "family": "files", "risk": "lowMutation", "eventKinds": ["fs.workspace.changed"], "readbackMethods": ["fs.workspace.list", "fs.workspace.read"]},
     {"method": "fs.workspace.delete", "family": "files", "risk": "destructive", "eventKinds": ["fs.workspace.changed"], "readbackMethods": ["fs.workspace.list"]},
     {"method": "fs.workspace.rename", "family": "files", "risk": "lowMutation", "eventKinds": ["fs.workspace.changed"], "readbackMethods": ["fs.workspace.list"]},
@@ -139,6 +141,8 @@
     {"method": "git.create_branch", "family": "git", "risk": "destructive", "eventKinds": ["git.branch_created"], "readbackMethods": ["git.branches"]},
     {"method": "git.deliver", "family": "git", "risk": "destructive", "eventKinds": ["git.deliver"], "readbackMethods": ["git.status", "git.log"]},
     {"method": "git.push", "family": "git", "risk": "destructive", "eventKinds": ["git.push"], "readbackMethods": ["git.status", "git.log"]},
+    {"method": "git.fetch", "family": "git", "risk": "lowMutation", "eventKinds": ["git.fetch"], "readbackMethods": ["git.status", "git.branches"]},
+    {"method": "git.pull", "family": "git", "risk": "destructive", "eventKinds": ["git.pull"], "readbackMethods": ["git.status", "git.branches", "git.log"]},
 
     {"method": "browser.navigate", "family": "browser", "risk": "lowMutation", "eventKinds": ["surface.browser"], "readbackMethods": ["browser.url.get"]},
     {"method": "browser.back", "family": "browser", "risk": "lowMutation", "eventKinds": ["surface.browser"], "readbackMethods": ["browser.url.get"]},
@@ -163,6 +167,9 @@
     {"method": "ssh.host.delete", "family": "ssh", "risk": "destructive", "eventKinds": ["ssh.host.deleted"], "readbackMethods": ["ssh.host.list"]},
     {"method": "ssh.transfer.upload", "family": "ssh", "risk": "destructive", "eventKinds": ["ssh.transfer.started", "ssh.transfer.finished"], "readbackMethods": ["ssh.files.remote.list"]},
     {"method": "ssh.transfer.download", "family": "ssh", "risk": "destructive", "eventKinds": ["ssh.transfer.started", "ssh.transfer.finished"], "readbackMethods": ["ssh.files.local.list"]},
+    {"method": "ssh.files.remote.mkdir", "family": "ssh", "risk": "lowMutation", "eventKinds": ["ssh.files.remote.changed"], "readbackMethods": ["ssh.files.remote.list"]},
+    {"method": "ssh.files.remote.rename", "family": "ssh", "risk": "lowMutation", "eventKinds": ["ssh.files.remote.changed"], "readbackMethods": ["ssh.files.remote.list"]},
+    {"method": "ssh.files.remote.delete", "family": "ssh", "risk": "destructive", "eventKinds": ["ssh.files.remote.changed"], "readbackMethods": ["ssh.files.remote.list"]},
 
     {"method": "notification.create", "family": "notification", "risk": "lowMutation", "eventKinds": ["notification.created"], "readbackMethods": ["notification.list"]},
     {"method": "notification.dismiss", "family": "notification", "risk": "lowMutation", "eventKinds": ["notification.dismissed"], "readbackMethods": ["notification.list"]},
@@ -223,6 +230,7 @@
     {"method": "bot.factory_reset", "family": "bot-remote", "risk": "lowMutation", "eventKinds": ["bot.updated"], "readbackMethods": ["bot.list"]},
     {"method": "bot.notice.act", "family": "bot-remote", "risk": "lowMutation", "eventKinds": ["bot.updated", "agent.message.appended"], "readbackMethods": ["bot.list"]},
     {"method": "bot.notice.read", "family": "bot-remote", "risk": "lowMutation", "eventKinds": ["bot.updated"], "readbackMethods": ["bot.list"]},
+    {"method": "bot.notice.reply", "family": "bot-remote", "risk": "lowMutation", "eventKinds": ["bot.updated", "agent.message.appended"], "readbackMethods": ["bot.list"]},
     {"method": "bot.notice.clear", "family": "bot-remote", "risk": "lowMutation", "eventKinds": ["bot.updated", "agent.messages.removed"], "readbackMethods": ["bot.list"]},
     {"method": "bot.desktop.set", "family": "bot-remote", "risk": "lowMutation", "eventKinds": ["bot.updated"], "readbackMethods": ["bot.list"]},
     {"method": "bot.vm.save", "family": "bot-remote", "risk": "lowMutation", "eventKinds": ["bot.updated"], "readbackMethods": ["bot.vm.list"]},

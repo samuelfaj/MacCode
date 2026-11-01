@@ -12289,13 +12289,18 @@ public final class BotsViewModel: ObservableObject {
         bot: BotDefinition,
         routing: BotDeskRouting
     ) throws {
-        let destination = try routing.executionDestination ?? botStore.executionDestination(botID: bot.id)
+        var destination = try routing.executionDestination ?? botStore.executionDestination(botID: bot.id)
+        let guestEligible = routing.provider == .distill && routing.runAsUser.uid == getuid()
+        if destination.target == .vm, !guestEligible {
+            // Only an explicit VM choice is refused; the bot's default VM falls back to the Mac.
+            guard routing.executionDestination == nil else {
+                throw BotStoreError.invalidInput("VM conversations use Distill with your current Mac account.")
+            }
+            destination = .mac
+        }
         try botStore.validateExecutionDestination(destination, botID: bot.id)
         try botStore.pinExecutionDestination(threadID: thread.id, botID: bot.id, destination: destination)
         guard destination.target == .vm else { return }
-        guard routing.provider == .distill, routing.runAsUser.uid == getuid() else {
-            throw BotStoreError.invalidInput("VM conversations use Distill with your current Mac account.")
-        }
         let lockedAt = Date()
         // Marker first: on its own (no `.vm` target yet) it routes nothing.
         try context.threadRepo.setGuestRuntime(id: thread.id, BotGuestRuntime.distillV1)

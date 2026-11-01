@@ -195,9 +195,19 @@ final class BotSendReceiptRunOutcomeTests: XCTestCase {
             "bot_id": send.botID,
             "name": "Replace",
             "prompt": "Replace the slot",
-            "schedule_spec_json": "{}",
+            "schedule_spec_json": BotScheduleSpec().encodedJSON(),
         ])
         let routineID = try XCTUnwrap((routine["readback"] as? [String: Any])?["routine_id"] as? String)
+        // The routine runs through the app runtime; this stands in for it.
+        authority.onRoutineSend = { [store] routine in
+            let conversation = BotConversation(botID: routine.definition.botID, title: routine.definition.name)
+            try store!.upsertConversation(conversation)
+            return [
+                "bot_id": routine.definition.botID.value.uuidString.lowercased(),
+                "conversation_id": conversation.id.value.uuidString.lowercased(),
+                "run_id": UUID().uuidString.lowercased(),
+            ]
+        }
         _ = try authority.dispatch(method: "bot.routine.run", params: [
             "client_request_id": "outcome-slot-routine-run",
             "bot_id": send.botID,

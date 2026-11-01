@@ -140,6 +140,7 @@ public protocol CommandRouting: AnyObject {
     func sshFilesLocalList(path: String?) throws -> JSONValue
     func sshFilesRemoteList(surface: SurfaceID, path: String?) throws -> JSONValue
     func sshFilesRemoteListAsync(surface: SurfaceID, path: String?) async throws -> JSONValue
+    func sshFilesRemoteManage(surface: SurfaceID, operation: SSHRemoteFileOperation) async throws -> JSONValue
     // agent
     func openAgentApp(workspace: WorkspaceID) throws -> SurfaceDescriptor
     func activityList(params: [String: JSONValue]) throws -> JSONValue
@@ -318,6 +319,8 @@ public protocol CommandRouting: AnyObject {
     func gitLog(workspace: WorkspaceID, limit: Int) throws -> [GitCommit]
     func gitDiff(workspace: WorkspaceID, path: String?, ignoreWhitespace: Bool) throws -> String
     func gitPush(workspace: WorkspaceID) throws -> GitActionResult
+    func gitFetch(workspace: WorkspaceID) throws -> GitActionResult
+    func gitPull(workspace: WorkspaceID) throws -> GitActionResult
     func ensureGitSurface(workspace: WorkspaceID) throws -> SurfaceDescriptor
     func gitPullRequestURL(workspace: WorkspaceID) throws -> String?
     func gitDeliveryPlan(workspace: WorkspaceID, copy: GitDeliveryCopy?) throws -> GitDeliveryPlan
@@ -422,6 +425,28 @@ public protocol CommandRouting: AnyObject {
     func getAgentAccountUsage() async throws -> JSONValue
 }
 
+/// One remote file change requested from iOS for an SSH surface.
+public enum SSHRemoteFileOperation: Sendable, Equatable {
+    case mkdir(path: String)
+    case rename(from: String, to: String)
+    case delete(path: String)
+
+    public var method: String {
+        switch self {
+        case .mkdir: return "ssh.files.remote.mkdir"
+        case .rename: return "ssh.files.remote.rename"
+        case .delete: return "ssh.files.remote.delete"
+        }
+    }
+
+    public var paths: [String] {
+        switch self {
+        case .mkdir(let path), .delete(let path): return [path]
+        case .rename(let from, let to): return [from, to]
+        }
+    }
+}
+
 public extension CommandRouting {
     func filesAIComplete(sessionID: String, draftRevision: Int, caretUTF16: Int) async throws -> JSONValue {
         throw JSONRPCError.notSupported("files.ai.complete")
@@ -484,6 +509,11 @@ public extension CommandRouting {
     func sshFilesRemoteListAsync(surface: SurfaceID, path: String?) async throws -> JSONValue {
         try sshFilesRemoteList(surface: surface, path: path)
     }
+    func sshFilesRemoteManage(surface: SurfaceID, operation: SSHRemoteFileOperation) async throws -> JSONValue {
+        throw JSONRPCError.notSupported(operation.method)
+    }
+    func gitFetch(workspace: WorkspaceID) throws -> GitActionResult { throw JSONRPCError.notSupported("git.fetch") }
+    func gitPull(workspace: WorkspaceID) throws -> GitActionResult { throw JSONRPCError.notSupported("git.pull") }
 
     /// Test/fake hosts may omit the account usage digest entirely.
     func tokenSaverDigest() -> JSONValue? { nil }
@@ -1000,6 +1030,12 @@ public final class JSONRPCDispatcher {
         "git.create_branch",
         "git.deliver",
         "git.push",
+        "git.fetch",
+        "git.pull",
+        "fs.mkdir",
+        "ssh.files.remote.mkdir",
+        "ssh.files.remote.rename",
+        "ssh.files.remote.delete",
         "ssh.connect",
         "ssh.disconnect",
         "ssh.host.upsert",
@@ -3209,6 +3245,28 @@ public final class JSONRPCDispatcher {
                 return .init(id: id, result: result)
             case "ssh.files.local.list":
                 return .init(id: id, result: try router.sshFilesLocalList(path: params["path"]?.stringValue))
+            case "ssh.files.remote.mkdir", "ssh.files.remote.rename", "ssh.files.remote.delete":
+                guard let sid = params["surface_id"]?.stringValue.flatMap(UUID.init).map(SurfaceID.init) ?? params["id"]?.stringValue.flatMap(UUID.init).map(SurfaceID.init) else { throw JSONRPCError.invalidParams }
+                let operation: SSHRemoteFileOperation
+                switch req.method {
+                case "ssh.files.remote.mkdir":
+                    guard let path = params["path"]?.stringValue, !path.isEmpty else { throw JSONRPCError.invalidParams }
+                    operation = .mkdir(path: path)
+                case "ssh.files.remote.rename":
+                    guard let from = params["from_path"]?.stringValue, !from.isEmpty,
+                          let to = params["to_path"]?.stringValue, !to.isEmpty else { throw JSONRPCError.invalidParams }
+                    operation = .rename(from: from, to: to)
+                default:
+                    guard let path = params["path"]?.stringValue, !path.isEmpty else { throw JSONRPCError.invalidParams }
+                    operation = .delete(path: path)
+                }
+                let result = try await router.sshFilesRemoteManage(surface: sid, operation: operation)
+                EventBus.shared.publish(kind: .sshFilesRemoteChanged, payload: .object([
+                    "surface_id": .string(sid.value.uuidString),
+                    "action": .string(String(req.method.dropFirst("ssh.files.remote.".count))),
+                    "paths": .array(operation.paths.map { .string($0) })
+                ]))
+                return .init(id: id, result: result)
             case "ssh.files.remote.list":
                 guard let sid = params["surface_id"]?.stringValue.flatMap(UUID.init).map(SurfaceID.init) ?? params["id"]?.stringValue.flatMap(UUID.init).map(SurfaceID.init) else { throw JSONRPCError.invalidParams }
                 return .init(id: id, result: try await router.sshFilesRemoteListAsync(surface: sid, path: params["path"]?.stringValue))
@@ -3217,6 +3275,14 @@ public final class JSONRPCDispatcher {
             case "fs.list":
                 let raw = params["path"]?.stringValue
                 return .init(id: id, result: try fsList(raw))
+            case "fs.mkdir":
+                guard let raw = params["path"]?.stringValue, !raw.isEmpty else { throw JSONRPCError.invalidParams }
+                let created = try fsMkdir(raw)
+                EventBus.shared.publish(kind: .fsChanged, payload: .object([
+                    "action": .string("mkdir"),
+                    "paths": .array([.string(created)])
+                ]))
+                return .init(id: id, result: .object(["path": .string(created)]))
             case "fs.workspace.list":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init) else { throw JSONRPCError.invalidParams }
                 return .init(id: id, result: try router.fsWorkspaceList(workspace: wid, path: params["path"]?.stringValue))
@@ -4980,6 +5046,16 @@ public final class JSONRPCDispatcher {
                 let result = encode(r)
                 recordCommandReceipt(method: req.method, clientRequestId: receiptKey, result: result)
                 return .init(id: id, result: result)
+            case "git.fetch", "git.pull":
+                guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init) else { throw JSONRPCError.invalidParams }
+                let r = req.method == "git.pull"
+                    ? try router.gitPull(workspace: wid)
+                    : try router.gitFetch(workspace: wid)
+                EventBus.shared.publish(kind: req.method == "git.pull" ? .gitPull : .gitFetch, payload: .object([
+                    "workspace_id": .string(wid.value.uuidString),
+                    "ok": .bool(r.ok)
+                ]))
+                return .init(id: id, result: encode(r))
             case "git.pull_request_url":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init) else { throw JSONRPCError.invalidParams }
                 let url = try router.gitPullRequestURL(workspace: wid)
@@ -5743,6 +5819,29 @@ public final class JSONRPCDispatcher {
     /// List one directory for the iOS workspace picker. Directories
     /// sort before files, then case-insensitive by name (parity with
     /// the remotecode.io desktop `listPath`). `parent` is null at "/".
+    /// Creates one folder for the iOS file picker. Absolute or `~` paths only; the
+    /// parent must already exist so a typo cannot create a whole directory chain.
+    private func fsMkdir(_ raw: String) throws -> String {
+        let path = ((raw as NSString).expandingTildeInPath as NSString).standardizingPath
+        guard path.hasPrefix("/"), path != "/" else {
+            throw JSONRPCError(code: -32602, message: "Folder path must be absolute.", data: .string(raw))
+        }
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: (path as NSString).deletingLastPathComponent, isDirectory: &isDir), isDir.boolValue else {
+            throw JSONRPCError(code: -32602, message: "The parent folder does not exist.", data: .string(path))
+        }
+        guard !fm.fileExists(atPath: path) else {
+            throw JSONRPCError(code: -32602, message: "A file or folder with that name already exists.", data: .string(path))
+        }
+        do {
+            try fm.createDirectory(atPath: path, withIntermediateDirectories: false)
+        } catch {
+            throw JSONRPCError(code: -32020, message: "Could not create folder: \(error.localizedDescription)", data: .string(path))
+        }
+        return path
+    }
+
     private func fsList(_ raw: String?) throws -> JSONValue {
         let fm = FileManager.default
         let input = (raw?.isEmpty == false) ? raw! : NSHomeDirectory()

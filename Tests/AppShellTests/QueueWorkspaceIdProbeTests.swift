@@ -112,7 +112,12 @@ final class QueueWorkspaceIdProbeTests: XCTestCase {
 
         XCTAssertEqual(cancelled.id, queued.id)
         XCTAssertNil(try ctx.queuedMessageRepo.get(id: queued.id))
-        XCTAssertThrowsError(try router.cancelAgentQueuedMessage(id: queued.id), "second cancel finds nothing to remove")
+        XCTAssertThrowsError(try router.cancelAgentQueuedMessage(id: queued.id), "second cancel finds nothing to remove") { error in
+            // iOS maps a bare "Invalid params" to a version-mismatch hint; the user must see the real cause.
+            let rejection = (error as? DefiniteMutationRejection)?.underlying as? JSONRPCError
+            XCTAssertEqual(rejection?.code, -32602)
+            XCTAssertEqual(rejection?.message, "This message already left the queue. Refresh the queue and try again.")
+        }
     }
 
     func test_queueChrome_sourceUsesWorkspaceIdProbe() throws {
