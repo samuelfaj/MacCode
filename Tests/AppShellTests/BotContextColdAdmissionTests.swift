@@ -40,12 +40,14 @@ final class BotContextColdAdmissionTests: XCTestCase {
             vm.desktopKindOverrideForTesting = .dockerDesktop
             let before = try context.botStore.listConversations(botID: bot.id)
             XCTAssertEqual(vm.guestLaunchState(for: bot.id), .idle)
+            // Since 2026-10-23 a VM send is admitted here and its async preflight
+            // checks Docker, so only the revoked pin is refused at this point.
+            guard revoked else {
+                XCTAssertNoThrow(try vm.enqueueHostMessage(botID: bot.id, text: "owned queued intent", conversationID: conversation.id))
+                continue
+            }
             XCTAssertThrowsError(try vm.enqueueHostMessage(botID: bot.id, text: "owned queued intent", conversationID: conversation.id)) { error in
-                if revoked {
-                    XCTAssertTrue(error.localizedDescription.contains("no longer authorized"), "\(error)")
-                } else {
-                    XCTAssertFalse(error.localizedDescription.contains("Contextual execution"), "\(error)")
-                }
+                XCTAssertTrue(error.localizedDescription.contains("no longer authorized"), "\(error)")
             }
             XCTAssertEqual(try context.botStore.listConversations(botID: bot.id), before)
             XCTAssertTrue(try context.botStore.listQueuedFollowUps(botID: bot.id).isEmpty)

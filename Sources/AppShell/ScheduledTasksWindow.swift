@@ -1540,7 +1540,8 @@ private struct ScheduledTaskEditorView: View {
                         ScheduleEditorTextField(
                             placeholder: "Title, e.g. Daily dependency scan",
                             text: $draft.title,
-                            identifier: "scheduledTasks.editor.title"
+                            identifier: "scheduledTasks.editor.title",
+                            label: "Title"
                         )
                         ScheduleEditorPromptBox(
                             placeholder: "Describe what the agent should do",

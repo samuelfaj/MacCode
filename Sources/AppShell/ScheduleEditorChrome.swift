@@ -192,6 +192,8 @@ struct ScheduleEditorTextField: View {
     let placeholder: String
     @Binding var text: String
     let identifier: String
+    /// VoiceOver name; the placeholder is hint copy, not the control name.
+    var label = "Name"
 
     var body: some View {
         TextField(placeholder, text: $text)
@@ -207,6 +209,7 @@ struct ScheduleEditorTextField: View {
                     .strokeBorder(DS.Palette.line, lineWidth: DS.Border.hairline)
             )
             .accessibilityIdentifier(identifier)
+            .accessibilityLabel(label)
     }
 }
 

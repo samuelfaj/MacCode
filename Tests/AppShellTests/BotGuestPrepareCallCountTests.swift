@@ -397,7 +397,8 @@ final class BotGuestPrepareCallCountTests: XCTestCase {
         XCTAssertEqual(verbs(guest), [
             "info", "image inspect", "inspect",
             "image inspect", "inspect", "inspect", "network create", "network inspect",
-            "image inspect", "inspect", "inspect", "start", "screenshot", "inspect",
+            // `update` sets the always-on restart policy on older containers (2026-10-19).
+            "image inspect", "inspect", "inspect", "update", "start", "screenshot", "inspect",
         ], "a stopped container is started and screenshotted, not recreated")
         guest.daemon.forgetLaunches()
         try prepare(vm, guest)

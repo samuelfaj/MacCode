@@ -4097,6 +4097,7 @@ public final class BotsViewModel: ObservableObject {
     private var deskRoutingByConversation: [BotConversationID: BotDeskRouting] = [:]
     private var pendingDeskRoutingWrites: [BotConversationID: BotID?] = [:]
     private var deskRoutingWriteTask: Task<Void, Never>?
+    var deskRoutingWritesPendingForTesting: Bool { deskRoutingWriteTask != nil || !pendingDeskRoutingWrites.isEmpty }
     private var peerHandoffs: [UUID: PersistedBotPeerHandoff] = [:] {
         didSet { refreshActiveBotCount() }
     }
@@ -6126,8 +6127,9 @@ public final class BotsViewModel: ObservableObject {
             throw BotPublishError.handleEmpty
         }
         let publishedDesktop = selectedRevision?.desktopKind
-        if studioDraft.executionDestination == nil, studioDraft.desktopKind == .dockerDesktop,
-           publishedDesktop != .dockerDesktop,
+        let movesToVM = studioDraft.executionDestination.map { $0.target == .vm }
+            ?? (studioDraft.desktopKind == .dockerDesktop)
+        if movesToVM, publishedDesktop != .dockerDesktop,
            !BotDesktopKind.dockerDesktop.isSelectable(
             flags: settingsStore.load().botControlPlaneFlags,
             guestReady: dockerGuestReady
@@ -11330,8 +11332,16 @@ public final class BotsViewModel: ObservableObject {
         // the banner); "Start VM" starts the desktop through the desk's own
         // launch, so the desktop pane and the send admission see that VM.
         router.configureBotVMHooks(on: vm)
-        vm.botVMPreflight = { [weak router] botID, workspace, threadID in
-            guard let router else { return "Bot unavailable." }
+        vm.botVMPreflight = { [weak self, weak router] botID, workspace, threadID in
+            guard let self, let router else { return "Bot unavailable." }
+            // A workspace-less desk thread on the bot's own VM asks Docker and
+            // never provisions inline; shared VMs keep the router's checks.
+            let destination = try? threadID.flatMap { try self.botStore.threadExecutionDestination($0) }
+                ?? self.botStore.executionDestination(botID: botID)
+            if workspace == nil, destination?.virtualMachineID == nil,
+               let threadID, (try? self.botStore.conversationContextPin(linkedTo: threadID)) == nil {
+                return await self.deskGuestDesktopPreflight(botID)
+            }
             return await router.botVMPreflight(botID, workspace: workspace, threadID: threadID)
         }
         vm.botVMProvision = { [weak self] botID in
