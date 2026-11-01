@@ -386,7 +386,6 @@ public final class DiffPanelViewModel: ObservableObject {
             self.summary = GitSummary(isGitRepo: false, branch: nil, dirty: false,
                                       files: [], totalAdditions: 0, totalDeletions: 0)
             self.branches = GitBranches(current: nil, locals: [])
-            self.isLoading = true
         } else {
             let loaded = gitClient.summary(in: cwd)
             self.summary = loaded ?? GitSummary(isGitRepo: false, branch: nil, dirty: false,
@@ -403,12 +402,13 @@ public final class DiffPanelViewModel: ObservableObject {
             let cwdCopy = cwd
             let gc = gitClient
             let generation = nextSummaryGeneration()
+            let loading = beginLoading()
             Task { [weak self] in
                 let (s, b) = await DiffPanelViewModel.performLoad(cwd: cwdCopy, gitClient: gc)
                 guard let self else { return }
+                self.applyBranches(b, generation: generation)
                 self.applySummary(s, generation: generation)
-                self.branches = b
-                self.isLoading = false
+                self.finishLoading(loading)
             }
         }
     }
@@ -553,8 +553,36 @@ public final class DiffPanelViewModel: ObservableObject {
     /// Summary reads overlap (FSEvents, Refresh, git actions). Each takes a
     /// generation; a read that lands after a newer one already applied is
     /// dropped, so a slow or timed-out read never covers fresher state.
+    private var loadingRequests: Set<UUID> = []
+
+    private func beginLoading() -> UUID {
+        let owner = UUID()
+        loadingRequests.insert(owner)
+        isLoading = true
+        return owner
+    }
+
+    private func finishLoading(_ owner: UUID) {
+        loadingRequests.remove(owner)
+        isLoading = !loadingRequests.isEmpty
+    }
+
     private var requestedSummaryGeneration = 0
     private var appliedSummaryGeneration = 0
+    private var appliedBranchGeneration = 0
+    private var appliedHistoryGeneration = 0
+
+    private func applyBranches(_ value: GitBranches, generation: Int) {
+        guard generation > appliedBranchGeneration else { return }
+        appliedBranchGeneration = generation
+        branches = value
+    }
+
+    private func applyHistory(_ value: [GitCommit], generation: Int) {
+        guard generation > appliedHistoryGeneration else { return }
+        appliedHistoryGeneration = generation
+        commits = value
+    }
 
     private func nextSummaryGeneration() -> Int {
         requestedSummaryGeneration += 1
@@ -586,7 +614,7 @@ public final class DiffPanelViewModel: ObservableObject {
         guard !isLoading else { return }
         let cwd = self.cwd
         let gc = gitClient
-        isLoading = true
+        let loading = beginLoading()
         let generation = nextSummaryGeneration()
         DispatchQueue.global().async { [weak self] in
             let s = gc.summary(in: cwd)
@@ -594,11 +622,11 @@ public final class DiffPanelViewModel: ObservableObject {
             let log = gc.log(in: cwd, limit: 100)
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.applySummary(s, generation: generation)
-                self.branches = b
-                self.commits = log
+                self.applyBranches(b, generation: generation)
+                self.applyHistory(log, generation: generation)
                 self.historyLoaded = true
-                self.isLoading = false
+                self.applySummary(s, generation: generation)
+                self.finishLoading(loading)
             }
         }
     }
@@ -606,9 +634,10 @@ public final class DiffPanelViewModel: ObservableObject {
     public func loadBranches() {
         let cwd = self.cwd
         let gc = gitClient
+        let generation = nextSummaryGeneration()
         DispatchQueue.global().async { [weak self] in
             let b = gc.branches(in: cwd)
-            DispatchQueue.main.async { self?.branches = b }
+            DispatchQueue.main.async { self?.applyBranches(b, generation: generation) }
         }
     }
 
@@ -618,9 +647,10 @@ public final class DiffPanelViewModel: ObservableObject {
         let cwd = self.cwd
         let limit = historyLoadLimit
         let gc = gitClient
+        let generation = nextSummaryGeneration()
         DispatchQueue.global().async { [weak self] in
             let c = gc.log(in: cwd, limit: limit)
-            DispatchQueue.main.async { self?.commits = c }
+            DispatchQueue.main.async { self?.applyHistory(c, generation: generation) }
         }
     }
 
@@ -633,13 +663,14 @@ public final class DiffPanelViewModel: ObservableObject {
         let cwd = self.cwd
         let limit = historyLoadLimit
         let gc = gitClient
-        isLoading = true
+        let loading = beginLoading()
+        let generation = nextSummaryGeneration()
         DispatchQueue.global().async { [weak self] in
             let c = gc.log(in: cwd, limit: limit)
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.commits = c
-                self.isLoading = false
+                self.applyHistory(c, generation: generation)
+                self.finishLoading(loading)
             }
         }
     }
@@ -655,7 +686,6 @@ public final class DiffPanelViewModel: ObservableObject {
             // this clear with a stale patch when it lands.
             diffGeneration &+= 1
             rawDiff = ""
-            isLoading = false
         }
     }
 
@@ -690,7 +720,7 @@ public final class DiffPanelViewModel: ObservableObject {
         let ws = self.ignoreWhitespace
         let path = self.selectedPath
         let commit = self.selectedCommit
-        guard path != nil || commit != nil else { rawDiff = ""; isLoading = false; return }
+        guard path != nil || commit != nil else { rawDiff = ""; return }
         // Snapshot untracked status before leaving the main actor so the
         // background closure can make a decision without touching @Published.
         let isUntracked: Bool = {
@@ -700,7 +730,7 @@ public final class DiffPanelViewModel: ObservableObject {
         diffGeneration &+= 1
         let gen = diffGeneration
         let gc = gitClient
-        isLoading = true
+        let loading = beginLoading()
         DispatchQueue.global().async { [weak self] in
             let d: String
             if let p = path {
@@ -727,9 +757,10 @@ public final class DiffPanelViewModel: ObservableObject {
                 d = ""
             }
             DispatchQueue.main.async {
-                guard let self, gen == self.diffGeneration else { return }
+                guard let self else { return }
+                self.finishLoading(loading)
+                guard gen == self.diffGeneration else { return }
                 self.rawDiff = d
-                self.isLoading = false
             }
         }
     }
@@ -1051,6 +1082,7 @@ public final class DiffPanelViewModel: ObservableObject {
                            clearMessageOnOK: Bool = false,
                            successMessage: String? = nil,
                            _ op: @escaping @Sendable (String) -> GitActionResult) {
+        guard !isBusy else { return }
         let cwd = self.cwd
         let gc = gitClient
         isBusy = true
@@ -1063,8 +1095,8 @@ public final class DiffPanelViewModel: ObservableObject {
             let log = gc.log(in: cwd, limit: 100)
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.branches = b
-                self.commits = log
+                self.applyBranches(b, generation: generation)
+                self.applyHistory(log, generation: generation)
                 self.isBusy = false
                 if let eventKind {
                     self.gitOutcomeHandler?(eventKind, r.ok)

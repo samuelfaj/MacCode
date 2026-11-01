@@ -19231,10 +19231,7 @@ public struct AgentAppView: View {
                         .background(RoundedRectangle(cornerRadius: DS.Radius.control).fill(DS.Palette.surfaceRaised))
                         .overlay(RoundedRectangle(cornerRadius: DS.Radius.control).strokeBorder(DS.Palette.line, lineWidth: DS.Border.hairline))
                         if let path = vm.worktreePath, !path.isEmpty {
-                            Text(path)
-                                .font(DS.Font.caption.monospaced())
-                                .foregroundColor(DS.Palette.textSecondary)
-                                .textSelection(.enabled)
+                            AgentSelectablePlainText(text: path, fontSize: 11, monospaced: true, textColor: DS.NS.textSecondary)
                         }
                     }
                 }

@@ -6231,7 +6231,7 @@ final class AgentAppViewModelTests: XCTestCase {
         ))
         let view = String(source[start.lowerBound..<end.lowerBound])
         let sideChat = try XCTUnwrap(view.range(of: "if vm.selectedThreadIsEphemeral {"))
-        let shared = try XCTUnwrap(view.range(of: "DSEmptyState("))
+        let shared = try XCTUnwrap(view.range(of: "AgentNewConversationEmptyState("))
         XCTAssertLessThan(sideChat.lowerBound, shared.lowerBound, "a side chat is asked first")
         XCTAssertTrue(view.contains("sideChatEmptyConversation"))
         XCTAssertTrue(view.contains("title: vm.embedding?.emptyConversationTitle ?? \"No messages\""))
@@ -6261,7 +6261,7 @@ final class AgentAppViewModelTests: XCTestCase {
         XCTAssertFalse(status.contains("textTertiary"))
     }
 
-    func test_branchInNewChatIsOfferedOnlyOutsideAnEmbeddedChat_becauseOnlyTheAgentAppHostCanOpenTheBranch() throws {
+    func test_branchInNewChatRequiresTheHostCallback_becauseTheOwningSurfaceMustOpenTheBranch() throws {
         // WHY: the reply draws "Branch in new chat" whenever onBranch is not
         // nil. Only Agent App tabs get onForkInNewChat from the router; a Bot
         // desk or group room embeds this view without it, so an always
@@ -6272,7 +6272,7 @@ final class AgentAppViewModelTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/Surfaces/AgentAppSurface.swift")
         let source = try String(contentsOf: url, encoding: .utf8)
-        XCTAssertEqual(source.components(separatedBy: "onBranch: vm.embedding == nil ? { vm.onForkInNewChat?(").count - 1, 3)
+        XCTAssertEqual(source.components(separatedBy: "onBranch: vm.onForkInNewChat == nil ? nil : { vm.onForkInNewChat?(").count - 1, 3)
         XCTAssertFalse(source.contains("onBranch: {"), "an unconditional closure shows the button on a Bot desk")
     }
 

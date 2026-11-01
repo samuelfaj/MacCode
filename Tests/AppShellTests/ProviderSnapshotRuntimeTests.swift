@@ -4203,6 +4203,9 @@ final class ProviderSnapshotRuntimeTests: XCTestCase {
         await drained.wait()
 
         XCTAssertNil(try ctx.queuedMessageRepo.get(id: queued.id))
+        for _ in 0..<200 where (try? Self.loggedClaudeBridgeCommands(at: commandLog, type: "rc_turn").count) != 2 {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
         let turnCommands = try Self.loggedClaudeBridgeCommands(
             at: commandLog,
             type: "rc_turn"
@@ -4211,8 +4214,8 @@ final class ProviderSnapshotRuntimeTests: XCTestCase {
                        "the first turn and one queued turn must be the only provider writes")
         let prompts = turnCommands.compactMap { $0["prompt"] as? String }
         XCTAssertEqual(prompts.count, 2)
-        XCTAssertTrue(prompts[0].hasSuffix("User request:\nhold the first turn"))
-        XCTAssertTrue(prompts[1].hasSuffix("User request:\ndrain exactly once"))
+        XCTAssertTrue(try XCTUnwrap(prompts.first).hasSuffix("User request:\nhold the first turn"))
+        XCTAssertTrue(try XCTUnwrap(prompts.dropFirst().first).hasSuffix("User request:\ndrain exactly once"))
     }
 
     func test_drainQueue_definiteStartFailureRequeuesForOneExplicitRetry() async throws {

@@ -107,7 +107,9 @@ final class AppIdentityNotificationTests: XCTestCase {
     }
 
     func testReleaseWorkflowPublishesSignedSparkleAppcastToS3() throws {
-        let workflow = try String(contentsOf: releaseWorkflowURL())
+        let entry = try String(contentsOf: releaseWorkflowURL())
+        XCTAssertTrue(entry.contains("scripts/release-stable.sh"), "GitHub Actions must invoke the signed release script")
+        let workflow = entry + (try String(contentsOf: releaseWorkflowURL().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("scripts/release-stable.sh")))
 
         XCTAssertTrue(workflow.contains("RC2_SPARKLE_PUBLIC_ED_KEY"),
                       "release packaging must receive the Sparkle public key from secrets")
@@ -138,7 +140,7 @@ final class AppIdentityNotificationTests: XCTestCase {
         let account = try XCTUnwrap(source.range(of: "if vm.privateAccountUser != nil"))
         let settings = try XCTUnwrap(source.range(of: "Button(action: onOpenSettings)"))
         let toggle = try XCTUnwrap(source.range(of: "Button { vm.toggleSidebar() }"))
-        let newWorkspace = try XCTUnwrap(source.range(of: "title: \"New Workspace\""))
+        let newWorkspace = try XCTUnwrap(source.range(of: "Label(\"New Workspace\""))
         let updates = try XCTUnwrap(source.range(of: "title: vm.updateActionTitle"))
 
         let reportBug = try XCTUnwrap(source.range(of: "accessibilityIdentifier(\"sidebar.reportBug\")"))
@@ -174,7 +176,7 @@ final class AppIdentityNotificationTests: XCTestCase {
     func testSidebarWorkspaceFilterStaysVisibleWithoutAutofocus() throws {
         let source = try String(contentsOf: sidebarViewURL())
 
-        XCTAssertTrue(source.contains("if !vm.workspaces.isEmpty || !vm.generalBots.isEmpty {\n                workspaceFilterField"),
+        XCTAssertTrue(source.contains("if !vm.workspaces.isEmpty || !vm.generalBots.isEmpty || !vm.virtualMachines.isEmpty {\n                workspaceFilterField"),
                       "the Workspaces filter must stay visible for normal short workspace lists, not only after the list grows past an arbitrary count")
         XCTAssertFalse(source.contains("vm.workspaces.count > 6"),
                        "the Workspaces filter must not disappear for users with only a few workspaces")
@@ -1517,7 +1519,7 @@ final class AppIdentityNotificationTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent(".gitlab-ci.yml")
+            .appendingPathComponent(".github/workflows/release.yml")
     }
 
     private func sidebarViewURL() -> URL {

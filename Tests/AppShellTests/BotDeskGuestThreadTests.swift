@@ -81,7 +81,7 @@ final class BotDeskGuestThreadTests: XCTestCase {
         let created = try f.vm.create(name: "Piper", title: "Scout")
         guard docker else { return created }
         f.vm.openStudio(created)
-        f.vm.studioDraft.desktopKind = .dockerDesktop
+        f.vm.studioExecutionDestination = .ownVM
         return try f.vm.saveStudio()
     }
 
@@ -241,7 +241,7 @@ final class BotDeskGuestThreadTests: XCTestCase {
         try f.ctx.threadRepo.updateProviderThreadId(id: thread.id, providerThreadId: "guest-only-session")
 
         f.vm.openStudio(bot)
-        f.vm.studioDraft.desktopKind = .logicalExecutionSpace
+        f.vm.studioExecutionDestination = .mac
         let local = try f.vm.saveStudio()
         f.vm.openDesk(local)
         XCTAssertTrue(f.vm.send("Continue the checklist"), f.vm.errorMessage ?? "")
