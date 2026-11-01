@@ -110,6 +110,24 @@ final class FilesEditorCommandsTests: XCTestCase {
         view.goToLine(0)
         XCTAssertEqual(view.selectedRange().location, 0)
     }
+
+    func test_typingBlockKeepsCaretAndUndoThroughHighlighting() {
+        let view = makeEditor("")
+        let coordinator = CodeTextEditor.Coordinator(onChange: { _ in }, onCaretChange: { _, _ in })
+        coordinator.textView = view
+        coordinator.language = "swift"
+        view.delegate = coordinator
+        type("{", in: view)
+        view.insertNewline(nil)
+        type("value", in: view)
+        XCTAssertEqual(view.string, "{\n    value\n}")
+        XCTAssertEqual(view.selectedRange(), NSRange(location: 11, length: 0))
+        view.undoManager?.undo()
+        XCTAssertEqual(view.string, "", "typing in the same event remains one undo group")
+        view.undoManager?.redo()
+        XCTAssertEqual(view.string, "{\n    value\n}")
+        coordinator.tearDown()
+    }
 }
 
 final class FilesLineEndingTests: XCTestCase {
@@ -127,5 +145,23 @@ final class FilesLineEndingTests: XCTestCase {
         view.setSelectedRange(NSRange(location: 3, length: 0))
         view.insertNewline(nil)
         XCTAssertEqual(view.string, "a {\r\n    \r\nb", "new line in a CRLF file must use CRLF so saves keep one line-ending style")
+    }
+
+    @MainActor
+    func test_blockReturnAndIndentPreserveCRLFAndCaret() {
+        let view = CodeEditorTextView()
+        view.configureForEditing()
+        view.string = "{}\r\nnext"
+        view.setSelectedRange(NSRange(location: 1, length: 0))
+        view.insertNewline(nil)
+        XCTAssertEqual(view.string, "{\r\n    \r\n}\r\nnext")
+        XCTAssertEqual(view.selectedRange(), NSRange(location: 7, length: 0), "caret stays before the second CRLF")
+
+        view.string = "a\r\nb\r\nc"
+        view.setSelectedRange(NSRange(location: 0, length: 4))
+        view.insertTab(nil)
+        XCTAssertEqual(view.string, "    a\r\n    b\r\nc")
+        view.insertBacktab(nil)
+        XCTAssertEqual(view.string, "a\r\nb\r\nc")
     }
 }

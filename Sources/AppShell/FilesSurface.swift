@@ -1166,6 +1166,7 @@ final class FilesViewModel: ObservableObject {
     private var editorDebounceTimer: Timer?
     /// Text captured by the most recent editorChanged call, applied when the timer fires.
     private var pendingDebounceText: String?
+    private var syncedDirty = false
 
     private struct EditSessionSnapshot {
         var sessionID: String
@@ -1208,12 +1209,7 @@ final class FilesViewModel: ObservableObject {
     func close() {
         // Flush any buffered keystroke before tearing down: apply the pending draft
         // immediately so no unsaved content is lost when the surface closes.
-        editorDebounceTimer?.invalidate()
-        editorDebounceTimer = nil
-        if let text = pendingDebounceText {
-            pendingDebounceText = nil
-            if !applying { applyFullDraft(text) }
-        }
+        flushPendingEditorChange()
         if let eventToken { EventBus.shared.unsubscribe(eventToken) }
         if let sessionID { _ = try? router?.filesEditClose(sessionID: sessionID) }
         fileWatcher?.stop()
@@ -1414,6 +1410,7 @@ final class FilesViewModel: ObservableObject {
 
     private func removeTab(at index: Int, closeSession: Bool) {
         guard openTabs.indices.contains(index) else { return }
+        if sessionPath == openTabs[index].relativePath { flushPendingEditorChange() }
         let removed = openTabs.remove(at: index)
         guard closeSession else { return }
         if sessionPath == removed.relativePath, let sessionID {
@@ -1452,6 +1449,7 @@ final class FilesViewModel: ObservableObject {
     }
 
     func loadFile(_ entry: FileEntry) {
+        flushPendingEditorChange()
         snapshotCurrentSession()
         // Close the previous clean session now that it has been snapshotted (or there was nothing
         // to snapshot). Dirty sessions stay open so the snapshotted sessionID remains valid for a
@@ -1507,7 +1505,21 @@ final class FilesViewModel: ObservableObject {
     }
 
     func editorChanged(_ value: String) {
-        guard !suppressEditorChange, sessionID != nil, value != lastSyncedText else { return }
+        guard !suppressEditorChange, sessionID != nil else { return }
+        // AppKit owns the active edit, but SwiftUI must see it on this turn. Otherwise
+        // a caret/status update writes the old binding back over the user's keystroke.
+        draftText = value
+        isDirty = value != lastSyncedText || syncedDirty
+        if let sessionPath {
+            if isDirty { dirtyPaths.insert(sessionPath) } else { dirtyPaths.remove(sessionPath) }
+        }
+        setSyncLabel(isDirty ? "Unsaved" : "Up to date", revision: draftRevision)
+        if value == lastSyncedText {
+            editorDebounceTimer?.invalidate()
+            editorDebounceTimer = nil
+            pendingDebounceText = nil
+            return
+        }
         // Capture the latest text so the timer always applies the final state of the burst.
         pendingDebounceText = value
         // Cancel any in-flight timer and reschedule; the last keystroke wins.
@@ -1528,7 +1540,16 @@ final class FilesViewModel: ObservableObject {
         }
     }
 
+    private func flushPendingEditorChange() {
+        editorDebounceTimer?.invalidate()
+        editorDebounceTimer = nil
+        guard let text = pendingDebounceText else { return }
+        pendingDebounceText = nil
+        if applying { pendingText = text } else { applyFullDraft(text) }
+    }
+
     func save() {
+        flushPendingEditorChange()
         guard let sessionID else { return }
         do {
             let result = try router?.filesEditSave(sessionID: sessionID)
@@ -1545,6 +1566,9 @@ final class FilesViewModel: ObservableObject {
     func dismissSaveError() { saveError = nil }
 
     func discard() {
+        editorDebounceTimer?.invalidate()
+        editorDebounceTimer = nil
+        pendingDebounceText = nil
         guard let sessionID else { return }
         do {
             let result = try router?.filesEditDiscard(sessionID: sessionID)
@@ -1760,10 +1784,13 @@ final class FilesViewModel: ObservableObject {
             currentDirectory = state["current_directory"]?.stringValue ?? currentDirectory
             readerMode = state["reader_mode"]?.stringValue ?? readerMode
             dirtyPaths = Self.dirtyPaths(from: state)
+            if pendingDebounceText != nil, let sessionPath { dirtyPaths.insert(sessionPath) }
             isDirty = selectedPath.map { dirtyPaths.contains($0) } ?? isDirty
             setSyncLabel(isDirty ? "Unsaved" : "Up to date", revision: state["revision"]?.intValue ?? 0)
         case "files.edit.opened", "files.edit.patch_applied", "files.edit.saved", "files.edit.discarded":
-            guard payload["surface_id"]?.stringValue == surfaceID.value.uuidString else { return }
+            guard payload["surface_id"]?.stringValue == surfaceID.value.uuidString,
+                  payload["session_id"]?.stringValue == sessionID,
+                  (payload["draft_revision"]?.intValue ?? 0) >= draftRevision else { return }
             applyEditPayload(
                 payload,
                 remote: filesEditEventIsRemote(updatedByDevice: payload["updated_by_device"]?.stringValue)
@@ -1828,9 +1855,10 @@ final class FilesViewModel: ObservableObject {
         if let id = payload["session_id"]?.stringValue { sessionID = id }
         if let revision = payload["draft_revision"]?.intValue { draftRevision = revision }
         if let dirty = payload["dirty"]?.boolValue {
-            isDirty = dirty
+            syncedDirty = dirty
+            isDirty = dirty || (pendingDebounceText != nil && pendingDebounceText != payload["content"]?.stringValue)
             if let path = payload["path"]?.stringValue {
-                if dirty {
+                if isDirty {
                     dirtyPaths.insert(path)
                 } else {
                     dirtyPaths.remove(path)
@@ -1859,6 +1887,11 @@ final class FilesViewModel: ObservableObject {
                     setDraft(update.draftText)
                     renderedText = update.renderedText
                 }
+            } else if pendingDebounceText != nil {
+                // An acknowledgement can arrive after the user has typed again.
+                // Advance the host revision without replacing that newer local draft.
+                lastSyncedText = content
+                renderedText = content
             } else if draftText != content {
                 setDraft(content)
                 renderedText = content
@@ -1935,6 +1968,7 @@ final class FilesViewModel: ObservableObject {
         sessionID = snapshot.sessionID
         draftRevision = snapshot.draftRevision
         isDirty = snapshot.isDirty
+        syncedDirty = snapshot.isDirty
         setDraft(snapshot.draftText)
         lastSyncedText = snapshot.lastSyncedText
         renderedText = snapshot.draftText
@@ -4180,8 +4214,9 @@ final class CodeEditorTextView: NSTextView {
         var edit = EditorCommands.newline(text: string as NSString, selection: selectedRange(), language: language)
         // Keep CRLF files CRLF: the first line break of the document decides.
         if FilesViewModel.detectLineEnding(string) == "CRLF" {
+            let beforeCaret = (edit.replacement as NSString).substring(to: edit.selection.location - edit.range.location)
             let grown = edit.replacement.replacingOccurrences(of: "\n", with: "\r\n")
-            edit.selection.location += grown.utf16.count - edit.replacement.utf16.count
+            edit.selection.location += beforeCaret.filter { $0 == "\n" }.count
             edit.replacement = grown
         }
         apply(edit)

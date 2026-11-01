@@ -49,10 +49,9 @@ final class FilesEditorPersistenceTests: XCTestCase {
         model.select(entry)
         XCTAssertEqual(model.draftText, "let value = 1\n")
 
-        model.draftText = "let value = 42\n"
-        model.editorChanged(model.draftText)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
-        XCTAssertTrue(model.isDirty)
+        model.editorChanged("let value = 42\n")
+        XCTAssertEqual(model.draftText, "let value = 42\n", "the binding must match typed text before a caret update redraws the editor")
+        XCTAssertTrue(model.isDirty, "Save must be enabled on the first keystroke")
 
         model.save()
 
@@ -74,6 +73,44 @@ final class FilesEditorPersistenceTests: XCTestCase {
         XCTAssertEqual(model.selectedPath, "Notes.txt")
         XCTAssertEqual(model.openTabs.map(\.relativePath), ["Notes.txt"],
             "the created file must open in an editor tab")
+    }
+
+    func test_switchingFilesImmediatelyKeepsBufferedTypingInItsOwnFile() throws {
+        try "first".write(to: root.appendingPathComponent("a.swift"), atomically: true, encoding: .utf8)
+        try "second".write(to: root.appendingPathComponent("b.swift"), atomically: true, encoding: .utf8)
+        let model = makeModel()
+        defer { model.close() }
+        model.loadDirectory("")
+        let a = try XCTUnwrap(model.entries.first { $0.relativePath == "a.swift" })
+        let b = try XCTUnwrap(model.entries.first { $0.relativePath == "b.swift" })
+        model.select(a)
+        model.editorChanged("first edited")
+        model.select(b)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        XCTAssertEqual(model.draftText, "second", "a pending patch must never enter the next file")
+        model.select(a)
+        XCTAssertEqual(model.draftText, "first edited")
+        model.save()
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("a.swift"), encoding: .utf8), "first edited")
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("b.swift"), encoding: .utf8), "second")
+    }
+
+    func test_discardAndTypingBackToOriginalCancelBufferedEdits() throws {
+        try "original".write(to: root.appendingPathComponent("a.swift"), atomically: true, encoding: .utf8)
+        let model = makeModel()
+        defer { model.close() }
+        model.loadDirectory("")
+        model.select(try XCTUnwrap(model.entries.first))
+        model.editorChanged("discard me")
+        model.discard()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        XCTAssertEqual(model.draftText, "original")
+        XCTAssertFalse(model.isDirty)
+        model.editorChanged("temporary")
+        model.editorChanged("original")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        XCTAssertEqual(model.draftText, "original")
+        XCTAssertFalse(model.isDirty)
     }
 
     func test_renameMovesTheFileOnDiskAndTheTabFollows() throws {
