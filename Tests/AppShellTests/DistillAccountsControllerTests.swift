@@ -100,6 +100,28 @@ final class DistillAccountsControllerTests: XCTestCase {
         XCTAssertTrue(AccountUsageEntry.entries(controller.statuses)[0].usageIsStale)
     }
 
+    func test_periodicUsageProbeIsThrottledButUserRefreshIsNot() async {
+        // WHY: probing every Claude account each minute hit Anthropic's 429 and
+        // left every quota stale; the user's refresh must still probe at once.
+        let accounts = Accounts()
+        accounts.statusesValue = [.init(provider: .claude, connected: true, id: "a")]
+        accounts.quotaByID["a"] = .init(accountID: "a", checkedAt: "now", status: "available", remainingPercent: 50)
+        let controller = DistillAccountsController(accounts: accounts)
+        let start = Date()
+        let interval = DistillAccountsController.periodicUsageProbeInterval
+        let first = await controller.refreshAllUsage(minimumInterval: interval, now: start)
+        let throttled = await controller.refreshAllUsage(minimumInterval: interval, now: start.addingTimeInterval(60))
+        XCTAssertTrue(first)
+        XCTAssertFalse(throttled)
+        XCTAssertEqual(accounts.refreshedIDs, ["a"], "A periodic tick inside the interval must not probe again")
+        let manual = await controller.refreshAllUsage(now: start.addingTimeInterval(61))
+        let later = await controller.refreshAllUsage(minimumInterval: interval, now: start.addingTimeInterval(61 + interval))
+        XCTAssertTrue(manual)
+        XCTAssertTrue(later)
+        XCTAssertEqual(accounts.refreshedIDs, ["a", "a", "a"])
+        XCTAssertFalse(controller.isRefreshingUsage)
+    }
+
     func test_overlappingUsageRefreshesShareOneProbe() async {
         let accounts = Accounts()
         accounts.statusesValue = [.init(provider: .claude, connected: true, id: "a")]

@@ -142,13 +142,13 @@ struct DistillAccountsPanelHost: View {
                 routing: controller.routing,
                 models: controller.models,
                 routingLoaded: controller.hasLoadedState,
-                isRefreshing: controller.isRefreshing
+                isRefreshing: controller.isRefreshing || controller.isRefreshingUsage
             ),
             cancel: controller.cancel,
             openAgain: { NSWorkspace.shared.open($0) },
             dismissError: controller.dismissError,
             retryInstall: controller.retryDistillInstall,
-            refreshAccounts: controller.refresh,
+            refreshAccounts: { Task { await controller.refreshAllUsage() } },
             add: { controller.add(provider: $0, label: $1) },
             rename: { controller.rename(accountID: $0, label: $1) },
             connectAccount: { controller.login(accountID: $0) },
