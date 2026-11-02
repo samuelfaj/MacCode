@@ -1547,7 +1547,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         signposter.endInterval("connection_snapshot_capture", captureInterval)
         // SQLite list/decode must never run on MainActor (Dispatcher is @MainActor).
         let threads = try await ctx.agentThreadListGateway.list(workspaceId: nil)
-        let guestRuntimes = await threadGuestRuntimesOffMain()
+        let guestRuntimes = (try? await ctx.agentThreadListGateway.guestRuntimesByThread()) ?? [:]
         let manualActionsByThread = pendingManualActions(for: threads, open: openManualActions)
         // Grouping and the per-row JSON round trip are pure work on the
         // captured values: run them detached so MainActor stays free.

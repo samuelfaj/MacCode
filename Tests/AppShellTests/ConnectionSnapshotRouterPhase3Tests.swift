@@ -261,6 +261,38 @@ final class ConnectionSnapshotRouterPhase3Tests: XCTestCase {
         )
     }
 
+    /// WHY: the iPhone showed "Can't reach" while Mac UI reads (Activity, Pet) held
+    /// the shared read connection for seconds. The snapshot must not wait on them.
+    func test_realRouterSnapshot_completesWhileUIReadConnectionIsBusy() async throws {
+        let (context, router) = try make()
+        _ = try router.createWorkspace(name: "Busy", cwd: NSTemporaryDirectory())
+        _ = try router.createAgentThread(
+            workspace: try XCTUnwrap(context.state.window.selectedWorkspaceID),
+            title: "Snapshot thread",
+            provider: .codex,
+            model: "gpt-5",
+            permissionMode: .supervised,
+            reasoningEffort: .medium
+        )
+        let release = DispatchSemaphore(value: 0)
+        let held = DispatchSemaphore(value: 0)
+        let readDB = context.readDB
+        DispatchQueue.global().async {
+            readDB.performSync { _ in
+                held.signal()
+                _ = release.wait(timeout: .now() + 10)
+            }
+        }
+        await Task.detached { held.wait() }.value
+        defer { release.signal() }
+
+        let started = Date()
+        let state = try await router.readConnectionSnapshotState()
+
+        XCTAssertEqual(state.agentThreads.flatMap(\.items).count, 1)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2, "snapshot waited on the UI read connection")
+    }
+
     func test_agentRefreshReadRPCsStayOffMainAndPreservePayloads() async throws {
         let (context, router) = try make()
         let workspace = try router.createWorkspace(name: "Agent reads", cwd: NSTemporaryDirectory())

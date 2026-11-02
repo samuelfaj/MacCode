@@ -12,13 +12,13 @@ import CoreModel
 /// races shared repository state — the queue owns the work, and `SQLiteDB`
 /// already serializes connection use via FULLMUTEX + its operation lock.
 public final class AgentThreadListGateway: @unchecked Sendable {
-    private final class ListOperation: @unchecked Sendable {
+    private final class Operation<Value: Sendable>: @unchecked Sendable {
         private let lock = NSLock()
-        private var continuation: CheckedContinuation<[AgentThread], Error>?
+        private var continuation: CheckedContinuation<Value, Error>?
         private var cancelled = false
         private var finished = false
 
-        func install(_ continuation: CheckedContinuation<[AgentThread], Error>) {
+        func install(_ continuation: CheckedContinuation<Value, Error>) {
             lock.lock()
             if cancelled || finished {
                 lock.unlock()
@@ -43,52 +43,7 @@ public final class AgentThreadListGateway: @unchecked Sendable {
             return !cancelled && !finished
         }
 
-        func finish(_ result: Result<[AgentThread], Error>) {
-            lock.lock()
-            guard !finished else {
-                lock.unlock()
-                return
-            }
-            finished = true
-            let continuation = self.continuation
-            self.continuation = nil
-            lock.unlock()
-            continuation?.resume(with: result)
-        }
-    }
-
-    private final class WorkspaceIDsOperation: @unchecked Sendable {
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<Set<WorkspaceID>, Error>?
-        private var cancelled = false
-        private var finished = false
-
-        func install(_ continuation: CheckedContinuation<Set<WorkspaceID>, Error>) {
-            lock.lock()
-            if cancelled || finished {
-                lock.unlock()
-                continuation.resume(throwing: CancellationError())
-                return
-            }
-            self.continuation = continuation
-            lock.unlock()
-        }
-
-        func cancel() {
-            lock.lock()
-            cancelled = true
-            let continuation = self.continuation
-            self.continuation = nil
-            lock.unlock()
-            continuation?.resume(throwing: CancellationError())
-        }
-
-        func beginWork() -> Bool {
-            lock.lock(); defer { lock.unlock() }
-            return !cancelled && !finished
-        }
-
-        func finish(_ result: Result<Set<WorkspaceID>, Error>) {
+        func finish(_ result: Result<Value, Error>) {
             lock.lock()
             guard !finished else {
                 lock.unlock()
@@ -136,7 +91,7 @@ public final class AgentThreadListGateway: @unchecked Sendable {
     /// Full AgentThread list for connection snapshot grouping.
     /// Always hops to the gateway queue — never runs query/decode on MainActor.
     public func list(workspaceId: WorkspaceID? = nil) async throws -> [AgentThread] {
-        let operation = ListOperation()
+        let operation = Operation<[AgentThread]>()
         return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[AgentThread], Error>) in
                 operation.install(continuation)
@@ -163,12 +118,35 @@ public final class AgentThreadListGateway: @unchecked Sendable {
         })
     }
 
+    /// Guest runtime marker per thread, read on the same connection as `list`.
+    public func guestRuntimesByThread() async throws -> [AgentThreadID: String] {
+        let operation = Operation<[AgentThreadID: String]>()
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[AgentThreadID: String], Error>) in
+                operation.install(continuation)
+                queue.async {
+                    guard operation.beginWork() else { return }
+                    do {
+                        let runtimes = try self.readDB.performSync { _ in
+                            try AgentThreadRepository(db: self.readDB).guestRuntimesByThread()
+                        }
+                        operation.finish(.success(runtimes))
+                    } catch {
+                        operation.finish(.failure(error))
+                    }
+                }
+            }
+        }, onCancel: {
+            operation.cancel()
+        })
+    }
+
     /// Returns only workspaces with a running thread. This is the cheap
     /// workspace-list projection path; it deliberately avoids decoding every
     /// thread and its routing JSON when the caller only needs busy IDs.
     public func runningWorkspaceIDs(in workspaceIDs: [WorkspaceID]) async throws -> Set<WorkspaceID> {
         guard !workspaceIDs.isEmpty else { return [] }
-        let operation = WorkspaceIDsOperation()
+        let operation = Operation<Set<WorkspaceID>>()
         return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Set<WorkspaceID>, Error>) in
                 operation.install(continuation)
