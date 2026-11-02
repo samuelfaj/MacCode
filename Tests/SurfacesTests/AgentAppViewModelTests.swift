@@ -7762,6 +7762,36 @@ final class AgentAppViewModelTests: XCTestCase {
         XCTAssertEqual(assistants.count, 1, "the assistant reply must be persisted exactly once, not double-written")
     }
 
+    /// WHY: send right after createThread used to lose the live turn about one
+    /// time in three: the new thread's open replay was read before the run
+    /// existed and, when it landed, replaced the painted timeline with nothing.
+    func test_sendRightAfterCreateThreadKeepsTheLiveTurnEveryTime() async throws {
+        for attempt in 0..<5 {
+            let tmp = NSTemporaryDirectory() + "rc2-vm-agent-open-race-" + UUID().uuidString
+            let (_, db) = try Bootstrap(channel: .debug, appSupportOverride: tmp).run()
+            let threadRepo = AgentThreadRepository(db: db)
+            let messageRepo = AgentMessageRepository(db: db)
+            let coordinator = AgentRunCoordinator(
+                runRepo: AgentRunRepository(db: db),
+                messageRepo: messageRepo,
+                threadRepo: threadRepo,
+                providers: [.codex: HoldOpenStreamRunner()]
+            )
+            let vm = AgentAppViewModel(workspaceID: WorkspaceID(), cwd: tmp,
+                                       coordinator: coordinator, threadRepo: threadRepo,
+                                       messageRepo: messageRepo)
+            installRunnableProviderFixtures(on: vm)
+            vm.createThread(title: "race \(attempt)")
+            vm.prompt = "stream please"
+            await vm.send()
+            await waitAsync("run completes") { vm.status == .completed }
+            await vm.waitForSelectThreadHydrationForTesting()
+            XCTAssertTrue(vm.timeline.turns.flatMap(\.items).contains {
+                $0.type == .assistantMessage && $0.body.contains("partial stream")
+            }, "attempt \(attempt): the open replay must not wipe the run that started during it")
+        }
+    }
+
     func test_completedSelectedRunKeepsLiveTimelineVisible() async throws {
         let tmp = NSTemporaryDirectory() + "rc2-vm-agent-completed-timeline-" + UUID().uuidString
         let (_, db) = try Bootstrap(channel: .debug, appSupportOverride: tmp).run()

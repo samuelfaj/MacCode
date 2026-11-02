@@ -540,6 +540,9 @@ public typealias AgentAppSendInterceptor = @MainActor (
 
 @MainActor
 public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
+    /// Turns shown when the selected thread opened (cache or empty). The open
+    /// replay may replace these; turns painted later belong to a live run.
+    private var paintedTurnIDsAtSelection: [AgentThreadID: Set<String>] = [:]
     public let embedding: AgentAppEmbedding?
     /// A Bot desk with Verbosity Human shows only the Bot's messages: no tool,
     /// command, edit or work-log rows. The live turn keeps a "Working" line.
@@ -2659,6 +2662,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         } else {
             timeline = AssistantTimelineState()
         }
+        paintedTurnIDsAtSelection = [id: Set(timeline.turns.map(\.turnId))]
         messagePageLoadState = .pending
         loadAllMessages(id)
         focusTick &+= 1
@@ -2897,6 +2901,9 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         // and committed/dropped quanta are re-read from the durable window in
         // the apply-phase stability loop below.
         let streamActivityAtGatherStart = (streamQuantumCommits, streamQuantumDrops)
+        // Turns of a cached timeline painted at selection; a live run can add
+        // turns to this thread from now on, before or during the gather.
+        let turnIDsAtGatherStart = paintedTurnIDsAtSelection[id] ?? []
         // PERF (AA-02): every SQLite read, JSON decode and the replay itself now
         // run off-main in one detached pass; the MainActor applies the bundle in
         // a single publish guarded by open generation + selection.
@@ -2949,7 +2956,12 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             }
             stabilityAttempts += 1
         }
-        applyThreadOpenBundle(effective, thread: selectedThread, openGeneration: openGeneration)
+        applyThreadOpenBundle(
+            effective,
+            thread: selectedThread,
+            openGeneration: openGeneration,
+            turnIDsAtGatherStart: turnIDsAtGatherStart
+        )
     }
 
     /// Re-reads the durable replay window after stream events landed during the
@@ -2975,7 +2987,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     private func applyThreadOpenBundle(
         _ bundle: AgentThreadOpenBundle,
         thread selectedThread: AgentThread,
-        openGeneration: UInt64
+        openGeneration: UInt64,
+        turnIDsAtGatherStart: Set<String> = []
     ) {
         let id = selectedThread.id
         // UX-MAC_AGENT-CONTINUE: the newly selected thread may have been
@@ -2987,7 +3000,14 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         // so SwiftUI sees one swap, not empty→partial apply ticks.
         // One publish of a fully-built timeline (not empty → apply-tick cascade).
         let paintedErrorBeforeOpen = timeline.error
-        timeline = bundle.replayedTimeline
+        // A run that started while the replay was read (send right after
+        // createThread) paints turns the replay cannot contain yet; replacing
+        // the timeline wiped them until the next reload. Keep only turns first
+        // painted during this open, so a stale cached timeline never returns.
+        let paintedDuringOpen = Set(timeline.turns.map(\.turnId)).subtracting(turnIDsAtGatherStart)
+        var opened = bundle.replayedTimeline
+        opened.retainMissingTurns(from: timeline, protectedTurnIDs: paintedDuringOpen)
+        timeline = opened
         // The replay read predates anything painted while it was in flight, so a
         // live error that landed during the open is strictly newer than the
         // bundle's error field (nil here when the replay window carries none).
