@@ -43,9 +43,14 @@ public final class DistillAccountsController: ObservableObject {
     @Published public private(set) var isBusy = false
     @Published public private(set) var hasLoadedState = false
     @Published public private(set) var isRefreshing = false
+    @Published public private(set) var isRefreshingUsage = false
     private(set) var stateError: String?
     private var refreshTask: Task<Void, Never>?
     private var usageRefreshTask: Task<Bool, Never>?
+    private var lastUsageProbeAt: Date?
+    /// Anthropic rate-limits the OAuth usage endpoint; probing every account each
+    /// minute returned 429 and left every Claude quota stale.
+    public static let periodicUsageProbeInterval: TimeInterval = 300
     private var refreshGeneration: UInt64 = 0
     private var catalogGeneration: UInt64 = 0
     private let accounts: any DistillAccountManaging
@@ -167,10 +172,16 @@ public final class DistillAccountsController: ObservableObject {
     }
     /// Re-reads every connected account's quota, then the account list, without
     /// taking the busy slot the Accounts settings use for sign-in and edits.
+    /// `minimumInterval` skips the probe (returning false) when the last one
+    /// started more recently; explicit user refreshes pass 0.
     @discardableResult
-    public func refreshAllUsage() async -> Bool {
+    public func refreshAllUsage(minimumInterval: TimeInterval = 0, now: Date = Date()) async -> Bool {
         if let usageRefreshTask { return await usageRefreshTask.value }
         guard !isBusy else { return false }
+        if let lastUsageProbeAt, now.timeIntervalSince(lastUsageProbeAt) < minimumInterval { return false }
+        lastUsageProbeAt = now
+        isRefreshingUsage = true
+        defer { isRefreshingUsage = false }
         let token = generation
         let task = Task { @MainActor in
             await self.refreshAndWait()
