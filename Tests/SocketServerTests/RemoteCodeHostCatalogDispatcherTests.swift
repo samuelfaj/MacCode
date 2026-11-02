@@ -278,6 +278,37 @@ final class RemoteCodeHostCatalogDispatcherTests: XCTestCase {
         XCTAssertEqual(router.screenshotCount, 1)
     }
 
+    func test_hostChatImageRoutesCallerPathsAndReplaysReceipt() async throws {
+        let router = HostCatalogReceiptRouter()
+        let dispatcher = JSONRPCDispatcher(router: router)
+        let threadID = UUID().uuidString.lowercased()
+        let params: [String: JSONValue] = [
+            "thread_id": .string(threadID),
+            "run_id": .string(UUID().uuidString.lowercased()),
+            BotPeerDelegation.capabilityRPCParameterKey: .string(router.activeCapability),
+            "paths": .array([.string("/tmp/a.png"), .string("/tmp/b.jpg")]),
+            "caption": .string("Renders"),
+            "client_request_id": .string("chat-image-once"),
+        ]
+        let request = JSONRPCRequest(jsonrpc: "2.0", id: .number(1), method: "host.chat.image", params: params)
+        let first = await dispatcher.dispatchUnixSocket(request)
+        XCTAssertNil(first.error)
+        XCTAssertEqual(router.chatImageCalls.count, 1)
+        XCTAssertEqual(router.chatImageCalls.first?.thread.value.uuidString.lowercased(), threadID)
+        XCTAssertEqual(router.chatImageCalls.first?.paths, ["/tmp/a.png", "/tmp/b.jpg"])
+        XCTAssertEqual(router.chatImageCalls.first?.caption, "Renders")
+        let replay = await dispatcher.dispatchUnixSocket(request)
+        XCTAssertEqual(replay.result, first.result)
+        XCTAssertEqual(router.chatImageCalls.count, 1, "a replayed operation_id posts nothing twice")
+
+        var empty = params
+        empty["paths"] = .array([])
+        empty["client_request_id"] = .string("chat-image-empty")
+        let rejected = await dispatcher.dispatchUnixSocket(JSONRPCRequest(jsonrpc: "2.0", id: .number(2), method: "host.chat.image", params: empty))
+        XCTAssertEqual(rejected.error?.code, -32602)
+        XCTAssertEqual(router.chatImageCalls.count, 1)
+    }
+
     func test_hostBrowserScreenshotPreservesDefiniteMutationRejection() async {
         let router = HostCatalogReceiptRouter()
         router.screenshotError = DefiniteMutationRejection(JSONRPCError(code: -32047, message: "Preflight rejected"))
@@ -764,6 +795,12 @@ private final class HostCatalogReceiptRouter: FakeRouter, CommandReceiptStateRou
     override func dispatchPairedBotRemote(method: String, params: [String: JSONValue]) async throws -> JSONValue {
         pairedBotCalls.append((method, params))
         return .object(["status": .string("completed")])
+    }
+
+    var chatImageCalls: [(thread: AgentThreadID, paths: [String], caption: String?)] = []
+    override func postChatImages(callerThread: AgentThreadID, paths: [String], caption: String?) throws -> JSONValue {
+        chatImageCalls.append((callerThread, paths, caption))
+        return .object(["posted": .number(Double(paths.count))])
     }
 
     override func captureHostBrowserToChat(callerThread: AgentThreadID, surface: SurfaceID?, reason: String) throws -> JSONValue {

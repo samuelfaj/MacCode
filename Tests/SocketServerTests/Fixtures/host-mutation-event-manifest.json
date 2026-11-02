@@ -82,6 +82,7 @@
     {"method": "agent.thread.rename", "family": "agent-thread", "risk": "lowMutation", "eventKinds": ["agent.thread.renamed"], "readbackMethods": ["agent.thread.read"]},
     {"method": "agent.thread.loop.stop", "family": "agent-thread", "risk": "lowMutation", "eventKinds": ["agent.thread.loops.updated"], "readbackMethods": ["agent.thread.list"]},
     {"method": "host.browser.screenshot", "family": "agent-thread", "risk": "lowMutation", "eventKinds": ["agent.message.appended"], "readbackMethods": ["agent.message.list"]},
+    {"method": "host.chat.image", "family": "agent-thread", "risk": "lowMutation", "eventKinds": ["agent.message.appended"], "readbackMethods": ["agent.message.list"]},
     {"method": "agent.thread.set_pinned", "family": "agent-thread", "risk": "lowMutation", "eventKinds": ["agent.thread.updated", "agent.thread.reordered"], "readbackMethods": ["agent.thread.read", "agent.thread.list"]},
     {"method": "agent.thread.set_color", "family": "agent-thread", "risk": "lowMutation", "eventKinds": ["agent.thread.updated"], "readbackMethods": ["agent.thread.read"]},
     {"method": "agent.thread.reorder", "family": "agent-thread", "risk": "lowMutation", "eventKinds": ["agent.thread.reordered"], "readbackMethods": ["agent.thread.list"]},

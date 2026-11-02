@@ -249,6 +249,7 @@ public protocol CommandRouting: AnyObject {
     func delegateHostBot(bot: String, text: String, conversationID: BotConversationID?, callerThread: AgentThreadID, callerRun: AgentRunID) async throws -> JSONValue
     func runNextHostScheduledTask(workspace: String, taskID: UUID?) throws -> JSONValue
     func captureHostBrowserToChat(callerThread: AgentThreadID, surface: SurfaceID?, reason: String) throws -> JSONValue
+    func postChatImages(callerThread: AgentThreadID, paths: [String], caption: String?) throws -> JSONValue
     func createHostBotSkill(botID: BotID, skillID: String, body: String?, callerRun: AgentRunID, callerThread: AgentThreadID) throws -> JSONValue
     func viewHostBotSkill(botID: BotID, skillID: String, callerRun: AgentRunID, callerThread: AgentThreadID) throws -> JSONValue
     func dispatchPairedBotRemote(method: String, params: [String: JSONValue]) async throws -> JSONValue
@@ -455,6 +456,7 @@ public extension CommandRouting {
     func stopThreadLoop(thread: AgentThreadID, taskId: String) async throws -> Bool { throw JSONRPCError.notSupported("agent.thread.loop.stop") }
     func activityList(params: [String: JSONValue]) throws -> JSONValue { throw JSONRPCError.notSupported("agent.activity.list") }
     func captureHostBrowserToChat(callerThread: AgentThreadID, surface: SurfaceID?, reason: String) throws -> JSONValue { throw JSONRPCError.notSupported("host.browser.screenshot") }
+    func postChatImages(callerThread: AgentThreadID, paths: [String], caption: String?) throws -> JSONValue { throw JSONRPCError.notSupported("host.chat.image") }
     func activityListOffMain(params: [String: JSONValue]) async throws -> JSONValue { try activityList(params: params) }
     func activitySetViewed(params: [String: JSONValue]) throws -> JSONValue { throw JSONRPCError.notSupported("agent.activity.viewed.set") }
     func activityAcknowledge(params: [String: JSONValue]) throws -> JSONValue { throw JSONRPCError.notSupported("agent.activity.acknowledge") }
@@ -1054,6 +1056,7 @@ public final class JSONRPCDispatcher {
         "host.bot.delegate",
         "host.scheduled_task.run_next",
         "host.browser.screenshot",
+        "host.chat.image",
         "bot.create",
         "bot.discard_new",
         "bot.save",
@@ -3915,6 +3918,22 @@ public final class JSONRPCDispatcher {
                 let reason = params["reason"]?.stringValue ?? "Screenshot of Mac browser"
                 guard !reason.isEmpty, reason.count <= 500 else { throw DefiniteMutationRejection(JSONRPCError.invalidParams) }
                 return .init(id: id, result: try router.captureHostBrowserToChat(callerThread: threadID, surface: surface, reason: reason))
+            case "host.chat.image":
+                guard let threadID = params["thread_id"]?.stringValue.flatMap(UUID.init).map(AgentThreadID.init),
+                      let raw = params["paths"]?.arrayValue else {
+                    throw DefiniteMutationRejection(JSONRPCError.invalidParams)
+                }
+                let paths = raw.compactMap(\.stringValue)
+                guard paths.count == raw.count, !paths.isEmpty,
+                      paths.count <= RemoteCodeHostCatalog.chatImageMaxPaths else {
+                    throw DefiniteMutationRejection(JSONRPCError(
+                        code: -32602,
+                        message: "Pass 1-\(RemoteCodeHostCatalog.chatImageMaxPaths) image paths."
+                    ))
+                }
+                let caption = params["caption"]?.stringValue
+                guard (caption?.count ?? 0) <= 500 else { throw DefiniteMutationRejection(JSONRPCError.invalidParams) }
+                return .init(id: id, result: try router.postChatImages(callerThread: threadID, paths: paths, caption: caption))
             case "host.scheduled_task.run_next":
                 guard let workspace = params["workspace"]?.stringValue else {
                     throw JSONRPCError.invalidParams

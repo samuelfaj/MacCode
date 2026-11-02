@@ -24,6 +24,7 @@ final class RemoteCodeHostCatalogTests: XCTestCase {
             RemoteCodeHostCatalog.botDelegate,
             RemoteCodeHostCatalog.scheduledTaskRunNext,
             RemoteCodeHostCatalog.browserScreenshot,
+            RemoteCodeHostCatalog.chatImage,
             RemoteCodeHostCatalog.genericHostCallTool,
         ])
         XCTAssertFalse(names.contains("rc_host"))

@@ -6,6 +6,9 @@ import AgentRuntime
 
 @MainActor
 class FakeRouter: CommandRouting, TerminalCommandRouting {
+    func postChatImages(callerThread: AgentThreadID, paths: [String], caption: String?) throws -> JSONValue {
+        throw JSONRPCError.notSupported("host.chat.image")
+    }
     func captureHostBrowserToChat(callerThread: AgentThreadID, surface: SurfaceID?, reason: String) throws -> JSONValue {
         throw JSONRPCError.notSupported("host.browser.screenshot")
     }
