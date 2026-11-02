@@ -7915,9 +7915,9 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         try await ctx.coordinator.rollbackThread(threadId: thread, toTurnId: toTurnId)
     }
 
-    public func listAgentThreadCheckpoints(thread: AgentThreadID) throws -> [AgentTurnCheckpointSummary] {
+    public func listAgentThreadCheckpoints(thread: AgentThreadID) async throws -> [AgentTurnCheckpointSummary] {
         guard let ctx = context else { throw LayoutError.workspaceNotFound }
-        return try ctx.turnCheckpointRepo.list(threadId: thread)
+        return try await ctx.checkpointListGateway.listFull(threadId: thread)
     }
 
     public func listAgentThreadCheckpointsPage(

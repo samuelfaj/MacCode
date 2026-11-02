@@ -729,7 +729,7 @@ class FakeRouter: CommandRouting, TerminalCommandRouting {
         rollbackCallCount += 1
         lastRollback = (thread, toTurnId)
     }
-    func listAgentThreadCheckpoints(thread: AgentThreadID) throws -> [AgentTurnCheckpointSummary] {
+    func listAgentThreadCheckpoints(thread: AgentThreadID) async throws -> [AgentTurnCheckpointSummary] {
         checkpointStore.filter { $0.threadId == thread }
     }
     var checkpointPageOverride: AgentTurnCheckpointPage?

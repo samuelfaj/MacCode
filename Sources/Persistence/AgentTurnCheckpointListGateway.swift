@@ -71,6 +71,27 @@ public final class AgentTurnCheckpointListGateway: @unchecked Sendable {
         }
     }
 
+    /// Legacy full-row list (`agent.checkpoint.list` without response_version).
+    /// Same queue as the metadata page so the blob read never runs on MainActor.
+    public func listFull(threadId: AgentThreadID) async throws -> [AgentTurnCheckpointSummary] {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                Self.recordQueryExecutorForTesting()
+                Self.queryWillRunForTesting?()
+                let delay = Self.queryDelayNanosecondsForTesting
+                if delay > 0 {
+                    Thread.sleep(forTimeInterval: TimeInterval(delay) / 1_000_000_000)
+                }
+                do {
+                    let rows = try AgentTurnCheckpointRepository(db: self.db).list(threadId: threadId)
+                    continuation.resume(returning: rows)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     private static func recordQueryExecutorForTesting() {
         queryCallCountForTesting += 1
         if Thread.isMainThread {
