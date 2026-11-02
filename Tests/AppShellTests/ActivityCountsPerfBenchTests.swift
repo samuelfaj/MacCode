@@ -52,6 +52,15 @@ final class ActivityCountsPerfBenchTests: XCTestCase {
         }
     }
 
+    /// The Pet Live Activity page: the call that held the shared read connection for
+    /// seconds while it decoded every run's checkpoint files.
+    func test_bench_activityListPageOfFifty() throws {
+        let service = try openService()
+        try bench("activity.listLimit50") {
+            _ = try service.list(["section": .string("all"), "limit": .number(50)])
+        }
+    }
+
     /// Both paths alternated sample by sample, so machine load hits them equally.
     func test_bench_interleavedListVersusCountsOnly() throws {
         let service = try openService()
