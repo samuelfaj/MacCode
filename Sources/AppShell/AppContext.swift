@@ -664,7 +664,10 @@ public final class AppContext {
         self.proposedPlanRepo = AgentProposedPlanRepository(db: db)
         self.turnCheckpointRepo = AgentTurnCheckpointRepository(db: db)
         self.checkpointListGateway = AgentTurnCheckpointListGateway(db: db)
-        self.agentThreadListGateway = AgentThreadListGateway(db: db, readDB: self.readDB)
+        // Own WAL reader for the paired device's snapshot: Mac UI reads (Activity,
+        // Pet) on `readDB` must never make the phone's connection wait.
+        let pairedDeviceReadDB = db.path == ":memory:" ? db : try SQLiteDB(path: db.path, readonly: true)
+        self.agentThreadListGateway = AgentThreadListGateway(db: db, readDB: pairedDeviceReadDB)
         self.workspaceListGateway = WorkspaceListGateway(agentThreadListGateway: self.agentThreadListGateway)
         self.botStore = BotStore(db: db)
         let privatePushTargetStore = PrivatePushTargetStore(repo: self.settingsRepo)
