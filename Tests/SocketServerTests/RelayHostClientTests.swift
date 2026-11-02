@@ -298,6 +298,8 @@ final class RelayHostClientTests: XCTestCase {
         XCTAssertEqual(firstFrame, .text(#"{"type":"ping"}"#))
         for _ in 0..<300 where rig.hostMacSide.closeCode == nil { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertEqual(rig.hostMacSide.closeCode, 1000, "no rx for the limit closes the host socket")
+        // The watchdog closes the socket first; the receive loop then unwinds and reports offline.
+        for _ in 0..<100 where rig.client.isConnected { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertFalse(rig.client.isConnected)
     }
 
