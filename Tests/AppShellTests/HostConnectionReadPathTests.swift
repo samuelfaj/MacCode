@@ -69,6 +69,40 @@ final class HostConnectionReadPathTests: XCTestCase {
         XCTAssertEqual(locked, [thread.id])
     }
 
+    /// WHY: the gateway queue is serial and the paired device's snapshot waits on it.
+    /// A refresh its caller already replaced must not run and delay that snapshot.
+    func test_readCancelledWhileQueued_isSkipped() async throws {
+        let context = try makeContext()
+        try context.threadRepo.upsert(AgentThread(title: "queued", provider: .codex, model: "m"))
+        let gateway = AgentAppReadGateway(db: context.db, readDB: context.readDB)
+        AgentAppReadGateway.resetExecutionProbesForTesting()
+        defer { AgentAppReadGateway.resetExecutionProbesForTesting() }
+        let firstStarted = DispatchSemaphore(value: 0)
+        let releaseFirst = DispatchSemaphore(value: 0)
+        AgentAppReadGateway.readWillRunForTesting = {
+            AgentAppReadGateway.readWillRunForTesting = nil
+            firstStarted.signal()
+            _ = releaseFirst.wait(timeout: .now() + 5)
+        }
+
+        let blocker = Task { try await gateway.listThreads(workspaceId: nil) }
+        await Task.detached { firstStarted.wait() }.value
+        let superseded = Task { try await gateway.listThreads(workspaceId: nil) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        superseded.cancel()
+        releaseFirst.signal()
+
+        _ = try await blocker.value
+        do {
+            _ = try await superseded.value
+            XCTFail("a read cancelled while queued must not return a result")
+        } catch is CancellationError {}
+        let next = try await gateway.listThreads(workspaceId: nil)
+        XCTAssertEqual(next.count, 1)
+        XCTAssertEqual(AgentAppReadGateway.readSkippedCancelledCountForTesting, 1)
+        XCTAssertEqual(AgentAppReadGateway.readCallCountForTesting, 2, "only the blocker and the next read ran")
+    }
+
     /// WHY: the HTTP auth cache and Settings' revoke live on different
     /// repository instances. A revoked iPhone must get 401 on its next request.
     func test_adapterCacheHit_thenRevokeFromSettingsRepository_refusesNextRequest() throws {

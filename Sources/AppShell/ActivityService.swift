@@ -94,7 +94,13 @@ final class ActivityService: @unchecked Sendable {
             guard let cursor else { return true }
             return item.occurredAt < cursor.occurredAt || (item.occurredAt == cursor.occurredAt && item.id > cursor.id)
         }
-        let limited = Array(page.prefix(filter.limit))
+        // Checkpoint files are page-only detail: decoding them for every run held the shared
+        // read connection for seconds and starved the paired device's snapshot.
+        let pageRunIDs = page.prefix(filter.limit).compactMap { $0.kind == .agent ? $0.runID.map(AgentRunID.init) : nil }
+        let checkpoints = try checkpointEvidence(runIDs: pageRunIDs)
+        let limited = page.prefix(filter.limit).map { item in
+            (item.kind == .agent ? item.runID : nil).flatMap { checkpoints[$0.uuidString] }.map { item.withCheckpoint(turnCount: $0.turnCount, files: $0.files) } ?? item
+        }
         let next = page.count > filter.limit
             ? limited.last.map { ActivityCursor(occurredAt: $0.occurredAt, id: $0.id, snapshotAt: snapshotAt).rawValue }
             : nil
@@ -141,7 +147,6 @@ final class ActivityService: @unchecked Sendable {
             try resultRepository.list(runIds: Array(runs[start..<min(start + 500, runs.count)].map(\.runID)))
         }
         let resultByRun = Dictionary(uniqueKeysWithValues: resultRows.map { ($0.runId.description, $0) })
-        let checkpointByRun = includeDisplayDetail ? try checkpointEvidence(runIDs: runs.map(\.runID)) : [:]
         let notificationStates = try loadNotificationStates(db: readDB)
         // Activity is an inbox, not a run log: a conversation shows its latest result, and a
         // failure the conversation already moved past (a later run) no longer needs the user.
@@ -175,7 +180,6 @@ final class ActivityService: @unchecked Sendable {
             let needsAction = !superseded && ((state == .needsYou && orphanAcknowledgedAt == nil)
                 || ((state == .failed || state == .interrupted) && result?.attentionAcknowledgedAt == nil
                     && !origins.resolvedBotFailureRunIDs.contains(row.runID.description)))
-            let checkpoint = checkpointByRun[row.runID.description]
             let workspaceName = thread.workspaceId.flatMap { workspaceNames[$0] }
             let botLink = origins.botLinksByThreadID[thread.id.value.uuidString.lowercased()]
             return AgentActivityItem(
@@ -188,7 +192,7 @@ final class ActivityService: @unchecked Sendable {
                 occurredAt: row.finishedAt ?? row.startedAt, startedAt: row.startedAt, finishedAt: row.finishedAt,
                 viewedAt: result?.viewedAt, attentionAcknowledgedAt: result?.attentionAcknowledgedAt ?? orphanAcknowledgedAt,
                 needsAction: needsAction, blocking: blockedRunIDs.contains(row.runID), finalMessageID: result?.finalMessageId?.value,
-                checkpointTurnCount: checkpoint?.turnCount, changedFiles: checkpoint?.files ?? [], error: row.error,
+                error: row.error,
                 botID: botLink?.botID, conversationID: botLink?.conversationID,
                 originLabel: origins.labelsByRunID[row.runID.description]
             )
@@ -828,6 +832,20 @@ final class ActivityChangeEmitter: @unchecked Sendable {
         EventBus.shared.publish(
             kind: .agentActivityChanged,
             payload: Self.payload(workspaceID: workspace, counts: counts, changedThreadIDs: threads)
+        )
+    }
+}
+
+private extension AgentActivityItem {
+    func withCheckpoint(turnCount: Int, files: [String]) -> AgentActivityItem {
+        AgentActivityItem(
+            id: id, kind: kind, runID: runID, requestID: requestID, notificationID: notificationID,
+            workspaceID: workspaceID, threadID: threadID, surfaceID: surfaceID, state: state, title: title,
+            workspaceName: workspaceName, workspaceColor: workspaceColor, provider: provider, summary: summary,
+            occurredAt: occurredAt, startedAt: startedAt, finishedAt: finishedAt, viewedAt: viewedAt,
+            attentionAcknowledgedAt: attentionAcknowledgedAt, needsAction: needsAction, blocking: blocking,
+            finalMessageID: finalMessageID, checkpointID: checkpointID, checkpointTurnCount: turnCount,
+            changedFiles: files, error: error, botID: botID, conversationID: conversationID, originLabel: originLabel
         )
     }
 }

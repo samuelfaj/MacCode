@@ -230,6 +230,7 @@ public final class AgentAppReadGateway: @unchecked Sendable {
     nonisolated(unsafe) public static private(set) var readCallCountForTesting = 0
     nonisolated(unsafe) public static private(set) var readOnMainActorCountForTesting = 0
     nonisolated(unsafe) public static private(set) var readOffMainActorCountForTesting = 0
+    nonisolated(unsafe) public static private(set) var readSkippedCancelledCountForTesting = 0
 
     public static func resetExecutionProbesForTesting() {
         readWillRunForTesting = nil
@@ -237,6 +238,7 @@ public final class AgentAppReadGateway: @unchecked Sendable {
         readCallCountForTesting = 0
         readOnMainActorCountForTesting = 0
         readOffMainActorCountForTesting = 0
+        readSkippedCancelledCountForTesting = 0
     }
 
     /// WAL reader. Every gateway method is a pure read, so paired-device
@@ -348,30 +350,61 @@ public final class AgentAppReadGateway: @unchecked Sendable {
         }
     }
 
+    /// Lets queued work see that its caller was cancelled.
+    private final class PendingRead: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cancelled = false
+
+        var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+
+        func cancel() { lock.lock(); cancelled = true; lock.unlock() }
+    }
+
     private func execute<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
-        try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                Self.readCallCountForTesting += 1
-                if Thread.isMainThread {
-                    Self.readOnMainActorCountForTesting += 1
-                } else {
-                    Self.readOffMainActorCountForTesting += 1
-                }
-                Self.readWillRunForTesting?()
-                let delay = Self.readDelayNanosecondsForTesting
-                if delay > 0 {
-                    Thread.sleep(forTimeInterval: TimeInterval(delay) / 1_000_000_000)
-                }
-                do {
-                    // The queue keeps the work off MainActor; performSync also
-                    // takes the read connection's operation gate for the complete
-                    // statement/decode sequence and resets its statements after,
-                    // so no WAL read snapshot outlives the call.
-                    let result = try self.readDB.performSync { _ in try work() }
-                    continuation.resume(returning: result)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        let pending = PendingRead()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                enqueue(work, pending: pending, continuation: continuation)
+            }
+        } onCancel: {
+            pending.cancel()
+        }
+    }
+
+    /// The queue is serial: a read whose caller was cancelled while it waited is
+    /// skipped, so superseded refreshes do not delay the reads queued behind them
+    /// (the paired device's snapshot waits on this queue too).
+    private func enqueue<T: Sendable>(
+        _ work: @escaping @Sendable () throws -> T,
+        pending: PendingRead,
+        continuation: CheckedContinuation<T, Error>
+    ) {
+        queue.async {
+            guard !pending.isCancelled else {
+                Self.readSkippedCancelledCountForTesting += 1
+                continuation.resume(throwing: CancellationError())
+                return
+            }
+            Self.readCallCountForTesting += 1
+            if Thread.isMainThread {
+                Self.readOnMainActorCountForTesting += 1
+            } else {
+                Self.readOffMainActorCountForTesting += 1
+            }
+            Self.readWillRunForTesting?()
+            let delay = Self.readDelayNanosecondsForTesting
+            if delay > 0 {
+                Thread.sleep(forTimeInterval: TimeInterval(delay) / 1_000_000_000)
+            }
+            do {
+                // The queue keeps the work off MainActor; performSync also
+                // takes the read connection's operation gate for the complete
+                // statement/decode sequence and resets its statements after,
+                // so no WAL read snapshot outlives the call.
+                let result = try self.readDB.performSync { _ in try work() }
+                continuation.resume(returning: result)
+            } catch {
+                continuation.resume(throwing: error)
             }
         }
     }

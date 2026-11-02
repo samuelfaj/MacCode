@@ -345,6 +345,27 @@ final class AgentActivityServiceTests: XCTestCase {
         XCTAssertNil(secondItem.checkpointID)
     }
 
+    /// Checkpoint files decode only for the rows a page returns, so a long run history does
+    /// not hold the shared read connection the paired device's snapshot also waits on.
+    func test_checkpointEvidenceLoadsForPageRowsAndAcrossPages() throws {
+        let context = try makeContext()
+        let thread = try makeThread(context)
+        let older = try makeRun(context, thread: thread, status: .completed, at: 100)
+        let otherThread = try makeThread(context)
+        let newer = try makeRun(context, thread: otherThread, status: .completed, at: 200)
+        try insertCheckpoint(context, runID: older.id, threadID: thread.id, file: "older.swift", sequence: 1, turnID: "provider-turn-a")
+        try insertCheckpoint(context, runID: newer.id, threadID: otherThread.id, file: "newer.swift", sequence: 2, turnID: "provider-turn-b")
+
+        let first = try decodePage(service(context).list(["limit": .number(1)]))
+        XCTAssertEqual(first.items.map(\.runID), [newer.id.value])
+        XCTAssertEqual(first.items.first?.changedFiles, ["newer.swift"])
+        let cursor = try XCTUnwrap(first.nextCursor)
+        let second = try decodePage(service(context).list(["limit": .number(1), "cursor": .string(cursor)]))
+        XCTAssertEqual(second.items.map(\.runID), [older.id.value])
+        XCTAssertEqual(second.items.first?.changedFiles, ["older.swift"])
+        XCTAssertEqual(second.items.first?.checkpointTurnCount, 1)
+    }
+
     func test_notificationViewedDoesNotCallFailureAcknowledgment() throws {
         let context = try makeContext()
         try NotificationRepository(db: context.db).insert(AppNotification(id: "custom-note", title: "safe", category: PetNotificationCategory.gitCompleted.rawValue))
