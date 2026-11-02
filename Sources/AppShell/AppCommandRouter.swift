@@ -10051,7 +10051,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             throw JSONRPCError(
                 code: -32044,
                 message: browsers.isEmpty
-                    ? "No browser is open in this conversation's workspace."
+                    ? "No RemoteCode browser is open in this conversation's workspace. Save the screenshot to a file and call rc_chat_image with its path."
                     : "Choose a browser surface_id before capturing: " + browsers.map { "\($0.title) (\($0.id.value.uuidString))" }.joined(separator: ", ")
             )
         }
@@ -10106,6 +10106,40 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             "attachment_id": .string(published.attachmentID),
             "surface_id": .string(selected.value.uuidString),
             "origin": .string("mac_browser")
+        ])
+    }
+
+    /// Posts local image files the calling run produced (screenshots, renders)
+    /// into its own thread as one assistant message, so Mac and iPhone show them.
+    public func postChatImages(callerThread: AgentThreadID, paths: [String], caption: String?) throws -> JSONValue {
+        guard let ctx = context else {
+            throw DefiniteMutationRejection(JSONRPCError(code: -32044, message: "MacCode is unavailable."))
+        }
+        let attachments: [AgentAttachment]
+        do {
+            guard try ctx.threadRepo.get(id: callerThread) != nil else {
+                throw JSONRPCError(code: -32044, message: "This conversation no longer exists.")
+            }
+            let resolved = try AgentAttachmentResolver.resolve(paths: paths)
+            if let file = resolved.first(where: { $0.kind != .image }) {
+                throw JSONRPCError(code: -32602, message: "\(file.displayName) is not an image. Use PNG, JPEG, GIF, WebP, HEIC, TIFF or SVG.")
+            }
+            let store = try agentAttachmentStore()
+            attachments = try resolved.map { try store.stage(path: $0.path) }
+        } catch let error as AgentAttachmentResolverError {
+            throw DefiniteMutationRejection(JSONRPCError(code: -32602, message: String(describing: error)))
+        } catch {
+            throw DefiniteMutationRejection(error)
+        }
+        let text = caption?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let message = AgentMessage(threadId: callerThread, role: .assistant, content: text, attachments: attachments)
+        try ctx.messageRepo.append(message)
+        EventBus.shared.publish(kind: .agentMessageAppended, payload: AgentMessageTransport.appendedEventPayload(from: message))
+        refreshAgentSurfaces(thread: callerThread, reloadTranscriptIfSelected: true)
+        return .object([
+            "thread_id": .string(callerThread.value.uuidString),
+            "message_id": .string(message.id.value.uuidString),
+            "attachment_ids": .array(attachments.compactMap(\.id).map { .string($0) }),
         ])
     }
 

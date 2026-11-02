@@ -27,6 +27,7 @@ public enum RemoteCodeHostCatalog: Sendable {
     public static let botDelegate = "rc_bot_delegate"
     public static let scheduledTaskRunNext = "rc_scheduled_task_run_next"
     public static let browserScreenshot = "rc_browser_screenshot"
+    public static let chatImage = "rc_chat_image"
 
     // Keep managed-provider calls on a private namespace. The owner-only socket
     // is also used by RC2CLI, whose legacy workspace/thread methods intentionally
@@ -48,6 +49,9 @@ public enum RemoteCodeHostCatalog: Sendable {
     public static let botDelegateRPC = "host.bot.delegate"
     public static let scheduledTaskRunNextRPC = "host.scheduled_task.run_next"
     public static let browserScreenshotRPC = "host.browser.screenshot"
+    public static let chatImageRPC = "host.chat.image"
+    /// One call shows a small gallery; more is a sign of a loop.
+    public static let chatImageMaxPaths = 10
     public static let hostCallRPC = "host.call"
 
     public static let operationIDKey = "operation_id"
@@ -71,7 +75,7 @@ public enum RemoteCodeHostCatalog: Sendable {
     public static let providerDirective = """
     Parallel Bot tasks: when you are running as a Bot and have independent work, use rc_bot_send with your own bot_id and omit conversation_id to start each task in a fresh conversation. You can start several independent tasks without waiting; the host records a task link in this chat that opens the task alongside it. Use a focused text for each task. Never send the task back to the active conversation, recursively multiply tasks, or run simultaneous edits against the same files. Preserve current execution context, model, effort and permissions. The returned run_id and conversation_id identify the accepted task, not completion. Observe Activity or the task conversation before claiming success. Ordinary agents retain their existing behavior.
 
-    Built-in RemoteCode intents (create or list workspaces, Agent App threads, Bots, Bot desk threads, and owned Bot skills) must call the named tools \(workspaceCreate), \(workspaceList), \(threadCreate), \(threadList), \(botCreate), \(botList), \(botOpen), \(botSend), \(botThreadCreate), \(botSkillCreate), and \(botSkillView). To answer what is happening in RemoteCode (running or idle threads, Bots, scheduled tasks, items that need the user) call \(activityList). To ask another Bot by name to do something call \(botDelegate). To fire a workspace's next scheduled task now call \(scheduledTaskRunNext); for a named routine first inspect scheduled_task.list and run its exact task/routine id. To capture the Mac browser into the calling Agent thread, call \(browserScreenshot); it accepts optional surface_id and reason, and requires operation_id. For a consulted Bot's skill files, use \(botSkillCreate) and \(botSkillView); `bot_write_home_file` is only for the calling Bot's own home. Titio alone may call \(genericHostCallTool) to run any RemoteCode JSON-RPC method the app UI uses. Discover interaction topics, methods and parameter guidance with \(hostHelp) before constructing unfamiliar calls; prefer a named tool when one fits. Other Bots must not call \(genericHostCallTool). Do not use Computer Use, macos-harness, Accessibility (AX), or clicking the RemoteCode UI as a fallback for these intents. Every mutation must supply a unique `operation_id`. If a mutation reply is lost, read back with the matching list/view tool instead of retrying with a new id.
+    Built-in RemoteCode intents (create or list workspaces, Agent App threads, Bots, Bot desk threads, and owned Bot skills) must call the named tools \(workspaceCreate), \(workspaceList), \(threadCreate), \(threadList), \(botCreate), \(botList), \(botOpen), \(botSend), \(botThreadCreate), \(botSkillCreate), and \(botSkillView). To answer what is happening in RemoteCode (running or idle threads, Bots, scheduled tasks, items that need the user) call \(activityList). To ask another Bot by name to do something call \(botDelegate). To fire a workspace's next scheduled task now call \(scheduledTaskRunNext); for a named routine first inspect scheduled_task.list and run its exact task/routine id. To show the user an image, screenshot or rendered file (PNG, JPEG, GIF, WebP, HEIC, SVG) in this chat, save it to a local file and call \(chatImage) with its absolute paths; never answer with only a file path. To capture the RemoteCode Mac browser into the calling Agent thread, call \(browserScreenshot); it accepts optional surface_id and reason, and requires operation_id. For any other browser (Playwright, Chrome), save its screenshot to a file and use \(chatImage). For a consulted Bot's skill files, use \(botSkillCreate) and \(botSkillView); `bot_write_home_file` is only for the calling Bot's own home. Titio alone may call \(genericHostCallTool) to run any RemoteCode JSON-RPC method the app UI uses. Discover interaction topics, methods and parameter guidance with \(hostHelp) before constructing unfamiliar calls; prefer a named tool when one fits. Other Bots must not call \(genericHostCallTool). Do not use Computer Use, macos-harness, Accessibility (AX), or clicking the RemoteCode UI as a fallback for these intents. Every mutation must supply a unique `operation_id`. If a mutation reply is lost, read back with the matching list/view tool instead of retrying with a new id.
     For Activity, pass section/outcome/workspace_id/search and follow cursor; include_context:true loads the full inventory and notification options. For "continue all interrupted conversations", filter section=needs_you and outcome=interrupted, collect pages, then Titio uses rc_host_batch with agent.run.continue for the exact thread ids. rc_host_batch accepts independent calls, each with its own operation_id; every result/error must be checked. Do not wait for one independent run to finish before starting the next.
     """
 
@@ -82,13 +86,13 @@ public enum RemoteCodeHostCatalog: Sendable {
             botCreate, botList, botOpen, botSend, botThreadCreate,
             botSkillCreate, botSkillView,
             activityList, hostHelp, hostBatch, botDelegate, scheduledTaskRunNext, browserScreenshot,
-            genericHostCallTool,
+            chatImage, genericHostCallTool,
         ]
     }
 
     public static let mutationToolNames: Set<String> = [
         workspaceCreate, threadCreate, botCreate, botOpen, botSend, botThreadCreate, botSkillCreate,
-        botDelegate, scheduledTaskRunNext, browserScreenshot, genericHostCallTool,
+        botDelegate, scheduledTaskRunNext, browserScreenshot, chatImage, genericHostCallTool,
     ]
 
     public static let rpcMethods: Set<String> = [
@@ -97,13 +101,13 @@ public enum RemoteCodeHostCatalog: Sendable {
         botCreateRPC, botListRPC, botOpenRPC, botSendRPC, botThreadCreateRPC,
         botSkillCreateRPC, botSkillViewRPC,
         activityListRPC, hostHelpRPC, hostBatchRPC, botDelegateRPC, scheduledTaskRunNextRPC, browserScreenshotRPC,
-        hostCallRPC,
+        chatImageRPC, hostCallRPC,
     ]
 
     public static let rpcMutationMethods: Set<String> = [
         workspaceCreateRPC, threadCreateRPC,
         botCreateRPC, botOpenRPC, botSendRPC, botThreadCreateRPC, botSkillCreateRPC,
-        botDelegateRPC, scheduledTaskRunNextRPC, browserScreenshotRPC, hostCallRPC,
+        botDelegateRPC, scheduledTaskRunNextRPC, browserScreenshotRPC, chatImageRPC, hostCallRPC,
     ]
 
     public static func rpcMethod(for tool: String) -> String? {
@@ -125,6 +129,7 @@ public enum RemoteCodeHostCatalog: Sendable {
         case botDelegate: return botDelegateRPC
         case scheduledTaskRunNext: return scheduledTaskRunNextRPC
         case browserScreenshot: return browserScreenshotRPC
+        case chatImage: return chatImageRPC
         case genericHostCallTool: return hostCallRPC
         default: return nil
         }
@@ -179,7 +184,9 @@ public enum RemoteCodeHostCatalog: Sendable {
         case scheduledTaskRunNext:
             return "Run a workspace's next scheduled task now through the in-app scheduler. The workspace is a name or id; task_id optionally picks a specific task in it. Requires operation_id."
         case browserScreenshot:
-            return "Capture the Mac browser and add its screenshot to the authenticated calling Agent thread. Optional surface_id selects the browser surface; reason is a short explanation. Requires operation_id."
+            return "Capture the RemoteCode Mac browser and add its screenshot to the authenticated calling Agent thread. Optional surface_id selects the browser surface; reason is a short explanation. Requires operation_id. For Playwright, Chrome or any other screenshot, save it to a file and use rc_chat_image."
+        case chatImage:
+            return "Show images in the calling chat so the user sees them on Mac and iPhone. Pass 1-10 absolute paths of local image files (screenshots, renders, diagrams); each becomes an image in one assistant message with the optional caption. Use this instead of replying with file paths. Requires operation_id."
         case genericHostCallTool:
             return "Titio only. Run a MacCode JSON-RPC method through the same host controls as the UI. Use rc_host_help for unfamiliar calls. host_id and client_request_id are filled in by the host. Requires operation_id for every call. Read-only calls work in supervised mode; mutations require Full Access. Use rc_host_batch for independent calls. Read back mutations; accepted/queued is not completion."
         default:
@@ -334,6 +341,17 @@ public enum RemoteCodeHostCatalog: Sendable {
                     "reason": ["type": "string", "maxLength": 500],
                 ]) { _, new in new },
                 required: [operationIDKey]
+            )
+        case chatImage:
+            return objectSchema(
+                properties: operationID.merging([
+                    "paths": [
+                        "type": "array", "minItems": 1, "maxItems": chatImageMaxPaths,
+                        "items": ["type": "string", "description": "Absolute path of a local image file."],
+                    ],
+                    "caption": ["type": "string", "maxLength": 500],
+                ]) { _, new in new },
+                required: ["paths", operationIDKey]
             )
         default:
             return objectSchema(properties: [:], required: [])

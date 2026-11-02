@@ -120,6 +120,7 @@ public enum HostMutationContract {
     browser.mirror_url.get
     browser.screenshot
     host.browser.screenshot
+    host.chat.image
     ssh.connect
     ssh.disconnect
     ssh.host.upsert
@@ -236,6 +237,7 @@ public enum HostMutationContract {
         case uuidArrayWithAtLeastOne(String)
         /// An array of UUID strings; may be empty.
         case uuidArray(String)
+        case stringArrayWithAtLeastOne(String)
         case surfaceSplitTarget
         case requiredSSHProfile
         case optionalSSHProfile
@@ -298,6 +300,7 @@ public enum HostMutationContract {
             case .surfaceType(let key): return "\(key): terminal, ssh, browser, agentApp, files, markdown, filePreview or rightSidebarTool"
             case .uuidArrayWithAtLeastOne(let key): return "\(key): array containing at least one UUID"
             case .uuidArray(let key): return "\(key): array of UUIDs"
+            case .stringArrayWithAtLeastOne(let key): return "\(key): array of at least one non-empty string"
             case .surfaceSplitTarget: return "id (existing surface UUID) or type (new surface type) is required"
             case .requiredSSHProfile: return "profile or top-level destination/host is required"
             case .optionalSSHProfile: return "profile is optional; when supplied it needs destination or host"
@@ -367,6 +370,11 @@ public enum HostMutationContract {
         case .uuidArray(let key):
             guard let values = params[key]?.arrayValue,
                   values.allSatisfy({ $0.stringValue.flatMap(UUID.init) != nil }) else {
+                throw JSONRPCError.invalidParams
+            }
+        case .stringArrayWithAtLeastOne(let key):
+            guard let values = params[key]?.arrayValue, !values.isEmpty,
+                  values.allSatisfy({ !($0.stringValue ?? "").isEmpty }) else {
                 throw JSONRPCError.invalidParams
             }
         case .uuidArrayWithAtLeastOne(let key):
@@ -595,6 +603,7 @@ public enum HostMutationContract {
         case "host.bot.delegate": return [.string("bot", nonempty: true), .string("text", nonempty: true)]
         case "host.scheduled_task.run_next": return [.string("workspace", nonempty: true)]
         case "host.browser.screenshot": return [.uuid("thread_id"), .optionalUUID("surface_id"), .optionalString("reason")]
+        case "host.chat.image": return [.uuid("thread_id"), .stringArrayWithAtLeastOne("paths"), .optionalString("caption")]
         case "fs.mkdir": return [.string("path", nonempty: true)]
         case "fs.workspace.create_file": return [.uuid("workspace_id"), .string("path")]
         case "fs.workspace.delete": return [.uuid("workspace_id")]
@@ -675,6 +684,7 @@ public enum HostMutationContract {
         case .surfaceType(let key): params[key] = .string("terminal")
         case .uuidArrayWithAtLeastOne(let key): params[key] = .array([.string(probeUUID)])
         case .uuidArray(let key): params[key] = .array([.string(probeUUID)])
+        case .stringArrayWithAtLeastOne(let key): params[key] = .array([.string("/tmp/probe.png")])
         case .surfaceSplitTarget: params["type"] = .string("terminal")
         case .requiredSSHProfile: params["destination"] = .string("host.example")
         case .optionalSSHProfile: break
@@ -765,6 +775,11 @@ public enum HostMutationContract {
             add("\(key).missing") { $0.removeValue(forKey: key) }
             add("\(key).type") { $0[key] = .bool(true) }
             add("\(key).uuid") { $0[key] = .array([.string("not-a-uuid")]) }
+        case .stringArrayWithAtLeastOne(let key):
+            add("\(key).missing") { $0.removeValue(forKey: key) }
+            add("\(key).type") { $0[key] = .bool(true) }
+            add("\(key).empty") { $0[key] = .array([]) }
+            add("\(key).item") { $0[key] = .array([.bool(true)]) }
         case .uuidArrayWithAtLeastOne(let key):
             add("\(key).missing") { $0.removeValue(forKey: key) }
             add("\(key).type") { $0[key] = .bool(true) }

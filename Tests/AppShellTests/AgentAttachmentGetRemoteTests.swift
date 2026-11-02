@@ -134,6 +134,35 @@ final class AgentAttachmentGetRemoteTests: XCTestCase {
 
     /// The phone hears about the screenshot as soon as the row is written, and
     /// the reference in that event is enough to fetch the exact JPEG.
+    /// WHY: an agent that rendered images or used Playwright had no way to show
+    /// them in the chat and answered with /tmp paths the phone cannot open.
+    func test_postChatImages_appendsOneAssistantMessageWithEveryImage() throws {
+        let f = try makeFixture()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rc-chat-image-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let first = dir.appendingPathComponent("maquete.jpg")
+        let second = dir.appendingPathComponent("planta.jpg")
+        try jpeg(width: 320, height: 200).write(to: first)
+        try jpeg(width: 200, height: 320).write(to: second)
+
+        let result = try f.router.postChatImages(callerThread: f.thread.id, paths: [first.path, second.path], caption: "Maquete e planta")
+
+        let stored = try XCTUnwrap(try f.ctx.messageRepo.list(threadId: f.thread.id).last)
+        XCTAssertEqual(stored.role, .assistant)
+        XCTAssertEqual(stored.content, "Maquete e planta")
+        XCTAssertEqual(stored.attachments.map(\.kind), [.image, .image])
+        XCTAssertEqual(result.objectValue?["attachment_ids"]?.arrayValue?.count, 2)
+
+        let text = dir.appendingPathComponent("notes.txt")
+        try Data("x".utf8).write(to: text)
+        XCTAssertThrowsError(try f.router.postChatImages(callerThread: f.thread.id, paths: [text.path], caption: nil),
+                             "only images are posted")
+        XCTAssertThrowsError(try f.router.postChatImages(callerThread: f.thread.id, paths: [dir.appendingPathComponent("missing.png").path], caption: nil),
+                             "a missing file is reported, not posted")
+        XCTAssertEqual(try f.ctx.messageRepo.list(threadId: f.thread.id).count, 1, "rejected calls add no message")
+    }
+
     func test_screenshotPosted_publishesAppendedEventWhoseAttachmentIsFetchable() async throws {
         let f = try makeFixture()
         let log = EventLog()

@@ -1295,7 +1295,8 @@ final class Phase4MutationReceiptContractTests: XCTestCase {
         // + bot.vm.save and bot.execution.set (shared virtual machines).
         // + fs.mkdir, git.fetch/pull and ssh.files.remote.mkdir/rename/delete (iOS controls),
         // + bot.notice.reply.
-        XCTAssertEqual(canonical.count, 200)
+        // + host.chat.image (agents post local images to their own chat).
+        XCTAssertEqual(canonical.count, 201)
         XCTAssertEqual(JSONRPCDispatcher.hostMutationMethods, canonical,
                        "every and only canonical host mutators must enter the Phase 4 gate")
     }
