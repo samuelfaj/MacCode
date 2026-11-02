@@ -1370,4 +1370,47 @@ final class AgentTurnCheckpointRepositoryTests: XCTestCase {
             "MainActor run loop must keep pumping while gateway SQLite work is delayed"
         )
     }
+
+    func testGatewayLegacyFullListNeverRunsOnMainThread() async throws {
+        // WHY: an iPhone that falls back to the legacy agent.checkpoint.list
+        // made the Mac read hundreds of MB of checkpoint blobs on MainActor,
+        // freezing the host past the iPhone's 15 s snapshot deadline so the
+        // phone stayed "connecting" forever. The full-row read must hop off main.
+        let db = try makeDB()
+        let gateway = AgentTurnCheckpointListGateway(db: db)
+        let (tid, rid) = try seedThreadAndRun(db: db)
+        try AgentTurnCheckpointRepository(db: db).upsert(makeHeavyCheckpoint(
+            threadId: tid,
+            turnCount: 1,
+            turnId: "gw-full-1",
+            runId: rid,
+            completedAt: Date(timeIntervalSince1970: 1_700_005_000)
+        ))
+
+        AgentTurnCheckpointListGateway.resetExecutionProbesForTesting()
+        AgentTurnCheckpointListGateway.queryDelayNanosecondsForTesting = 40_000_000
+        defer { AgentTurnCheckpointListGateway.resetExecutionProbesForTesting() }
+
+        var heartbeats = 0
+        let heartbeat = Task { @MainActor in
+            while !Task.isCancelled {
+                heartbeats += 1
+                try? await Task.sleep(nanoseconds: 2_000_000)
+            }
+        }
+
+        let rows = try await gateway.listFull(threadId: tid)
+        heartbeat.cancel()
+        _ = await heartbeat.result
+
+        XCTAssertEqual(rows.map(\.turnId), ["gw-full-1"])
+        XCTAssertFalse(rows[0].fileSnapshots.isEmpty, "legacy list keeps full rows")
+        XCTAssertEqual(AgentTurnCheckpointListGateway.queryOnMainActorCountForTesting, 0)
+        XCTAssertEqual(AgentTurnCheckpointListGateway.queryOffMainActorCountForTesting, 1)
+        XCTAssertGreaterThan(
+            heartbeats,
+            3,
+            "MainActor run loop must keep pumping while the legacy full list reads"
+        )
+    }
 }

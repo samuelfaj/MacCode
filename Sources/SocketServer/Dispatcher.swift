@@ -274,7 +274,9 @@ public protocol CommandRouting: AnyObject {
         maxPayloadBytes: Int64?
     ) async throws -> AgentThreadMirrorSnapshot
     func rollbackAgentThread(thread: AgentThreadID, toTurnId: String) async throws
-    func listAgentThreadCheckpoints(thread: AgentThreadID) throws -> [AgentTurnCheckpointSummary]
+    /// Legacy full-row list. Must not read SQLite on MainActor: blob columns
+    /// can total hundreds of MB per thread.
+    func listAgentThreadCheckpoints(thread: AgentThreadID) async throws -> [AgentTurnCheckpointSummary]
     /// Metadata page for `agent.checkpoint.list` response_version 1.
     /// Must hop off MainActor for SQLite query/decode (see AgentTurnCheckpointListGateway).
     /// `expectedCatalogRevision` is preclaimed inside the read snapshot before page scan.
@@ -4801,7 +4803,13 @@ public final class JSONRPCDispatcher {
                     params: params,
                     fullRequest: req
                 )
-                return .init(id: id, result: encode(try router.listAgentThreadCheckpoints(thread: tid)))
+                let checkpoints = try await router.listAgentThreadCheckpoints(thread: tid)
+                // Encoding the full rows on MainActor froze the host for seconds.
+                let result = await Task.detached(priority: .userInitiated) {
+                    guard let data = try? JSONEncoder().encode(checkpoints) else { return JSONValue.null }
+                    return (try? JSONDecoder().decode(JSONValue.self, from: data)) ?? .null
+                }.value
+                return .init(id: id, result: result)
             case "agent.checkpoint.diff":
                 // QA-XPLAT :19 -- accept both `turn_count` (mac-native) and
                 // `checkpoint_turn_count` (what the iOS client sends). Sending only
