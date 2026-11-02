@@ -81,6 +81,19 @@ final class DistillAccountsTests: XCTestCase {
         Dictionary(uniqueKeysWithValues: accounts.statuses().map { ($0.provider, $0.connected) })
     }
 
+    func test_expiredClaudeCredentialExposesSignInWithoutDiscardingQuota() throws {
+        try write(#"{"access_token":"test","expires_at":"2020-01-01T00:00:00.000Z"}"#, to: "claude-auth.json")
+        let quota = DistillAccountQuota(accountID: "legacy-claude", checkedAt: "now", status: "unavailable", remainingPercent: 6)
+        let account = DistillAccountStatus(provider: .claude, connected: true, quota: quota)
+        let expired = makeAccounts().accountWithAuthenticationState(account)
+        XCTAssertEqual(expired.connectionError, "Session expired. Sign in again to refresh usage.")
+        XCTAssertTrue(expired.connected, "Keep the account and its last known ring visible")
+        XCTAssertEqual(expired.quota, quota)
+        try write(#"{"access_token":"test","expires_at":"2099-01-01T00:00:00Z"}"#, to: "claude-auth.json")
+        XCTAssertNil(makeAccounts().accountWithAuthenticationState(account).connectionError,
+                     "A transient usage failure with a valid credential must not be labeled expired")
+    }
+
     // MARK: statuses
 
     func test_statuses_missingFilesAreDisconnectedInAllCasesOrder() {
