@@ -357,7 +357,7 @@ public struct DistillAccountsPanel: View {
                     Text(account.provider.displayName).font(DS.Font.caption).foregroundStyle(DS.Palette.textTertiary).lineLimit(1)
                 }
                 HStack(spacing: 6) {
-                    Circle().fill(account.connected ? DS.Palette.success : DS.Palette.textTertiary).frame(width: 6, height: 6)
+                    Circle().fill(account.connectionError != nil ? DS.Palette.warning : (account.connected ? DS.Palette.success : DS.Palette.textTertiary)).frame(width: 6, height: 6)
                     Text(account.connected ? (account.email ?? "Connected") : "Not connected")
                         .font(DS.Font.caption).foregroundStyle(DS.Palette.textSecondary)
                         .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
@@ -388,10 +388,15 @@ public struct DistillAccountsPanel: View {
                 }
             } else {
                 HStack(spacing: DS.Space.sm) {
-                    if !account.connected {
-                        Button("Connect") { connectAccount(account.id) }.buttonStyle(DSPrimaryButtonStyle())
+                    if !account.connected || account.connectionError != nil {
+                        Button(account.connected ? "Sign in again" : "Connect") { connectAccount(account.id) }
+                            .buttonStyle(DSPrimaryButtonStyle())
+                            .accessibilityIdentifier("agent.accounts.\(account.id).connect")
                     }
                     Menu {
+                        if account.connected {
+                            Button("Sign in again") { connectAccount(account.id) }
+                        }
                         Button("Refresh quota") { refreshQuota(account.id) }.disabled(!account.connected)
                         Button("Rename") { renamedLabel = account.label; renameAccount = account }
                         if account.connected || !account.legacy { Divider() }
@@ -400,7 +405,7 @@ public struct DistillAccountsPanel: View {
                         }
                         // Distill refuses to remove a provider's default (legacy) account; Disconnect covers it.
                         if !account.legacy {
-                            Button("Remove…", role: .destructive) { removing = true; confirmation = account }
+                            Button("Remove account…", role: .destructive) { removing = true; confirmation = account }
                         }
                     } label: {
                         Image(systemName: "ellipsis").frame(width: 24, height: 24)

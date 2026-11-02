@@ -13,10 +13,12 @@ public struct AccountUsageEntry: Equatable, Identifiable, Sendable {
     public let email: String?
     public let usage: DistillAccountUsage?
     public let usageIsStale: Bool
+    public let connectionError: String?
 
-    public init(id: String, provider: DistillAccountProvider, label: String, email: String? = nil, usage: DistillAccountUsage?, usageIsStale: Bool = false) {
+    public init(id: String, provider: DistillAccountProvider, label: String, email: String? = nil, usage: DistillAccountUsage?, usageIsStale: Bool = false, connectionError: String? = nil) {
         self.id = id; self.provider = provider; self.label = label; self.email = email; self.usage = usage
         self.usageIsStale = usageIsStale
+        self.connectionError = connectionError
     }
 
     /// Connected subscription accounts only, in the order Distill lists them.
@@ -24,7 +26,7 @@ public struct AccountUsageEntry: Equatable, Identifiable, Sendable {
         statuses.filter { $0.connected && $0.provider != .openrouter }.map {
             AccountUsageEntry(id: $0.id, provider: $0.provider, label: displayLabel($0), email: $0.email,
                               usage: DistillAccountUsage(quota: $0.quota),
-                              usageIsStale: $0.quota?.status != "available")
+                              usageIsStale: $0.quota?.status != "available", connectionError: $0.connectionError)
         }
     }
 
@@ -224,7 +226,7 @@ struct AccountUsageSidebarControl: View {
                     .padding(.leading, 12)
             }
             if entry.usageIsStale {
-                Text(entry.usage == nil ? "Usage unavailable" : "Usage unavailable. Last known values:")
+                Text(entry.connectionError ?? (entry.usage == nil ? "Usage unavailable" : "Usage unavailable. Last known values:"))
                     .font(DS.Font.caption2).foregroundColor(DS.Palette.textTertiary)
             }
             usageBar("Session", percent: entry.usage?.sessionUsedPercent, color: color, stale: entry.usageIsStale)

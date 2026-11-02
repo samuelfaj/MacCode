@@ -44,6 +44,8 @@ public final class DistillAccountsController: ObservableObject {
     @Published public private(set) var hasLoadedState = false
     @Published public private(set) var isRefreshing = false
     @Published public private(set) var isRefreshingUsage = false
+    @Published public private(set) var usageRefreshError: String?
+    @Published public private(set) var usageLastUpdated: Date?
     private(set) var stateError: String?
     private var refreshTask: Task<Void, Never>?
     private var usageRefreshTask: Task<Bool, Never>?
@@ -181,6 +183,7 @@ public final class DistillAccountsController: ObservableObject {
         if let lastUsageProbeAt, now.timeIntervalSince(lastUsageProbeAt) < minimumInterval { return false }
         lastUsageProbeAt = now
         isRefreshingUsage = true
+        usageRefreshError = nil
         defer { isRefreshingUsage = false }
         let token = generation
         let task = Task { @MainActor in
@@ -203,6 +206,13 @@ public final class DistillAccountsController: ObservableObject {
         usageRefreshTask = task
         let succeeded = await task.value
         usageRefreshTask = nil
+        if generation == token {
+            if succeeded {
+                usageLastUpdated = now
+            } else {
+                usageRefreshError = "Some usage could not be refreshed. Check the account connection in Accounts & Auto routing."
+            }
+        }
         return succeeded
     }
     public func saveRouting(_ draft: DistillAutoRouting) {

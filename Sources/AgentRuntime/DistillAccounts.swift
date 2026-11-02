@@ -315,7 +315,26 @@ public final class DistillAccounts: Sendable {
     public func loadState() async throws -> DistillAccountsState {
         let accounts: [DistillAccountStatus] = try await jsonCLI(["accounts", "list"])
         let routing = try await loadRouting()
-        return DistillAccountsState(accounts: accounts, routing: routing)
+        return DistillAccountsState(accounts: accounts.map(accountWithAuthenticationState), routing: routing)
+    }
+
+    // The CLI considers a stored bearer connected even after renewal failed.
+    // Keep its cached quota, but expose expiry so the user can sign in again.
+    func accountWithAuthenticationState(_ account: DistillAccountStatus) -> DistillAccountStatus {
+        guard account.provider == .claude, account.connected, account.quota?.status != "available",
+              let home = try? Self.credentialHome(account: account, home: home),
+              let directory = try? PrivateDirectory(home, create: false) else { return account }
+        defer { directory.close() }
+        guard let data = directory.read(account.provider.credentialFileName),
+              let credential = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rawExpiry = credential["expires_at"] as? String else { return account }
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let expiry = parser.date(from: rawExpiry) ?? ISO8601DateFormatter().date(from: rawExpiry),
+              expiry <= Date() else { return account }
+        return DistillAccountStatus(provider: account.provider, connected: account.connected, email: account.email,
+            id: account.id, label: account.label, legacy: account.legacy,
+            connectionError: "Session expired. Sign in again to refresh usage.", quota: account.quota)
     }
 
     public func loadRouting() async throws -> DistillAutoRouting {

@@ -611,6 +611,7 @@ public final class SidebarViewModel: ObservableObject {
     /// One entry per logged-in Distill account (several Claude logins are several rings).
     @Published public private(set) var accountUsageEntries: [AccountUsageEntry] = []
     private var accountStatusesSink: AnyCancellable?
+    private var accountUsageRefreshSink: AnyCancellable?
     /// True while a background account-usage refresh (CLI probe) is in flight.
     @Published public private(set) var accountUsageIsRefreshing: Bool = false
     @Published public private(set) var accountUsageRefreshError: String?
@@ -761,6 +762,16 @@ public final class SidebarViewModel: ObservableObject {
                 // The iPhone rings and widget read the same account list.
                 self.context?.publishAccountUsageDigestFromDisk()
             }
+        accountUsageRefreshSink = Publishers.CombineLatest3(
+            accountsController.$isRefreshingUsage,
+            accountsController.$usageRefreshError,
+            accountsController.$usageLastUpdated
+        ).sink { [weak self] refreshing, error, updated in
+            guard let self else { return }
+            if self.accountUsageIsRefreshing != refreshing { self.accountUsageIsRefreshing = refreshing }
+            if self.accountUsageRefreshError != error { self.accountUsageRefreshError = error }
+            if self.accountUsageLastUpdated != updated { self.accountUsageLastUpdated = updated }
+        }
         if !accountsController.hasLoadedState { accountsController.refresh() }
     }
 
@@ -1758,18 +1769,10 @@ public final class SidebarViewModel: ObservableObject {
     public func refreshAccountUsageForDetails() {
         guard !accountUsageIsRefreshing else { return }
         guard privateAccountUser != nil, let controller = context?.distillAccountsController else { return }
-        accountUsageIsRefreshing = true
-        accountUsageRefreshError = nil
         Task { @MainActor [weak self] in
-            let refreshed = await controller.refreshAllUsage()
-            guard let self else { return }
-            self.accountUsageIsRefreshing = false
-            if refreshed {
-                self.accountUsageLastUpdated = Date()
-            } else {
-                self.accountUsageRefreshError = "Some usage could not be refreshed. Check the account connection in Accounts & Auto routing."
-            }
-            self.context?.publishAccountUsageDigestFromDisk(isRefreshing: false)
+            // Reopening details must not bypass the quota probe cooldown.
+            await controller.refreshAllUsage(minimumInterval: DistillAccountsController.periodicUsageProbeInterval)
+            self?.context?.publishAccountUsageDigestFromDisk(isRefreshing: false)
         }
     }
 

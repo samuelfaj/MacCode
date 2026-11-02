@@ -62,6 +62,44 @@ final class DistillAccountsControllerTests: XCTestCase {
         }
     }
 
+    func test_sidebarFollowsBackgroundUsageRefreshAndRecovery() async throws {
+        let support = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: support) }
+        let context = try AppContext(channel: .debug, appSupportOverride: support.path)
+        let accounts = Accounts()
+        accounts.statusesValue = [.init(provider: .claude, connected: true, id: "a")]
+        accounts.holdUsage = true
+        let controller = DistillAccountsController(accounts: accounts)
+        context.distillAccountsController = controller
+        let sidebar = SidebarViewModel(context: context, router: AppCommandRouter(context: context))
+        let refresh = Task { await controller.refreshAllUsage() }
+        for _ in 0..<100 where accounts.usageContinuation == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(sidebar.accountUsageIsRefreshing, "Periodic and Settings probes must show in the popover")
+        accounts.usageContinuation?.resume()
+        let failed = await refresh.value
+        XCTAssertFalse(failed)
+        XCTAssertFalse(sidebar.accountUsageIsRefreshing)
+        XCTAssertNotNil(sidebar.accountUsageRefreshError)
+        XCTAssertNil(sidebar.accountUsageLastUpdated)
+
+        accounts.holdUsage = false
+        accounts.quotaByID["a"] = .init(accountID: "a", checkedAt: "now", status: "available", remainingPercent: 60)
+        let now = Date()
+        let recovered = await controller.refreshAllUsage(now: now)
+        XCTAssertTrue(recovered)
+        XCTAssertNil(sidebar.accountUsageRefreshError, "Recovery outside the popover must clear its old error")
+        XCTAssertEqual(sidebar.accountUsageLastUpdated, now)
+        XCTAssertEqual(sidebar.accountUsageEntries.first?.usage?.ringPercent, 40)
+        let skipped = await controller.refreshAllUsage(
+            minimumInterval: DistillAccountsController.periodicUsageProbeInterval, now: now.addingTimeInterval(1))
+        XCTAssertFalse(skipped)
+        XCTAssertNil(sidebar.accountUsageRefreshError, "Skipping a recent probe is not a refresh failure")
+        XCTAssertEqual(sidebar.accountUsageLastUpdated, now)
+        XCTAssertEqual(accounts.refreshedIDs, ["a", "a"])
+    }
+
     func test_usageRefreshLoadsAccountsAndSkipsPrepaidAndDisconnectedAccounts() async {
         let accounts = Accounts()
         let controller = DistillAccountsController(accounts: accounts)
