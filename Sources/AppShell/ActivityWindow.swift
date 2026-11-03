@@ -227,8 +227,8 @@ final class ActivityViewModel: ObservableObject {
     @Published private(set) var batchRunning = false
     @Published private(set) var showingCachedResults = false
     @Published private(set) var hasSuccessfulSnapshot = false
-    @Published var tab: Tab { didSet { needsInitialTabChoice = false; resetSelectionForFilterChange(); if tab != .finished && !outcome.isEmpty { outcome = "" }; persist(); if !applyingInitialTabChoice { refreshAfterFrame() } } }
-    @Published var search = "" { didSet { resetSelectionForFilterChange(); persist(); refreshAfterFrame() } }
+    @Published var tab: Tab { didSet { needsInitialTabChoice = false; resetSelectionForFilterChange(); persist(); if !applyingInitialTabChoice { refreshAfterFrame() } } }
+    @Published var search = "" { didSet { resetSelectionForFilterChange(keepingSelection: true); persist(); refreshAfterFrame() } }
     @Published var outcome = "" { didSet { resetSelectionForFilterChange(); persist(); refreshAfterFrame() } }
     @Published var workspaceID = "" { didSet { resetSelectionForFilterChange(); persist(); refreshAfterFrame() } }
     @Published var period: Period { didSet { guard oldValue != period else { return }; resetSelectionForFilterChange(); persist(); refreshAfterFrame() } }
@@ -251,6 +251,10 @@ final class ActivityViewModel: ObservableObject {
     private var eventSubscription: UUID?
     private var refreshInvalidationPending = false
     private var requestedTargetID: String?
+    /// The search the open row was last confirmed under; a search change must not keep a row that left its results.
+    private var selectionSearch = ""
+    private var missingTargetID: String?
+    private static let missingTargetMessage = "Requested activity result was not found."
     /// Only a notification route names its target explicitly. A selection restored from
     /// defaults is local convenience: when its row has moved section it is dropped quietly.
     private var requestedTargetIsExplicit = false
@@ -262,7 +266,8 @@ final class ActivityViewModel: ObservableObject {
         needsInitialTabChoice = restored == nil
         tab = restored ?? .running
         search = defaults.string(forKey: "activity.search") ?? ""
-        outcome = restored == .finished ? (defaults.string(forKey: "activity.outcome") ?? "") : ""
+        selectionSearch = defaults.string(forKey: "activity.search") ?? ""
+        outcome = defaults.string(forKey: "activity.outcome") ?? ""
         workspaceID = defaults.string(forKey: "activity.workspace") ?? ""
         period = Period(rawValue: defaults.string(forKey: "activity.period") ?? "all") ?? .all
         activeSince = period.since
@@ -286,7 +291,8 @@ final class ActivityViewModel: ObservableObject {
         needsInitialTabChoice = restored == nil
         tab = restored ?? .running
         search = defaults.string(forKey: "activity.search") ?? ""
-        outcome = restored == .finished ? (defaults.string(forKey: "activity.outcome") ?? "") : ""
+        selectionSearch = defaults.string(forKey: "activity.search") ?? ""
+        outcome = defaults.string(forKey: "activity.outcome") ?? ""
         workspaceID = defaults.string(forKey: "activity.workspace") ?? ""
         period = Period(rawValue: defaults.string(forKey: "activity.period") ?? "all") ?? .all
         activeSince = period.since
@@ -326,15 +332,17 @@ final class ActivityViewModel: ObservableObject {
     }
 
     private var cacheKey: String {
-        "activity.page.\(tab.rawValue).\(workspaceID).\(outcome).\(period.rawValue).\(search)"
+        "activity.page.\(tab.rawValue).\(workspaceID).\(tab == .finished ? outcome : "").\(period.rawValue).\(search)"
     }
 
-    private func resetSelectionForFilterChange() {
-        requestedTargetID = nil
-        selectedID = nil
-        scrollID = nil
-        detail = nil
-        scrollRestored = false
+    private func resetSelectionForFilterChange(keepingSelection: Bool = false) {
+        if !keepingSelection {
+            requestedTargetID = nil
+            selectedID = nil
+            scrollID = nil
+            detail = nil
+            scrollRestored = false
+        }
         if let data = defaults.data(forKey: cacheKey), let cached = try? JSONDecoder().decode(ActivityWirePage.self, from: data) {
             page = cached
             cursor = cached.next_cursor
@@ -377,10 +385,14 @@ final class ActivityViewModel: ObservableObject {
 
     func applyRoute(intent: NotificationRouteIntent) {
         tab = .finished
-        workspaceID = intent.workspaceId?.value.uuidString ?? ""
-        search = ""
-        outcome = ""
-        period = .all
+        if intent.activityItemId == nil {
+            workspaceID = intent.workspaceId?.value.uuidString ?? ""
+            search = ""
+            outcome = ""
+            period = .all
+        } else if let workspace = intent.workspaceId?.value.uuidString {
+            workspaceID = workspace
+        }
         selectedID = nil
         scrollID = nil
         requestedTargetID = intent.activityItemId
@@ -415,12 +427,16 @@ final class ActivityViewModel: ObservableObject {
                 self.hasSuccessfulSnapshot = true
                 if let selectedID = self.selectedID {
                     self.detail = next.items.first(where: { $0.id == selectedID })
-                    // Opening a row marks it read, which drops it from Just finished;
-                    // the open row stays in place until the user leaves it.
-                    if self.detail == nil, self.tab == .justFinished, let openedDetail, openedDetail.id == selectedID {
+                    if self.detail != nil { self.selectionSearch = self.search }
+                    // Opening a row marks it read (Just finished) or a run finishes (Running); the open row
+                    // stays in place until the user selects another row, closes it, or changes the filters.
+                    // A row the user dismissed is not kept; only one that left the list for other reasons is.
+                    if self.detail == nil, let openedDetail, openedDetail.id == selectedID, self.selectionSearch == self.search, !self.undoCleared.contains(selectedID) {
+                        var finished = openedDetail
+                        if finished.state == "running" { finished.state = "finished" }
                         let keptBefore = previous.prefix { $0.id != selectedID }.filter { kept in next.items.contains { $0.id == kept.id } }.count
-                        self.page.items.insert(openedDetail, at: min(keptBefore, self.page.items.count))
-                        self.detail = openedDetail
+                        self.page.items.insert(finished, at: min(keptBefore, self.page.items.count))
+                        self.detail = finished
                     }
                 } else {
                     self.detail = nil
@@ -450,9 +466,20 @@ final class ActivityViewModel: ObservableObject {
                     }
                     guard !Task.isCancelled, self.generation == request else { return }
                     if self.detail == nil {
+                        if self.requestedTargetIsExplicit, self.hasActiveFilters {
+                            // The route keeps the filters it mounted with; retry unfiltered before reporting a miss.
+                            self.clearFilters()
+                            self.requestedTargetID = targetID
+                            self.requestedTargetIsExplicit = true
+                            self.selectedID = targetID
+                            self.scrollID = targetID
+                            self.refreshAfterFrame()
+                            return
+                        }
                         if self.requestedTargetIsExplicit {
                             // Stays until dismissed: the next invalidation refresh must not wipe it.
-                            self.error = "Requested activity result was not found."
+                            self.error = Self.missingTargetMessage
+                            self.missingTargetID = targetID
                             self.errorIsFromRefresh = false
                         } else {
                             self.selectedID = nil
@@ -465,6 +492,10 @@ final class ActivityViewModel: ObservableObject {
                 } else if let selectedID = self.selectedID, self.detail == nil {
                     self.selectedID = nil
                     self.scrollID = nil
+                }
+                if let missingTargetID = self.missingTargetID, self.page.items.contains(where: { $0.id == missingTargetID }) {
+                    if self.error == Self.missingTargetMessage { self.error = nil }
+                    self.missingTargetID = nil
                 }
                 if self.needsInitialTabChoice {
                     self.needsInitialTabChoice = false
@@ -512,6 +543,7 @@ final class ActivityViewModel: ObservableObject {
 
     func openDetail(_ item: ActivityWireItem) {
         requestedTargetID = nil
+        selectionSearch = search
         selectedID = item.id
         scrollID = item.id
         detail = item
@@ -837,7 +869,7 @@ final class ActivityViewModel: ObservableObject {
         undoCount = nil
     }
 
-    var hasActiveFilters: Bool { !search.isEmpty || !workspaceID.isEmpty || !outcome.isEmpty || period != .all }
+    var hasActiveFilters: Bool { !search.isEmpty || !workspaceID.isEmpty || (tab == .finished && !outcome.isEmpty) || period != .all }
 
     func clearFilters() {
         if !search.isEmpty { search = "" }
@@ -848,7 +880,7 @@ final class ActivityViewModel: ObservableObject {
 
     private static func listParams(tab: Tab, search: String, outcome: String, workspaceID: String, since: String?, limit: Int = pageSize) -> [String: JSONValue] {
         var params: [String: JSONValue] = ["section": .string(tab.wireValue), "search": .string(search), "limit": .number(Double(limit))]
-        if !outcome.isEmpty { params["outcome"] = .string(outcome) }
+        if tab == .finished, !outcome.isEmpty { params["outcome"] = .string(outcome) }
         if !workspaceID.isEmpty { params["workspace_id"] = .string(workspaceID) }
         if let since { params["since"] = .string(since) }
         return params

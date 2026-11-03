@@ -574,7 +574,8 @@ public final class ScheduledTasksViewModel: ObservableObject {
             }
             runCounts = try store.runCounts()
             // Overview is a full list; do not auto-select a task into the detail page.
-            if let selectedTaskID, !matching.contains(where: { $0.id == selectedTaskID }) {
+            // Only a deleted task leaves the selection; a task hidden by search keeps it.
+            if let selectedTaskID, try store.get(id: selectedTaskID) == nil {
                 suppressSelectedTaskReload = true
                 self.selectedTaskID = nil
                 suppressSelectedTaskReload = false

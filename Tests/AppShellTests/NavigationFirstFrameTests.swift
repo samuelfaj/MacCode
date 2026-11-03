@@ -264,9 +264,15 @@ extension ScheduledTasksWindowTests {
         viewModel.searchText = "does-not-match"
         await viewModel.waitForFreshnessForTesting()
 
-        XCTAssertNil(viewModel.selectedTaskID)
+        XCTAssertEqual(viewModel.selectedTaskID, task.id, "a task hidden by search keeps its selection")
         XCTAssertEqual(viewModel.fullHydrationCountForTesting, beforeScopedSearch,
                        "search changes use the scoped task projection and must not re-run full overview hydration")
+
+        try ScheduledTaskStore(db: context.db).delete(id: task.id)
+        viewModel.searchText = ""
+        await viewModel.waitForFreshnessForTesting()
+
+        XCTAssertNil(viewModel.selectedTaskID, "a deleted task clears the selection")
         XCTAssertEqual(viewModel.fullHydrationCountForTesting, beforeFilter + 1)
     }
 

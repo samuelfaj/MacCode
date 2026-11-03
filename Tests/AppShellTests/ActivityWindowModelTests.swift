@@ -836,4 +836,108 @@ final class ActivityWindowModelTests: XCTestCase {
         XCTAssertEqual(model.page.counts.needs_you, 1)
         XCTAssertNil(model.undoCount)
     }
+
+    func testOpenRunningRowThatFinishesStaysOpenAsFinishedUntilUserLeavesIt() async {
+        // WHY: a run that finishes while open drops out of Running; closing the detail under the reader
+        // hid the result they were reading, and keeping it as "Running" would show a stale state.
+        let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
+        defaults.set("running", forKey: "activity.tab")
+        var finished = false
+        var listCalls = 0
+        let running = item("run:live", state: "running")
+        let model = ActivityViewModel(service: ActivityClient(
+            list: { _ in listCalls += 1; return self.page(finished ? [] : [running]) },
+            setViewed: { _ in self.updated([]) }, acknowledge: { _ in .object([:]) }
+        ), defaults: defaults)
+        model.refreshAfterFrame()
+        await waitUntil("running row loaded") { model.page.items.count == 1 && !model.loading }
+        model.openDetail(running)
+
+        finished = true
+        model.refreshAfterFrame()
+        await waitUntil("refresh after finish") { listCalls == 2 && !model.loading }
+        XCTAssertEqual(model.selectedID, "run:live")
+        XCTAssertEqual(model.detail?.state, "finished", "a kept run must not claim it is still Running")
+        XCTAssertEqual(model.detail?.statusLabel, "Finished")
+        XCTAssertEqual(model.page.items.map(\.id), ["run:live"], "the open row stays in place")
+    }
+
+    func testSearchKeepsOpenRowWhileItMatchesAndClearsOnlyWhenItDropsOut() async {
+        // WHY: typing in search cleared the open detail on every keystroke, even when the row still matched.
+        let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
+        defaults.set("finished", forKey: "activity.tab")
+        let one = item("run:one")
+        let two = item("run:two")
+        let model = ActivityViewModel(service: ActivityClient(
+            list: { params in self.page(params["search"]?.stringValue == "two" ? [two] : [one]) },
+            setViewed: { _ in self.updated([]) }, acknowledge: { _ in .object([:]) }
+        ), defaults: defaults)
+        model.refreshAfterFrame()
+        await waitUntil("initial results") { model.page.items.count == 1 && !model.loading }
+        model.openDetail(one)
+
+        model.search = "one"
+        await waitUntil("search refresh keeps row") { model.page.items.first?.id == "run:one" && !model.loading }
+        XCTAssertEqual(model.selectedID, "run:one")
+        XCTAssertEqual(model.detail?.id, "run:one")
+
+        model.search = "two"
+        await waitUntil("search drops row") { model.page.items.first?.id == "run:two" && !model.loading }
+        XCTAssertNil(model.selectedID, "a row that left the results is no longer selected")
+        XCTAssertNil(model.detail)
+    }
+
+    func testOutcomeFilterSurvivesTabSwitchAndIsOnlySentForResults() async {
+        // WHY: switching to Needs you wiped the outcome filter, so returning to Results lost what the user chose.
+        let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
+        defaults.set("finished", forKey: "activity.tab")
+        defaults.set("failed", forKey: "activity.outcome")
+        var lastParams: [String: JSONValue] = [:]
+        let model = ActivityViewModel(service: ActivityClient(
+            list: { params in lastParams = params; return self.page([]) },
+            setViewed: { _ in self.updated([]) }, acknowledge: { _ in .object([:]) }
+        ), defaults: defaults)
+        XCTAssertEqual(model.outcome, "failed")
+
+        model.tab = .needsYou
+        await waitUntil("Needs you query") { lastParams["section"]?.stringValue == "needs_you" && !model.loading }
+        XCTAssertNil(lastParams["outcome"], "a tab without an outcome filter must not send it")
+        XCTAssertEqual(model.outcome, "failed", "the stored outcome survives the tab switch")
+
+        model.tab = .finished
+        await waitUntil("Results query") { lastParams["section"]?.stringValue == "finished" && !model.loading }
+        XCTAssertEqual(lastParams["outcome"]?.stringValue, "failed", "returning to Results restores the outcome filter")
+    }
+
+    func testRouteToVisibleTargetKeepsCurrentFilters() async {
+        // WHY: a notification for a row already in view must not wipe the search and period the reader set.
+        let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
+        let target = item("run:one")
+        let model = ActivityViewModel(service: ActivityClient(
+            list: { _ in self.page([target]) },
+            setViewed: { _ in self.updated([]) }, acknowledge: { _ in .object([:]) }
+        ), defaults: defaults)
+        model.search = "old search"
+        model.applyRoute(intent: NotificationRouteIntent(threadId: nil, workspaceId: nil, opensActivity: true, activityItemId: "run:one"))
+        await waitUntil("routed target opened") { model.detail?.id == "run:one" && !model.loading }
+        XCTAssertEqual(model.search, "old search", "a visible target must not reset the filters")
+        XCTAssertNil(model.error)
+    }
+
+    func testMissedRouteTargetErrorClearsWhenTheTargetAppears() async {
+        // WHY: "Requested activity result was not found." stayed on screen after the row existed.
+        let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
+        var visible = false
+        let model = ActivityViewModel(service: ActivityClient(
+            list: { _ in self.page(visible ? [self.item("run:late")] : [self.item("other")]) },
+            setViewed: { _ in self.updated([]) }, acknowledge: { _ in .object([:]) }
+        ), defaults: defaults)
+        model.applyRoute(intent: NotificationRouteIntent(threadId: nil, workspaceId: nil, opensActivity: true, activityItemId: "run:late"))
+        await waitUntil("routed miss") { model.error != nil && !model.loading }
+
+        visible = true
+        model.refreshAfterFrame()
+        await waitUntil("target appears") { model.detail?.id == "run:late" && !model.loading }
+        XCTAssertNil(model.error, "a target that now exists must not keep reporting it missing")
+    }
 }

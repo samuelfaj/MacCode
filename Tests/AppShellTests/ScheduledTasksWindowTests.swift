@@ -957,4 +957,27 @@ extension ScheduledTasksWindowTests {
         viewModel.pollActiveRunsOnce()
         XCTAssertNil(viewModel.activeRunPhase(for: task.id), "a cleared phase must not stick to the card")
     }
+
+    @MainActor
+    func test_searchThatHidesSelectedTaskKeepsSelection_becauseFilteringIsNotDeletion() async throws {
+        // WHY: any search that hid the selected task dropped it, so the open detail jumped to the
+        // overview while the user was still looking at that task. Only a deleted task may clear it.
+        let f = try makePollFixture("search-selection")
+        defer { try? FileManager.default.removeItem(atPath: f.directory) }
+        let viewModel = ScheduledTasksViewModel(context: f.context, router: f.router, loadImmediately: false)
+        defer { viewModel.setVisible(false) }
+        viewModel.scheduleFreshnessPass()
+        await viewModel.waitForFreshnessForTesting()
+        viewModel.selectedTaskID = f.task.id
+        await viewModel.waitForFreshnessForTesting()
+
+        viewModel.searchText = "no such task"
+        await viewModel.waitForFreshnessForTesting()
+        XCTAssertEqual(viewModel.selectedTaskID, f.task.id)
+
+        try f.store.delete(id: f.task.id)
+        viewModel.searchText = ""
+        await viewModel.waitForFreshnessForTesting()
+        XCTAssertNil(viewModel.selectedTaskID, "a deleted task must not stay selected")
+    }
 }
