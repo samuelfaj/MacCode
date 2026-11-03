@@ -13114,6 +13114,16 @@ final class BotsWindowTests: XCTestCase {
         }
     }
 
+    func test_dockerRebuildAndStopRequireConfirmationBeforeRunning() throws {
+        // WHY: Rebuild/Stop discard the guest's state; the button must only ask, the dialog runs the action.
+        let bots = try String(contentsOf: sourceURL("Sources/AppShell/BotsWindow.swift"), encoding: .utf8)
+        XCTAssertFalse(bots.contains("onRebuild: { vm.rebuildDockerGuest"))
+        XCTAssertFalse(bots.contains("onStop: { vm.stopDockerGuest"))
+        XCTAssertTrue(bots.contains("vm.pendingDockerConfirm = .rebuild(bot.id)"))
+        XCTAssertTrue(bots.contains("vm.pendingDockerConfirm = .stop(bot.id)"))
+        XCTAssertTrue(bots.contains("\\(name)'s computer?"))
+    }
+
     func test_guestCanvasRunningControlsRenderOffscreen() throws {
         // WHY: Rebuild and Stop must materialize as macOS chrome, not only as
         // source copy that disappears under a conditional running branch.

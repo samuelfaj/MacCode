@@ -1521,16 +1521,21 @@ public struct SettingsView: View {
         .task { await vm.refreshNotificationStatus() }
         .task { await vm.refreshStorageUsage() }
         .onAppear {
-            codexPathDraft = vm.codexPath
-            claudePathDraft = vm.claudePath
-            grokPathDraft = vm.grokPath
-            distillPathDraft = vm.distillPath
+            seedPathDraft(&codexPathDraft, stored: vm.codexPath)
+            seedPathDraft(&claudePathDraft, stored: vm.claudePath)
+            seedPathDraft(&grokPathDraft, stored: vm.grokPath)
+            seedPathDraft(&distillPathDraft, stored: vm.distillPath)
             vm.refreshHostFileAccessState()
         }
         .onChange(of: vm.codexPath) { codexPathDraft = $0 }
         .onChange(of: vm.claudePath) { claudePathDraft = $0 }
         .onChange(of: vm.grokPath) { grokPathDraft = $0 }
         .onChange(of: vm.distillPath) { distillPathDraft = $0 }
+    }
+
+    /// Re-seeding on section switch must not drop unsaved typing.
+    private func seedPathDraft(_ draft: inout String, stored: String) {
+        if draft.isEmpty || draft == stored { draft = stored }
     }
 
     /// Below this the category column collapses into a menu (ViewThatFits picks it).

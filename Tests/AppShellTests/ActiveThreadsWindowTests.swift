@@ -601,4 +601,27 @@ final class ActiveThreadsWindowTests: XCTestCase {
         XCTAssertFalse(vm.conversations.contains { $0.id == pinned.id })
         XCTAssertFalse(vm.errorMessage?.isEmpty ?? true)
     }
+
+    func test_activeListOrdersByRunStartNotThreadID() {
+        // WHY: rows must keep run-start order; a UUID sort reshuffles the Active list as runs come and go.
+        let late = AgentThreadID(UUID(uuidString: "00000000-0000-0000-0000-000000000001")!)
+        let early = AgentThreadID(UUID(uuidString: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")!)
+        let added = AgentThreadID(UUID(uuidString: "00000000-0000-0000-0000-000000000002")!)
+        let starts: [AgentThreadID: Date] = [
+            early: Date(timeIntervalSince1970: 100),
+            late: Date(timeIntervalSince1970: 200)
+        ]
+        let projected = PetActiveThreadProjector.items(threadIDs: [late, early, added], now: Date(timeIntervalSince1970: 300)) { id in
+            (workspaceID: nil, workspaceName: nil, providerName: nil, threadTitle: nil,
+             startedAt: starts[id], lastUpdatePreview: nil)
+        }
+        XCTAssertEqual(projected.map(\.threadID), [early, late, added],
+                       "Rows without a start stamp append after timed rows.")
+    }
+
+    func test_tabClickRefreshesTheSelectedTab() throws {
+        // WHY: switching to Last Finished must reload it now, not show the list from before the switch.
+        let source = try String(contentsOf: sourceURL("Sources/AppShell/ActiveThreadsWindow.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("vm.selectedTab = tab\n                    vm.scheduleTabRefresh(tab)"))
+    }
 }

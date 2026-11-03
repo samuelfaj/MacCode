@@ -140,4 +140,13 @@ final class SettingsFirstFrameTests: XCTestCase {
         }
         return condition()
     }
+
+    func test_cliPathDraftsSurviveSectionSwitch() throws {
+        // WHY: switching Settings sections re-runs onAppear; unsaved CLI path typing must not be overwritten.
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/AppShell/SettingsWindow.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("if draft.isEmpty || draft == stored { draft = stored }"))
+        XCTAssertFalse(source.contains("codexPathDraft = vm.codexPath"))
+    }
 }

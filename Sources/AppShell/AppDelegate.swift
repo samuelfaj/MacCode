@@ -2234,6 +2234,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                 return
             case .unavailable:
                 NSLog("RemoteCode notification route unavailable thread=%@", threadId.value.uuidString)
+                reportNotificationRouteFailure("This notification's conversation is no longer available.")
                 return
             case .workspace:
                 break
@@ -2250,11 +2251,25 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                 } catch {
                     NSLog("RemoteCode notification target missing thread=%@ message=%@ error=%@",
                           threadId.value.uuidString, messageID.description, error.localizedDescription)
+                    self.reportNotificationRouteFailure("The message from this notification could not be found.")
                 }
             }
         } catch {
             NSLog("RemoteCode notification route failed thread=%@ error=%@",
                   threadId.value.uuidString, error.localizedDescription)
+            reportNotificationRouteFailure("Could not open this notification: \(error.localizedDescription)")
+        }
+    }
+
+    private func reportNotificationRouteFailure(_ message: String) {
+        // Deferred so the notification delegate callback returns before the modal runs.
+        Task { @MainActor in
+            let alert = NSAlert()
+            alert.messageText = "Could not open notification"
+            alert.informativeText = message
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
         }
     }
 
@@ -2267,13 +2282,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         } catch {
             NSLog("RemoteCode notification bot route failed bot=%@ conversation=%@ error=%@",
                   bot.botId.value.uuidString, bot.conversationId.value.uuidString, error.localizedDescription)
+            reportNotificationRouteFailure("Could not open this notification: \(error.localizedDescription)")
             return
         }
         guard let messageID = bot.messageId else { return }
         Task { @MainActor [weak self] in
-            // The desk binds its Agent App view model on the next turns; give it a
-            // short bounded wait, then reveal best-effort.
-            for _ in 0..<20 {
+            // The desk binds its Agent App view model on the next turns; wait up to 5 s,
+            // then report the miss instead of failing silently.
+            for _ in 0..<100 {
                 guard let self, self.notificationRouteGeneration == generation else { return }
                 if let vm = router.botsViewModel?.deskAgentVM,
                    let selected = router.botsViewModel?.selectedConversation,
@@ -2281,11 +2297,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                    selected.id == bot.conversationId,
                    let threadID = selected.linkedAgentThreadID,
                    vm.selectedThreadId == threadID {
-                    try? await vm.revealMessage(id: messageID, expectedThreadID: threadID)
+                    do {
+                        try await vm.revealMessage(id: messageID, expectedThreadID: threadID)
+                    } catch {
+                        self.reportNotificationRouteFailure("The message from this notification could not be found.")
+                    }
                     return
                 }
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
+            guard self?.notificationRouteGeneration == generation else { return }
+            self?.reportNotificationRouteFailure("The bot desk did not open the message from this notification.")
         }
     }
 

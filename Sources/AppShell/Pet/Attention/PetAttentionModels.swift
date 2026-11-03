@@ -256,11 +256,18 @@ public enum PetActiveThreadProjector {
         now: Date = Date(),
         lookup: (AgentThreadID) -> ThreadMeta?
     ) -> [PetActiveThreadItem] {
-        let unique = Array(Set(threadIDs)).sorted {
-            $0.value.uuidString < $1.value.uuidString
+        // Oldest run first; rows without a start stamp last. Ties keep first-seen order, so new rows append.
+        var seen = Set<AgentThreadID>()
+        let unique = threadIDs.filter { seen.insert($0).inserted }
+        let metas = unique.map { lookup($0) }
+        let order = unique.indices.sorted { lhs, rhs in
+            let l = metas[lhs]?.startedAt ?? .distantFuture
+            let r = metas[rhs]?.startedAt ?? .distantFuture
+            return l == r ? lhs < rhs : l < r
         }
-        return unique.map { threadID in
-            let meta = lookup(threadID)
+        return order.map { index in
+            let threadID = unique[index]
+            let meta = metas[index]
             return PetActiveThreadItem(
                 threadID: threadID,
                 workspaceID: meta?.workspaceID,

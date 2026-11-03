@@ -3935,6 +3935,7 @@ public final class BotsViewModel: ObservableObject {
     @Published public private(set) var isAutonomyActive = false
     @Published public private(set) var lastSendStartedProviderRun = false
     @Published public var pendingDeleteID: BotID?
+    @Published public var pendingDockerConfirm: BotDockerConfirm?
     @Published public var pendingSecretDeleteName: String?
     @Published public var pendingUnsavedNewBotConfirm = false
     public var onLeaveBots: (() -> Void)?
@@ -13749,6 +13750,61 @@ private struct BotsUnsavedNewBotConfirmation: ViewModifier {
     }
 }
 
+/// A Docker desktop Rebuild or Stop waits for confirmation; the action runs only from the dialog.
+public enum BotDockerConfirm: Equatable {
+    case rebuild(BotID)
+    case stop(BotID)
+}
+
+private struct BotsDockerConfirmation: ViewModifier {
+    @ObservedObject var vm: BotsViewModel
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            title,
+            isPresented: Binding(
+                get: { vm.pendingDockerConfirm != nil },
+                set: { if !$0 { vm.pendingDockerConfirm = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button(action, role: .destructive) {
+                switch vm.pendingDockerConfirm {
+                case .rebuild(let id): vm.rebuildDockerGuest(botID: id)
+                case .stop(let id): vm.stopDockerGuest(botID: id)
+                case nil: break
+                }
+                vm.pendingDockerConfirm = nil
+            }
+            Button("Cancel", role: .cancel) { vm.pendingDockerConfirm = nil }
+        } message: {
+            Text("The Linux desktop is restarted from its base image. Unsaved work inside it is lost.")
+        }
+    }
+
+    private var name: String {
+        let id: BotID?
+        switch vm.pendingDockerConfirm {
+        case .rebuild(let botID), .stop(let botID): id = botID
+        case nil: id = nil
+        }
+        return id.flatMap { id in vm.bots.first { $0.id == id }?.name } ?? "this Bot"
+    }
+
+    private var title: String {
+        switch vm.pendingDockerConfirm {
+        case .rebuild: return "Rebuild \(name)'s computer?"
+        case .stop: return "Stop \(name)'s computer?"
+        case nil: return "Rebuild this computer?"
+        }
+    }
+
+    private var action: String {
+        if case .stop = vm.pendingDockerConfirm { return "Stop" }
+        return "Rebuild"
+    }
+}
+
 private struct BotsDeleteConfirmation: ViewModifier {
     @ObservedObject var vm: BotsViewModel
     let enabled: Bool
@@ -13880,6 +13936,7 @@ public struct BotsRootView: View {
             Text("This deletes the protected value from this Bot's storage.")
         }
         .modifier(BotsDeleteConfirmation(vm: vm, enabled: !vm.presentsAsDetachedWindow))
+        .modifier(BotsDockerConfirmation(vm: vm))
         .modifier(BotTeamsGroupsSheets(vm: vm, teamsGroups: vm.teamsGroups, enabled: !vm.presentsAsDetachedWindow))
         .modifier(BotsUnsavedNewBotConfirmation(vm: vm))
         .onAppear { vm.scheduleFreshnessPass() }
@@ -14473,10 +14530,10 @@ public struct BotsRootView: View {
                         if let id = vm.studioDraft.botID { vm.presentGuestDesktop(botID: id) }
                     },
                     onRebuild: {
-                        if let id = vm.studioDraft.botID { vm.rebuildDockerGuest(botID: id) }
+                        if let id = vm.studioDraft.botID { vm.pendingDockerConfirm = .rebuild(id) }
                     },
                     onStop: {
-                        if let id = vm.studioDraft.botID { vm.stopDockerGuest(botID: id) }
+                        if let id = vm.studioDraft.botID { vm.pendingDockerConfirm = .stop(id) }
                     },
                     onImportFiles: vm.studioDraft.botID.map { id in { try vm.importFilesToGuest(botID: id, urls: $0) } }
                 )
@@ -15072,8 +15129,8 @@ public struct BotsRootView: View {
                     stopIdentifier: "bots.desk.desktop.stop",
                     screenIdentifier: "bots.desk.desktop.guestScreen",
                     onStart: { vm.presentGuestDesktop(botID: bot.id) },
-                    onRebuild: { vm.rebuildDockerGuest(botID: bot.id) },
-                    onStop: { vm.stopDockerGuest(botID: bot.id) },
+                    onRebuild: { vm.pendingDockerConfirm = .rebuild(bot.id) },
+                    onStop: { vm.pendingDockerConfirm = .stop(bot.id) },
                     onOpenInNewWindow: { vm.openGuestDesktopInNewWindow(bot) },
                     onImportFiles: { try vm.importFilesToGuest(botID: bot.id, urls: $0) }
                 )
@@ -15789,8 +15846,8 @@ private struct BotGuestDesktopRoot: View {
                         stopIdentifier: "bots.desk.desktop.window.stop",
                         screenIdentifier: "bots.desk.desktop.window.guestScreen",
                         onStart: { vm.presentGuestDesktop(botID: bot.id) },
-                        onRebuild: { vm.rebuildDockerGuest(botID: bot.id) },
-                        onStop: { vm.stopDockerGuest(botID: bot.id) },
+                        onRebuild: { vm.pendingDockerConfirm = .rebuild(bot.id) },
+                        onStop: { vm.pendingDockerConfirm = .stop(bot.id) },
                         onImportFiles: { try vm.importFilesToGuest(botID: bot.id, urls: $0) }
                     )
                     .padding(DS.Space.lg)
@@ -15803,6 +15860,7 @@ private struct BotGuestDesktopRoot: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(DS.Palette.surface)
+        .modifier(BotsDockerConfirmation(vm: vm))
         .onAppear { vm.scheduleFreshnessPass() }
     }
 }

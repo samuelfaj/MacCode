@@ -221,8 +221,12 @@ public final class ActiveThreadsViewModel: ObservableObject {
     /// Cheap live pass: surfaces always, thread repo reads only when the
     /// active thread set changed.
     public func refreshLive() {
-        if Set(context.coordinator.primaryActiveThreadIdsSnapshot()) != lastActiveThreadIDs {
+        let current = Set(context.coordinator.primaryActiveThreadIdsSnapshot())
+        if current != lastActiveThreadIDs {
+            // A run that left the active set must appear in Last Finished without a tab switch.
+            let finished = !lastActiveThreadIDs.subtracting(current).isEmpty
             reloadActive()
+            if finished { reloadFinished() }
         } else {
             reloadActiveSurfaces()
         }
@@ -610,6 +614,7 @@ public struct ActiveThreadsRootView: View {
                     identifier: "activeThreads.tab.\(tab.rawValue)"
                 ) {
                     vm.selectedTab = tab
+                    vm.scheduleTabRefresh(tab)
                 }
             }
             Spacer(minLength: 0)
