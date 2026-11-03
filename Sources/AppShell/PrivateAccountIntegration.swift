@@ -534,20 +534,31 @@ public final class URLSessionPrivateAccountAPI: PrivateAccountAPI, @unchecked Se
             let silent: Bool?
             let title: String
         }
-        return try await request(
-            path: "/v1/private/push-notification/alert",
-            method: "POST",
-            accessToken: accessToken,
-            body: Body(
-                body: body,
-                data: data.isEmpty ? nil : data,
-                pushToken: pushToken,
-                pushTokenType: pushTokenType,
-                silent: silent ? true : nil,
-                title: title
-            ),
-            idempotencyKey: idempotencyKey
-        )
+        // Same Idempotency-Key on every attempt, so a retry cannot double-send.
+        return try await retryingTransientFailures(
+            delays: [1, 3],
+            retryError: { error in
+                if let apiError = error as? PrivateAccountAPIError, case .http(let code) = apiError {
+                    return isRetryableHTTPStatus(code)
+                }
+                return isTransientNetworkError(error)
+            }
+        ) {
+            try await request(
+                path: "/v1/private/push-notification/alert",
+                method: "POST",
+                accessToken: accessToken,
+                body: Body(
+                    body: body,
+                    data: data.isEmpty ? nil : data,
+                    pushToken: pushToken,
+                    pushTokenType: pushTokenType,
+                    silent: silent ? true : nil,
+                    title: title
+                ),
+                idempotencyKey: idempotencyKey
+            )
+        }
     }
 
     public func deliverLiveActivity(

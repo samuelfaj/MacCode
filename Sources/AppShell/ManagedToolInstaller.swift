@@ -6,6 +6,44 @@ import CoreModel
 
 private let managedToolLog = Logger(subsystem: "io.remotecode.agent", category: "managed.tools")
 
+func sleepSeconds(_ seconds: TimeInterval) async throws {
+    try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+}
+
+/// Connection-level failures worth one more try; permanent errors are not in this set.
+func isTransientNetworkError(_ error: Error) -> Bool {
+    guard let urlError = error as? URLError else { return false }
+    switch urlError.code {
+    case .timedOut, .networkConnectionLost, .cannotConnectToHost, .notConnectedToInternet: return true
+    default: return false
+    }
+}
+
+func isRetryableHTTPStatus(_ code: Int) -> Bool {
+    code == 429 || (500...599).contains(code)
+}
+
+/// Runs `operation` again after each `delays` entry while `retryError` or `retryResult` says the
+/// outcome is transient. The last outcome is returned or thrown unchanged once retries run out.
+func retryingTransientFailures<T>(
+    delays: [TimeInterval],
+    sleep: (TimeInterval) async throws -> Void = sleepSeconds,
+    retryError: (Error) -> Bool = isTransientNetworkError,
+    retryResult: (T) -> Bool = { _ in false },
+    operation: () async throws -> T
+) async throws -> T {
+    var attempt = 0
+    while true {
+        do {
+            let result = try await operation()
+            if attempt == delays.count || !retryResult(result) { return result }
+        } catch where attempt < delays.count && retryError(error) {
+        }
+        try await sleep(delays[attempt])
+        attempt += 1
+    }
+}
+
 /// Installs the latest GitHub release of mac-use (on the Mac, registered in
 /// Distill) and linux-use (into the bot VMs' read-only agent kit) once per
 /// launch, in the background. Every asset is checked against the release's
@@ -99,7 +137,12 @@ enum ManagedToolInstaller {
         let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!
         var request = URLRequest(url: url, timeoutInterval: 30)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await retryingTransientFailures(
+            delays: [2, 5],
+            retryResult: { (result: (Data, URLResponse)) in
+                (result.1 as? HTTPURLResponse).map { isRetryableHTTPStatus($0.statusCode) } ?? false
+            }
+        ) { try await URLSession.shared.data(for: request) }
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw Failure("\(repo) releases/latest failed") }
         return try parseRelease(data)
     }
@@ -135,11 +178,21 @@ enum ManagedToolInstaller {
         guard let assetURL = release.assets[asset], let sumsURL = release.assets["SHA256SUMS"] else {
             throw Failure("release \(release.tag) lacks \(asset) or SHA256SUMS")
         }
-        let (sumsData, _) = try await URLSession.shared.data(from: sumsURL)
+        let (sumsData, _) = try await retryingTransientFailures(
+            delays: [2, 5],
+            retryResult: { (result: (Data, URLResponse)) in
+                (result.1 as? HTTPURLResponse).map { isRetryableHTTPStatus($0.statusCode) } ?? false
+            }
+        ) { try await URLSession.shared.data(from: sumsURL) }
         guard let expected = expectedDigest(sums: String(decoding: sumsData, as: UTF8.self), asset: asset) else {
             throw Failure("SHA256SUMS has no entry for \(asset)")
         }
-        let (file, _) = try await URLSession.shared.download(from: assetURL)
+        let (file, _) = try await retryingTransientFailures(
+            delays: [2, 5],
+            retryResult: { (result: (URL, URLResponse)) in
+                (result.1 as? HTTPURLResponse).map { isRetryableHTTPStatus($0.statusCode) } ?? false
+            }
+        ) { try await URLSession.shared.download(from: assetURL) }
         defer { try? FileManager.default.removeItem(at: file) }
         let actual = SHA256.hash(data: try Data(contentsOf: file)).map { String(format: "%02x", $0) }.joined()
         guard actual == expected else { throw Failure("checksum mismatch for \(asset)") }

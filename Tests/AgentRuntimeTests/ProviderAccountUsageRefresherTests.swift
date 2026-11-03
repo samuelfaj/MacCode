@@ -350,6 +350,54 @@ final class ProviderAccountUsageRefresherTests: XCTestCase {
                        "live credits API must beat a stale billing-log percent so Grok is not stuck at the last CLI snapshot")
     }
 
+    func test_grokCreditsFetch_retriesOnceOnTransientNetworkError() async throws {
+        // WHY: one dropped connection must not blank a provider's usage until the next periodic refresh.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rc-grok-retry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let auth = dir.appendingPathComponent("auth.json")
+        try JSONSerialization.data(withJSONObject: [
+            "https://auth.x.ai::live": ["key": "test-token", "expires_at": "2099-01-01T00:00:00Z"]
+        ]).write(to: auth)
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "config": ["creditUsagePercent": 31.0, "currentPeriod": ["type": "USAGE_PERIOD_TYPE_WEEKLY", "end": "2099-08-26T16:16:03Z"]]
+        ])
+        UsageRetryStubProtocol.reset(results: [.failure(URLError(.networkConnectionLost)), .success(payload)])
+        URLProtocol.registerClass(UsageRetryStubProtocol.self)
+        defer { URLProtocol.unregisterClass(UsageRetryStubProtocol.self) }
+
+        let usage = await ProviderAccountUsageRefresher(timeoutSeconds: 3).grokAccountUsage(ProviderAccountUsageRefreshRequest(
+            grokBillingLogURL: dir.appendingPathComponent("missing.jsonl"),
+            grokAuthFileURL: auth,
+            grokCreditsAPIURL: URL(string: "https://usage.example.test/grok")!
+        ))
+        XCTAssertEqual(usage?.weeklyUsedPercent, 31)
+        XCTAssertEqual(UsageRetryStubProtocol.count, 2)
+    }
+
+    func test_grokCreditsFetch_doesNotRetryPermanentFailure() async throws {
+        // WHY: a non-network failure is not transient; retrying just repeats the same error.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rc-grok-perm-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let auth = dir.appendingPathComponent("auth.json")
+        try JSONSerialization.data(withJSONObject: [
+            "https://auth.x.ai::live": ["key": "test-token", "expires_at": "2099-01-01T00:00:00Z"]
+        ]).write(to: auth)
+        UsageRetryStubProtocol.reset(results: [.failure(URLError(.badURL))])
+        URLProtocol.registerClass(UsageRetryStubProtocol.self)
+        defer { URLProtocol.unregisterClass(UsageRetryStubProtocol.self) }
+
+        _ = await ProviderAccountUsageRefresher(timeoutSeconds: 3).grokAccountUsage(ProviderAccountUsageRefreshRequest(
+            grokBillingLogURL: dir.appendingPathComponent("missing.jsonl"),
+            grokAuthFileURL: auth,
+            grokCreditsAPIURL: URL(string: "https://usage.example.test/grok")!
+        ))
+        XCTAssertEqual(UsageRetryStubProtocol.count, 1)
+    }
+
     func test_fetchGrokUsage_keepsLogWhenLiveCreditsAPIFails() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("rc-grok-fallback-\(UUID().uuidString)", isDirectory: true)
@@ -922,4 +970,39 @@ final class ProviderAccountUsageRefresherTests: XCTestCase {
         XCTAssertTrue(usages.contains(where: { $0.provider == .claude && $0.weeklyUsedPercent > 0 }))
         XCTAssertTrue(usages.contains(where: { $0.provider == .codex && $0.weeklyUsedPercent > 0 }))
     }
+}
+
+private final class UsageRetryStubProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var results: [Result<Data, Error>] = []
+    private nonisolated(unsafe) static var requestCount = 0
+
+    static func reset(results: [Result<Data, Error>]) {
+        lock.withLock { self.results = results; requestCount = 0 }
+    }
+
+    static var count: Int { lock.withLock { requestCount } }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "usage.example.test"
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let result: Result<Data, Error> = Self.lock.withLock {
+            Self.requestCount += 1
+            return Self.results.isEmpty ? .success(Data("{}".utf8)) : Self.results.removeFirst()
+        }
+        switch result {
+        case .success(let data):
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        case .failure(let error):
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }

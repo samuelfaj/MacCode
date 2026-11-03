@@ -350,16 +350,29 @@ public final class ProviderAccountUsageRefresher: ProviderAccountUsageRefreshing
         for (field, value) in headers {
             request.setValue(value, forHTTPHeaderField: field)
         }
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode),
-                  let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        // One retry on a transient network failure. Manual and periodic refreshes share this path.
+        for attempt in 0..<2 {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode),
+                      let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    return nil
+                }
+                return object
+            } catch let error as URLError where attempt == 0 && Self.isTransientURLError(error) {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            } catch {
                 return nil
             }
-            return object
-        } catch {
-            return nil
+        }
+        return nil
+    }
+
+    private static func isTransientURLError(_ error: URLError) -> Bool {
+        switch error.code {
+        case .timedOut, .networkConnectionLost, .cannotConnectToHost, .notConnectedToInternet: return true
+        default: return false
         }
     }
 
