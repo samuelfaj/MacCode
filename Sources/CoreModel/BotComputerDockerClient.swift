@@ -747,9 +747,42 @@ public final class BotComputerDockerResolver: @unchecked Sendable {
         let customProbe = probe
         lock.unlock()
 
+        // A busy Docker daemon can miss one short `docker info`; only a timeout
+        // earns a longer retry. Missing CLI or a stopped daemon fail at once.
         var sawExecutable = false
         var sawTimeout = false
         var sawDaemonFailure = false
+        for attemptTimeout in Self.retryTimeouts(base: timeout) {
+            sawExecutable = false
+            sawTimeout = false
+            sawDaemonFailure = false
+            if let healthy = try probePass(snapshot, timeout: attemptTimeout, customProbe: customProbe,
+                                           sawExecutable: &sawExecutable, sawTimeout: &sawTimeout,
+                                           sawDaemonFailure: &sawDaemonFailure) {
+                return healthy
+            }
+            guard sawTimeout, !sawDaemonFailure else { break }
+            botComputerDockerLog.info("docker.probe.retry timeout=\(attemptTimeout, privacy: .public)")
+        }
+        if !sawExecutable { throw BotComputerDockerError.cliMissing }
+        if sawTimeout { throw BotComputerDockerError.probeTimedOut }
+        if sawDaemonFailure { throw BotComputerDockerError.daemonUnavailable }
+        throw BotComputerDockerError.cliMissing
+    }
+
+    /// 5 s, then 15 s, then 30 s for the default base.
+    static func retryTimeouts(base: TimeInterval) -> [TimeInterval] {
+        [base, base * 3, base * 6]
+    }
+
+    private func probePass(
+        _ snapshot: [String],
+        timeout: TimeInterval,
+        customProbe: (@Sendable (String, TimeInterval) throws -> BotComputerDockerProbeOutcome)?,
+        sawExecutable: inout Bool,
+        sawTimeout: inout Bool,
+        sawDaemonFailure: inout Bool
+    ) throws -> String? {
         for (index, candidate) in snapshot.enumerated() {
             let outcome: BotComputerDockerProbeOutcome
             do {
@@ -780,10 +813,7 @@ public final class BotComputerDockerResolver: @unchecked Sendable {
                 sawTimeout = true
             }
         }
-        if !sawExecutable { throw BotComputerDockerError.cliMissing }
-        if sawTimeout { throw BotComputerDockerError.probeTimedOut }
-        if sawDaemonFailure { throw BotComputerDockerError.daemonUnavailable }
-        throw BotComputerDockerError.cliMissing
+        return nil
     }
 
     /// Non-CLI executors (the bot Playwright guest bridge) share the CLI's

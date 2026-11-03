@@ -43,6 +43,8 @@ public enum TransientNetworkRetry {
             return true
         }
         let normalized = errorMessage.lowercased()
+        // A slow Docker check is the one "VM unavailable" that a later attempt fixes.
+        if normalized.contains("checking docker timed out") { return true }
         return !permanentFailureMarkers.contains(where: normalized.contains)
     }
 }

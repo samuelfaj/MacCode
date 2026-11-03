@@ -202,6 +202,12 @@ final class TransientNetworkRetryCoordinatorTests: XCTestCase {
         XCTAssertFalse(TransientNetworkRetry.isRetryableInterruption(nil))
     }
 
+    /// A slow Docker check resumes on its own; other VM failures still wait for the user.
+    func test_dockerProbeTimeoutIsRetryableButOtherVMFailuresAreNot() {
+        XCTAssertTrue(TransientNetworkRetry.isRetryableInterruption("VM unavailable: Checking Docker timed out. Try again."))
+        XCTAssertFalse(TransientNetworkRetry.isRetryableInterruption("VM unavailable: Docker is not running. Start Docker Desktop or OrbStack, then try again."))
+    }
+
     func test_unknownFailure_resumesTheSameSessionAndCompletes() async throws {
         let runner = FlakyRunner(provider: .distill, failure: "Distill ACP failure: Distill ACP RPC error: Internal error", failures: 1)
         let (_, thread, threadRepo) = try await start(runner)

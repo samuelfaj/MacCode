@@ -6371,7 +6371,12 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         }
         guard (thread?.executionTarget ?? executionTarget(for: botID)) == .vm else { return false }
         guard let preflight = botVMPreflight else { return false }
-        if let failure = await preflight(botID, workspace, thread?.id) {
+        // The Docker check can retry for up to ~50 s; say what the send waits on.
+        let waitingMessage = "Waiting for the Bot computer…"
+        if statusMessage.isEmpty { statusMessage = waitingMessage }
+        let failure = await preflight(botID, workspace, thread?.id)
+        if statusMessage == waitingMessage { statusMessage = "" }
+        if let failure {
             statusMessage = "VM unavailable: \(failure)"
             vmUnavailableBotID = botID
             return true

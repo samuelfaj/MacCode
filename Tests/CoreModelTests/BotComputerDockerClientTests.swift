@@ -769,6 +769,46 @@ final class BotComputerDockerClientTests: XCTestCase {
         XCTAssertFalse(BotComputerDockerCLI.isGuestDeadlineExit(agentExec, status: 124, elapsed: 10.2))
         XCTAssertFalse(BotComputerDockerCLI.isGuestDeadlineExit(agentExec, status: 137, elapsed: 3))
     }
+    /// A busy daemon that misses the first short `docker info` must not fail
+    /// the run: the screenshot case stalled a Bot conversation until Retry.
+    func testTimedOutProbeRetriesWithLongerTimeoutThenSucceeds() throws {
+        final class Calls: @unchecked Sendable { var timeouts: [TimeInterval] = [] }
+        let calls = Calls()
+        let resolver = BotComputerDockerResolver(candidates: ["/bin/echo"], probeTimeout: 0.1) { _, timeout in
+            calls.timeouts.append(timeout)
+            return calls.timeouts.count == 1 ? .timedOut : .healthy
+        }
+        XCTAssertEqual(try resolver.resolveHealthyExecutable(), "/bin/echo")
+        XCTAssertEqual(calls.timeouts.count, 2)
+        XCTAssertGreaterThan(calls.timeouts[1], calls.timeouts[0])
+    }
+
+    /// Retrying a stopped daemon only delays the real message.
+    func testStoppedDaemonFailsWithoutRetry() {
+        final class Calls: @unchecked Sendable { var count = 0 }
+        let calls = Calls()
+        let resolver = BotComputerDockerResolver(candidates: ["/bin/echo"], probeTimeout: 0.1) { _, _ in
+            calls.count += 1
+            return .failed
+        }
+        XCTAssertThrowsError(try resolver.resolveHealthyExecutable()) {
+            XCTAssertEqual($0 as? BotComputerDockerError, .daemonUnavailable)
+        }
+        XCTAssertEqual(calls.count, 1)
+    }
+
+    func testProbeThatKeepsTimingOutStillReportsTimeout() {
+        final class Calls: @unchecked Sendable { var count = 0 }
+        let calls = Calls()
+        let resolver = BotComputerDockerResolver(candidates: ["/bin/echo"], probeTimeout: 0.1) { _, _ in
+            calls.count += 1
+            return .timedOut
+        }
+        XCTAssertThrowsError(try resolver.resolveHealthyExecutable()) {
+            XCTAssertEqual($0 as? BotComputerDockerError, .probeTimedOut)
+        }
+        XCTAssertEqual(calls.count, 3)
+    }
 }
 
 private final class DockerNetworkRunRecorder: @unchecked Sendable {
@@ -808,4 +848,5 @@ private final class DockerNetworkRunRecorder: @unchecked Sendable {
         }
         throw BotComputerDockerError.provisioningFailed
     }
+
 }
