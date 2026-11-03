@@ -439,7 +439,50 @@ public actor DistillGuestBinaryProvisioner {
 
     // MARK: Defaults
 
-    public static let urlSessionFetch: Fetch = { url, destination in
+    /// Connection timeouts, dropped connections, DNS failures and HTTP 429/5xx are worth
+    /// another download. A checksum mismatch or any other 4xx is permanent.
+    static func isTransientDownloadFailure(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut, .networkConnectionLost, .cannotConnectToHost, .notConnectedToInternet,
+                 .cannotFindHost, .dnsLookupFailed:
+                return true
+            default:
+                return false
+            }
+        }
+        if let downloadError = error as? DistillGuestBinaryError, case .downloadFailed(_, let status) = downloadError {
+            return status == 429 || (500...599).contains(status)
+        }
+        return false
+    }
+
+    /// Runs `perform` again after each `delays` entry while its failure is transient.
+    /// The last failure is thrown unchanged once retries run out.
+    static func retryingTransientDownloads(
+        delays: [TimeInterval] = [2, 5],
+        sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        },
+        perform: @escaping Fetch
+    ) -> Fetch {
+        { url, destination in
+            var attempt = 0
+            while true {
+                do {
+                    try await perform(url, destination)
+                    return
+                } catch where attempt < delays.count && isTransientDownloadFailure(error) {
+                    try await sleep(delays[attempt])
+                    attempt += 1
+                }
+            }
+        }
+    }
+
+    public static let urlSessionFetch: Fetch = retryingTransientDownloads(perform: downloadOnce)
+
+    private static let downloadOnce: Fetch = { url, destination in
         var request = URLRequest(url: url)
         request.timeoutInterval = 60
         let (temp, response) = try await URLSession.shared.download(for: request)

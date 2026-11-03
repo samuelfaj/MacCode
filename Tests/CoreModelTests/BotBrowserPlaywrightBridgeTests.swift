@@ -262,6 +262,7 @@ final class BotBrowserPlaywrightBridgeTests: XCTestCase {
         var refName = "target"
         var nextResponse: [String: Any] = FakeChild.pageResponse(url: "https://a.test/home", title: "Home")
         var callError: Error?
+        var handshakeError: Error?
         private(set) var calls: [(name: String, arguments: [String: Any])] = []
         private(set) var terminateCount = 0
 
@@ -277,7 +278,10 @@ final class BotBrowserPlaywrightBridgeTests: XCTestCase {
             ]
         }
 
-        func resolveRefParameterName() throws -> String { refName }
+        func resolveRefParameterName() throws -> String {
+            if let handshakeError { throw handshakeError }
+            return refName
+        }
 
         func call(name: String, arguments: [String: Any]) throws -> [String: Any] {
             lock.lock()
@@ -505,6 +509,57 @@ final class BotBrowserPlaywrightBridgeTests: XCTestCase {
             url: "", appSupport: appSupport
         )
         XCTAssertEqual(spawns.count, 2, "dropped child respawns on the next call")
+    }
+
+    func test_handshakeFailure_respawnsOnceAndRetriesOnlyTheHandshake() throws {
+        // WHY: a child that dies before the handshake is a dead pipe, so one respawn recovers without the user retrying.
+        // The tool call is never replayed, so a click cannot run twice.
+        let first = FakeChild()
+        first.handshakeError = BotBrowserPlaywrightBridgeError.invalid("pipe closed")
+        let second = FakeChild()
+        let spawns = SpawnCounter()
+        let host = makeHost(children: { argv, _ in
+            spawns.record(argv)
+            return spawns.count == 1 ? first : second
+        })
+
+        let result = try host.perform(
+            botID: BotID(), route: .playwrightGuest,
+            kind: "bot_browser_snapshot", action: "", ref: "", text: "",
+            url: "", appSupport: FileManager.default.temporaryDirectory
+        )
+
+        XCTAssertEqual(result["url"] as? String, "https://a.test/home")
+        XCTAssertEqual(spawns.count, 2)
+        XCTAssertEqual(first.terminateCount, 1)
+        XCTAssertTrue(first.calls.isEmpty)
+        XCTAssertEqual(second.calls.count, 1)
+    }
+
+    func test_handshakeFailureTwice_throwsTheOriginalErrorWithoutCallingTheTool() {
+        // WHY: a second failure must surface the first real error, not a silent loop or a tool call on a dead child.
+        let first = FakeChild()
+        first.handshakeError = BotBrowserPlaywrightBridgeError.invalid("first")
+        let second = FakeChild()
+        second.handshakeError = BotBrowserPlaywrightBridgeError.invalid("second")
+        let spawns = SpawnCounter()
+        let host = makeHost(children: { argv, _ in
+            spawns.record(argv)
+            return spawns.count == 1 ? first : second
+        })
+
+        XCTAssertThrowsError(
+            try host.perform(
+                botID: BotID(), route: .playwrightGuest,
+                kind: "bot_browser_snapshot", action: "", ref: "", text: "",
+                url: "", appSupport: FileManager.default.temporaryDirectory
+            )
+        ) { error in
+            XCTAssertEqual(String(describing: error), "first")
+        }
+        XCTAssertEqual(spawns.count, 2)
+        XCTAssertTrue(first.calls.isEmpty)
+        XCTAssertTrue(second.calls.isEmpty)
     }
 
     func test_hostFallsBackToLastKnownPageWhenResponseHasNoPageLines() throws {

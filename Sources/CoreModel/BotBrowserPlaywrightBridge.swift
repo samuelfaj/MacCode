@@ -513,13 +513,20 @@ public final class BotBrowserPlaywrightHost: BotBrowserBridging, @unchecked Send
         }
         return try queue.sync {
             evictIdleChildrenOnQueue(keeping: botID)
-            let child = try resolvedChild(botID: botID, route: route, appSupport: appSupport)
+            var child = try resolvedChild(botID: botID, route: route, appSupport: appSupport)
             let refParameterName: String
             do {
                 refParameterName = try child.resolveRefParameterName()
-            } catch {
+            } catch let handshakeError {
+                // A dead handshake means a dead child: respawn once. The tool call is never retried.
                 dropChild(botID: botID)
-                throw error
+                child = try resolvedChild(botID: botID, route: route, appSupport: appSupport)
+                do {
+                    refParameterName = try child.resolveRefParameterName()
+                } catch {
+                    dropChild(botID: botID)
+                    throw handshakeError
+                }
             }
             let request = try BotBrowserPlaywrightTranslator.request(
                 kind: kind,

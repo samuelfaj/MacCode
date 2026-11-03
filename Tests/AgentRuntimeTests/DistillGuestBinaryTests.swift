@@ -460,6 +460,85 @@ final class DistillGuestBinaryTests: XCTestCase {
         XCTAssertEqual(try cached(), ["2.0.32", "2.0.33"])
     }
 
+    private final class AttemptLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var attempts = 0
+        private var sleeps: [TimeInterval] = []
+        var count: Int { lock.withLock { attempts } }
+        var slept: [TimeInterval] { lock.withLock { sleeps } }
+        func attempt() -> Int { lock.withLock { attempts += 1; return attempts } }
+        func sleep(_ seconds: TimeInterval) { lock.withLock { sleeps.append(seconds) } }
+    }
+
+    func test_transientDownloadFailure_retriesAndSucceedsWithoutUserAction() async throws {
+        // WHY: a single timed-out or dropped connection must not fail the guest binary download the user is waiting on.
+        let log = AttemptLog()
+        let fetch = DistillGuestBinaryProvisioner.retryingTransientDownloads(
+            sleep: { log.sleep($0) },
+            perform: { _, _ in
+                if log.attempt() == 1 { throw URLError(.timedOut) }
+            }
+        )
+        try await fetch(URL(fileURLWithPath: "/tmp/a"), URL(fileURLWithPath: "/tmp/b"))
+        XCTAssertEqual(log.count, 2)
+        XCTAssertEqual(log.slept, [2])
+    }
+
+    func test_permanentDownloadFailure_failsImmediatelyWithoutRetry() async {
+        // WHY: a 404 will not change on retry, so retrying would only delay the real error.
+        let log = AttemptLog()
+        let fetch = DistillGuestBinaryProvisioner.retryingTransientDownloads(
+            sleep: { log.sleep($0) },
+            perform: { _, _ in
+                _ = log.attempt()
+                throw DistillGuestBinaryError.downloadFailed(url: "u", status: 404)
+            }
+        )
+        do {
+            try await fetch(URL(fileURLWithPath: "/tmp/a"), URL(fileURLWithPath: "/tmp/b"))
+            XCTFail("404 must fail")
+        } catch {
+            XCTAssertEqual(error as? DistillGuestBinaryError, .downloadFailed(url: "u", status: 404))
+        }
+        XCTAssertEqual(log.count, 1)
+        XCTAssertEqual(log.slept, [])
+    }
+
+    func test_persistentTransientDownloadFailure_throwsTheOriginalErrorAfterThreeAttempts() async {
+        // WHY: a host that stays down must still surface its real error, after a bounded number of tries.
+        let log = AttemptLog()
+        let fetch = DistillGuestBinaryProvisioner.retryingTransientDownloads(
+            sleep: { log.sleep($0) },
+            perform: { _, _ in
+                _ = log.attempt()
+                throw URLError(.networkConnectionLost)
+            }
+        )
+        do {
+            try await fetch(URL(fileURLWithPath: "/tmp/a"), URL(fileURLWithPath: "/tmp/b"))
+            XCTFail("persistent failure must throw")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .networkConnectionLost)
+        } catch {
+            XCTFail("unexpected error \(error)")
+        }
+        XCTAssertEqual(log.count, 3)
+        XCTAssertEqual(log.slept, [2, 5])
+    }
+
+    func test_isTransientDownloadFailure_classifiesNetworkAndHTTPStatus() {
+        // WHY: checksum mismatches and 4xx other than 429 are permanent; retrying them would hide a bad release.
+        XCTAssertTrue(DistillGuestBinaryProvisioner.isTransientDownloadFailure(URLError(.timedOut)))
+        XCTAssertTrue(DistillGuestBinaryProvisioner.isTransientDownloadFailure(URLError(.dnsLookupFailed)))
+        XCTAssertTrue(DistillGuestBinaryProvisioner.isTransientDownloadFailure(DistillGuestBinaryError.downloadFailed(url: "u", status: 429)))
+        XCTAssertTrue(DistillGuestBinaryProvisioner.isTransientDownloadFailure(DistillGuestBinaryError.downloadFailed(url: "u", status: 503)))
+        XCTAssertFalse(DistillGuestBinaryProvisioner.isTransientDownloadFailure(DistillGuestBinaryError.downloadFailed(url: "u", status: 404)))
+        XCTAssertFalse(DistillGuestBinaryProvisioner.isTransientDownloadFailure(URLError(.cancelled)))
+        XCTAssertFalse(DistillGuestBinaryProvisioner.isTransientDownloadFailure(
+            DistillGuestBinaryError.checksumMismatch(asset: "a", expected: "x", actual: "y")
+        ))
+    }
+
     private func waitUntil(timeout: TimeInterval = 5, _ condition: @escaping () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() {
