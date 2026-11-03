@@ -605,9 +605,9 @@ final class AgentActivityServiceTests: XCTestCase {
         try statement.bind(1, runID.description)
         _ = try statement.step()
     }
-    private func insertCheckpoint(_ context: AppContext, runID: AgentRunID, threadID: AgentThreadID, file: String, sequence: Int, turnID: String? = nil) throws {
+    private func insertCheckpoint(_ context: AppContext, runID: AgentRunID, threadID: AgentThreadID, file: String, sequence: Int, turnID: String? = nil, extraFiles: Int = 0) throws {
         let turnID = turnID ?? UUID().uuidString
-        let files = [AgentTurnCheckpointFile(path: file, kind: "modified", additions: 1, deletions: 0)]
+        let files = ([file] + (0..<extraFiles).map { "extra-\($0).swift" }).map { AgentTurnCheckpointFile(path: $0, kind: "modified", additions: 1, deletions: 0) }
         let filesJSON = String(decoding: try JSONEncoder().encode(files), as: UTF8.self)
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -624,6 +624,20 @@ final class AgentActivityServiceTests: XCTestCase {
         try statement.bind(7, formatter.string(from: Date()))
         _ = try statement.step()
     }
+    /// A run that rewrote a whole tree once put ~22k paths on every page, and the Activity
+    /// window froze re-encoding that page on each click and tab switch.
+    func test_checkpointEvidenceCapsChangedFilesAndReportsTotal() throws {
+        let context = try makeContext()
+        let thread = try makeThread(context)
+        let run = try makeRun(context, thread: thread, status: .completed, at: 100)
+        try insertCheckpoint(context, runID: run.id, threadID: thread.id, file: "first.swift", sequence: 1, extraFiles: 5_000)
+
+        let item = try XCTUnwrap(decodePage(service(context).list([:])).items.first { $0.runID == run.id.value })
+        XCTAssertEqual(item.changedFiles.count, ActivityService.changedFilesLimit)
+        XCTAssertEqual(item.changedFiles.first, "first.swift")
+        XCTAssertEqual(item.changedFilesTotal, 5_001)
+    }
+
     private func pendingRequest(_ id: String) -> AssistantPendingRequest {
         AssistantPendingRequest(id: id, turnId: nil, kind: .commandExecution, title: "not exposed", createdAtMs: 101_000)
     }

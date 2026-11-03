@@ -99,7 +99,7 @@ final class ActivityService: @unchecked Sendable {
         let pageRunIDs = page.prefix(filter.limit).compactMap { $0.kind == .agent ? $0.runID.map(AgentRunID.init) : nil }
         let checkpoints = try checkpointEvidence(runIDs: pageRunIDs)
         let limited = page.prefix(filter.limit).map { item in
-            (item.kind == .agent ? item.runID : nil).flatMap { checkpoints[$0.uuidString] }.map { item.withCheckpoint(turnCount: $0.turnCount, files: $0.files) } ?? item
+            (item.kind == .agent ? item.runID : nil).flatMap { checkpoints[$0.uuidString] }.map { item.withCheckpoint(turnCount: $0.turnCount, files: $0.files, total: $0.total) } ?? item
         }
         let next = page.count > filter.limit
             ? limited.last.map { ActivityCursor(occurredAt: $0.occurredAt, id: $0.id, snapshotAt: snapshotAt).rawValue }
@@ -530,7 +530,10 @@ final class ActivityService: @unchecked Sendable {
         }
     }
 
-    private struct CheckpointEvidence { let turnCount: Int; let files: [String] }
+    private struct CheckpointEvidence { let turnCount: Int; let files: [String]; let total: Int }
+    /// A run that touched tens of thousands of files made every page megabytes: the Activity
+    /// window re-encoded it into UserDefaults and laid out every path on each click and tab switch.
+    static let changedFilesLimit = 100
     private func checkpointEvidence(runIDs: [AgentRunID]) throws -> [String: CheckpointEvidence] {
         guard !runIDs.isEmpty else { return [:] }
         return try readDB.performSync { db in
@@ -544,7 +547,7 @@ final class ActivityService: @unchecked Sendable {
                     let turnCount = Int(statement.columnInt64(1))
                     let filesJSON = statement.columnText(2) ?? "[]"
                     let files = (try? JSONDecoder().decode([AgentTurnCheckpointFile].self, from: Data(filesJSON.utf8)))?.map(\.path) ?? []
-                    evidence[runID] = CheckpointEvidence(turnCount: turnCount, files: files)
+                    evidence[runID] = CheckpointEvidence(turnCount: turnCount, files: Array(files.prefix(Self.changedFilesLimit)), total: files.count)
                 }
             }
             return evidence
@@ -837,7 +840,7 @@ final class ActivityChangeEmitter: @unchecked Sendable {
 }
 
 private extension AgentActivityItem {
-    func withCheckpoint(turnCount: Int, files: [String]) -> AgentActivityItem {
+    func withCheckpoint(turnCount: Int, files: [String], total: Int) -> AgentActivityItem {
         AgentActivityItem(
             id: id, kind: kind, runID: runID, requestID: requestID, notificationID: notificationID,
             workspaceID: workspaceID, threadID: threadID, surfaceID: surfaceID, state: state, title: title,
@@ -845,7 +848,7 @@ private extension AgentActivityItem {
             occurredAt: occurredAt, startedAt: startedAt, finishedAt: finishedAt, viewedAt: viewedAt,
             attentionAcknowledgedAt: attentionAcknowledgedAt, needsAction: needsAction, blocking: blocking,
             finalMessageID: finalMessageID, checkpointID: checkpointID, checkpointTurnCount: turnCount,
-            changedFiles: files, error: error, botID: botID, conversationID: conversationID, originLabel: originLabel
+            changedFiles: files, changedFilesTotal: total, error: error, botID: botID, conversationID: conversationID, originLabel: originLabel
         )
     }
 }

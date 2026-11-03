@@ -31,6 +31,7 @@ struct ActivityWireItem: Codable, Identifiable, Equatable, Sendable {
     var checkpoint_id: String?
     var checkpoint_turn_count: Int? = nil
     var changed_files: [String] = []
+    var changed_files_total: Int? = nil
     var error: String?
     var bot_id: String?
     var conversation_id: String?
@@ -1322,6 +1323,10 @@ struct ActivityRootView: View {
                                 Text(path).font(DS.Font.monoSmall).foregroundColor(DS.Palette.textSecondary)
                                     .lineLimit(1).truncationMode(.middle).help(path)
                             }
+                        }
+                        if let total = item.changed_files_total, total > item.changed_files.count {
+                            Text("\(total - item.changed_files.count) more files not listed")
+                                .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                         }
                     }
                 }

@@ -421,7 +421,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         }
 
         installMainMenu()
-        windowController.show()
+        // First-run setup stands alone; the main window appears when setup closes.
+        let showsOnboarding = presentOnboardingIfNeeded()
+        if !showsOnboarding { windowController.show() }
         // Do not fire multi-provider account-usage probes (claude /usage, grok
         // models, …) on the first paint. Defer until the UI is interactive.
         startAccountUsageRefreshLoop()
@@ -444,7 +446,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         RunLoop.main.perform { [weak self] in MainActor.assumeIsolated {
             // First-run setup replaces the folder-access tip on that launch,
             // so two first-launch windows never stack; the tip shows next launch.
-            if self?.presentOnboardingIfNeeded() != true {
+            if !showsOnboarding {
                 // Explain folder TCC before restored surfaces/PTYs touch protected paths.
                 self?.presentHostFileAccessOnboardingIfNeeded()
             }

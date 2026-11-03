@@ -28,6 +28,7 @@ public final class OnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     public func show() {
+        NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
@@ -83,6 +84,8 @@ extension AppDelegate {
         }
         let controller = OnboardingWindowController(viewModel: vm) { [weak self] in
             self?.onboardingController = nil
+            // A first-run launch kept the main window hidden behind setup.
+            if self?.windowController?.window.isVisible == false { self?.windowController?.show() }
         }
         onboardingController = controller
         controller.show()
