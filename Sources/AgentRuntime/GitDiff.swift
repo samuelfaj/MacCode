@@ -583,9 +583,9 @@ public enum GitDiff {
     /// Stages every change (`git add -A`) then commits with `message`.
     public static func commit(in cwd: String, message: String) -> GitActionResult {
         guard isGit(cwd) else { return GitActionResult(ok: false, message: "Not a git repository.") }
-        let add = run(["add", "-A"], cwd: cwd)
+        let add = runRetryingIndexLock(["add", "-A"], cwd: cwd)
         guard add.exit == 0 else { return GitActionResult(ok: false, message: actionMessage(add)) }
-        let r = run(["commit", "-m", message], cwd: cwd)
+        let r = runRetryingIndexLock(["commit", "-m", message], cwd: cwd)
         return GitActionResult(ok: r.exit == 0, message: actionMessage(r))
     }
 
@@ -595,9 +595,9 @@ public enum GitDiff {
     public static func commitPaths(in cwd: String, message: String, paths: [String]) -> GitActionResult {
         guard isGit(cwd) else { return GitActionResult(ok: false, message: "Not a git repository.") }
         guard !paths.isEmpty else { return GitActionResult(ok: false, message: "No paths specified.") }
-        let add = run(["add", "--"] + paths, cwd: cwd)
+        let add = runRetryingIndexLock(["add", "--"] + paths, cwd: cwd)
         guard add.exit == 0 else { return GitActionResult(ok: false, message: actionMessage(add)) }
-        let r = run(["commit", "-m", message], cwd: cwd)
+        let r = runRetryingIndexLock(["commit", "-m", message], cwd: cwd)
         return GitActionResult(ok: r.exit == 0, message: actionMessage(r))
     }
 
@@ -1114,6 +1114,21 @@ public enum GitDiff {
         private var value = false
         func set() { lock.lock(); value = true; lock.unlock() }
         var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
+    }
+
+    /// Retries a staging/commit call only while another git process holds
+    /// `index.lock`. Any other failure (hooks, nothing to commit) returns at once.
+    static let indexLockRetryDelays: [TimeInterval] = [0.2, 0.5]
+    nonisolated(unsafe) static var indexLockSleepForTesting: ((TimeInterval) -> Void)?
+
+    private static func runRetryingIndexLock(_ args: [String], cwd: String) -> ProcessResult {
+        var result = run(args, cwd: cwd)
+        for delay in indexLockRetryDelays {
+            guard result.exit != 0, (result.stderr + result.stdout).contains("index.lock") else { break }
+            if let sleep = indexLockSleepForTesting { sleep(delay) } else { Thread.sleep(forTimeInterval: delay) }
+            result = run(args, cwd: cwd)
+        }
+        return result
     }
 
     private static func run(_ args: [String], cwd: String) -> ProcessResult {

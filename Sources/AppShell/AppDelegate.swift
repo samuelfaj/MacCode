@@ -2246,12 +2246,27 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                       self.notificationRouteGeneration == generation,
                       let agent = SurfaceRegistry.shared.surface(surface.id) as? AgentAppSurface,
                       agent.viewModel.selectedThreadId == threadId else { return }
-                do {
-                    try await agent.viewModel.revealMessage(id: messageID, expectedThreadID: threadId)
-                } catch {
-                    NSLog("RemoteCode notification target missing thread=%@ message=%@ error=%@",
-                          threadId.value.uuidString, messageID.description, error.localizedDescription)
-                    self.reportNotificationRouteFailure("The message from this notification could not be found.")
+                var attempt = 0
+                while true {
+                    do {
+                        try await agent.viewModel.revealMessage(id: messageID, expectedThreadID: threadId)
+                        return
+                    } catch {
+                        // The transcript may still be hydrating right after the thread opens.
+                        if let delay = Self.notificationRevealRetryDelay(after: error, attempt: attempt),
+                           self.notificationRouteGeneration == generation,
+                           agent.viewModel.selectedThreadId == threadId {
+                            attempt += 1
+                            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                            guard self.notificationRouteGeneration == generation,
+                                  agent.viewModel.selectedThreadId == threadId else { return }
+                            continue
+                        }
+                        NSLog("RemoteCode notification target missing thread=%@ message=%@ error=%@",
+                              threadId.value.uuidString, messageID.description, error.localizedDescription)
+                        self.reportNotificationRouteFailure("The message from this notification could not be found.")
+                        return
+                    }
                 }
             }
         } catch {
@@ -2259,6 +2274,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                   threadId.value.uuidString, error.localizedDescription)
             reportNotificationRouteFailure("Could not open this notification: \(error.localizedDescription)")
         }
+    }
+
+    static let notificationRevealRetryDelays: [TimeInterval] = [0.25, 0.75]
+
+    /// Only a not-found reveal is retried; other reveal errors fail at once.
+    static func notificationRevealRetryDelay(after error: Error, attempt: Int) -> TimeInterval? {
+        guard case AgentAppSurfaceMessageRevealError.messageNotFound = error,
+              notificationRevealRetryDelays.indices.contains(attempt) else { return nil }
+        return notificationRevealRetryDelays[attempt]
     }
 
     private func reportNotificationRouteFailure(_ message: String) {

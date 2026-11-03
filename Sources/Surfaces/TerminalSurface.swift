@@ -1693,6 +1693,14 @@ public final class TerminalSurface: NSObject, Surface, TerminalHistoryCoordinato
         )
     }
 
+    /// Delay before the next spawn attempt, or nil when the failure is not
+    /// transient. Only EAGAIN is retried: the fork never started.
+    nonisolated static func ptySpawnRetryDelay(attempt: Int, errno code: Int32) -> TimeInterval? {
+        let delays: [TimeInterval] = [0.1, 0.3]
+        guard code == EAGAIN, delays.indices.contains(attempt) else { return nil }
+        return delays[attempt]
+    }
+
     private nonisolated static func spawnPTY(
         cwd: String,
         launch: Launch,
@@ -2011,18 +2019,31 @@ public final class TerminalSurface: NSObject, Surface, TerminalHistoryCoordinato
             descriptorFlagsAlreadyConfigured = true
             preparedRuntimeWasSuspended = prepared.wasSuspended
         } else {
-            let spawn = Self.spawnPTY(
+            var spawn = Self.spawnPTY(
                 cwd: cwd,
                 launch: launch,
                 workspaceID: workspaceID,
                 surfaceID: descriptor.id
             )
+            var spawnErrno = errno
+            var spawnAttempt = 0
+            while spawn.pid < 0, let delay = Self.ptySpawnRetryDelay(attempt: spawnAttempt, errno: spawnErrno) {
+                spawnAttempt += 1
+                Thread.sleep(forTimeInterval: delay)
+                spawn = Self.spawnPTY(
+                    cwd: cwd,
+                    launch: launch,
+                    workspaceID: workspaceID,
+                    surfaceID: descriptor.id
+                )
+                spawnErrno = errno
+            }
             pid = spawn.pid
             amaster = spawn.masterFD
             if pid < 0 {
-                appendString("[forkpty failed: \(String(cString: strerror(errno)))]\n")
+                appendString("[forkpty failed: \(String(cString: strerror(spawnErrno)))]\n")
                 terminalDeadReason = "fork_failed"
-                terminalLog.error("terminal.spawn_failed surface=\(self.descriptor.id.value.uuidString, privacy: .public) errno=\(errno, privacy: .public)")
+                terminalLog.error("terminal.spawn_failed surface=\(self.descriptor.id.value.uuidString, privacy: .public) errno=\(spawnErrno, privacy: .public)")
                 publishRuntimeHealth()
                 return
             }

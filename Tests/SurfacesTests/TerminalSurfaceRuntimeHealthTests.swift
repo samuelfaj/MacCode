@@ -82,4 +82,12 @@ final class TerminalSurfaceRuntimeHealthTests: XCTestCase {
         }
         XCTAssertTrue(condition(), message)
     }
+
+    /// Only EAGAIN means the fork never started; other errno must fail at once.
+    func test_ptySpawnRetry_onlyEAGAINRetriesWithBoundedDelays() {
+        XCTAssertEqual(TerminalSurface.ptySpawnRetryDelay(attempt: 0, errno: EAGAIN), 0.1)
+        XCTAssertEqual(TerminalSurface.ptySpawnRetryDelay(attempt: 1, errno: EAGAIN), 0.3)
+        XCTAssertNil(TerminalSurface.ptySpawnRetryDelay(attempt: 2, errno: EAGAIN))
+        XCTAssertNil(TerminalSurface.ptySpawnRetryDelay(attempt: 0, errno: ENOENT))
+    }
 }

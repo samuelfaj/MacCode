@@ -309,4 +309,13 @@ final class NotificationDeepLinkRouteTests: XCTestCase {
         XCTAssertNil(router.botsViewModel?.selectedConversation)
         XCTAssertFalse(controller.window.isVisible)
     }
+
+    /// Only a not-found reveal (transcript still hydrating) is retried, and only twice.
+    func test_notificationRevealRetry_onlyNotFoundRetriesWithBoundedDelays() {
+        let id = AgentMessageID()
+        XCTAssertEqual(AppDelegate.notificationRevealRetryDelay(after: AgentAppSurfaceMessageRevealError.messageNotFound(id), attempt: 0), 0.25)
+        XCTAssertEqual(AppDelegate.notificationRevealRetryDelay(after: AgentAppSurfaceMessageRevealError.messageNotFound(id), attempt: 1), 0.75)
+        XCTAssertNil(AppDelegate.notificationRevealRetryDelay(after: AgentAppSurfaceMessageRevealError.messageNotFound(id), attempt: 2))
+        XCTAssertNil(AppDelegate.notificationRevealRetryDelay(after: AgentAppSurfaceMessageRevealError.selectionChanged, attempt: 0))
+    }
 }

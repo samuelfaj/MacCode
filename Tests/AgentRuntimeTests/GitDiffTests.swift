@@ -735,4 +735,49 @@ final class GitDiffTests: XCTestCase {
             "untracked synthesis must share the 512 KiB FilePreviewSurface cap"
         )
     }
+
+    /// A commit racing another git process must survive a briefly held index.lock.
+    func test_commit_retriesIndexLockThenSucceeds() throws {
+        let dir = try mkTmpRepo()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try seedCommit(dir)
+        try "changed\n".write(toFile: dir + "/a.txt", atomically: true, encoding: .utf8)
+        let lock = dir + "/.git/index.lock"
+        try "".write(toFile: lock, atomically: true, encoding: .utf8)
+        var sleeps: [TimeInterval] = []
+        GitDiff.indexLockSleepForTesting = { sleeps.append($0); try? FileManager.default.removeItem(atPath: lock) }
+        defer { GitDiff.indexLockSleepForTesting = nil }
+        let r = GitDiff.commit(in: dir, message: "after lock")
+        XCTAssertTrue(r.ok, "a released index.lock must not fail the commit: \(r.message)")
+        XCTAssertEqual(sleeps, [0.2])
+    }
+
+    /// A stuck lock must still fail with git's own message after the bounded retries.
+    func test_commit_persistentIndexLockFailsAfterBoundedRetries() throws {
+        let dir = try mkTmpRepo()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try seedCommit(dir)
+        try "changed\n".write(toFile: dir + "/a.txt", atomically: true, encoding: .utf8)
+        try "".write(toFile: dir + "/.git/index.lock", atomically: true, encoding: .utf8)
+        var sleeps: [TimeInterval] = []
+        GitDiff.indexLockSleepForTesting = { sleeps.append($0) }
+        defer { GitDiff.indexLockSleepForTesting = nil }
+        let r = GitDiff.commit(in: dir, message: "stuck")
+        XCTAssertFalse(r.ok)
+        XCTAssertTrue(r.message.contains("index.lock"), r.message)
+        XCTAssertEqual(sleeps, [0.2, 0.5])
+    }
+
+    /// Non-lock failures must not be retried; "nothing to commit" is final.
+    func test_commit_nothingToCommitIsNotRetried() throws {
+        let dir = try mkTmpRepo()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try seedCommit(dir)
+        var sleeps: [TimeInterval] = []
+        GitDiff.indexLockSleepForTesting = { sleeps.append($0) }
+        defer { GitDiff.indexLockSleepForTesting = nil }
+        let r = GitDiff.commit(in: dir, message: "noop")
+        XCTAssertFalse(r.ok)
+        XCTAssertTrue(sleeps.isEmpty, "non-lock failure must fail at once")
+    }
 }
