@@ -88,6 +88,72 @@ public enum ScheduledTaskPreflightError: Error, CustomStringConvertible, Localiz
     public var errorDescription: String? { description }
 }
 
+/// In-memory phase of a run that is queued or starting. Read by the window's
+/// active-run poll; never persisted.
+nonisolated enum ScheduledTaskRunPhases {
+    private static let lock = NSLock()
+    private static var phases: [UUID: String] = [:]
+
+    static func set(_ phase: String, taskID: UUID) {
+        lock.lock()
+        phases[taskID] = phase
+        lock.unlock()
+    }
+
+    static func clear(taskID: UUID) {
+        lock.lock()
+        phases.removeValue(forKey: taskID)
+        lock.unlock()
+    }
+
+    static func snapshot() -> [UUID: String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return phases
+    }
+}
+
+/// In-memory memo of a successful provider auth probe, so back-to-back runs
+/// do not respawn the CLI. Failures and unknown results are never cached.
+nonisolated enum ScheduledProviderAuthCache {
+    private struct Key: Hashable {
+        let provider: AgentProvider
+        let binaryPath: String
+        let runAsUser: AgentRunAsUser?
+    }
+
+    static let ttl: TimeInterval = 60
+    private static let lock = NSLock()
+    private static var verifiedAt: [Key: Date] = [:]
+
+    static func authenticated(
+        provider: AgentProvider,
+        binaryPath: String,
+        runAsUser: AgentRunAsUser?,
+        now: Date = Date(),
+        probe: () async -> Bool?
+    ) async -> Bool? {
+        let key = Key(provider: provider, binaryPath: binaryPath, runAsUser: runAsUser)
+        if isFresh(key, now: now) { return true }
+        let result = await probe()
+        if result == true { remember(key, at: now) }
+        return result
+    }
+
+    private static func isFresh(_ key: Key, now: Date) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let at = verifiedAt[key] else { return false }
+        return now.timeIntervalSince(at) < ttl
+    }
+
+    private static func remember(_ key: Key, at: Date) {
+        lock.lock()
+        verifiedAt[key] = at
+        lock.unlock()
+    }
+}
+
 @MainActor
 public final class ScheduledTaskExecutor {
     private let context: AppContext
@@ -137,6 +203,7 @@ public final class ScheduledTaskExecutor {
         onThreadCreated: ((AgentThreadID) throws -> Void)? = nil
     ) async throws -> (threadID: AgentThreadID, runID: AgentRunID) {
         var task = Self.resolvingDistillDefaults(task)
+        ScheduledTaskRunPhases.set("Checking provider…", taskID: task.id)
         let prepared = try await prepareExecution(task)
         if task.effectiveRoutingMode != .auto, let snapshot = prepared.providerSnapshot {
             task.providerInstanceID = snapshot.id
@@ -180,6 +247,7 @@ public final class ScheduledTaskExecutor {
             quiet: true
         )
         try onThreadCreated?(thread.id)
+        ScheduledTaskRunPhases.set("Starting…", taskID: task.id)
         if task.executionMode != .local {
             _ = try router.configureAgentThreadExecution(
                 thread: thread.id,
@@ -381,13 +449,19 @@ public final class ScheduledTaskExecutor {
         let probeEnvironment = user.name == NSUserName()
             ? router.providerEnvironment(provider: task.provider, instanceId: snapshot.id)
             : [:]
-        let authenticated = await ProviderCLIProbe.runOffCooperativePool {
-            ProviderCLIProbe.authStatus(
-                provider: task.provider,
-                binaryPath: baseBinary,
-                environment: probeEnvironment,
-                runAsUser: runAsForProbe
-            ).authenticated
+        let authenticated = await ScheduledProviderAuthCache.authenticated(
+            provider: task.provider,
+            binaryPath: baseBinary,
+            runAsUser: runAsForProbe
+        ) {
+            await ProviderCLIProbe.runOffCooperativePool {
+                ProviderCLIProbe.authStatus(
+                    provider: task.provider,
+                    binaryPath: baseBinary,
+                    environment: probeEnvironment,
+                    runAsUser: runAsForProbe
+                ).authenticated
+            }
         }
         guard authenticated == true || (task.provider == .distill && user.name != NSUserName() && authenticated == nil) else {
             throw ScheduledTaskPreflightError.providerUnavailable(
@@ -513,13 +587,19 @@ public final class ScheduledTaskExecutor {
             let environment = user.name == NSUserName()
                 ? router.providerEnvironment(provider: snapshot.provider, instanceId: snapshot.id)
                 : [:]
-            let authenticated = await ProviderCLIProbe.runOffCooperativePool {
-                ProviderCLIProbe.authStatus(
-                    provider: snapshot.provider,
-                    binaryPath: baseBinary,
-                    environment: environment,
-                    runAsUser: runAsForProbe
-                ).authenticated
+            let authenticated = await ScheduledProviderAuthCache.authenticated(
+                provider: snapshot.provider,
+                binaryPath: baseBinary,
+                runAsUser: runAsForProbe
+            ) {
+                await ProviderCLIProbe.runOffCooperativePool {
+                    ProviderCLIProbe.authStatus(
+                        provider: snapshot.provider,
+                        binaryPath: baseBinary,
+                        environment: environment,
+                        runAsUser: runAsForProbe
+                    ).authenticated
+                }
             }
             guard authenticated == true || (snapshot.provider == .distill && user.name != NSUserName() && authenticated == nil) else {
                 throw ScheduledTaskPreflightError.providerUnavailable(
@@ -735,6 +815,7 @@ public final class ScheduledTaskScheduler {
     }
 
     private func execute(_ claim: ScheduledTaskClaim) async {
+        defer { ScheduledTaskRunPhases.clear(taskID: claim.task.id) }
         do {
             // Spent-slot advance (+1s) so whole-second persistence / subsecond
             // anchors cannot re-select the occurrence that just claimed.

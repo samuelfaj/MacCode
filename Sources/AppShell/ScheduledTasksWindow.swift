@@ -139,6 +139,8 @@ public final class ScheduledTasksViewModel: ObservableObject {
     @Published public private(set) var runCounts: [UUID: Int] = [:]
     /// Live run status per task (queued / running). Drives overview + detail badges.
     @Published public private(set) var activeRunStatuses: [UUID: ScheduledTaskRunStatus] = [:]
+    /// In-memory progress phase of a queued run (e.g. "Checking provider…"). Never persisted.
+    @Published public private(set) var runPhases: [UUID: String] = [:]
     /// The active rows the last poll saw, without the scheduler's 30 s
     /// heartbeat; a change means the history is stale.
     private var lastActiveRuns: [ScheduledTaskRun] = []
@@ -379,11 +381,16 @@ public final class ScheduledTasksViewModel: ObservableObject {
     }
 
     public func toggle(_ task: ScheduledTask) {
+        // Flip the row first; each failure path below reverts it and reports the error.
+        setTaskEnabledLocally(task.id, !task.isEnabled)
         if task.isEnabled {
             do {
                 try store.setEnabled(id: task.id, enabled: false, nextRunAt: nil)
                 reloadTasks()
-            } catch { errorMessage = String(describing: error) }
+            } catch {
+                setTaskEnabledLocally(task.id, true)
+                errorMessage = String(describing: error)
+            }
             return
         }
         Task { [weak self] in
@@ -394,8 +401,16 @@ public final class ScheduledTasksViewModel: ObservableObject {
                 try store.setEnabled(id: task.id, enabled: true, nextRunAt: next)
                 router.scheduledTaskScheduler?.tick()
                 reloadTasks()
-            } catch { errorMessage = String(describing: error) }
+            } catch {
+                setTaskEnabledLocally(task.id, false)
+                errorMessage = String(describing: error)
+            }
         }
+    }
+
+    private func setTaskEnabledLocally(_ taskID: UUID, _ enabled: Bool) {
+        guard let index = tasks.firstIndex(where: { $0.id == taskID }) else { return }
+        tasks[index].isEnabled = enabled
     }
 
     public func openServiceSettings() {
@@ -450,12 +465,23 @@ public final class ScheduledTasksViewModel: ObservableObject {
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
+        performDelete(task)
+    }
+
+    /// Removes the row before the write so the list responds immediately; the
+    /// row is put back at its position if the write fails.
+    func performDelete(_ task: ScheduledTask) {
+        let index = tasks.firstIndex { $0.id == task.id }
+        let removed = index.map { tasks.remove(at: $0) }
         do {
             try store.delete(id: task.id)
             if selectedTaskID == task.id { selectedTaskID = nil }
             reloadTasks()
             reloadRuns()
-        } catch { errorMessage = String(describing: error) }
+        } catch {
+            if let index, let removed { tasks.insert(removed, at: min(index, tasks.count)) }
+            errorMessage = String(describing: error)
+        }
     }
 
     public func openThread(_ run: ScheduledTaskRun) {
@@ -598,9 +624,11 @@ public final class ScheduledTasksViewModel: ObservableObject {
                 run.heartbeatAt = nil
                 return run
             }
-            let changed = next != activeRunStatuses || observedRuns != lastActiveRuns
+            let nextPhases = ScheduledTaskRunPhases.snapshot().filter { next[$0.key] == .queued }
+            let changed = next != activeRunStatuses || observedRuns != lastActiveRuns || nextPhases != runPhases
             lastActiveRuns = observedRuns
             if next != activeRunStatuses { activeRunStatuses = next }
+            if nextPhases != runPhases { runPhases = nextPhases }
             return changed
         } catch {
             errorMessage = String(describing: error)
@@ -641,6 +669,10 @@ public final class ScheduledTasksViewModel: ObservableObject {
 
     public func activeRunStatus(for taskID: UUID) -> ScheduledTaskRunStatus? {
         activeRunStatuses[taskID]
+    }
+
+    public func activeRunPhase(for taskID: UUID) -> String? {
+        runPhases[taskID]
     }
 
     public func workspaceName(for task: ScheduledTask) -> String {
@@ -913,6 +945,7 @@ public struct ScheduledTasksRootView: View {
             providerLabel: shortProviderModel(task),
             runCount: vm.runCounts[task.id, default: 0],
             activeRunStatus: vm.activeRunStatus(for: task.id),
+            activeRunPhase: vm.activeRunPhase(for: task.id),
             onOpen: {
                 vm.selectedTaskID = task.id
                 screen = .detail
@@ -1107,7 +1140,7 @@ public struct ScheduledTasksRootView: View {
         if let status = vm.activeRunStatus(for: task.id) {
             switch status {
             case .queued:
-                DSPill("Queued", tone: .warning)
+                DSPill(vm.activeRunPhase(for: task.id) ?? "Queued", tone: .warning)
             case .running:
                 DSPill("Running", tone: .warning)
             default:
@@ -1408,6 +1441,7 @@ private struct ScheduledTaskCard: View {
     let providerLabel: String
     let runCount: Int
     let activeRunStatus: ScheduledTaskRunStatus?
+    let activeRunPhase: String?
     let onOpen: () -> Void
     let onToggle: () -> Void
     let onRunNow: () -> Void
@@ -1469,7 +1503,7 @@ private struct ScheduledTaskCard: View {
     @ViewBuilder
     private var badge: some View {
         if activeRunStatus == .queued {
-            DSPill("Queued", tone: .warning)
+            DSPill(activeRunPhase ?? "Queued", tone: .warning)
         } else if activeRunStatus == .running {
             DSPill("Running", tone: .warning)
         } else if isActiveRun {
@@ -1482,7 +1516,7 @@ private struct ScheduledTaskCard: View {
     }
 
     private var statusOrNext: String {
-        if activeRunStatus == .queued { return "Queued" }
+        if activeRunStatus == .queued { return activeRunPhase ?? "Queued" }
         if activeRunStatus == .running || isActiveRun { return "Running now" }
         if !task.isEnabled { return "Paused" }
         guard let next = task.nextRunAt else { return "—" }
@@ -1490,7 +1524,7 @@ private struct ScheduledTaskCard: View {
     }
 
     private var accessibilityStatusValue: String {
-        if activeRunStatus == .queued { return "Queued" }
+        if activeRunStatus == .queued { return activeRunPhase ?? "Queued" }
         if activeRunStatus == .running || isActiveRun { return "Running" }
         return task.isEnabled ? "Active" : "Paused"
     }
@@ -1529,7 +1563,7 @@ private struct ScheduledTaskEditorView: View {
         ScheduleEditorPage(
             title: isNew ? "New Scheduled Task" : "Edit Scheduled Task",
             subtitle: "Run an agent prompt on a schedule, in a workspace, while MacCode is open.",
-            saveTitle: vm.isSavingEditor ? "Checking…" : "Save Task",
+            saveTitle: vm.isSavingEditor ? "Saving…" : "Save Task",
             saveIdentifier: "scheduledTasks.editor.save",
             isSaving: vm.isSavingEditor,
             onBack: onBack,

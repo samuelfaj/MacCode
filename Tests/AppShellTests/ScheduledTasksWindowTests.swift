@@ -843,4 +843,118 @@ extension ScheduledTasksWindowTests {
         XCTAssertEqual(recurrence.detailSummary, "\(first), \(secondTime) · Every 2 hours")
         XCTAssertEqual(recurrence.summaryLabel, "Multiple")
     }
+
+    @MainActor
+    func test_toggleFlipsRowImmediatelyAndRevertsOnFailure_becauseTheUserMustSeeTheChangeAndTheTruthOnError() async throws {
+        // WHY: enabling runs an async preflight; the row must flip at once and
+        // roll back with a visible error when the preflight fails.
+        let directory = NSTemporaryDirectory() + "rc-scheduled-toggle-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let context = try AppContext(channel: .debug, appSupportOverride: directory)
+        let router = AppCommandRouter(context: context)
+        context.router = router
+        let store = ScheduledTaskStore(db: context.db)
+        let task = ScheduledTask(
+            title: "Toggle task", prompt: "Toggle prompt", workspaceID: WorkspaceID(),
+            workspacePathSnapshot: "/tmp", runAsUser: NSUserName(), runAsUID: 501,
+            provider: .codex, providerInstanceID: "codex", model: "gpt-5", reasoningEffort: .high,
+            recurrence: .hourly(anchor: Date(timeIntervalSince1970: 0), intervalHours: 1),
+            timeZoneIdentifier: "UTC", isEnabled: false,
+            createdAt: Date(timeIntervalSince1970: 10), updatedAt: Date(timeIntervalSince1970: 10)
+        )
+        try store.save(task)
+
+        let viewModel = ScheduledTasksViewModel(context: context, router: router, loadImmediately: false)
+        viewModel.scheduleFreshnessPass()
+        await viewModel.waitForFreshnessForTesting()
+        XCTAssertEqual(viewModel.tasks.first { $0.id == task.id }?.isEnabled, false)
+
+        viewModel.toggle(task)
+        XCTAssertEqual(viewModel.tasks.first { $0.id == task.id }?.isEnabled, true,
+                       "enable must show on the row before the preflight completes")
+
+        for _ in 0..<200 where viewModel.errorMessage == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNotNil(viewModel.errorMessage, "a failed preflight must surface an error")
+        XCTAssertEqual(viewModel.tasks.first { $0.id == task.id }?.isEnabled, false,
+                       "a failed enable must revert the row to Paused")
+        XCTAssertEqual(try store.list().first { $0.id == task.id }?.isEnabled, false,
+                       "a failed enable must not persist")
+    }
+
+    @MainActor
+    func test_deleteRemovesRowImmediatelyAndRestoresItOnFailure_becauseAFailedWriteMustNotHideAScheduleSilently() async throws {
+        let directory = NSTemporaryDirectory() + "rc-scheduled-delete-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let context = try AppContext(channel: .debug, appSupportOverride: directory)
+        let router = AppCommandRouter(context: context)
+        context.router = router
+        let store = ScheduledTaskStore(db: context.db)
+        let first = ScheduledTask(
+            title: "First", prompt: "p", workspaceID: WorkspaceID(), workspacePathSnapshot: "/tmp",
+            runAsUser: NSUserName(), runAsUID: 501, provider: .codex, providerInstanceID: "codex",
+            model: "gpt-5", reasoningEffort: .high,
+            recurrence: .hourly(anchor: Date(timeIntervalSince1970: 0), intervalHours: 1),
+            timeZoneIdentifier: "UTC", createdAt: Date(timeIntervalSince1970: 10), updatedAt: Date(timeIntervalSince1970: 10)
+        )
+        let second = ScheduledTask(
+            title: "Second", prompt: "p", workspaceID: first.workspaceID, workspacePathSnapshot: "/tmp",
+            runAsUser: NSUserName(), runAsUID: 501, provider: .codex, providerInstanceID: "codex",
+            model: "gpt-5", reasoningEffort: .high,
+            recurrence: .hourly(anchor: Date(timeIntervalSince1970: 0), intervalHours: 1),
+            timeZoneIdentifier: "UTC", createdAt: Date(timeIntervalSince1970: 20), updatedAt: Date(timeIntervalSince1970: 20)
+        )
+        try store.save(first)
+        try store.save(second)
+
+        let viewModel = ScheduledTasksViewModel(context: context, router: router, loadImmediately: false)
+        viewModel.scheduleFreshnessPass()
+        await viewModel.waitForFreshnessForTesting()
+        let before = viewModel.tasks
+        XCTAssertEqual(before.count, 2)
+
+        viewModel.performDelete(first)
+        XCTAssertEqual(viewModel.tasks.map(\.id), [second.id],
+                       "the deleted row must leave the list before the write returns")
+        XCTAssertEqual(try store.list().map(\.id), [second.id], "the delete must persist")
+
+        try context.db.execute("DROP TABLE scheduled_tasks")
+        viewModel.performDelete(second)
+        XCTAssertEqual(viewModel.tasks.map(\.id), [second.id],
+                       "a failed delete must restore the row at its position")
+        XCTAssertNotNil(viewModel.errorMessage, "a failed delete must remain visible to the user")
+    }
+
+    @MainActor
+    func test_activeRunPhaseIsReportedToTheCard_becauseAQueuedRunMustNotLookIdle() throws {
+        let directory = NSTemporaryDirectory() + "rc-scheduled-phase-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let context = try AppContext(channel: .debug, appSupportOverride: directory)
+        let router = AppCommandRouter(context: context)
+        context.router = router
+        let store = ScheduledTaskStore(db: context.db)
+        let task = ScheduledTask(
+            title: "Phase task", prompt: "p", workspaceID: WorkspaceID(), workspacePathSnapshot: "/tmp",
+            runAsUser: NSUserName(), runAsUID: 501, provider: .codex, providerInstanceID: "codex",
+            model: "gpt-5", reasoningEffort: .high,
+            recurrence: .hourly(anchor: Date(timeIntervalSince1970: 0), intervalHours: 1),
+            timeZoneIdentifier: "UTC", createdAt: Date(timeIntervalSince1970: 10), updatedAt: Date(timeIntervalSince1970: 10)
+        )
+        try store.save(task)
+        _ = try store.claimManual(taskID: task.id, now: Date(timeIntervalSince1970: 30), owner: "phase-test")
+
+        let viewModel = ScheduledTasksViewModel(context: context, router: router, loadImmediately: false)
+        ScheduledTaskRunPhases.set("Checking provider…", taskID: task.id)
+        defer { ScheduledTaskRunPhases.clear(taskID: task.id) }
+        viewModel.pollActiveRunsOnce()
+        XCTAssertEqual(viewModel.activeRunStatus(for: task.id), .queued)
+        XCTAssertEqual(viewModel.activeRunPhase(for: task.id), "Checking provider…")
+
+        ScheduledTaskRunPhases.set("Starting…", taskID: task.id)
+        viewModel.pollActiveRunsOnce()
+        XCTAssertEqual(viewModel.activeRunPhase(for: task.id), "Starting…")
+
+        ScheduledTaskRunPhases.clear(taskID: task.id)
+        viewModel.pollActiveRunsOnce()
+        XCTAssertNil(viewModel.activeRunPhase(for: task.id), "a cleared phase must not stick to the card")
+    }
 }

@@ -487,4 +487,47 @@ final class ScheduledTaskRuntimeTests: XCTestCase {
     private var repositoryRoot: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     }
+
+    func test_authCacheHitSkipsProbe_becauseBackToBackRunsMustNotRespawnTheProviderCLI() async {
+        let binary = "/tmp/rc-auth-cache-hit-\(UUID().uuidString)"
+        var probes = 0
+        let first = await ScheduledProviderAuthCache.authenticated(provider: .codex, binaryPath: binary, runAsUser: nil) {
+            probes += 1
+            return true
+        }
+        let second = await ScheduledProviderAuthCache.authenticated(provider: .codex, binaryPath: binary, runAsUser: nil) {
+            probes += 1
+            return true
+        }
+        XCTAssertEqual(first, true)
+        XCTAssertEqual(second, true)
+        XCTAssertEqual(probes, 1, "a successful probe inside the TTL must be reused")
+    }
+
+    func test_authCacheNeverCachesFailureOrUnknown_becauseAFixedLoginMustBeSeenOnTheNextRun() async {
+        let binary = "/tmp/rc-auth-cache-fail-\(UUID().uuidString)"
+        var probes = 0
+        for result: Bool? in [false, nil, false] {
+            let value = await ScheduledProviderAuthCache.authenticated(provider: .codex, binaryPath: binary, runAsUser: nil) {
+                probes += 1
+                return result
+            }
+            XCTAssertEqual(value, result)
+        }
+        XCTAssertEqual(probes, 3, "failed or unknown probes must run again every time")
+    }
+
+    func test_authCacheKeyIncludesRunAsUser_becauseAnotherAccountsLoginIsDifferent() async {
+        let binary = "/tmp/rc-auth-cache-user-\(UUID().uuidString)"
+        let alice = AgentRunAsUser(generatedUID: "a", shortName: "alice", uid: 501, gid: 20, homePath: "/Users/alice")
+        let bob = AgentRunAsUser(generatedUID: "b", shortName: "bob", uid: 502, gid: 20, homePath: "/Users/bob")
+        var probes = 0
+        _ = await ScheduledProviderAuthCache.authenticated(provider: .codex, binaryPath: binary, runAsUser: alice) {
+            probes += 1; return true
+        }
+        _ = await ScheduledProviderAuthCache.authenticated(provider: .codex, binaryPath: binary, runAsUser: bob) {
+            probes += 1; return true
+        }
+        XCTAssertEqual(probes, 2)
+    }
 }
