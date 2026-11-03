@@ -431,6 +431,14 @@ final class ActivityViewModel: ObservableObject {
                     // Opening a row marks it read (Just finished) or a run finishes (Running); the open row
                     // stays in place until the user selects another row, closes it, or changes the filters.
                     // A row the user dismissed is not kept; only one that left the list for other reasons is.
+                    // A new run of the same conversation replaces the kept row, so the list never shows it twice.
+                    if self.detail == nil, let openedDetail, openedDetail.id == selectedID,
+                       let threadID = openedDetail.thread_id,
+                       let successor = next.items.first(where: { $0.thread_id == threadID }) {
+                        self.selectedID = successor.id
+                        self.scrollID = successor.id
+                        self.detail = successor
+                    }
                     if self.detail == nil, let openedDetail, openedDetail.id == selectedID, self.selectionSearch == self.search, !self.undoCleared.contains(selectedID) {
                         var finished = openedDetail
                         if finished.state == "running" { finished.state = "finished" }

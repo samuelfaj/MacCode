@@ -862,6 +862,33 @@ final class ActivityWindowModelTests: XCTestCase {
         XCTAssertEqual(model.page.items.map(\.id), ["run:live"], "the open row stays in place")
     }
 
+    func testKeptFinishedRowIsReplacedByTheSameConversationsNextRun() async {
+        // WHY: the auto-continuation started a new run of the same thread; keeping the finished row
+        // next to it listed one conversation twice (finished and running).
+        let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
+        defaults.set("running", forKey: "activity.tab")
+        var phase = 0
+        var listCalls = 0
+        var first = item("run:a", state: "running"); first.thread_id = "thread-1"
+        var next = item("run:b", state: "running"); next.thread_id = "thread-1"
+        let model = ActivityViewModel(service: ActivityClient(
+            list: { _ in listCalls += 1; return self.page(phase == 0 ? [first] : phase == 1 ? [] : [next]) },
+            setViewed: { _ in self.updated([]) }, acknowledge: { _ in .object([:]) }
+        ), defaults: defaults)
+        model.refreshAfterFrame()
+        await waitUntil("loaded") { model.page.items.count == 1 && !model.loading }
+        model.openDetail(first)
+        phase = 1
+        model.refreshAfterFrame()
+        await waitUntil("finished kept") { listCalls == 2 && !model.loading }
+        phase = 2
+        model.refreshAfterFrame()
+        await waitUntil("next run") { listCalls == 3 && !model.loading }
+        XCTAssertEqual(model.page.items.map(\.id), ["run:b"], "one conversation, one row")
+        XCTAssertEqual(model.selectedID, "run:b")
+        XCTAssertEqual(model.detail?.state, "running")
+    }
+
     func testSearchKeepsOpenRowWhileItMatchesAndClearsOnlyWhenItDropsOut() async {
         // WHY: typing in search cleared the open detail on every keystroke, even when the row still matched.
         let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
