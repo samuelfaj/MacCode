@@ -11291,6 +11291,29 @@ extension AgentAppViewModelTests {
 }
 
 extension AgentAppViewModelTests {
+    /// Retry can fail before a new turn starts (VM gate); a reopen must not repaint the dismissed error.
+    func test_reopenDoesNotRepaintDismissedPersistedError() async throws {
+        let (vm, repo) = try makeVM()
+        let thread = AgentThread(workspaceId: vm.workspaceID, title: "stale error", provider: .codex, model: "fake-model")
+        try repo.upsert(thread)
+        let runs = AgentRunRepository(db: repo.db)
+        let run = AgentRun(threadId: thread.id, provider: .codex, model: "fake-model", status: .failed)
+        try runs.upsert(run)
+        let error = AssistantEvent.error(message: "VM unavailable: Checking Docker timed out. Try again.", recoverable: true)
+        for (offset, event) in [AssistantEvent.turnStarted(turnId: "t1"), error].enumerated() {
+            try runs.appendStreamEvent(runId: run.id, seq: offset + 1, kind: event.debugDescription,
+                                       payloadJSON: String(decoding: try JSONEncoder().encode(event), as: UTF8.self))
+        }
+        vm.selectThread(thread.id)
+        await vm.waitForSelectThreadHydrationForTesting()
+        XCTAssertNotNil(vm.timeline.error, "fixture must paint the persisted error")
+        vm.dismissDisplayedError()
+        vm.createThread(title: "other")
+        vm.selectThread(thread.id)
+        await vm.waitForSelectThreadHydrationForTesting()
+        XCTAssertNil(vm.timeline.error)
+    }
+
     /// The old failure banner must disappear as soon as the user sends again.
     func test_sendClearsPreviousRunError() async throws {
         let (vm, _) = try makeVM()

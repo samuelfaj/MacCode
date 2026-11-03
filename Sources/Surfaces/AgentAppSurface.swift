@@ -3018,6 +3018,9 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         if let paintedErrorBeforeOpen, timeline.error == nil {
             timeline.error = paintedErrorBeforeOpen
         }
+        if let error = timeline.error, supersededErrorByThread[id] == error {
+            timeline.clearError()
+        }
         // The stream path may have displayed a NEWER error while the bundle was
         // in flight (its replay read predates that event; the re-replay loop
         // narrows but cannot fully close that window). The recoverability flag
@@ -8621,7 +8624,14 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         dismissStatusMessage()
     }
 
+    /// Errors the user already moved past (Retry, send, ×). The persisted replay still
+    /// carries them until a new turn starts, so a reload must not repaint them.
+    private var supersededErrorByThread: [AgentThreadID: String] = [:]
+
     public func dismissDisplayedError() {
+        if let error = timeline.error, let threadId = selectedThreadId {
+            supersededErrorByThread[threadId] = error
+        }
         timeline.clearError()
         lastErrorRecoverable = false
         pendingAttachmentRetryConfirmation = nil
@@ -11081,6 +11091,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         timeline.apply(event)
         timeline.enforceAggregateHotTextBudget(protectedTurnIDs: protectedTranscriptTurnIDs)
         if case let .error(_, recoverable) = event {
+            supersededErrorByThread[threadId] = nil
             lastErrorRecoverable = recoverable
         }
         scheduleTimelineUpdateTick()
