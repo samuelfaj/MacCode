@@ -126,6 +126,20 @@ nonisolated enum ScheduledProviderAuthCache {
     private static let lock = NSLock()
     private static var verifiedAt: [Key: Date] = [:]
 
+    /// Re-runs the probe only while it returns nil (timed out or unknown). A
+    /// `false` is a real sign-out and returns at once.
+    static func probeRetryingUnknown(
+        delays: [TimeInterval] = [0.5, 1],
+        _ probe: () async -> Bool?
+    ) async -> Bool? {
+        var result = await probe()
+        for delay in delays where result == nil {
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            result = await probe()
+        }
+        return result
+    }
+
     static func authenticated(
         provider: AgentProvider,
         binaryPath: String,
@@ -454,18 +468,20 @@ public final class ScheduledTaskExecutor {
             binaryPath: baseBinary,
             runAsUser: runAsForProbe
         ) {
-            await ProviderCLIProbe.runOffCooperativePool {
-                ProviderCLIProbe.authStatus(
-                    provider: task.provider,
-                    binaryPath: baseBinary,
-                    environment: probeEnvironment,
-                    runAsUser: runAsForProbe
-                ).authenticated
+            await ScheduledProviderAuthCache.probeRetryingUnknown {
+                await ProviderCLIProbe.runOffCooperativePool {
+                    ProviderCLIProbe.authStatus(
+                        provider: task.provider,
+                        binaryPath: baseBinary,
+                        environment: probeEnvironment,
+                        runAsUser: runAsForProbe
+                    ).authenticated
+                }
             }
         }
         guard authenticated == true || (task.provider == .distill && user.name != NSUserName() && authenticated == nil) else {
             throw ScheduledTaskPreflightError.providerUnavailable(
-                "The selected provider is unavailable for system user \(user.name). Sign in as that user and retry."
+                Self.signInUnavailableMessage(provider: task.provider, userName: user.name, authenticated: authenticated)
             )
         }
         return PreparedExecution(
@@ -477,6 +493,18 @@ public final class ScheduledTaskExecutor {
             routingSnapshot: nil,
             providerSnapshot: snapshot
         )
+    }
+
+    /// `nil` means the sign-in check could not answer; it is not a sign-out.
+    nonisolated static func signInUnavailableMessage(
+        provider: AgentProvider,
+        userName: String,
+        authenticated: Bool?
+    ) -> String {
+        guard authenticated == nil else {
+            return "The selected provider is unavailable for system user \(userName). Sign in as that user and retry."
+        }
+        return "Could not verify the \(provider.rawValue.capitalized) sign-in for system user \(userName) (the check timed out). Try again."
     }
 
     nonisolated static func modelSelection(for task: ScheduledTask) -> AgentModelSelection {
@@ -592,18 +620,20 @@ public final class ScheduledTaskExecutor {
                 binaryPath: baseBinary,
                 runAsUser: runAsForProbe
             ) {
-                await ProviderCLIProbe.runOffCooperativePool {
-                    ProviderCLIProbe.authStatus(
-                        provider: snapshot.provider,
-                        binaryPath: baseBinary,
-                        environment: environment,
-                        runAsUser: runAsForProbe
-                    ).authenticated
+                await ScheduledProviderAuthCache.probeRetryingUnknown {
+                    await ProviderCLIProbe.runOffCooperativePool {
+                        ProviderCLIProbe.authStatus(
+                            provider: snapshot.provider,
+                            binaryPath: baseBinary,
+                            environment: environment,
+                            runAsUser: runAsForProbe
+                        ).authenticated
+                    }
                 }
             }
             guard authenticated == true || (snapshot.provider == .distill && user.name != NSUserName() && authenticated == nil) else {
                 throw ScheduledTaskPreflightError.providerUnavailable(
-                    "The selected provider is unavailable for system user \(user.name). Sign in as that user and retry."
+                    Self.signInUnavailableMessage(provider: snapshot.provider, userName: user.name, authenticated: authenticated)
                 )
             }
 

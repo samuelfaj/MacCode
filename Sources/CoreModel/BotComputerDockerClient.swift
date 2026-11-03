@@ -198,7 +198,16 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
     }
 
     public func info() throws -> String {
-        String(data: try run(["info"]), encoding: .utf8) ?? ""
+        // A busy daemon can miss one `docker info`; only a timeout is retried.
+        // ponytail: same 5 s limit per attempt; grow it if 15 s total proves short.
+        var attempt = 0
+        while true {
+            do {
+                return String(data: try run(["info"]), encoding: .utf8) ?? ""
+            } catch BotComputerDockerError.probeTimedOut where attempt < 2 {
+                attempt += 1
+            }
+        }
     }
 
     public func imageExists(tag: String) throws -> Bool {

@@ -797,6 +797,22 @@ final class BotComputerDockerClientTests: XCTestCase {
         XCTAssertEqual(calls.count, 1)
     }
 
+    /// The send preflight calls `info()` after the resolver is cached; one slow answer must not fail the send.
+    func testInfoRetriesTimeoutButNotStoppedDaemon() throws {
+        final class Count: @unchecked Sendable { var n = 0 }
+        let slow = Count()
+        let client = BotComputerDockerCLI { _ in
+            slow.n += 1
+            if slow.n == 1 { throw BotComputerDockerError.probeTimedOut }
+            return Data("ok".utf8)
+        }
+        XCTAssertEqual(try client.info(), "ok")
+        let stopped = Count()
+        let down = BotComputerDockerCLI { _ in stopped.n += 1; throw BotComputerDockerError.daemonUnavailable }
+        XCTAssertThrowsError(try down.info())
+        XCTAssertEqual(stopped.n, 1)
+    }
+
     func testProbeThatKeepsTimingOutStillReportsTimeout() {
         final class Calls: @unchecked Sendable { var count = 0 }
         let calls = Calls()

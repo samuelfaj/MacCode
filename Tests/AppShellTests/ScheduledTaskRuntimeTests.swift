@@ -530,4 +530,19 @@ final class ScheduledTaskRuntimeTests: XCTestCase {
         }
         XCTAssertEqual(probes, 2)
     }
+
+    /// A slow sign-in check used to fail the scheduled run as "Sign in"; it now retries and says what happened.
+    func test_authProbeRetriesUnknownOnlyAndNamesTimeoutHonestly() async {
+        var calls = 0
+        let recovered = await ScheduledProviderAuthCache.probeRetryingUnknown(delays: [0, 0]) {
+            calls += 1; return calls == 1 ? nil : true
+        }
+        XCTAssertEqual(recovered, true)
+        calls = 0
+        let signedOut = await ScheduledProviderAuthCache.probeRetryingUnknown(delays: [0, 0]) { calls += 1; return false }
+        XCTAssertEqual(signedOut, false)
+        XCTAssertEqual(calls, 1)
+        XCTAssertTrue(ScheduledTaskExecutor.signInUnavailableMessage(provider: .claude, userName: "a", authenticated: nil).contains("timed out"))
+        XCTAssertTrue(ScheduledTaskExecutor.signInUnavailableMessage(provider: .claude, userName: "a", authenticated: false).contains("Sign in"))
+    }
 }

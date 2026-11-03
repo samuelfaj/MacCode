@@ -205,6 +205,7 @@ final class TransientNetworkRetryCoordinatorTests: XCTestCase {
     /// A slow Docker check resumes on its own; other VM failures still wait for the user.
     func test_dockerProbeTimeoutIsRetryableButOtherVMFailuresAreNot() {
         XCTAssertTrue(TransientNetworkRetry.isRetryableInterruption("VM unavailable: Checking Docker timed out. Try again."))
+        XCTAssertTrue(TransientNetworkRetry.isRetryableInterruption("VM unavailable: Could not start the Linux desktop. Try again after Docker is ready."))
         XCTAssertFalse(TransientNetworkRetry.isRetryableInterruption("VM unavailable: Docker is not running. Start Docker Desktop or OrbStack, then try again."))
     }
 
