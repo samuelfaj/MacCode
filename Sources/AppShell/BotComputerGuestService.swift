@@ -848,7 +848,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
         try seedRecipe(botID: botID)
         let recipe = BotComputerGuestSpec.recipeURL(appSupport: appSupport, botID: botID)
         let tag = BotComputerGuestSpec.botImageTag(botID: botID)
-        try docker.build(context: recipe, tag: tag)
+        try buildImage(context: recipe, tag: tag)
         let home = try BotGuestHome.ensure(appSupport: appSupport, botID: botID)
         let network = try availableNetwork(botID: botID)
         let canonical = BotComputerGuestSpec.containerName(botID: botID)
@@ -1142,7 +1142,17 @@ public final class BotComputerGuestService: @unchecked Sendable {
             == BotComputerGuestSpec.recipeDigest(context: recipeContext) {
             return
         }
-        try docker.build(context: recipeContext, tag: tag)
+        try buildImage(context: recipeContext, tag: tag)
+    }
+
+    /// One retry after a transient `docker build` failure; oversized output and other errors fail at once.
+    private func buildImage(context: URL, tag: String) throws {
+        do {
+            try docker.build(context: context, tag: tag)
+        } catch BotComputerDockerError.provisioningFailed {
+            sleep(2)
+            try docker.build(context: context, tag: tag)
+        }
     }
 
     private func imageMatches(_ existing: BotComputerContainerInspect, tag: String) -> Bool {

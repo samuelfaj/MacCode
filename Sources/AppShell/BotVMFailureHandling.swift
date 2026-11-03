@@ -19,6 +19,25 @@ struct BotVMBusyError: LocalizedError, CustomStringConvertible {
     var errorDescription: String? { description }
 }
 
+/// Retries a bot VM provision only for Docker's transient failures. `provision`
+/// is re-entrant (it inspects and restarts what an earlier attempt left).
+enum BotVMProvisionRetry {
+    static func run<T>(
+        delays: [TimeInterval] = [2, 5],
+        sleep: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) },
+        _ body: () throws -> T
+    ) throws -> T {
+        for delay in delays {
+            do {
+                return try body()
+            } catch let error as BotComputerDockerError where error == .provisioningFailed || error == .probeTimedOut {
+                sleep(delay)
+            }
+        }
+        return try body()
+    }
+}
+
 extension AppCommandRouter {
     static let macExecutionApprovedFollowUp = "The user approved running on the Mac. Continue."
     static let macExecutionDeclinedFollowUp = "The user declined running on the Mac. Continue in the VM, or stop and explain."
@@ -240,7 +259,7 @@ extension AppCommandRouter {
                     if let workspace {
                         try service.ensureWorkspaceMounted(botID: resourceID, workspace: workspace, registered: registered)
                     } else {
-                        _ = try service.provision(botID: resourceID)
+                        _ = try BotVMProvisionRetry.run { try service.provision(botID: resourceID) }
                     }
                 }
                 return nil
@@ -298,7 +317,7 @@ extension AppCommandRouter {
         return await Task.detached(priority: .userInitiated) { () -> String? in
             do {
                 let resourceID = try store?.guestResourceID(botID: botID) ?? botID
-                _ = try service.provision(botID: resourceID)
+                _ = try BotVMProvisionRetry.run { try service.provision(botID: resourceID) }
                 Task.detached(priority: .utility) {
                     if let info = try? docker.info() { prefetch(info) }
                 }

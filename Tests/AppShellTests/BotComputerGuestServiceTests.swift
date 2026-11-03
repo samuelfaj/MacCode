@@ -19,6 +19,7 @@ private final class FakeDocker: BotComputerDockerClienting, @unchecked Sendable 
     var started: [String] = []
     var stopped: [String] = []
     var builds: [URL] = []
+    var buildErrors: [Error] = []
     var execCalls = 0
     var execFailuresRemaining = 0
     var execError: Error?
@@ -76,6 +77,7 @@ private final class FakeDocker: BotComputerDockerClienting, @unchecked Sendable 
     func build(context: URL, tag: String) throws {
         builds.append(context)
         onBuild?()
+        if !buildErrors.isEmpty { throw buildErrors.removeFirst() }
         images.insert(tag)
         imageLabels[tag] = BotComputerGuestSpec.recipeRevision
         imageDigests[tag] = BotComputerGuestSpec.recipeDigest(context: context)
@@ -1256,6 +1258,57 @@ final class BotComputerGuestServiceTests: XCTestCase {
         XCTAssertTrue(fake.containers.isEmpty)
         XCTAssertEqual(service.lastReady?.pngMagic, BotComputerGuestService.pngMagicHex)
         XCTAssertEqual(service.lastReady?.screenURL.host, "127.0.0.1")
+    }
+
+    func test_imageBuildRetriesTransientFailureOnce() throws {
+        // WHY: a daemon hiccup during the base image build must not leave the
+        // Studio radio disabled until the user retries by hand.
+        let support = makeSupport("rc-guest-build-transient")
+        defer { try? FileManager.default.removeItem(at: support) }
+        let recipe = try XCTUnwrap(AppShellResourceBundle.computerGuestRecipeURL())
+        let fake = FakeDocker()
+        fake.images = []
+        fake.buildErrors = [BotComputerDockerError.provisioningFailed]
+        let service = BotComputerGuestService(
+            appSupport: support, docker: fake, recipeContext: recipe,
+            observeAttempts: 1, observeDelay: 0, sleep: { _ in }
+        )
+        XCTAssertTrue(service.proveReady())
+        XCTAssertEqual(fake.builds.count, 2)
+        XCTAssertTrue(fake.images.contains(BotComputerGuestSpec.imageTag))
+    }
+
+    func test_imageBuildDoesNotRetryOversizedOutput() throws {
+        // WHY: oversized build output is deterministic; a second build would only repeat it.
+        let support = makeSupport("rc-guest-build-oversized")
+        defer { try? FileManager.default.removeItem(at: support) }
+        let recipe = try XCTUnwrap(AppShellResourceBundle.computerGuestRecipeURL())
+        let fake = FakeDocker()
+        fake.images = []
+        fake.buildErrors = [BotComputerDockerError.outputTooLarge]
+        let service = BotComputerGuestService(
+            appSupport: support, docker: fake, recipeContext: recipe,
+            observeAttempts: 1, observeDelay: 0, sleep: { _ in }
+        )
+        XCTAssertFalse(service.proveReady())
+        XCTAssertEqual(fake.builds.count, 1)
+    }
+
+    func test_imageBuildPersistentTransientFailsAfterOneRetry() throws {
+        // WHY: a daemon that stays down must fail visibly, not loop on builds.
+        let support = makeSupport("rc-guest-build-persistent")
+        defer { try? FileManager.default.removeItem(at: support) }
+        let recipe = try XCTUnwrap(AppShellResourceBundle.computerGuestRecipeURL())
+        let fake = FakeDocker()
+        fake.images = []
+        fake.buildErrors = [BotComputerDockerError.provisioningFailed, BotComputerDockerError.provisioningFailed]
+        let service = BotComputerGuestService(
+            appSupport: support, docker: fake, recipeContext: recipe,
+            observeAttempts: 1, observeDelay: 0, sleep: { _ in }
+        )
+        XCTAssertFalse(service.proveReady())
+        XCTAssertEqual(fake.builds.count, 2)
+        XCTAssertFalse(fake.images.contains(BotComputerGuestSpec.imageTag))
     }
 
     func test_proveReadyScavengesLeftoverProbes() throws {

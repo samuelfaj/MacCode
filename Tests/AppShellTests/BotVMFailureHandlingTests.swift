@@ -566,6 +566,48 @@ final class BotVMFailureHandlingTests: XCTestCase {
         XCTAssertFalse(BotComputerControl.shared.isControlledByUser(f.bot.id))
     }
 
+    /// WHY: a transient Docker provision failure must heal without the user pressing retry, while a permanent one fails at once.
+    func test_provisionRetry_transientThenSuccessNeedsNoUserAction() throws {
+        var attempts = 0
+        var slept: [TimeInterval] = []
+        let value = try BotVMProvisionRetry.run(sleep: { slept.append($0) }) {
+            attempts += 1
+            if attempts == 1 { throw BotComputerDockerError.probeTimedOut }
+            return 7
+        }
+        XCTAssertEqual(value, 7)
+        XCTAssertEqual(attempts, 2)
+        XCTAssertEqual(slept, [2])
+    }
+
+    func test_provisionRetry_permanentErrorFailsWithoutRetry() {
+        // WHY: a missing CLI or stopped daemon will not heal by waiting; retrying only delays the message.
+        var attempts = 0
+        var slept: [TimeInterval] = []
+        XCTAssertThrowsError(try BotVMProvisionRetry.run(sleep: { slept.append($0) }) {
+            attempts += 1
+            throw BotComputerDockerError.cliMissing
+        }) { error in
+            XCTAssertEqual(error as? BotComputerDockerError, .cliMissing)
+        }
+        XCTAssertEqual(attempts, 1)
+        XCTAssertTrue(slept.isEmpty)
+    }
+
+    func test_provisionRetry_persistentTransientFailsWithOriginalErrorAfterThreeAttempts() {
+        // WHY: a daemon that stays busy must surface the real Docker error, bounded in time.
+        var attempts = 0
+        var slept: [TimeInterval] = []
+        XCTAssertThrowsError(try BotVMProvisionRetry.run(sleep: { slept.append($0) }) {
+            attempts += 1
+            throw BotComputerDockerError.provisioningFailed
+        }) { error in
+            XCTAssertEqual(error as? BotComputerDockerError, .provisioningFailed)
+        }
+        XCTAssertEqual(attempts, 3)
+        XCTAssertEqual(slept, [2, 5])
+    }
+
     private final class TopDocker: BotComputerDockerClienting, @unchecked Sendable {
         var tops: [String: String] = [:]
         var execs: [(name: String, command: [String], user: String?)] = []
