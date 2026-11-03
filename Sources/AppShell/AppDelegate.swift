@@ -119,6 +119,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     private var providerSessionReaperTimer: Timer?
     private var ccrRetentionTimer: Timer?
     private var diagnosticsHeartbeatTimer: Timer?
+    private var botGuestIdleSweepTimer: Timer?
     private var accountUsageRefreshTimer: Timer?
     private var lifecycleRecorder: AppLifecycleRecorder?
     /// Forensic-only hang detector (plan-final W0). Never mutates run status.
@@ -428,6 +429,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // models, …) on the first paint. Defer until the UI is interactive.
         startAccountUsageRefreshLoop()
         startDiagnosticsHeartbeat()
+        startBotGuestIdleSweep()
         logDiagnosticsHeartbeat(reason: "launch")
         checkForUpdatesAfterOpeningApp()
         // Only schedules: the first Distill update check runs off the main
@@ -716,6 +718,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         providerSessionReaperTimer?.invalidate()
         ccrRetentionTimer?.invalidate()
         diagnosticsHeartbeatTimer?.invalidate()
+        botGuestIdleSweepTimer?.invalidate()
         accountUsageRefreshTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
@@ -799,6 +802,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                 appFootprintKB: appFootprintKB,
                 key: ManagedProviderAdmissionKey(provider: provider, threadId: threadId)
             )
+        }
+    }
+
+    /// Every 5 minutes, off the main thread: stops Bot VMs idle for 30
+    /// minutes and logs each guest's memory and OOM kills.
+    private func startBotGuestIdleSweep() {
+        guard let context else { return }
+        let service = BotComputerGuestService(appSupport: context.appSupportDirectory, docker: context.guestDocker)
+        let queue = DispatchQueue(label: "RemoteCode.BotGuestIdleSweep", qos: .utility)
+        botGuestIdleSweepTimer?.invalidate()
+        botGuestIdleSweepTimer = Timer.scheduledTimer(withTimeInterval: 5 * 60, repeats: true) { _ in
+            queue.async { service.sweepIdleGuests() }
         }
     }
 

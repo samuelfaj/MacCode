@@ -48,6 +48,12 @@ RUN set -eu; \
 # (launch-browser.sh), so logins made in the viewer are the bot's session.
 RUN npm install -g @playwright/mcp@0.0.83 && npm cache clean --force
 
+# Recommended (not mandatory) policies: continue where the user left off, which
+# also keeps session cookies across browser restarts, and Memory Saver, which
+# frees background tabs instead of letting the guest run out of memory.
+RUN mkdir -p /etc/chromium/policies/recommended \
+    && printf '%s\n' '{"RestoreOnStartup": 1, "HighEfficiencyModeEnabled": true}' > /etc/chromium/policies/recommended/remotecode.json
+
 RUN useradd --create-home --home-dir /home/remotecode --shell /bin/bash remotecode \
     && mkdir -p /opt/remotecode-computer
 

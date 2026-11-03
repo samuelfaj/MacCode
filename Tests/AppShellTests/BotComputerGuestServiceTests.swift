@@ -157,6 +157,8 @@ private final class FakeDocker: BotComputerDockerClienting, @unchecked Sendable 
         if let removeError { throw removeError }
         containers[name] = nil
     }
+    var runningManaged: [BotID] = []
+    func runningManagedBotIDs() throws -> [BotID] { runningManaged }
     func removeMatching(namePrefix: String) throws {
         for name in containers.keys where name.hasPrefix(namePrefix) {
             try remove(name: name)
@@ -692,6 +694,73 @@ final class BotComputerGuestServiceTests: XCTestCase {
         XCTAssertThrowsError(try service.provision(contextBinding: descendantBinding, workspace: descendant, registeredWorkspaces: [descendant.cwd]))
         XCTAssertTrue(fake.created.isEmpty)
         XCTAssertTrue(fake.builds.isEmpty)
+    }
+
+    private func idleFixture(_ prefix: String, home: URL? = nil, probe: String = "1 0 1000 0")
+        throws -> (support: URL, fake: FakeDocker, service: BotComputerGuestService, botID: BotID, name: String) {
+        let support = makeSupport(prefix)
+        let fake = FakeDocker()
+        let vmRuns = BotVMRunRegistry()
+        let service = BotComputerGuestService(
+            appSupport: support, docker: fake, control: BotComputerControl(), vmRuns: vmRuns
+        )
+        let botID = BotID()
+        let name = BotComputerGuestSpec.containerName(botID: botID)
+        let ownHome = home ?? BotComputerGuestSpec.guestHomeURL(appSupport: support, botID: botID)
+        try FileManager.default.createDirectory(at: ownHome, withIntermediateDirectories: true)
+        fake.runningManaged = [botID]
+        fake.containers[name] = BotComputerContainerInspect(
+            running: true, imageID: "img", hostPort: 49152, homeSource: ownHome.path
+        )
+        fake.execOutput = { command in
+            command == BotComputerGuestService.GuestActivity.probeCommand ? Data(probe.utf8) : nil
+        }
+        return (support, fake, service, botID, name)
+    }
+
+    func test_idleSweepStopsAVMOnlyAfterItStaysIdleForTheWholeLimit() throws {
+        // WHY: idle bot desktops kept Chromium alive in the shared Docker VM
+        // until it ran out of memory. A VM must be idle for the full limit
+        // across sweeps, not merely idle at one sweep.
+        let f = try idleFixture("rc-idle-sweep")
+        defer { try? FileManager.default.removeItem(at: f.support) }
+        let start = Date().addingTimeInterval(3600)
+        XCTAssertEqual(f.service.sweepIdleGuests(idleAfter: 60, now: start), [])
+        XCTAssertEqual(f.service.sweepIdleGuests(idleAfter: 60, now: start.addingTimeInterval(59)), [])
+        XCTAssertTrue(f.fake.stopped.isEmpty)
+        XCTAssertEqual(f.service.sweepIdleGuests(idleAfter: 60, now: start.addingTimeInterval(61)), [f.botID])
+        XCTAssertEqual(f.fake.stopped, [f.name])
+        XCTAssertTrue(BotComputerGuestService.wasStoppedWhenIdle(botID: f.botID))
+        BotComputerGuestService.noteActivity(botID: f.botID)
+        XCTAssertFalse(BotComputerGuestService.wasStoppedWhenIdle(botID: f.botID), "a new start clears the idle stop")
+    }
+
+    func test_idleSweepKeepsVMsWithAViewerAnExecOrAnotherAppsHome() throws {
+        // WHY: stopping a VM someone watches or runs a command in would cut
+        // them off; a VM whose home is another app's (debug sandbox, tests)
+        // is not this app's to stop.
+        let later = Date().addingTimeInterval(7200)
+        for probe in ["1 1 1000 0", "2 0 1000 0"] {
+            let f = try idleFixture("rc-idle-busy", probe: probe)
+            defer { try? FileManager.default.removeItem(at: f.support) }
+            _ = f.service.sweepIdleGuests(idleAfter: 0, now: later)
+            XCTAssertEqual(f.service.sweepIdleGuests(idleAfter: 0, now: later), [], probe)
+            XCTAssertTrue(f.fake.stopped.isEmpty, probe)
+        }
+        let foreign = makeSupport("rc-idle-foreign")
+        defer { try? FileManager.default.removeItem(at: foreign) }
+        let f = try idleFixture("rc-idle-other", home: foreign.appendingPathComponent("home"))
+        defer { try? FileManager.default.removeItem(at: f.support) }
+        _ = f.service.sweepIdleGuests(idleAfter: 0, now: later)
+        XCTAssertEqual(f.service.sweepIdleGuests(idleAfter: 0, now: later), [])
+        XCTAssertTrue(f.fake.stopped.isEmpty)
+        XCTAssertEqual(f.fake.execCalls, 0, "another app's VM is not even probed")
+    }
+
+    func test_guestActivityProbeParsesTheGuestReading() {
+        let reading = BotComputerGuestService.GuestActivity(probeOutput: Data("3 1 2048 7\n".utf8))
+        XCTAssertEqual(reading, .init(execSessions: 2, viewers: 1, memoryBytes: 2048, oomKills: 7))
+        XCTAssertNil(BotComputerGuestService.GuestActivity(probeOutput: Data("garbage".utf8)))
     }
 
     func test_stopForContextRecoveryStopsOnlyOwnedRuntimeAndPreservesScopedResources() throws {

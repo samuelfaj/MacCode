@@ -44,16 +44,34 @@ fluxbox -display :1 -log /tmp/fluxbox.log >/tmp/fluxbox.out 2>&1 &
 # Chromium crash or OOM kill would end the container and SIGKILL the agent
 # running inside it (Distill exit 137).
 if ! command -v chromium >/dev/null 2>&1; then xterm -display :1 & fi
+# A hung browser never exits, so the loop also restarts one whose DevTools
+# endpoint stops answering for three checks in a row.
 (
     while true; do
-        /opt/remotecode-computer/launch-browser.sh || true
+        /opt/remotecode-computer/launch-browser.sh &
+        browser=$!
+        sleep 30
+        misses=0
+        while kill -0 "$browser" 2>/dev/null; do
+            if curl -fsS -m 5 -o /dev/null http://127.0.0.1:9222/json/version; then
+                misses=0
+            else
+                misses=$((misses + 1))
+            fi
+            if [ "$misses" -ge 3 ]; then
+                kill -KILL "$browser" 2>/dev/null || true
+            fi
+            sleep 10
+        done
+        wait "$browser" 2>/dev/null || true
         sleep 2
     done
 ) &
 
 # Guest VNC stays loopback. The WebSocket proxy admits only the per-Bot token;
 # Docker NAT additionally publishes 6080 on 127.0.0.1 of the host.
-x11vnc -display :1 -rfbport 5900 -localhost -forever -shared -nopw \
+# Shorter poll and update delays than the 20 ms defaults: smoother viewer.
+x11vnc -display :1 -rfbport 5900 -localhost -forever -shared -nopw -wait 10 -defer 10 \
     >/tmp/x11vnc.log 2>&1 &
 vnc_pid=$!
 

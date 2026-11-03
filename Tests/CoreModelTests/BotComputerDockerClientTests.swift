@@ -168,6 +168,57 @@ final class BotComputerDockerClientTests: XCTestCase {
         XCTAssertEqual(args.last, BotComputerGuestSpec.imageTag, "the image stays the final argument")
     }
 
+    func test_createCapsEachGuestsMemoryPidsAndCPU() throws {
+        // WHY: unlimited guests share the Docker VM's memory; when one runs
+        // out, the kernel kills processes in other bots' guests (seen: their
+        // Chromium). Memory and swap must match so the cap is not bypassed.
+        var calls: [[String]] = []
+        let cli = BotComputerDockerCLI { args in
+            calls.append(args)
+            return Data("cid\n".utf8)
+        }
+        let botID = BotID()
+        let support = URL(fileURLWithPath: "/tmp/rc-docker-create-limits")
+        let options = try BotComputerGuestSpec.containerCreateOptions(
+            botID: botID,
+            guestHome: BotComputerGuestSpec.guestHomeURL(appSupport: support, botID: botID).path,
+            appSupport: support,
+            viewerToken: String(repeating: "a", count: 32)
+        )
+        _ = try cli.create(options: options)
+        let args = try XCTUnwrap(calls.first)
+        func value(_ flag: String) -> String? { args.firstIndex(of: flag).map { args[$0 + 1] } }
+        XCTAssertEqual(value("--memory"), "\(BotComputerGuestSpec.guestMemoryBytes)")
+        XCTAssertEqual(value("--memory-swap"), "\(BotComputerGuestSpec.guestMemoryBytes)")
+        XCTAssertEqual(value("--pids-limit"), "\(BotComputerGuestSpec.guestPidsLimit)")
+        XCTAssertEqual(value("--cpus"), BotComputerGuestSpec.guestCPUs)
+        XCTAssertGreaterThan(BotComputerGuestSpec.guestMemoryBytes, BotComputerGuestSpec.minimumShmBytes)
+    }
+
+    func test_runningManagedBotIDsReadsOnlyRunningManagedContainersBotLabels() throws {
+        var calls: [[String]] = []
+        let botID = BotID()
+        let cli = BotComputerDockerCLI { args in
+            calls.append(args)
+            return Data("\(botID.value.uuidString.lowercased())\n\nnot-a-uuid\n".utf8)
+        }
+        XCTAssertEqual(try cli.runningManagedBotIDs(), [botID])
+        let args = try XCTUnwrap(calls.first)
+        XCTAssertTrue(args.contains("label=remotecode.managed=1"))
+        XCTAssertTrue(args.contains("status=running"))
+    }
+
+    func test_unitTestsNeverReachTheRealDockerWithoutOptIn() throws {
+        // WHY: tests that fell through to the real CLI left 165 running bot
+        // desktops (each with Chromium) in the user's Docker VM.
+        guard ProcessInfo.processInfo.environment["RC_LIVE_DOCKER"] != "1" else {
+            throw XCTSkip("live Docker opt-in is set")
+        }
+        XCTAssertThrowsError(try BotComputerDockerCLI.defaultRun(["ps"])) { error in
+            XCTAssertEqual(error as? BotComputerDockerError, .cliMissing)
+        }
+    }
+
     func test_createPassesContextNetworkSecurityFlagsOnceAsSeparateArguments() throws {
         var calls: [[String]] = []
         let cli = BotComputerDockerCLI { args in calls.append(args); return Data() }

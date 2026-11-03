@@ -65,6 +65,22 @@ public final class BotComputerGuestService: @unchecked Sendable {
     /// screenshot failed. Static: a send's preflight and its guest prepare
     /// use different service instances.
     private static var unprovenContainers: Set<String> = []
+    private static let activityLock = NSLock()
+    /// Last time this app used each VM (provision, screen, input, exec);
+    /// the idle sweep never stops a VM used more recently than its limit.
+    private static var lastActivity: [BotID: Date] = [:]
+
+    static func noteActivity(botID: BotID, at date: Date = Date()) {
+        activityLock.withLock {
+            lastActivity[botID] = date
+            idleSince[botID] = nil
+            idleStopped.remove(botID)
+        }
+    }
+
+    static func lastActivity(botID: BotID) -> Date? {
+        activityLock.withLock { lastActivity[botID] }
+    }
     /// SHA-256 of every recipe file version earlier releases seeded into a bot's
     /// home. A per-bot copy still equal to one of them was never edited, so it is
     /// replaced with the current file; an edited copy stays the user's choice.
@@ -72,6 +88,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
         "Dockerfile": [
             "28da84d0e980c6862d74f1a55c4010e9e450ca718ea3931e19e02b5c7a781ef5",
             "f76708fdeadee4b8c2b970e6bcb0d1cf0143ed57331d14a14941406fbc438bb6", // revision 4
+            "5a88684d00a666ede90652c0732610a493ace9a52833ff6fb62cf76a24923e51", // revision 8, no restore policy
         ],
         "start.sh": [
             "3ee4664d5865f5316a2cf5b0bb8550dbe893d952c6ef71d4ae82f78d6451d840",
@@ -79,9 +96,11 @@ public final class BotComputerGuestService: @unchecked Sendable {
             "7479a3389036155ed694292fcafeefb683a6dd79fbf8fa0a0e7e588f8fe69950", // revision 4
             "fa7a4feecd4b97cbd9d64ae537efade078e54281df250ba41ac5b5c5a7f5566f", // revision 5 before its lock comment
             "e91aa057e23e45af1c379bb8c0cf85548a293dbbfd028b9918fc7d7149e82a35", // revision 7, browser exit ended the container
+            "e153cb9eba1a293253d1400bf5647ab1f8b9b11d73f299d4b5b3b61b98a9bd7c", // revision 8, no browser watchdog
         ],
         "launch-browser.sh": [
             "875c894932c673d7fdf66391eb38cb82002ea0ccc077b91108c486b9512419a3", // revision 4
+            "4b75dbe17523cdb8186c1fd9a4770df70e73d397b591590ea47e6ea20771798c", // revision 8, separate GPU process
         ],
         "embed.html": [
             "343261436d1a1b8d6f1f714cd9c517c3cf7032c296853bb720bc4b371f82d35c",
@@ -267,6 +286,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
         contextualNetworkPolicy: Bool = false,
         sharedVirtualMachine: Bool = false
     ) throws -> BotComputerGuestReady {
+        Self.noteActivity(botID: botID)
         let home = try BotGuestHome.ensure(appSupport: appSupport, botID: botID)
         // A reused container sees the current kit through its bind too.
         try BotGuestAgentKit.materialize(appSupport: appSupport)
@@ -704,6 +724,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
     /// An admitted run already prepared its mounts and network policy.
     /// Tool calls must use that runtime without replacing its container.
     private func ensureToolRuntime(botID: BotID) throws {
+        Self.noteActivity(botID: botID)
         if vmRuns.active(botID: botID) != nil, isContainerRunning(botID: botID) { return }
         _ = try provision(botID: botID)
     }
@@ -816,6 +837,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
     /// The rebuild holds the VM exclusively until it is done, so a send made
     /// during the build queues instead of starting on the old container.
     public func rebuild(botID: BotID, requestingThreadID: AgentThreadID? = nil) throws -> BotComputerGuestReady {
+        Self.noteActivity(botID: botID)
         let container = BotComputerGuestSpec.containerName(botID: botID)
         var sharedVirtualMachine = false
         var contextualNetworkPolicy = false
@@ -1292,6 +1314,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
         ready: BotComputerGuestReady? = nil,
         attempts: Int? = nil
     ) throws -> BotComputerGuestFrameEvidence {
+        Self.noteActivity(botID: botID)
         let name = BotComputerGuestSpec.containerName(botID: botID)
         let inspect = try docker.inspect(name: name)
         guard inspect.running else { throw BotComputerGuestError.notReady }
@@ -1332,6 +1355,100 @@ public final class BotComputerGuestService: @unchecked Sendable {
                 detach: false
             )
         }
+    }
+
+    /// One reading of a running guest: processes started by `docker exec`
+    /// (agent runs, terminals), open viewer connections, memory, OOM kills.
+    struct GuestActivity: Equatable {
+        var execSessions: Int
+        var viewers: Int
+        var memoryBytes: Int
+        var oomKills: Int
+
+        /// Exec'd processes have parent 0; this probe is one of them.
+        static let probeCommand = [
+            "sh", "-c",
+            #"echo "$(ps -eo pid=,ppid= | awk '$2==0 && $1!=1' | wc -l) "#
+                + #"$(awk 'FNR>1 && $4=="01" && $2 ~ /:17C0$/' /proc/net/tcp /proc/net/tcp6 2>/dev/null | wc -l) "#
+                + #"$(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo 0) "#
+                + #"$(awk '$1=="oom_kill"{print $2}' /sys/fs/cgroup/memory.events 2>/dev/null || echo 0)""#,
+        ]
+
+        init(execSessions: Int, viewers: Int, memoryBytes: Int, oomKills: Int) {
+            self.execSessions = execSessions
+            self.viewers = viewers
+            self.memoryBytes = memoryBytes
+            self.oomKills = oomKills
+        }
+
+        init?(probeOutput: Data) {
+            let fields = String(decoding: probeOutput, as: UTF8.self)
+                .split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
+            guard fields.count == 4 else { return nil }
+            self.init(execSessions: max(0, fields[0] - 1), viewers: fields[1], memoryBytes: fields[2], oomKills: fields[3])
+        }
+    }
+
+    public static let idleStopInterval: TimeInterval = 30 * 60
+    private static var idleSince: [BotID: Date] = [:]
+    private static var idleStopped: Set<BotID> = []
+    private static var reportedOOMKills: [BotID: Int] = [:]
+
+    /// True once the idle sweep stopped the VM, until it is provisioned again.
+    public static func wasStoppedWhenIdle(botID: BotID) -> Bool {
+        activityLock.withLock { idleStopped.contains(botID) }
+    }
+
+    /// Stops this app's VMs that nobody has used for `idleAfter`: no run
+    /// claim, no user control, no viewer, no exec'd process, and no use by
+    /// this app. Each stop goes through `stop(botID:)`, which refuses while a
+    /// run holds the VM. The home persists and the browser restores its tabs
+    /// on the next start. Also logs each guest's memory and new OOM kills.
+    @discardableResult
+    public func sweepIdleGuests(idleAfter: TimeInterval = idleStopInterval, now: Date = Date()) -> [BotID] {
+        guard let running = try? docker.runningManagedBotIDs() else { return [] }
+        let homeRoot = BotComputerGuestSpec.guestHomeRoot(appSupport: appSupport)
+            .resolvingSymlinksInPath().standardizedFileURL.path + "/"
+        var stopped: [BotID] = []
+        for botID in running {
+            let name = BotComputerGuestSpec.containerName(botID: botID)
+            // Another app build's or a test's VM shares the daemon: leave it alone.
+            guard let inspect = try? docker.inspect(name: name), inspect.running,
+                  let home = inspect.homeSource,
+                  URL(fileURLWithPath: home).resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(homeRoot),
+                  let output = try? docker.exec(name: name, command: GuestActivity.probeCommand, user: nil, detach: false),
+                  let activity = GuestActivity(probeOutput: output) else { continue }
+            let newOOMKills = Self.activityLock.withLock { () -> Int in
+                defer { Self.reportedOOMKills[botID] = activity.oomKills }
+                return activity.oomKills - (Self.reportedOOMKills[botID] ?? activity.oomKills)
+            }
+            guestServiceLog.info("bot.guest.health bot=\(botID.value.uuidString.lowercased(), privacy: .public) memoryBytes=\(activity.memoryBytes, privacy: .public) oomKills=\(activity.oomKills, privacy: .public) newOOMKills=\(newOOMKills, privacy: .public) viewers=\(activity.viewers, privacy: .public) execSessions=\(activity.execSessions, privacy: .public)")
+            let busy = vmRuns.active(botID: botID) != nil
+                || control.isControlledByUser(botID, resourceID: botID)
+                || activity.viewers > 0 || activity.execSessions > 0
+                || (Self.lastActivity(botID: botID).map { now.timeIntervalSince($0) < idleAfter } ?? false)
+            let idleFor: TimeInterval = Self.activityLock.withLock {
+                if busy { Self.idleSince[botID] = nil; return 0 }
+                let since = Self.idleSince[botID] ?? now
+                Self.idleSince[botID] = since
+                return now.timeIntervalSince(since)
+            }
+            guard !busy, idleFor >= idleAfter else { continue }
+            do {
+                try stop(botID: botID)
+                Self.activityLock.withLock {
+                    Self.idleSince[botID] = nil
+                    _ = Self.idleStopped.insert(botID)
+                }
+                stopped.append(botID)
+                guestServiceLog.info("bot.guest.idle_stopped bot=\(botID.value.uuidString.lowercased(), privacy: .public) idleSeconds=\(Int(idleFor), privacy: .public)")
+                notificationCenter.post(name: .botGuestStoppedWhenIdle, object: nil,
+                                        userInfo: [BotHostNotificationKey.botID: botID])
+            } catch {
+                guestServiceLog.error("bot.guest.idle_stop_failed bot=\(botID.value.uuidString.lowercased(), privacy: .public) error=\(String(describing: error), privacy: .public)")
+            }
+        }
+        return stopped
     }
 
     public func teardown(botID: BotID) {

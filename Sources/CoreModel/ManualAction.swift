@@ -213,6 +213,8 @@ public extension Notification.Name {
     /// userInfo: `botID` BotID, `threadID` AgentThreadID. A rebuild that held the bot finished;
     /// `threadID` is the send that queued meanwhile and now drains.
     static let botVMRebuildReleased = Notification.Name("io.remotecode.bot.vm-rebuild-released")
+    /// userInfo: `botID` BotID. The idle sweep stopped that VM.
+    static let botGuestStoppedWhenIdle = Notification.Name("io.remotecode.bot.guest-stopped-when-idle")
     /// userInfo: `threadID` AgentThreadID. Posted after a manual-action take/resolve so every view model refreshes.
     static let manualActionStateChanged = Notification.Name("io.remotecode.bot.manual-action-state-changed")
     /// object: the `BotComputerControl`; userInfo: `botID` BotID. Who drives that bot's computer

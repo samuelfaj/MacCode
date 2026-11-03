@@ -3,7 +3,7 @@ import CryptoKit
 
 public enum BotComputerGuestSpec {
     /// Bump when start.sh / Dockerfile change. Missing label rebuilds the image.
-    public static let recipeRevision = "8"
+    public static let recipeRevision = "9"
     /// Versioned so two app builds on different revisions sharing one Docker
     /// daemon (e.g. the debug sandbox and the installed app) never rebuild the
     /// same tag back and forth.
@@ -28,7 +28,7 @@ public enum BotComputerGuestSpec {
     }
     /// Bump when the container create options change. A container whose label
     /// differs is recreated, but only while the bot has no active run.
-    public static let runtimeRevision = "8"
+    public static let runtimeRevision = "9"
     public static let runtimeLabelKey = "remotecode.runtime"
     /// The bot (of the app database that created it) a container belongs to.
     public static let botIDLabelKey = "remotecode.botId"
@@ -55,6 +55,12 @@ public enum BotComputerGuestSpec {
     public static let agentLeaseDirectory = "\(guestUserHome)/.rc-runs"
     public static let screenPort = 6080
     public static let minimumShmBytes: Int = 256 * 1024 * 1024
+    /// Per-guest ceilings. Without them every guest shares the Docker VM's
+    /// memory, and one guest running out makes the kernel kill processes in
+    /// any guest (seen: Chromium in idle bots). Swap equals memory: no swap.
+    public static let guestMemoryBytes: Int = 4 * 1024 * 1024 * 1024
+    public static let guestPidsLimit = 4096
+    public static let guestCPUs = "4"
 
     public static func containerName(botID: BotID) -> String {
         "remotecode-bot-\(botID.value.uuidString.lowercased())"
@@ -221,6 +227,9 @@ public enum BotComputerGuestSpec {
             hostPort: 0,
             containerPort: screenPort,
             shmSize: minimumShmBytes,
+            memoryBytes: guestMemoryBytes,
+            pidsLimit: guestPidsLimit,
+            cpus: guestCPUs,
             network: networkName(botID: botID),
             initProcess: true,
             extraHosts: [hostGatewayAlias],
@@ -393,6 +402,10 @@ public struct BotComputerContainerCreateOptions: Equatable, Sendable {
     public var hostPort: Int
     public var containerPort: Int
     public var shmSize: Int
+    /// `--memory` and `--memory-swap`; nil leaves the container unlimited.
+    public var memoryBytes: Int? = nil
+    public var pidsLimit: Int? = nil
+    public var cpus: String? = nil
     public var network: String?
     /// `--init`: an init process reaps orphans and forwards signals to start.sh.
     public var initProcess: Bool = false

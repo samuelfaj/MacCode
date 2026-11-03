@@ -4123,6 +4123,7 @@ public final class BotsViewModel: ObservableObject {
         set { draftPersistenceAuthority.scheduleForTesting = newValue }
     }
     private var shellSidebarVisibilityObserver: NSObjectProtocol?
+    private var guestIdleStopObserver: NSObjectProtocol?
     private var deskLiveTurnWatch: Task<Void, Never>?
     private var navigationFreshnessTask: Task<Void, Never>?
     private var navigationFreshnessGeneration: UInt64 = 0
@@ -4178,6 +4179,12 @@ public final class BotsViewModel: ObservableObject {
         restoreUnpublishedNewBotIDsIfNeeded()
         restoreShellSidebarCollapsedIfNeeded()
         observeShellSidebarVisibility()
+        guestIdleStopObserver = NotificationCenter.default.addObserver(
+            forName: .botGuestStoppedWhenIdle, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let botID = note.userInfo?[BotHostNotificationKey.botID] as? BotID else { return }
+            Task { @MainActor in self?.markGuestStoppedWhenIdle(botID) }
+        }
         if loadImmediately {
             reload()
         }
@@ -4201,6 +4208,9 @@ public final class BotsViewModel: ObservableObject {
         navigationFreshnessTask?.cancel()
         if let shellSidebarVisibilityObserver {
             NotificationCenter.default.removeObserver(shellSidebarVisibilityObserver)
+        }
+        if let guestIdleStopObserver {
+            NotificationCenter.default.removeObserver(guestIdleStopObserver)
         }
         context.coordinator.removeObserver(self)
     }
@@ -11427,6 +11437,12 @@ public final class BotsViewModel: ObservableObject {
             guestLaunchStateByBot[botID.value] = .idle
             objectWillChange.send()
         }
+        // The idle sweep stopped it: resuming takes seconds, so wait instead
+        // of failing the send.
+        if let resourceID = try? guestDisplayResourceID(botID),
+           BotComputerGuestService.wasStoppedWhenIdle(botID: resourceID) {
+            return await deskGuestDesktopFailure(botID)
+        }
         presentGuestDesktop(botID: botID)
         if case .failed(let message) = guestLaunchState(for: botID) { return message }
         return "Linux desktop is starting. Try again when it is ready."
@@ -13033,6 +13049,13 @@ public final class BotsViewModel: ObservableObject {
 
     func guestScreenURL(for botID: BotID) -> URL? {
         guestScreenURLByBot[(try? guestDisplayResourceID(botID))?.value ?? botID.value]
+    }
+
+    func markGuestStoppedWhenIdle(_ resourceID: BotID) {
+        guard guestLaunchStateByBot[resourceID.value] != .starting else { return }
+        guestRunningByBot[resourceID.value] = false
+        guestLaunchStateByBot[resourceID.value] = .idle
+        objectWillChange.send()
     }
 
     func isGuestRunning(_ botID: BotID) -> Bool {

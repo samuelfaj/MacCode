@@ -107,6 +107,8 @@ public protocol BotComputerDockerClienting: Sendable {
     func remove(name: String) throws
     func removeMatching(namePrefix: String) throws
     func top(name: String) throws -> String
+    /// Bots whose RemoteCode-managed container is running, from any app's daemon use.
+    func runningManagedBotIDs() throws -> [BotID]
 }
 
 public extension BotComputerDockerClienting {
@@ -119,6 +121,8 @@ public extension BotComputerDockerClienting {
     }
 
     func top(name: String) throws -> String { "" }
+
+    func runningManagedBotIDs() throws -> [BotID] { [] }
 
     /// One Docker call per fact, and only the labels RemoteCode stamps on its
     /// images. `BotComputerDockerCLI` reads everything in one call instead.
@@ -188,6 +192,7 @@ public struct BotComputerImageState: Equatable, Sendable {
 
 /// App-process CLI wrapper. Agent children must never receive this client.
 public struct BotComputerDockerCLI: BotComputerDockerClienting {
+    static let isRunningUnderXCTest = NSClassFromString("XCTestCase") != nil
     static let stdoutRetentionLimit = 8 * 1_024 * 1_024
     static let buildStdoutRetentionLimit = 64 * 1_024 * 1_024
     static let stderrRetentionLimit = 16 * 1_024
@@ -288,6 +293,11 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
             "-p", "\(options.hostIP):\(options.hostPort):\(options.containerPort)",
             "--restart", "unless-stopped",
         ]
+        if let memory = options.memoryBytes {
+            args += ["--memory", "\(memory)", "--memory-swap", "\(memory)"]
+        }
+        if let pids = options.pidsLimit { args += ["--pids-limit", "\(pids)"] }
+        if let cpus = options.cpus { args += ["--cpus", cpus] }
         if let network = options.network, !network.isEmpty {
             args += ["--network", network]
         }
@@ -490,6 +500,16 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
         String(data: try run(["top", name]), encoding: .utf8) ?? ""
     }
 
+    public func runningManagedBotIDs() throws -> [BotID] {
+        let data = try run([
+            "ps", "--filter", "label=remotecode.managed=1", "--filter", "status=running",
+            "--format", "{{.Label \"\(BotComputerGuestSpec.botIDLabelKey)\"}}",
+        ])
+        return String(decoding: data, as: UTF8.self)
+            .split(whereSeparator: \.isNewline)
+            .compactMap { UUID(uuidString: $0.trimmingCharacters(in: .whitespaces)).map(BotID.init) }
+    }
+
     public func removeMatching(namePrefix: String) throws {
         let data = try run(["ps", "-aq", "--filter", "name=\(namePrefix)"])
         let names = (String(data: data, encoding: .utf8) ?? "")
@@ -502,6 +522,11 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
     }
 
     public static func defaultRun(_ args: [String]) throws -> Data {
+        // Unit tests never reach the user's Docker: a leaked test container
+        // keeps its desktop and Chromium running in the shared Docker VM.
+        if isRunningUnderXCTest, ProcessInfo.processInfo.environment["RC_LIVE_DOCKER"] != "1" {
+            throw BotComputerDockerError.cliMissing
+        }
         let executable = try BotComputerDockerResolver.shared.resolveHealthyExecutable()
         let timeout = timeoutForArguments(args)
         let result: (data: Data, errorData: Data, terminationStatus: Int32, timedOut: Bool)
