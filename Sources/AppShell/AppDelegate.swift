@@ -2262,6 +2262,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     }
 
     private func reportNotificationRouteFailure(_ message: String) {
+        // A modal would block the unit-test runner; tests read the NSLog line instead.
+        guard !AppContext.isRunningUnitTests else { return }
         // Deferred so the notification delegate callback returns before the modal runs.
         Task { @MainActor in
             let alert = NSAlert()
