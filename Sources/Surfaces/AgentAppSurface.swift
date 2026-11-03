@@ -1393,6 +1393,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         guard !isDisposed else { return }
         let previous = surfaceVisibility
         surfaceVisibility = visibility
+        // Working-tree changes made while hidden (terminal, editor) show on return.
+        if visibility == .visible, previous != .visible { loadGitBranchThrottled() }
         if visibility == .hidden {
             // A repeated hide would stash the already-emptied published
             // timeline over the real hidden one (or its archive).
@@ -2463,7 +2465,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         // mirror that rule here too: without the unread half the rail keeps a
         // stale badge until the next full list, which X-02 no longer triggers.
         threads[idx].hasUnread = Self.railUnread(for: status)
-        threads[idx].updatedAt = Date()
+        // Rail order is by updatedAt: a status change must not reorder threads.
     }
 
     /// Read state the coordinator stores with each run status.
@@ -3346,6 +3348,11 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     }
 
     public func editQueuedMessage(_ message: AgentQueuedMessage) {
+        // Switching edits would silently discard the unsaved text of the current one.
+        if let current = editingQueuedMessage, current.id != message.id, queuedMessageDraft != current.text {
+            statusMessage = "Save or cancel the current edit first."
+            return
+        }
         editingQueuedMessage = message
         queuedMessageDraft = message.text
         setQueueStatus(nil, threadId: message.threadId)
@@ -7440,6 +7447,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     }
 
     public func setModel(_ model: String) {
+        // A user-picked model pins the Source too, so a background snapshot reload keeps both.
+        sourceSelectionUserPinned = true
         self.model = model
         rememberCurrentModel()
         normalizeSelectedModelOptions()
@@ -10392,6 +10401,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 || coordinator.isPreparingProviderStart(threadId: tid)
                 || coordinator.activeRunId(threadId: tid) != nil
             if !coordinatorOwns {
+                statusMessage = "Stopped before the run started."
                 return
             }
         }
@@ -10422,6 +10432,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                     // durable pending/running row). That is not a stop timeout, so
                     // clear it silently instead of blaming the provider.
                     self.clearStaleRunProjection(threadId: tid)
+                    self.statusMessage = "This run had already finished."
                 } else {
                     // Loud failure: hard timeout still left ownership — drop the
                     // latch so Stop is usable again and surface the error.
@@ -10449,6 +10460,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             // overhead on every stale Stop.
             let guardStatus = coordinator.stopRun(threadId: tid)
             clearStaleRunProjection(threadId: tid, durableStatus: guardStatus)
+            statusMessage = "This run had already finished."
             return
         }
         // Path B: scheduled runs are owned by the LaunchAgent. Prefer XPC stop
@@ -17509,15 +17521,20 @@ public struct AgentAppView: View {
         expandedLiveWorkCache.clear()
     }
 
-    /// When a turn first gains a final answer / finishes, collapse every Work so far.
+    /// When a turn first gains a final answer / finishes, collapse that turn's Work.
+    /// Older finished turns keep the disclosure the user opened.
     private func collapseAllCompletedWorkOnFinalIfNeeded() {
         let update = Self.completedWorkTurnIds(
             turns: vm.timeline.turns,
             previouslyKnown: knownFinishedWorkTurnIds
         )
+        let newlyFinished = update.ids.subtracting(knownFinishedWorkTurnIds)
         knownFinishedWorkTurnIds = update.ids
-        guard update.hasNewlyFinished else { return }
-        collapseAllWorkDisclosures()
+        guard update.hasNewlyFinished, !newlyFinished.isEmpty else { return }
+        expandedCompletedWorkTurns.subtract(newlyFinished)
+        userCollapsedLiveWorkTurns.subtract(newlyFinished)
+        workDisclosureRevealByTurn = workDisclosureRevealByTurn.filter { !newlyFinished.contains($0.key) }
+        expandedLiveWorkCache.clear()
     }
 
     @ViewBuilder

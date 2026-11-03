@@ -212,6 +212,49 @@ final class AgentAppQueuedMessageAndHelperTests: XCTestCase {
                       "cancelQueuedMessage must persist the removal so it survives reload")
     }
 
+    /// WHY: switching edits with unsaved text silently discarded the user's typing.
+    func test_editQueuedMessage_refusesSwitchWhileCurrentEditHasChanges() throws {
+        let (vm, repo) = try makeVM(withQueue: true)
+        let queuedRepo = try XCTUnwrap(repo)
+        vm.createThread(title: "queue switch")
+        let threadId = try XCTUnwrap(vm.selectedThreadId)
+        try queuedRepo.upsert(AgentQueuedMessage(threadId: threadId, text: "first", position: 1))
+        try queuedRepo.upsert(AgentQueuedMessage(threadId: threadId, text: "second", position: 2))
+        vm.reloadQueuedMessages()
+        let first = vm.queuedMessages[0]
+        let second = vm.queuedMessages[1]
+
+        vm.editQueuedMessage(first)
+        vm.queuedMessageDraft = "first, typed but unsaved"
+        vm.editQueuedMessage(second)
+
+        XCTAssertEqual(vm.editingQueuedMessage?.id, first.id,
+                       "switching edits must keep the edit that has unsaved text")
+        XCTAssertEqual(vm.queuedMessageDraft, "first, typed but unsaved")
+        XCTAssertEqual(vm.statusMessage, "Save or cancel the current edit first.")
+    }
+
+    /// WHY: a stop with nothing to stop must say so, not look like a silent no-op.
+    func test_stopWithoutLiveRun_reportsAlreadyFinished() throws {
+        let (vm, _) = try makeVM()
+        vm.createThread(title: "stale stop")
+        vm.stop()
+        XCTAssertEqual(vm.statusMessage, "This run had already finished.")
+    }
+
+    /// WHY: rail order follows updatedAt, so a run status change must not reorder threads.
+    func test_runStatusChange_doesNotBumpRailUpdatedAt() async throws {
+        let (vm, _) = try makeVM()
+        vm.createThread(title: "rail order")
+        let tid = try XCTUnwrap(vm.selectedThreadId)
+        let before = try XCTUnwrap(vm.threads.first { $0.id == tid }).updatedAt
+        vm.runCoordinator(vm.coordinator, didChangeStatus: .running, runId: AgentRunID(), threadId: tid)
+        let deadline = Date().addingTimeInterval(4)
+        while vm.status != .running && Date() < deadline { await Task.yield() }
+        let after = try XCTUnwrap(vm.threads.first { $0.id == tid }).updatedAt
+        XCTAssertEqual(after, before)
+    }
+
     func test_cancelQueuedMessage_clearsEditingStateWhenMatchingEdited() throws {
         let (vm, repo) = try makeVM(withQueue: true)
         let queuedRepo = try XCTUnwrap(repo)
