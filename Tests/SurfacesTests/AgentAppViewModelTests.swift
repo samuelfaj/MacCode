@@ -11245,3 +11245,47 @@ private final class CapturingProviderRunner: AgentProviderRunner, @unchecked Sen
     }
 }
 
+
+/// WHY: the user's bubble used to appear only after snapshot loads, bot/VM
+/// gates and SQLite checks, so the chat looked empty for the whole wait.
+extension AgentAppViewModelTests {
+    /// Whether a user bubble with `text` was on screen before `send()` returned.
+    private func sendObservingBubble(_ vm: AgentAppViewModel, text: String) async -> Bool {
+        var sendReturned = false
+        var bubbleBeforeReturn = false
+        let sink = vm.transcriptState.$messages.sink { messages in
+            if !sendReturned, messages.contains(where: { $0.role == .user && $0.content.contains(text) }) {
+                bubbleBeforeReturn = true
+            }
+        }
+        vm.prompt = text
+        await vm.send()
+        sendReturned = true
+        sink.cancel()
+        return bubbleBeforeReturn
+    }
+
+    func test_sendBubblePaintsOnSendTurnAndStaysOnce() async throws {
+        let (vm, _) = try makeVM()
+        vm.createThread(title: "send-bubble")
+        let painted = await sendObservingBubble(vm, text: "hello bubble")
+        XCTAssertTrue(painted)
+        XCTAssertEqual(vm.lastSendOutcome, .accepted)
+        XCTAssertEqual(vm.messages.filter { $0.role == .user && $0.content.contains("hello bubble") }.count, 1)
+    }
+
+    func test_failedSendWithdrawsBubbleAndRestoresPrompt() async throws {
+        let (vm, _) = try makeVM()
+        vm.createThread(title: "send-fail")
+        // Unrunnable is found only after the snapshot reload the bubble no longer waits for.
+        let unrunnable = AgentProviderSnapshotFactory.snapshot(provider: .codex, models: [], binaryPath: "")
+        vm.providerSnapshots = [unrunnable]
+        vm.providerInstanceId = unrunnable.id
+        vm.providerSnapshotLoader = { [unrunnable] }
+        let painted = await sendObservingBubble(vm, text: "lost words")
+        XCTAssertTrue(painted)
+        XCTAssertFalse(vm.messages.contains { $0.role == .user && $0.content.contains("lost words") })
+        XCTAssertEqual(vm.prompt, "lost words")
+        XCTAssertNotEqual(vm.lastSendOutcome, .accepted)
+    }
+}

@@ -8907,6 +8907,27 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         // first; restore the draft only if the turn never starts.
         let attachedForSend = attachments
         prompt = ""
+        // The bubble paints on the send turn; snapshot loads, bot/VM gates and
+        // SQLite checks below used to run first. It is withdrawn on every path
+        // that does not start this run (failure, queue, local command).
+        var optimisticRunId: AgentRunID?
+        var keepsOptimisticBubble = false
+        if let sendThreadId, !followUpCanQueue, !trimmed.hasPrefix("/"), !trimmed.hasPrefix("$") {
+            let runId = AgentRunID()
+            optimisticRunId = runId
+            presentOutgoingUserMessage(
+                threadId: sendThreadId,
+                messageId: AgentMessageID(runId.value),
+                display: AgentChatTranscriptChrome.displayUserLine(text: trimmed, attachments: attachedForSend),
+                attachments: attachedForSend
+            )
+        }
+        defer {
+            if !keepsOptimisticBubble, let optimisticRunId,
+               (try? messageRepo.exists(id: AgentMessageID(optimisticRunId.value))) != true {
+                messages.removeAll { $0.id == AgentMessageID(optimisticRunId.value) }
+            }
+        }
         // At most one snapshot load per send. Catalog probes (CLI Process /
         // network discovery) are expensive and must not run 2–3× on the
         // MainActor-isolated send path. A fresh TTL cache covers the rest.
@@ -9010,6 +9031,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             attached: attachedForSend,
             recordHistory: false,
             interactionMode: interactionMode,
+            requestedRunId: optimisticRunId,
             recoveryDisplayText: originalPrompt
         ) == nil {
             // Another thread took the bot's VM after the check above: queue too.
@@ -9024,6 +9046,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             lastSendOutcome = .failed
             restoreComposerPromptAfterFailedSend(originalPrompt, expectedThreadId: sendThreadId)
         } else {
+            keepsOptimisticBubble = true
             lastSendOutcome = .accepted
         }
     }
