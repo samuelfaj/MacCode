@@ -40,9 +40,10 @@ protocol BotGuestVMPreparing: Sendable {
 /// (`tryBegin`) is taken here, at the spawn point every send path goes
 /// through, and is refused only while a rebuild or stop holds the VM ("The
 /// VM is busy"); the coordinator's run-finished callback frees it. A
-/// contextual run shares its identity's VM like an ordinary run (delegated
-/// runs stay exclusive); its lease is per run, so a retry of the same run
-/// waits for that run's teardown without blocking other conversations.
+/// contextual run shares its identity's VM like an ordinary run; delegated
+/// runs share it too and keep their claim until guest termination is
+/// confirmed. Its lease is per run, so a retry of the same run waits for that
+/// run's teardown without blocking other conversations.
 ///
 /// Stop while a run is still preparing (an image build can take minutes)
 /// invalidates the run's acceptance permit; preparation then stops at its
@@ -218,8 +219,7 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
             throw DistillGuestLaunchError.unavailable("You are controlling this VM. Return control before starting a conversation.")
         }
         let claim = BotVMRunRegistry.Entry(threadID: request.threadId, runID: request.runId,
-            title: (try deps.threadRepo.get(id: request.threadId))?.title ?? "Conversation", workspace: request.cwd,
-            exclusive: deps.isDelegatedRun(request.runId, request.threadId))
+            title: (try deps.threadRepo.get(id: request.threadId))?.title ?? "Conversation", workspace: request.cwd)
         if let holder = deps.registry.tryBegin(botID: admission.pin.botID, entry: claim, resourceID: identity.storageBotID,
                                               allowsSameThreadExclusive: false,
                                               parentRunID: deps.delegatedParentRun(request.runId, request.threadId)) {
@@ -333,9 +333,9 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
         }
         try await deps.barrier.wait()
 
+        let delegated = deps.isDelegatedRun(request.runId, request.threadId)
         let claim = BotVMRunRegistry.Entry(
-            threadID: request.threadId, runID: request.runId, title: thread.title, workspace: request.cwd,
-            exclusive: deps.isDelegatedRun(request.runId, request.threadId)
+            threadID: request.threadId, runID: request.runId, title: thread.title, workspace: request.cwd
         )
         if let holder = deps.registry.tryBegin(botID: botID, entry: claim, resourceID: resourceID,
                                               allowsSameThreadExclusive: false,
@@ -343,8 +343,8 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
             throw DistillGuestLaunchError.busy("The VM is busy in \(holder.title)")
         }
         // Failed preparation leaves release to the coordinator. A prepared
-        // delegated run keeps its exclusive claim until guest termination
-        // is confirmed; ordinary runs continue sharing the VM.
+        // delegated run shares the VM and keeps its claim until guest
+        // termination is confirmed; all runs stay shared.
         let leaseKey = resourceID.value.uuidString.lowercased()
         let runID = request.runId.value.uuidString.lowercased()
         var undo: [() -> Void] = []
@@ -496,7 +496,7 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
                 "bot.guest.prepared run=\(runID, privacy: .public) bot=\(leaseKey, privacy: .public) binary=\(binaryPath, privacy: .public)"
             )
             let onTerminationConfirmed: (@Sendable () -> Void)?
-            if claim.exclusive {
+            if delegated {
                 onTerminationConfirmed = { [weak self, registry = deps.registry, onVMAvailable = deps.onVMAvailable] in
                     let next = registry.releaseAndNextWaiter(runID: request.runId)
                     self?.forgetPlan(runID: runID)
@@ -515,13 +515,13 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
                 lease: nil,
                 teardown: { [weak self] _ in
                     heartbeat.stop()
-                    if !claim.exclusive { self?.forgetPlan(runID: runID) }
+                    if !delegated { self?.forgetPlan(runID: runID) }
                     mirror.end(runID: runID)
                     gateway.revoke(runID: runID)
                 },
                 onTerminationConfirmed: onTerminationConfirmed
             )
-            lock.withLock { livePlans[runID] = (plan, claim.exclusive) }
+            lock.withLock { livePlans[runID] = (plan, delegated) }
             return plan
         } catch {
             undo.reversed().forEach { $0() }

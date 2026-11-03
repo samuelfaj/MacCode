@@ -847,7 +847,10 @@ final class BotGuestRunResolverTests: XCTestCase {
         await secondPlan.finish(.completed).value
     }
 
-    func test_delegatedGuestKeepsSharedVMExclusiveUntilTerminationAndCannotReleaseANewerRun() async throws {
+    func test_delegatedGuestSharesTheVMAndKeepsItsClaimUntilTermination() async throws {
+        // WHY: a Bot consulting a peer must not block other agents and bots on
+        // the same VM. The claim is kept only until the guest is confirmed dead,
+        // so rebuild or stop cannot kill a container that is still running.
         let f = try await makeFixture()
         let machine = try f.ctx.botStore.saveVirtualMachine(name: "Shared")
         try f.ctx.botStore.setExecutionDestination(.virtualMachine(machine.id), botID: f.bot.id)
@@ -858,28 +861,30 @@ final class BotGuestRunResolverTests: XCTestCase {
         let req = request(thread)
         let coordinator = f.ctx.coordinator
         coordinator.registerDelegatedRun(req.runId, threadId: thread.id, parentRunId: AgentRunID())
-        let handoffs = Recorder<AgentThreadID>()
         var deps = f.deps
         deps.isDelegatedRun = { coordinator.isDelegatedRun($0, threadId: $1) }
-        deps.onVMAvailable = { _, threadID in handoffs.append(threadID) }
         let resolver = BotGuestRunResolver(deps)
         let plan = try unwrapPlan(try await resolver.prepare(req) { _ in })
         let claim = try XCTUnwrap(f.registry.active(botID: f.bot.id, resourceID: machine.storageID))
-        XCTAssertTrue(claim.exclusive)
+        XCTAssertEqual(claim.runID, req.runId)
+        XCTAssertFalse(claim.exclusive)
         XCTAssertNil(f.registry.tryBegin(botID: f.bot.id, entry: claim, resourceID: machine.storageID,
                                          allowsSameThreadExclusive: false), "the same run can reclaim its own slot")
 
-        do {
-            _ = try await resolver.prepare(request(thread)) { _ in }
-            XCTFail("a new run on the same thread must wait for the previous guest to end")
-        } catch {
-            XCTAssertEqual(error as? DistillGuestLaunchError, .busy("The VM is busy in Peer consultation"))
-        }
+        let other = try makeThread(f, title: "Other chat")
+        let otherRequest = request(other)
+        let otherPlan = try unwrapPlan(try await resolver.prepare(otherRequest) { _ in })
         let otherBot = BotID()
         let next = BotVMRunRegistry.Entry(threadID: AgentThreadID(), runID: AgentRunID(), title: "Next", workspace: "")
-        XCTAssertEqual(f.registry.tryBegin(botID: otherBot, entry: next, resourceID: machine.storageID)?.runID, req.runId,
-                       "a different bot using the same VM sees the same exclusive claim")
-        f.registry.addWaiting(botID: otherBot, threadID: next.threadID, resourceID: machine.storageID)
+        XCTAssertNil(f.registry.tryBegin(botID: otherBot, entry: next, resourceID: machine.storageID),
+                     "a different bot's run shares the VM with the delegated run")
+        f.registry.endRun(runID: next.runID)
+        let rebuild = BotVMRunRegistry.Entry(threadID: AgentThreadID(), runID: AgentRunID(),
+            title: "Linux desktop rebuild", workspace: "", exclusive: true)
+        XCTAssertEqual(f.registry.tryBegin(botID: f.bot.id, entry: rebuild, resourceID: machine.storageID)?.runID, req.runId,
+                       "a rebuild is still exclusive and sees the delegated run")
+        await otherPlan.finish(.completed).value
+        f.registry.endRun(runID: otherRequest.runId)
 
         let held = OSAllocatedUnfairLock(initialState: true)
         let closing = Recorder<Bool>()
@@ -891,24 +896,21 @@ final class BotGuestRunResolverTests: XCTestCase {
         try await waitUntil { !closing.values.isEmpty }
         XCTAssertTrue(resolver.retainsExclusiveVMClaim(runID: req.runId))
         XCTAssertEqual(f.registry.active(botID: f.bot.id, resourceID: machine.storageID)?.runID, req.runId)
-        XCTAssertTrue(handoffs.values.isEmpty)
         held.withLock { $0 = false }
         await finish.value
         XCTAssertFalse(resolver.retainsExclusiveVMClaim(runID: req.runId))
         XCTAssertNil(f.registry.active(botID: f.bot.id, resourceID: machine.storageID))
-        XCTAssertEqual(handoffs.values, [next.threadID])
 
-        let newer = BotVMRunRegistry.Entry(threadID: thread.id, runID: AgentRunID(), title: "Newer", workspace: "", exclusive: true)
-        XCTAssertNil(f.registry.tryBegin(botID: f.bot.id, entry: newer, resourceID: machine.storageID,
-                                         allowsSameThreadExclusive: false))
+        let newer = BotVMRunRegistry.Entry(threadID: thread.id, runID: AgentRunID(), title: "Newer", workspace: "")
+        XCTAssertNil(f.registry.tryBegin(botID: f.bot.id, entry: newer, resourceID: machine.storageID))
         await plan.finish(.completed).value
         await plan.killGuest()
-        XCTAssertEqual(f.registry.active(botID: f.bot.id, resourceID: machine.storageID)?.runID, newer.runID)
-        XCTAssertEqual(handoffs.values, [next.threadID], "old termination notifies only once")
+        XCTAssertEqual(f.registry.active(botID: f.bot.id, resourceID: machine.storageID)?.runID, newer.runID,
+                       "an old termination does not release a newer run")
         f.registry.endRun(runID: newer.runID)
     }
 
-    func test_delegatedGuestKeepsItsExclusiveClaimWhenTerminationCannotBeConfirmed() async throws {
+    func test_delegatedGuestKeepsItsClaimWhenTerminationCannotBeConfirmed() async throws {
         let f = try await makeFixture()
         let thread = try makeThread(f)
         let req = request(thread)
@@ -923,7 +925,7 @@ final class BotGuestRunResolverTests: XCTestCase {
 
         XCTAssertTrue(resolver.retainsExclusiveVMClaim(runID: req.runId))
         XCTAssertEqual(f.registry.active(botID: f.bot.id)?.runID, req.runId)
-        XCTAssertEqual(f.registry.active(botID: f.bot.id)?.exclusive, true)
+        XCTAssertEqual(f.registry.active(botID: f.bot.id)?.exclusive, false)
         XCTAssertFalse(FileManager.default.fileExists(atPath: plan.envFileURL.path))
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: f.guestDistillHome.appendingPathComponent("claude-auth.json").path))

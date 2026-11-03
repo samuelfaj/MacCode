@@ -1,7 +1,7 @@
 import Foundation
 
-/// Tracks the runs on each bot's VM. Conversations run on one VM in parallel;
-/// exclusive delegated runs and VM maintenance keep others out.
+/// Tracks the runs on each bot's VM. Conversations and delegated runs share one
+/// VM in parallel; only VM maintenance (rebuild/stop) is exclusive.
 public final class BotVMRunRegistry: @unchecked Sendable {
     public static let shared = BotVMRunRegistry()
 
@@ -10,7 +10,7 @@ public final class BotVMRunRegistry: @unchecked Sendable {
         public let runID: AgentRunID
         public let title: String
         public let workspace: String
-        /// No other run may share the VM with this delegated run or maintenance.
+        /// No other run may share the VM with this claim (VM maintenance only).
         public let exclusive: Bool
 
         public init(threadID: AgentThreadID, runID: AgentRunID, title: String, workspace: String, exclusive: Bool = false) {
