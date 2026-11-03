@@ -118,6 +118,25 @@ final class LayoutReducerTests: XCTestCase {
         guard case .pane = s.workspaces[wid]!.layout else { return XCTFail("expected pane after collapse") }
     }
 
+    func test_closeSelectedSurface_selectsNeighborNotFirst() throws {
+        // WHY: closing the selected tab must select the adjacent tab so the user's place in the strip holds; jumping to the first tab loses it.
+        let r = LayoutReducer()
+        var s = try r.reduce(LayoutState(), .createWorkspace(name: "ws1", cwd: "/tmp", initial: nil))
+        let wid = s.window.selectedWorkspaceID!
+        let a = SurfaceDescriptor(type: .terminal, title: "a")
+        let b = SurfaceDescriptor(type: .terminal, title: "b")
+        let c = SurfaceDescriptor(type: .terminal, title: "c")
+        s = try r.reduce(s, .addSurface(wid, paneID: nil, descriptor: a))
+        let p = s.workspaces[wid]!.layout.paneIDs().first!
+        s = try r.reduce(s, .addSurface(wid, paneID: p, descriptor: b))
+        s = try r.reduce(s, .addSurface(wid, paneID: p, descriptor: c))
+        s = try r.reduce(s, .focusSurface(wid, b.id))
+        s = try r.reduce(s, .closeSurface(wid, b.id))
+        XCTAssertEqual(s.workspaces[wid]!.layout.find(paneID: p)?.selectedSurfaceID, c.id, "closing the middle tab selects the tab that slid into its place")
+        s = try r.reduce(s, .closeSurface(wid, c.id))
+        XCTAssertEqual(s.workspaces[wid]!.layout.find(paneID: p)?.selectedSurfaceID, a.id, "closing the last tab selects the previous tab")
+    }
+
     func test_closeSurface_unknownSurface_throwsAndPreservesLayout() throws {
         let r = LayoutReducer()
         var s = try r.reduce(LayoutState(), .createWorkspace(name: "ws1", cwd: "/tmp", initial: nil))

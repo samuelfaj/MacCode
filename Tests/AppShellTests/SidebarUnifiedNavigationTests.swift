@@ -202,6 +202,34 @@ final class SidebarUnifiedNavigationTests: XCTestCase {
         XCTAssertTrue(source.contains("Image(systemName: \"bubble.left\")"), "the chat-icon fallback must stay")
     }
 
+    func test_selectingWorkspaceKeepsOtherExpandedWorkspaces() throws {
+        // WHY: programmatic select must not collapse a workspace the user already opened.
+        let f = try make("select-keeps-expanded")
+        defer { try? FileManager.default.removeItem(atPath: f.directory) }
+        let a = try f.router.createWorkspace(name: "a", cwd: NSTemporaryDirectory())
+        let b = try f.router.createWorkspace(name: "b", cwd: NSTemporaryDirectory())
+        f.vm.reload()
+        f.vm.select(a.id)
+        f.vm.select(b.id)
+        XCTAssertTrue(f.vm.expandedWorkspaceIDs.contains(a.id), "opening b must not collapse a")
+        XCTAssertTrue(f.vm.expandedWorkspaceIDs.contains(b.id))
+    }
+
+    func test_shellDestinationKeepsMultiSelectionButHidesHighlight() throws {
+        // WHY: a shell destination only hides workspace highlights; the user's multi-selection survives.
+        let f = try make("shell-keeps-multiselect")
+        defer { try? FileManager.default.removeItem(atPath: f.directory) }
+        let a = try f.router.createWorkspace(name: "a", cwd: NSTemporaryDirectory())
+        let b = try f.router.createWorkspace(name: "b", cwd: NSTemporaryDirectory())
+        f.vm.reload()
+        f.vm.selectedWorkspaceIDs = [a.id, b.id]
+        f.vm.isBotsSelected = true
+        f.vm.reload()
+        XCTAssertEqual(f.vm.selectedWorkspaceIDs, [a.id, b.id], "reload under a shell destination must keep the selection")
+        XCTAssertTrue(f.vm.isShellDestinationSelected)
+        XCTAssertNil(f.vm.selectedWorkspaceID)
+    }
+
     func test_untitledNewThreadsAreNotListedAndSelectingAWorkspaceExpandsIt() async throws {
         // WHY: "+ New conversation" already starts work; empty "New thread" rows were noise.
         let f = try make("untitled")

@@ -23,10 +23,10 @@ final class SidebarFinishedDotTests: XCTestCase {
     }
 }
 
-/// WHY: the owner (2026-10-20) wants anything with a spinner on top, never above pinned.
-final class SidebarRunningFirstTests: XCTestCase {
-    func test_runningMovesUpButNeverAbovePinned() {
-        let order = SidebarViewModel.runningFirst(["pin", "a", "b", "c", "d"], isPinned: { $0 == "pin" }, isRunning: { $0 == "c" || $0 == "pin" })
-        XCTAssertEqual(order, ["pin", "c", "a", "b", "d"])
+/// WHY: rows must keep their stored order so a running row never jumps while the user is reading the list.
+final class SidebarPinnedFirstTests: XCTestCase {
+    func test_pinnedMovesUpAndRunningNeverReorders() {
+        let order = SidebarViewModel.pinnedFirst(["a", "pin", "b", "c"], isPinned: { $0 == "pin" })
+        XCTAssertEqual(order, ["pin", "a", "b", "c"], "running rows keep the stored order; only pinned moves up")
     }
 }

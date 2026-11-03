@@ -485,7 +485,7 @@ public struct LayoutReducer {
             }
             let moved = p.surfaces.remove(at: idx)
             if p.selectedSurfaceID == surfaceID {
-                p.selectedSurfaceID = p.surfaces.first?.id
+                p.selectedSurfaceID = Self.adjacentSurfaceID(after: idx, in: p.surfaces)
             }
             let newPane = PaneNode(surfaces: [moved], selectedSurfaceID: moved.id)
             let originalChild = LayoutNode.pane(p)
@@ -519,13 +519,19 @@ public struct LayoutReducer {
         return try split(in: withoutMoved, paneID: paneID, direction: direction, newSurface: moved)
     }
 
+    /// Closing the selected tab selects its neighbor: the tab now at the removed index, else the previous one.
+    static func adjacentSurfaceID(after removedIndex: Int, in surfaces: [SurfaceDescriptor]) -> SurfaceID? {
+        guard !surfaces.isEmpty else { return nil }
+        return surfaces[min(removedIndex, surfaces.count - 1)].id
+    }
+
     private func removeSurface(in node: LayoutNode, surfaceID: SurfaceID) throws -> LayoutNode {
         switch node {
         case .pane(var p):
             if let idx = p.surfaces.firstIndex(where: { $0.id == surfaceID }) {
                 p.surfaces.remove(at: idx)
                 if p.selectedSurfaceID == surfaceID {
-                    p.selectedSurfaceID = p.surfaces.first?.id
+                    p.selectedSurfaceID = Self.adjacentSurfaceID(after: idx, in: p.surfaces)
                 }
             }
             return .pane(p)

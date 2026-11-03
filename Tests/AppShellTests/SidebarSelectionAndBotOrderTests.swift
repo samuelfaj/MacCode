@@ -148,15 +148,13 @@ final class SidebarSelectionAndBotOrderTests: XCTestCase {
     }
 
     func test_visibleConversations_collapsedKeepsCapWithAlwaysFirstAndCountsHidden() {
-        // WHY: the submenu shows New + at most 3 rows; the open/running thread
-        // takes one of those slots instead of growing the list.
+        // WHY: visible rows must not move when a selected/running thread appears past the cap; it is appended.
         let rows = convRows(12)
         let always = rows[10].threadID
         let cap = SidebarViewModel.workspaceConversationLimit
         let out = SidebarViewModel.visibleConversations(rows, expanded: false, always: [always])
-        XCTAssertEqual(out.rows, [rows[10]] + Array(rows[0..<(cap - 1)]))
-        XCTAssertEqual(out.rows.count, cap)
-        XCTAssertEqual(out.hidden, rows.count - cap)
+        XCTAssertEqual(out.rows, Array(rows[0..<cap]) + [rows[10]])
+        XCTAssertEqual(out.hidden, rows.count - out.rows.count)
         XCTAssertTrue(out.showsToggle)
     }
 

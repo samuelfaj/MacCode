@@ -287,14 +287,13 @@ public final class SidebarViewModel: ObservableObject {
         shown < limit || always.contains(id)
     }
 
-    /// Pure: collapsed shows at most the cap, selected/running rows first; expanded keeps all.
+    /// Pure: collapsed shows the first cap rows plus any selected/running rows past it; expanded keeps all.
     nonisolated static func visibleConversations(
         _ rows: [WorkspaceConversationRow], expanded: Bool, always: Set<AgentThreadID>
     ) -> (rows: [WorkspaceConversationRow], hidden: Int, showsToggle: Bool) {
         let limit = workspaceConversationLimit
         guard !expanded else { return (rows, 0, rows.count > limit) }
-        let ordered = rows.filter { always.contains($0.threadID) } + rows.filter { !always.contains($0.threadID) }
-        let visible = Array(ordered.prefix(limit))
+        let visible = Array(rows.prefix(limit)) + rows.dropFirst(limit).filter { always.contains($0.threadID) }
         let hidden = rows.count - visible.count
         return (visible, hidden, hidden > 0)
     }
@@ -1014,6 +1013,10 @@ public final class SidebarViewModel: ObservableObject {
         reloadAuthorizedBotConversationRows()
     }
 
+    public var isShellDestinationSelected: Bool {
+        isScheduledTasksSelected || isActiveThreadsSelected || isBotsSelected || isSettingsSelected
+    }
+
     public var sidebarQuery: String { filterText.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     public func botRowMatchesQuery(_ row: AuthorizedBotConversationRow) -> Bool {
@@ -1034,12 +1037,9 @@ public final class SidebarViewModel: ObservableObject {
     }
 
     /// Workspaces in the tree: name matches, or, while searching, a linked Bot matches.
-    /// Display order: pinned rows stay first; among the rest, anything with a
-    /// spinner moves up. Stable, so the user's order holds inside each group.
-    nonisolated static func runningFirst<T>(_ items: [T], isPinned: (T) -> Bool = { _ in false }, isRunning: (T) -> Bool) -> [T] {
-        let pinned = items.filter(isPinned)
-        let rest = items.filter { !isPinned($0) }
-        return pinned + rest.filter(isRunning) + rest.filter { !isRunning($0) }
+    /// Pinned rows stay first; the rest keep their stored order. Running rows never move.
+    nonisolated static func pinnedFirst<T>(_ items: [T], isPinned: (T) -> Bool = { _ in false }) -> [T] {
+        items.filter(isPinned) + items.filter { !isPinned($0) }
     }
 
     public var treeWorkspaces: [Workspace] {
@@ -1593,10 +1593,9 @@ public final class SidebarViewModel: ObservableObject {
         // selected this tick is correctly treated as "being viewed" (no dot).
         // While a shell destination owns the main content, keep every workspace
         // row deselected so the destination is unambiguous.
-        let shellDestinationSelected = isScheduledTasksSelected || isActiveThreadsSelected || isBotsSelected || isSettingsSelected
+        let shellDestinationSelected = isShellDestinationSelected
         if shellDestinationSelected {
             if selectedWorkspaceID != nil { selectedWorkspaceID = nil }
-            if !selectedWorkspaceIDs.isEmpty { selectedWorkspaceIDs.removeAll() }
             selectionAnchorID = nil
         } else if selectedWorkspaceID != ctx.state.window.selectedWorkspaceID {
             selectedWorkspaceID = ctx.state.window.selectedWorkspaceID
@@ -1894,7 +1893,7 @@ public final class SidebarViewModel: ObservableObject {
         // UX-SIDEBAR-COMPLETED-DOT: opening a workspace clears its completed dot.
         completedWorkspaces.remove(wid)
         if !expandedWorkspaceIDs.contains(wid) {
-            expandedWorkspaceIDs = [wid]
+            expandedWorkspaceIDs.insert(wid)
             reloadAuthorizedBotConversationRows()
         }
         do {
@@ -2989,9 +2988,8 @@ public struct SidebarRootView: View {
             // the top or bottom edge of the list.
             ScrollViewReader { scrollProxy in
                 ScrollView {
-                    let rows = SidebarViewModel.runningFirst(vm.treeWorkspaces,
-                                                             isPinned: { $0.metadata["pinned"] == "true" },
-                                                             isRunning: vm.isWorkspaceBusy)
+                    let rows = SidebarViewModel.pinnedFirst(vm.treeWorkspaces,
+                                                            isPinned: { $0.metadata["pinned"] == "true" })
                     LazyVStack(alignment: .leading, spacing: DS.Space.xxs) {
                         if vm.workspaces.isEmpty {
                             Text("No workspaces")
@@ -3584,9 +3582,7 @@ public struct SidebarRootView: View {
     /// Bots: Titio pinned first, then general and unlinked Bots, in roster order.
     @ViewBuilder
     private var generalBotsSection: some View {
-        let bots = SidebarViewModel.runningFirst(vm.visibleGeneralBots, isPinned: \.pinned) {
-            SidebarViewModel.isBotRunning($0.botID, running: vm.runningBotIDs, runningLinked: vm.runningLinkedBotIDs)
-        }
+        let bots = SidebarViewModel.pinnedFirst(vm.visibleGeneralBots, isPinned: \.pinned)
         VStack(alignment: .leading, spacing: DS.Space.xxs) {
             HStack(spacing: DS.Space.sm) {
                 Text("Bots")
@@ -3927,7 +3923,7 @@ public struct SidebarRootView: View {
         if case let tabs = vm.openTabRows(ws.id), !tabs.isEmpty {
             workspaceSectionHeader("Open Tabs", id: "sidebar.workspaceOpenTabs.\(ws.id.value.uuidString)")
             let visible = vm.visibleTab(in: ws)?.id
-            ForEach(SidebarViewModel.runningFirst(tabs) { vm.busySurfaceIDs.contains($0.surfaceID) }) {
+            ForEach(tabs) {
                 activeSurfaceRow($0, selected: $0.surfaceID == visible)
             }
         }
@@ -3960,7 +3956,7 @@ public struct SidebarRootView: View {
             .help("Start a new conversation in \(ws.name)")
             .accessibilityIdentifier("sidebar.newConversation.\(ws.id.value.uuidString)")
         }
-        let conversations = SidebarViewModel.runningFirst(vm.workspaceConversationRows(ws.id)) { vm.runningThreadIDs.contains($0.threadID) }
+        let conversations = vm.workspaceConversationRows(ws.id)
         let ages = SidebarViewModel.duplicateTitleAges(conversations, now: Date())
         ForEach(conversations) { workspaceConversationRow($0, workspace: ws, age: ages[$0.id]) }
         if let toggle = vm.conversationToggle(ws.id) {
@@ -3991,9 +3987,7 @@ public struct SidebarRootView: View {
             .help("Create a Bot exclusive to \(ws.name)")
             .accessibilityIdentifier("sidebar.addBot.\(ws.id.value.uuidString)")
         }
-        let bots = vm.sectionSlice(SidebarViewModel.runningFirst(vm.workspaceBotRows(ws.id)) {
-            SidebarViewModel.isBotRunning($0.botID, running: vm.runningBotIDs, runningLinked: vm.runningLinkedBotIDs)
-        }, ws.id, .bots)
+        let bots = vm.sectionSlice(vm.workspaceBotRows(ws.id), ws.id, .bots)
         ForEach(bots.rows) { botConversationRow($0, tintHex: TabColor.from(ws.metadata["color"])?.hex) }
         if bots.hidden > 0 || bots.expanded {
             showMoreRow(expanded: bots.expanded, hidden: bots.hidden, noun: "bots",
@@ -4160,7 +4154,7 @@ public struct SidebarRootView: View {
     @ViewBuilder
     private func workspaceRow(_ ws: Workspace) -> some View {
         let selected = vm.selectedWorkspaceID == ws.id
-        let checked = vm.selectedWorkspaceIDs.contains(ws.id)
+        let checked = !vm.isShellDestinationSelected && vm.selectedWorkspaceIDs.contains(ws.id)
         let desc = ws.metadata["description"]
         let pinned = ws.metadata["pinned"] == "true"
         let busy = vm.isWorkspaceBusy(ws)
