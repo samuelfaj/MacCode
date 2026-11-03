@@ -1281,4 +1281,15 @@ final class AssistantTimelineTests: XCTestCase {
         }
     }
 
+
+    /// After Retry or a new message, the previous failure must not stay on screen or come back on reload.
+    func test_newTurnClearsPreviousError() {
+        var s = AssistantTimelineState()
+        s.apply(.error(message: "VM unavailable: Checking Docker timed out. Try again.", recoverable: true))
+        XCTAssertNotNil(s.error)
+        s.apply(.turnStarted(turnId: "next"))
+        XCTAssertNil(s.error)
+        s.apply(.error(message: "again", recoverable: true))
+        XCTAssertEqual(s.error, "again")
+    }
 }

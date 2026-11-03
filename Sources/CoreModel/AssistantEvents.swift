@@ -1642,6 +1642,8 @@ public struct AssistantTimelineState: Codable, Sendable, Equatable {
             self.threadId = tid; self.providerThreadId = ptid
         case .turnStarted(let tid):
             ensureTurn(tid, startedAtMs: nowMs)
+            // A new turn supersedes the previous failure; a reload must not bring it back.
+            error = nil
         case .itemStarted(let item):
             ensureTurn(item.turnId)
             if let idx = turnIndex(item.turnId) {

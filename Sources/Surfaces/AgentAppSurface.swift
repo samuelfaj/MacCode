@@ -8921,6 +8921,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         // first; restore the draft only if the turn never starts.
         let attachedForSend = attachments
         prompt = ""
+        // A new attempt replaces the previous failure; a new failure shows its own error.
+        dismissDisplayedError()
         // The bubble paints on the send turn; snapshot loads, bot/VM gates and
         // SQLite checks below used to run first. It is withdrawn on every path
         // that does not start this run (failure, queue, local command).

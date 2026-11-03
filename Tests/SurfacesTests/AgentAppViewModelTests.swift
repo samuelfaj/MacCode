@@ -11289,3 +11289,15 @@ extension AgentAppViewModelTests {
         XCTAssertNotEqual(vm.lastSendOutcome, .accepted)
     }
 }
+
+extension AgentAppViewModelTests {
+    /// The old failure banner must disappear as soon as the user sends again.
+    func test_sendClearsPreviousRunError() async throws {
+        let (vm, _) = try makeVM()
+        vm.createThread(title: "clear-error")
+        vm.timeline.error = "VM unavailable: Checking Docker timed out. Try again."
+        vm.prompt = "again"
+        await vm.send()
+        XCTAssertNotEqual(vm.timeline.error, "VM unavailable: Checking Docker timed out. Try again.")
+    }
+}
