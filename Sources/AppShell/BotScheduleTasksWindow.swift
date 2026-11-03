@@ -253,6 +253,7 @@ public struct BotScheduleTasksRootView: View {
                                 item: item,
                                 isAutonomyActive: vm.isAutonomyActive,
                                 isRunning: vm.isRoutineRunning(id: item.id),
+                                isStarting: vm.isRoutineStartingGuest(id: item.id),
                                 onOpen: { vm.editScheduleTask(item) },
                                 onToggle: { vm.setRoutineEnabled(id: item.id, enabled: !item.isEnabled) },
                                 onRunNow: { vm.runRoutineNow(id: item.id) },
@@ -348,6 +349,7 @@ struct BotScheduleTaskCard: View {
     let item: BotScheduleTaskItem
     let isAutonomyActive: Bool
     var isRunning = false
+    var isStarting = false
     let onOpen: () -> Void
     let onToggle: () -> Void
     let onRunNow: () -> Void
@@ -370,7 +372,14 @@ struct BotScheduleTaskCard: View {
             if isRunning {
                 HStack(spacing: DS.Space.xs) {
                     ProgressView().controlSize(.small)
-                    DSPill("Running", tone: .success)
+                    if isStarting {
+                        Text("Starting Bot computer…")
+                            .font(DS.Font.caption.weight(.medium))
+                            .foregroundColor(DS.Palette.textSecondary)
+                            .accessibilityIdentifier("bots.scheduleTasks.starting")
+                    } else {
+                        DSPill("Running", tone: .success)
+                    }
                 }
                 .accessibilityIdentifier("bots.scheduleTasks.running")
             } else if item.isEnabled {
@@ -853,6 +862,7 @@ struct BotScheduleTaskRow: View {
             item: item,
             isAutonomyActive: vm.isAutonomyActive,
             isRunning: vm.isRoutineRunning(id: item.id),
+            isStarting: vm.isRoutineStartingGuest(id: item.id),
             onOpen: { vm.editScheduleTask(item) },
             onToggle: { vm.setRoutineEnabled(id: item.id, enabled: !item.isEnabled) },
             onRunNow: { vm.runRoutineNow(id: item.id) },

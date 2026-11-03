@@ -462,7 +462,9 @@ final class BotRoutineSchedulerTests: XCTestCase {
 
         XCTAssertNil(f.vm.errorMessage)
         XCTAssertTrue(f.vm.isRoutineRunning(id: routine.id), "the row shows the start right away")
+        XCTAssertTrue(f.vm.isRoutineStartingGuest(id: routine.id), "the row says the Bot computer is starting")
         let started = await waitUntil { !f.runner.requests.isEmpty }
+        XCTAssertFalse(f.vm.isRoutineStartingGuest(id: routine.id), "the label clears once the computer is up")
         XCTAssertTrue(started, f.vm.errorMessage ?? "Run Now never reached the provider")
         XCTAssertNil(f.vm.errorMessage)
         XCTAssertTrue(f.vm.isGuestRunning(bot.id))

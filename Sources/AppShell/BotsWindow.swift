@@ -7886,6 +7886,11 @@ public final class BotsViewModel: ObservableObject {
         }
     }
 
+    /// True while Run Now waits for its stopped bot computer to come up.
+    public func isRoutineStartingGuest(id: BotRoutineID) -> Bool {
+        startingRoutineIDs.contains(id)
+    }
+
     /// True while the run a Run Now started is still live.
     public func isRoutineRunning(id: BotRoutineID) -> Bool {
         if startingRoutineIDs.contains(id) { return true }
