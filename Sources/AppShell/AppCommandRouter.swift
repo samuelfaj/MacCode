@@ -1785,7 +1785,8 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         try ctx.apply(.addSurface(id, paneID: nil, descriptor: agent))
         guard let ws = ctx.state.workspaces[id] else { throw LayoutError.workspaceNotFound }
         windowController?.refreshFromState()
-        reconcileSurfaceVisibility()
+        // Surface reconciliation is freshness work; deferred like selectWorkspace.
+        DispatchQueue.main.async { [weak self] in self?.reconcileSurfaceVisibility() }
         publishWorkspaceCreated(ws)
         return ws
     }
@@ -6896,7 +6897,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         if let executionCwdOverride {
             cwd = GrokACPClient.resolvedSessionCwd(executionCwdOverride)
         } else {
-            cwd = try prepareAgentExecutionCwd(thread: &t)
+            cwd = try await prepareAgentExecutionCwd(thread: &t)
         }
         // Provider-instance host environment for the Source provider. Same-host
         // Auto never switches provider. The previous empty Auto base dropped
@@ -7500,7 +7501,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         }
     }
 
-    private func prepareAgentExecutionCwd(thread: inout AgentThread) throws -> String {
+    private func prepareAgentExecutionCwd(thread: inout AgentThread) async throws -> String {
         guard let ctx = context else { throw LayoutError.workspaceNotFound }
         let workspaceCwd = ctx.state.workspaces.first { $0.value.id == thread.workspaceId }?.value.cwd ?? FileManager.default.currentDirectoryPath
         let cwd = GrokACPClient.resolvedSessionCwd(workspaceCwd)
@@ -7519,7 +7520,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         let path = parent.appendingPathComponent("\(name)-agent-worktrees").appendingPathComponent(shortId).path
         let branch = "rc-agent/\(shortId)"
         try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-        let result = GitDiff.createWorktree(in: workspaceCwd, path: path, branch: branch, baseBranch: base)
+        let result = await Task.detached(priority: .userInitiated) { GitDiff.createWorktree(in: workspaceCwd, path: path, branch: branch, baseBranch: base) }.value
         guard result.ok || FileManager.default.fileExists(atPath: path) else {
             throw JSONRPCError(code: -32013, message: result.message.isEmpty ? "Failed to create agent worktree." : result.message)
         }
@@ -10355,6 +10356,21 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         guard let context else { throw LayoutError.workspaceNotFound }
         let result = try ActivityService(context: context).setViewed(params)
         observeActivityChangesOffMain(context)
+        publishActivityViewed(result)
+        return result
+    }
+
+    /// The write runs off the main actor; events and observers fire on main after it succeeds.
+    public func activitySetViewedOffMain(params: [String: JSONValue]) async throws -> JSONValue {
+        guard let context else { throw LayoutError.workspaceNotFound }
+        let service = ActivityService(context: context)
+        let result = try await Task.detached(priority: .userInitiated) { try service.setViewed(params) }.value
+        observeActivityChangesOffMain(context)
+        publishActivityViewed(result)
+        return result
+    }
+
+    private func publishActivityViewed(_ result: JSONValue) {
         let ids = result.objectValue?["updated_ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
         if !ids.isEmpty {
             EventBus.shared.publish(kind: .notificationRead, payload: .object([
@@ -10363,13 +10379,27 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                 "reason": .string("viewed")
             ]))
         }
-        return result
     }
 
     public func activityAcknowledge(params: [String: JSONValue]) throws -> JSONValue {
         guard let context else { throw LayoutError.workspaceNotFound }
         let result = try ActivityService(context: context).acknowledge(params)
         observeActivityChangesOffMain(context)
+        publishActivityAcknowledged(result)
+        return result
+    }
+
+    /// The write runs off the main actor; events and observers fire on main after it succeeds.
+    public func activityAcknowledgeOffMain(params: [String: JSONValue]) async throws -> JSONValue {
+        guard let context else { throw LayoutError.workspaceNotFound }
+        let service = ActivityService(context: context)
+        let result = try await Task.detached(priority: .userInitiated) { try service.acknowledge(params) }.value
+        observeActivityChangesOffMain(context)
+        publishActivityAcknowledged(result)
+        return result
+    }
+
+    private func publishActivityAcknowledged(_ result: JSONValue) {
         let acknowledged = result.objectValue?["acknowledged"]?.boolValue == true
         let ids = result.objectValue?["item_id"]?.stringValue.map { [$0] }
             ?? result.objectValue?["updated_ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
@@ -10382,7 +10412,6 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                 EventBus.shared.publish(kind: .botsAttentionChanged, payload: .object([:]))
             }
         }
-        return result
     }
 
     public func notificationCreate(

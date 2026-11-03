@@ -140,19 +140,19 @@ struct ActivityWirePage: Codable, Equatable, Sendable {
 @MainActor
 struct ActivityClient {
     var list: ([String: JSONValue]) async throws -> JSONValue
-    var setViewed: @MainActor ([String: JSONValue]) throws -> JSONValue
-    var acknowledge: @MainActor ([String: JSONValue]) throws -> JSONValue
+    var setViewed: @MainActor ([String: JSONValue]) async throws -> JSONValue
+    var acknowledge: @MainActor ([String: JSONValue]) async throws -> JSONValue
 
     init(router: AppCommandRouter) {
         list = { try await router.activityListOffMain(params: $0) }
-        setViewed = { try router.activitySetViewed(params: $0) }
-        acknowledge = { try router.activityAcknowledge(params: $0) }
+        setViewed = { try await router.activitySetViewedOffMain(params: $0) }
+        acknowledge = { try await router.activityAcknowledgeOffMain(params: $0) }
     }
 
     init(
         list: @escaping ([String: JSONValue]) async throws -> JSONValue,
-        setViewed: @escaping @MainActor ([String: JSONValue]) throws -> JSONValue,
-        acknowledge: @escaping @MainActor ([String: JSONValue]) throws -> JSONValue
+        setViewed: @escaping @MainActor ([String: JSONValue]) async throws -> JSONValue,
+        acknowledge: @escaping @MainActor ([String: JSONValue]) async throws -> JSONValue
     ) {
         self.list = list
         self.setViewed = setViewed
@@ -241,6 +241,7 @@ final class ActivityViewModel: ObservableObject {
     private var activeSince: String?
     private var generation: UInt64 = 0
     private var task: Task<Void, Never>?
+    private var writeTail: Task<Void, Never>?
     private var undoSnapshot: [String: String?] = [:]
     private var undoCleared: [String] = []
     private var errorIsFromRefresh = false
@@ -602,7 +603,7 @@ final class ActivityViewModel: ObservableObject {
                 let ids = snapshots.keys.sorted()
                 for start in stride(from: 0, to: ids.count, by: 200) {
                     let chunk = Array(ids[start..<min(start + 200, ids.count)])
-                    let response = try self.service.setViewed(["item_ids": .array(chunk.map(JSONValue.string)), "viewed": .bool(true)])
+                    let response = try await self.service.setViewed(["item_ids": .array(chunk.map(JSONValue.string)), "viewed": .bool(true)])
                     let chunkUpdated = Self.updatedIDs(response).intersection(chunk)
                     updated.formUnion(chunkUpdated)
                     self.undoSnapshot = snapshots.filter { updated.contains($0.key) }
@@ -640,7 +641,7 @@ final class ActivityViewModel: ObservableObject {
                 }
                 for start in stride(from: 0, to: items.count, by: 200) {
                     let chunk = Array(items[start..<min(start + 200, items.count)])
-                    let cleared = try self.clear(chunk)
+                    let cleared = try await self.clear(chunk)
                     self.applyCleared(cleared)
                 }
                 self.batchStatus = self.undoCleared.isEmpty ? "No alerts needed dismissal." : "Dismissed \(self.undoCleared.count) from Needs you."
@@ -656,16 +657,16 @@ final class ActivityViewModel: ObservableObject {
     }
 
     /// Acknowledges up to 200 items and marks the unread ones read, recording both for Undo.
-    private func clear(_ items: [ActivityWireItem]) throws -> Set<String> {
+    private func clear(_ items: [ActivityWireItem]) async throws -> Set<String> {
         let ids = items.map(\.id)
-        let response = try service.acknowledge(["item_ids": .array(ids.map(JSONValue.string)), "acknowledged": .bool(true)])
+        let response = try await service.acknowledge(["item_ids": .array(ids.map(JSONValue.string)), "acknowledged": .bool(true)])
         let cleared = Self.updatedIDs(response).intersection(ids)
         undoCleared += ids.filter(cleared.contains)
         undoCount = undoCleared.count
         let unread = items.filter { cleared.contains($0.id) && $0.isUnread }
         guard !unread.isEmpty else { return cleared }
         let unreadIDs = unread.map(\.id)
-        let viewed = Self.updatedIDs(try service.setViewed(["item_ids": .array(unreadIDs.map(JSONValue.string)), "viewed": .bool(true)])).intersection(unreadIDs)
+        let viewed = Self.updatedIDs(try await service.setViewed(["item_ids": .array(unreadIDs.map(JSONValue.string)), "viewed": .bool(true)])).intersection(unreadIDs)
         for item in unread where viewed.contains(item.id) { undoSnapshot[item.id] = item.viewed_at }
         if viewed.count != unread.count { throw ActivityBatchError.partial(updated: viewed.count, total: unread.count) }
         return cleared
@@ -673,35 +674,88 @@ final class ActivityViewModel: ObservableObject {
 
     func acknowledge(_ item: ActivityWireItem) {
         guard item.isClearable else { return }
-        do {
-            _ = try service.acknowledge(["item_id": .string(item.id)])
-        } catch {
-            fail(error)
-            return
-        }
+        let request = generation
+        let previousUndoSnapshot = undoSnapshot
+        let previousUndoCleared = undoCleared
+        let previousUndoCount = undoCount
+        let previousBatchStatus = batchStatus
+        let previousPage = page
+        let previousDetail = detail
+        let previousSelectedID = selectedID
+        let previousScrollID = scrollID
         undoSnapshot = [:]
         undoCleared = [item.id]
         undoCount = 1
         batchStatus = "Dismissed from Needs you."
         applyCleared([item.id])
-        do {
-            if item.isUnread {
-                let viewed = Self.updatedIDs(try service.setViewed(["item_ids": .array([.string(item.id)]), "viewed": .bool(true)]))
-                guard viewed.contains(item.id) else { throw ActivityBatchError.partial(updated: 0, total: 1) }
-                undoSnapshot[item.id] = item.viewed_at
+        enqueueWrite { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await self.service.acknowledge(["item_id": .string(item.id)])
+            } catch {
+                self.undoSnapshot = previousUndoSnapshot
+                self.undoCleared = previousUndoCleared
+                self.undoCount = previousUndoCount
+                self.batchStatus = previousBatchStatus
+                if self.generation == request {
+                    self.page = previousPage
+                    self.detail = previousDetail
+                    self.selectedID = previousSelectedID
+                    self.scrollID = previousScrollID
+                }
+                self.fail(error)
+                return
             }
-            refreshAfterFrame()
-        } catch { fail(error) }
+            do {
+                if item.isUnread {
+                    let viewed = Self.updatedIDs(try await self.service.setViewed(["item_ids": .array([.string(item.id)]), "viewed": .bool(true)]))
+                    guard viewed.contains(item.id) else { throw ActivityBatchError.partial(updated: 0, total: 1) }
+                    self.undoSnapshot[item.id] = item.viewed_at
+                }
+                self.refreshAfterFrame()
+            } catch { self.fail(error) }
+        }
     }
 
     private func setViewed(_ item: ActivityWireItem, viewed: Bool) {
         guard item.isMarkable else { return }
-        do {
-            let response = try service.setViewed(["item_ids": .array([.string(item.id)]), "viewed": .bool(viewed)])
-            guard Self.updatedIDs(response).contains(item.id) else { throw ActivityBatchError.partial(updated: 0, total: 1) }
-            applyViewed([item.id], viewedAt: viewed ? Self.timestamp(Date()) : nil)
-            refreshAfterFrame()
-        } catch { fail(error) }
+        let previous = viewedSnapshot([item.id])
+        applyViewed([item.id], viewedAt: viewed ? Self.timestamp(Date()) : nil)
+        enqueueWrite { [weak self] in
+            guard let self else { return }
+            do {
+                let response = try await self.service.setViewed(["item_ids": .array([.string(item.id)]), "viewed": .bool(viewed)])
+                guard Self.updatedIDs(response).contains(item.id) else { throw ActivityBatchError.partial(updated: 0, total: 1) }
+                self.refreshAfterFrame()
+            } catch {
+                self.restoreViewed(previous)
+                self.fail(error)
+            }
+        }
+    }
+
+    /// Single-result writes run in order: each waits for the previous one, and undo waits for all.
+    private func enqueueWrite(_ body: @escaping @MainActor () async -> Void) {
+        let previous = writeTail
+        writeTail = Task { @MainActor in
+            await previous?.value
+            await body()
+        }
+    }
+
+    func waitForPendingWrites() async {
+        await writeTail?.value
+    }
+
+    private func viewedSnapshot(_ ids: Set<String>) -> [String: String?] {
+        var snapshot: [String: String?] = [:]
+        for item in page.items where ids.contains(item.id) { snapshot[item.id] = item.viewed_at }
+        if let detail, ids.contains(detail.id) { snapshot[detail.id] = detail.viewed_at }
+        return snapshot
+    }
+
+    private func restoreViewed(_ snapshot: [String: String?]) {
+        for (id, viewedAt) in snapshot { applyViewed([id], viewedAt: viewedAt) }
     }
 
     /// Mirrors a mutation the host already confirmed, so the row answers before the refresh returns.
@@ -737,7 +791,8 @@ final class ActivityViewModel: ObservableObject {
         errorIsFromRefresh = false
     }
 
-    func undoLastAction() {
+    func undoLastAction() async {
+        await waitForPendingWrites()
         let viewedSnapshot = undoSnapshot
         let cleared = undoCleared
         guard !viewedSnapshot.isEmpty || !cleared.isEmpty else { return }
@@ -746,7 +801,7 @@ final class ActivityViewModel: ObservableObject {
         do {
             for start in stride(from: 0, to: cleared.count, by: 200) {
                 let chunk = Array(cleared[start..<min(start + 200, cleared.count)])
-                let response = try service.acknowledge(["item_ids": .array(chunk.map(JSONValue.string)), "acknowledged": .bool(false)])
+                let response = try await service.acknowledge(["item_ids": .array(chunk.map(JSONValue.string)), "acknowledged": .bool(false)])
                 let chunkReopened = Self.updatedIDs(response).intersection(chunk)
                 reopened.formUnion(chunkReopened)
                 if chunkReopened.count != chunk.count { throw ActivityBatchError.partial(updated: reopened.count, total: cleared.count) }
@@ -755,7 +810,7 @@ final class ActivityViewModel: ObservableObject {
             for start in stride(from: 0, to: ids.count, by: 200) {
                 let chunk = Array(ids[start..<min(start + 200, ids.count)])
                 let restore = Dictionary(uniqueKeysWithValues: chunk.map { id in (id, (viewedSnapshot[id] ?? nil).map(JSONValue.string) ?? .null) })
-                let response = try service.setViewed(["item_ids": .array(chunk.map(JSONValue.string)), "viewed": .bool(false), "restore_viewed_at": .object(restore)])
+                let response = try await service.setViewed(["item_ids": .array(chunk.map(JSONValue.string)), "viewed": .bool(false), "restore_viewed_at": .object(restore)])
                 let chunkRestored = Self.updatedIDs(response).intersection(chunk)
                 restored.formUnion(chunkRestored)
                 if chunkRestored.count != chunk.count { throw ActivityBatchError.partial(updated: restored.count, total: ids.count) }
@@ -1109,7 +1164,7 @@ struct ActivityRootView: View {
             Text(status).font(DS.Font.bodyDense).foregroundColor(DS.Palette.text).lineLimit(2)
             Spacer(minLength: DS.Space.md)
             if model.undoCount != nil {
-                Button("Undo") { model.undoLastAction() }
+                Button("Undo") { Task { await model.undoLastAction() } }
                     .buttonStyle(DSSecondaryButtonStyle()).disabled(model.batchRunning)
                     .accessibilityIdentifier("activity.undo")
             }

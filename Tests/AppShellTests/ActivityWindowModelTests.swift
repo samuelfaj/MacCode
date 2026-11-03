@@ -96,6 +96,7 @@ final class ActivityWindowModelTests: XCTestCase {
         await waitUntil("restored target on second page") { model.detail?.id == "run:target" }
         XCTAssertEqual(model.scrollID, "run:target")
         model.detailPresented(model.detail!)
+        await model.waitForPendingWrites()
         XCTAssertEqual(mutations, 1, "only mounting the exact detail may mark the result seen")
 
         let missingDefaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
@@ -277,7 +278,7 @@ final class ActivityWindowModelTests: XCTestCase {
         XCTAssertFalse(item("request", kind: "request", state: "failed").isMarkable)
     }
 
-    func testDetailViewedMutationExcludesRequestAndMarkUnreadClearsTimestampWithoutUndoBanner() {
+    func testDetailViewedMutationExcludesRequestAndMarkUnreadClearsTimestampWithoutUndoBanner() async {
         let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
         var mutations: [[String: JSONValue]] = []
         let model = ActivityViewModel(service: ActivityClient(
@@ -292,6 +293,7 @@ final class ActivityWindowModelTests: XCTestCase {
         model.openDetail(result)
         XCTAssertTrue(mutations.isEmpty, "opening a result must not mark it seen before detail mounts")
         model.detailPresented(result)
+        await model.waitForPendingWrites()
         XCTAssertEqual(mutations.first?["item_ids"]?.arrayValue?.compactMap(\.stringValue), ["run:one"])
         XCTAssertEqual(mutations.first?["viewed"]?.boolValue, true)
         XCTAssertNotNil(model.detail?.viewed_at, "the host-confirmed read state must show before the refresh returns")
@@ -302,11 +304,13 @@ final class ActivityWindowModelTests: XCTestCase {
         request.kind = "request"
         model.openDetail(request)
         model.detailPresented(request)
+        await model.waitForPendingWrites()
         XCTAssertEqual(mutations.count, 1, "a request has no read state to mutate")
 
         var read = result
         read.viewed_at = "2026-10-12T12:00:00Z"
         model.markUnread(read)
+        await model.waitForPendingWrites()
         XCTAssertEqual(mutations.count, 2)
         XCTAssertEqual(mutations.last?["viewed"]?.boolValue, false)
         XCTAssertEqual(mutations.last?["item_ids"]?.arrayValue?.compactMap(\.stringValue), ["run:one"])
@@ -361,7 +365,7 @@ final class ActivityWindowModelTests: XCTestCase {
         XCTAssertFalse(changed.contains("request-callback"), "request callbacks are not bulk-marked as viewed")
         XCTAssertEqual(model.undoCount, 51)
 
-        model.undoLastAction()
+        await model.undoLastAction()
         XCTAssertEqual(mutationCalls.count, 2)
         let undo = mutationCalls[1]
         XCTAssertEqual(undo["viewed"]?.boolValue, false)
@@ -414,7 +418,7 @@ final class ActivityWindowModelTests: XCTestCase {
         XCTAssertEqual(model.undoCount, 20)
         XCTAssertTrue(model.error?.contains("20") == true, "partial host result must report successful count")
         XCTAssertEqual(mutations.count, 1, "stop after host reports partial update")
-        model.undoLastAction()
+        await model.undoLastAction()
         XCTAssertEqual(mutations.count, 2)
         let ids = mutations[1]["item_ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
         XCTAssertEqual(ids.count, 20)
@@ -560,6 +564,7 @@ final class ActivityWindowModelTests: XCTestCase {
         model.openDetail(first)
 
         model.acknowledge(first)
+        await model.waitForPendingWrites()
 
         XCTAssertEqual(model.page.items.map(\.id), ["run:second"], "the cleared row must leave on the click turn, before the refresh")
         XCTAssertEqual(model.page.counts.needs_you, 1)
@@ -570,7 +575,7 @@ final class ActivityWindowModelTests: XCTestCase {
         XCTAssertEqual(model.undoCount, 1)
         await waitUntil("refresh after clear") { !model.loading }
 
-        model.undoLastAction()
+        await model.undoLastAction()
 
         XCTAssertEqual(acknowledgeCalls.last?["acknowledged"]?.boolValue, false)
         XCTAssertEqual(acknowledgeCalls.last?["item_ids"]?.arrayValue?.compactMap(\.stringValue), ["run:first"])
@@ -650,6 +655,7 @@ final class ActivityWindowModelTests: XCTestCase {
         await waitUntil("Needs you loaded") { model.page.items.count == 1 && !model.loading }
 
         model.acknowledge(failed)
+        await model.waitForPendingWrites()
 
         XCTAssertEqual(model.error, "host rejected")
         XCTAssertEqual(model.page.items.map(\.id), ["run:failed"], "a rejected clear must not look cleared")
@@ -774,5 +780,60 @@ final class ActivityWindowModelTests: XCTestCase {
                        "a reply the user owes comes before other rows of the same workspace")
         XCTAssertEqual(model.listSections.first { $0.title == "Elephant" }?.items.map(\.id), ["elephant-task", "elephant-failed"],
                        "without a waiting reply the newest-first order stays")
+    }
+
+    func testMarkReadShowsBeforeWriteAndRevertsWithErrorOnFailure() async {
+        let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
+        defaults.set("finished", forKey: "activity.tab")
+        var gate: CheckedContinuation<Void, Never>?
+        let model = ActivityViewModel(service: ActivityClient(
+            list: { _ in self.page([self.item("run:read")]) },
+            setViewed: { _ in
+                await withCheckedContinuation { gate = $0 }
+                throw NSError(domain: "host", code: 7, userInfo: [NSLocalizedDescriptionKey: "write failed"])
+            },
+            acknowledge: { _ in .object([:]) }
+        ), defaults: defaults)
+        model.refreshAfterFrame()
+        await waitUntil("finished row loaded") { model.page.items.count == 1 && !model.loading }
+
+        model.markRead(model.page.items[0])
+        XCTAssertNotNil(model.page.items[0].viewed_at, "row must show read before the host write completes")
+        await waitUntil("write suspended") { gate != nil }
+        XCTAssertNotNil(model.page.items[0].viewed_at, "row stays read while the write is in flight")
+
+        gate?.resume()
+        await waitUntil("write failure surfaced") { model.error != nil }
+        XCTAssertEqual(model.error, "write failed")
+        XCTAssertNil(model.page.items[0].viewed_at, "a failed write must revert the row to unread")
+    }
+
+    func testAcknowledgeShowsBeforeWriteAndRestoresRowWithErrorOnFailure() async {
+        let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
+        defaults.set("needsYou", forKey: "activity.tab")
+        let failed = item("run:failed", state: "failed", needsAction: true)
+        var gate: CheckedContinuation<Void, Never>?
+        let model = ActivityViewModel(service: ActivityClient(
+            list: { _ in self.page([failed], counts: ActivityWireCounts(needs_you: 1)) },
+            setViewed: { _ in .object([:]) },
+            acknowledge: { _ in
+                await withCheckedContinuation { gate = $0 }
+                throw NSError(domain: "host", code: 9, userInfo: [NSLocalizedDescriptionKey: "host rejected"])
+            }
+        ), defaults: defaults)
+        model.refreshAfterFrame()
+        await waitUntil("Needs you loaded") { model.page.items.count == 1 && !model.loading }
+
+        model.acknowledge(failed)
+        XCTAssertTrue(model.page.items.isEmpty, "the cleared row must leave on the click turn, before the write completes")
+        XCTAssertEqual(model.undoCount, 1)
+        await waitUntil("acknowledge write suspended") { gate != nil }
+
+        gate?.resume()
+        await waitUntil("acknowledge failure surfaced") { model.error != nil }
+        XCTAssertEqual(model.error, "host rejected")
+        XCTAssertEqual(model.page.items.map(\.id), ["run:failed"], "a rejected clear must restore the row")
+        XCTAssertEqual(model.page.counts.needs_you, 1)
+        XCTAssertNil(model.undoCount)
     }
 }
