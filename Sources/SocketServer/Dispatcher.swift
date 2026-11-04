@@ -6349,6 +6349,10 @@ public final class JSONRPCDispatcher {
             guard case .bool(let enabled) = raw else { throw JSONRPCError.invalidParams }
             selection.distillExecutionMode = enabled ? .ultracode : .normal
         }
+        // Auto Main always uses Auto effort, whatever effort a remote client last pinned.
+        if selection.provider == .distill, selection.effectiveModel == "auto" {
+            selection.distillMainEffortSelection = .automatic
+        }
         return selection
     }
 

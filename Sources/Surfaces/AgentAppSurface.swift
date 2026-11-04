@@ -2619,8 +2619,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         }
         reasoningEffort = manual.reasoningEffort
         reasoningModel = selectedThread.reasoningModel
-        distillMainEffortSelection = manual.distillMainEffortSelection
-            ?? .fixed(manual.reasoningEffort)
+        distillMainEffortSelection = Self.mainEffortSelection(manual)
         distillReasoningEffortSelection = manual.distillReasoningEffortSelection ?? .automatic
         distillExecutionMode = manual.distillExecutionMode
         serviceTier = manual.serviceTier
@@ -4274,7 +4273,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         if Self.shouldAssignIfChanged(current: reasoningModel, next: selectedThread.reasoningModel) {
             reasoningModel = selectedThread.reasoningModel
         }
-        let nextMainEffortSelection = manual.distillMainEffortSelection ?? .fixed(manual.reasoningEffort)
+        let nextMainEffortSelection = Self.mainEffortSelection(manual)
         if Self.shouldAssignIfChanged(current: distillMainEffortSelection, next: nextMainEffortSelection) {
             distillMainEffortSelection = nextMainEffortSelection
         }
@@ -6013,10 +6012,17 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             customModelId: isCustom ? model : nil,
             reasoningEffort: reasoningEffort,
             serviceTier: serviceTier,
-            distillMainEffortSelection: provider == .distill ? distillMainEffortSelection : nil,
+            distillMainEffortSelection: provider == .distill ? (model == "auto" ? .automatic : distillMainEffortSelection) : nil,
             distillReasoningEffortSelection: provider == .distill ? distillReasoningEffortSelection : nil,
             distillExecutionMode: provider == .distill ? distillExecutionMode : .normal
         )
+    }
+
+    /// Auto Main picks the route, so it picks the effort too: a pinned effort saved before
+    /// switching to Auto never applies.
+    static func mainEffortSelection(_ manual: AgentModelSelection) -> AgentEffortSelection {
+        if manual.provider == .distill, manual.effectiveModel == "auto" { return .automatic }
+        return manual.distillMainEffortSelection ?? .fixed(manual.reasoningEffort)
     }
 
     public var distillReasoningEfforts: [AgentReasoningEffort] {
@@ -6050,7 +6056,9 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         } else if !efforts.contains(reasoningEffort) {
             reasoningEffort = efforts.contains(.high) ? .high : (efforts.first ?? .medium)
         }
-        if provider == .distill {
+        if provider == .distill, model == "auto" {
+            distillMainEffortSelection = .automatic
+        } else if provider == .distill {
             let advertisedEfforts = modelOptionsForSelectedProvider.first { $0.id == model }?.supportedReasoningEfforts ?? []
             distillMainEffortSelection = distillMainEffortSelection.normalized(
                 for: advertisedEfforts,

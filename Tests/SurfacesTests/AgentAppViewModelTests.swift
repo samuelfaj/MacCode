@@ -5728,6 +5728,42 @@ final class AgentAppViewModelTests: XCTestCase {
                        "the model menu must not keep Codex GPT rows after the selected Source snapshot is Claude")
     }
 
+    func test_DistillAutoMainAlwaysUsesAutoEffort() throws {
+        // WHY: switching Main to Auto kept the effort pinned for the previous model (Auto · Max),
+        // and Auto picks both route and effort.
+        let (vm, repo) = try makeVM()
+        vm.provider = .distill
+        vm.availableModels = [
+            AgentModelDescriptor(id: "auto", label: "Auto", provider: .distill, supportsReasoning: true, supportedReasoningEfforts: [.low, .high, .max]),
+            AgentModelDescriptor(id: "manual", label: "Manual", provider: .distill, supportsReasoning: true, supportedReasoningEfforts: [.low, .high, .max])
+        ]
+        vm.providerSnapshots = [AgentProviderSnapshotFactory.snapshot(
+            provider: .distill,
+            models: vm.availableModels,
+            binaryPath: "/usr/bin/true",
+            authenticated: true,
+            id: "distill-acp",
+            capabilitiesOverride: AgentProviderCapabilities(supportsDistillMainEffortAuto: true)
+        )]
+        vm.providerInstanceId = "distill-acp"
+        vm.createThread(title: "Auto effort")
+        let threadID = try XCTUnwrap(vm.selectedThreadId)
+        vm.setModel("manual")
+        vm.setDistillMainEffortSelection(.fixed(.max))
+        XCTAssertEqual(vm.distillMainEffortSelection, .fixed(.max))
+
+        vm.setModel("auto")
+        XCTAssertEqual(vm.distillMainEffortSelection, .automatic)
+        XCTAssertEqual(try repo.get(id: threadID)?.modelSelection.distillMainEffortSelection, .automatic)
+
+        // A thread saved before this fix with Auto + a pinned effort reads back as Auto effort.
+        var stale = vm.currentModelSelection
+        stale.distillMainEffortSelection = .fixed(.max)
+        XCTAssertEqual(AgentAppViewModel.mainEffortSelection(stale), .automatic)
+        stale.modelId = "manual"
+        XCTAssertEqual(AgentAppViewModel.mainEffortSelection(stale), .fixed(.max), "a manual Main keeps its pinned effort")
+    }
+
     func test_DistillModelSwitchClearsUnsupportedMainEffortAndPreservesChoiceWhileLoading() throws {
         let (vm, repo) = try makeVM()
         vm.provider = .distill
