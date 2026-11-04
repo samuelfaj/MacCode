@@ -402,9 +402,13 @@ public final class ActiveThreadsViewModel: ObservableObject {
             case .agentThread(let threadID, let workspaceID): openThread(threadID, workspaceID: workspaceID)
             case .surface(let surfaceID, let workspaceID):
                 guard let workspaceID else { errorMessage = "This activity has no valid destination."; return }
+                // Activity fills the main content; leave it or the focused terminal stays hidden.
+                router.windowController?.presentWorkspaceContent()
                 try router.selectWorkspace(workspaceID)
                 try router.focusSurface(workspace: workspaceID, surface: surfaceID)
-            case .workspace(let workspaceID): try router.selectWorkspace(workspaceID)
+            case .workspace(let workspaceID):
+                router.windowController?.presentWorkspaceContent()
+                try router.selectWorkspace(workspaceID)
             case .settings(let route):
                 if let windowController = router.windowController {
                     windowController.presentSettingsInMainContent(route: route)
@@ -417,7 +421,7 @@ public final class ActiveThreadsViewModel: ObservableObject {
                 }
             case .botsDesk(let botID): openBot(botID, conversationID: nil)
             }
-        } catch { errorMessage = "Could not open activity destination: \(error.localizedDescription)" }
+        } catch { reportAfterLeaving("Could not open activity destination: \(error.localizedDescription)") }
     }
 
     private func workspaceID(from route: PetAttentionRoute) -> WorkspaceID? {

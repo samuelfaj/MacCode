@@ -88,6 +88,30 @@ final class ShellDestinationKeyboardTargetTests: XCTestCase {
         return split.ratios
     }
 
+    func test_activityOpenTerminal_leavesActivity_becauseTheFocusedTerminalWasHiddenBehindIt() throws {
+        let (ctx, router, wc) = try makeController(prefix: "activity-open-terminal")
+        let ws = try router.createWorkspace(name: "open-terminal", cwd: NSTemporaryDirectory())
+        wc.refreshFromState()
+        drainMainQueue()
+        let surface = try XCTUnwrap(surfaceIDs(in: try XCTUnwrap(ctx.state.workspaces[ws.id])).first)
+        wc.presentActiveThreadsInMainContent()
+        drainMainQueue(0.2)
+        XCTAssertFalse(wc.isShowingWorkspaceContent)
+
+        let vm = ActiveThreadsViewModel(context: ctx, router: router, loadImmediately: false)
+        vm.openActivity(ActivityWireItem(
+            id: "surface:x", kind: "terminal", run_id: nil, request_id: nil, notification_id: nil,
+            workspace_id: ws.id.value.uuidString, thread_id: nil, surface_id: surface.value.uuidString,
+            state: "running", title: "t", workspace_name: nil, provider: nil, summary: nil,
+            occurred_at: "2026-11-04T04:57:00Z", started_at: nil, finished_at: nil, viewed_at: nil,
+            attention_acknowledged_at: nil, needs_action: false, blocking: false,
+            final_message_id: nil, checkpoint_id: nil, changed_files: [], error: nil
+        ))
+
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertTrue(wc.isShowingWorkspaceContent, "Open terminal must show the workspace, not stay on Activity")
+    }
+
     func test_closeFocusedSurface_isRefusedWhileBotsOwnsTheShell_becauseTheHiddenTabWouldDie() throws {
         let (ctx, router, wc) = try makeController(prefix: "bots-close")
         let ws = try router.createWorkspace(name: "hidden-close", cwd: NSTemporaryDirectory())
