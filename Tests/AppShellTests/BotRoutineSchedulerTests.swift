@@ -159,6 +159,27 @@ final class BotRoutineSchedulerTests: XCTestCase {
         f.runner.finish(runID: request.runId, status: .completed, reply: "ok")
     }
 
+    func test_routineAtLimitOneSkipsTheNextSlotWithoutANewRun_becauseSkippedSlotsNeverQueue() async throws {
+        // WHY: a slot that fires while the routine's one allowed run is live is recorded as skipped, not started or queued.
+        let f = try makeFixture()
+        let elephant = try f.vm.create(name: "Elephant", title: "Developer")
+        let base = Date()
+        let (_, slot) = try saveActiveRoutine(f, bot: elephant, base: base)
+
+        f.scheduler.tick(now: slot.addingTimeInterval(5))
+        await f.scheduler.settleForTesting()
+        let started = await waitUntil { f.runner.requests.count == 1 }
+        XCTAssertTrue(started, "the first slot must start its run and keep it live")
+
+        f.scheduler.tick(now: slot.addingTimeInterval(86_405))
+        await f.scheduler.settleForTesting()
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(f.runner.requests.count, 1, "the limit of one must block a second run")
+        let row = try await routineRow(f, botID: elephant.id)
+        XCTAssertEqual(row["last_result"]?.stringValue, "skipped")
+        f.runner.finish(runID: try XCTUnwrap(f.runner.requests.first).runId, status: .completed, reply: "ok")
+    }
+
     func test_activeTaskRunsOnceWhenItsSlotIsDue_inANewConversationWithoutTouchingTheDesk() async throws {
         // WHY: "Review Empath — Daily" was Active with "Scheduler online" and
         // never ran. A due slot must start ONE real run of the Instruction in a
@@ -202,7 +223,7 @@ final class BotRoutineSchedulerTests: XCTestCase {
         XCTAssertEqual(row["next_run_at"]?.intValue, Int(slot.addingTimeInterval(86_400).timeIntervalSince1970),
                        "iOS sees the next real slot")
 
-        f.scheduler.tick(now: slot.addingTimeInterval(35))
+        f.scheduler.tick(now: slot.addingTimeInterval(86_405))
         await f.scheduler.settleForTesting()
         try? await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertEqual(f.runner.requests.count, 1, "the same slot never runs twice")

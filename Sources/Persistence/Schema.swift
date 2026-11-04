@@ -79,7 +79,9 @@ public enum Schema {
     static let scheduledTaskRunOptionsSchemaVersion = 100
     static let virtualMachinesSchemaVersion = 101
     static let titioObservationSchemaVersion = 102
-    public static let currentVersion: Int = titioObservationSchemaVersion
+    /// v103 adds scheduled_tasks.max_concurrent_runs (per-task active-run limit).
+    static let scheduledTaskConcurrencySchemaVersion = 103
+    public static let currentVersion: Int = scheduledTaskConcurrencySchemaVersion
 
     /// SQL body for the named checkpoint-list migration (relocatable by version).
     public static let checkpointListMigrationSQL: String = """
@@ -1990,6 +1992,9 @@ public enum Schema {
             processed_at REAL
         );
         CREATE INDEX idx_titio_observations_pending ON titio_observations(processed_at, seq);
+        """),
+        SchemaStep(scheduledTaskConcurrencySchemaVersion, """
+        ALTER TABLE scheduled_tasks ADD COLUMN max_concurrent_runs INTEGER NOT NULL DEFAULT 1;
         """),
     ]
 

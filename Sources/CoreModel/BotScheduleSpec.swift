@@ -15,6 +15,11 @@ public struct BotScheduleSpec: Codable, Sendable, Equatable {
     public var distillExecutionMode: DistillExecutionMode?
     public var permissionMode: AgentPermissionMode?
     public var executionDestination: BotExecutionDestination?
+    /// Nil means 1. Max runs of this routine active at once (1...5).
+    public var maxConcurrentRuns: Int?
+
+    /// Nil and out-of-range values resolve to the 1...5 limit.
+    public var effectiveMaxConcurrentRuns: Int { min(max(maxConcurrentRuns ?? 1, 1), 5) }
     public var frequency: ScheduledTaskFrequency
     public var scheduledDate: Date
     public var intervalHours: Int
@@ -30,7 +35,7 @@ public struct BotScheduleSpec: Codable, Sendable, Equatable {
         case provider, providerInstanceID, model, reasoningEffort, reasoningModel
         case distillMainEffortSelection, distillReasoningEffortSelection, routingMode
         case distillExecutionMode = "distillUltracode"
-        case permissionMode, executionDestination, frequency, scheduledDate, intervalHours
+        case permissionMode, executionDestination, maxConcurrentRuns, frequency, scheduledDate, intervalHours
         case localTimeHour, localTimeMinute, weekdays, monthlyDay, timeZoneIdentifier, additionalFrequencies
     }
 

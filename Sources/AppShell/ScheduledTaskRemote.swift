@@ -74,6 +74,7 @@ public enum ScheduledTaskRemoteWire {
             "plan_mode": .bool(task.interactionMode == .plan),
             "execution_mode": .string(task.executionMode.rawValue),
             "base_branch": task.baseBranch.map(JSONValue.string) ?? .null,
+            "max_concurrent_runs": .number(Double(task.maxConcurrentRuns)),
             "frequencies": .array(task.recurrence.rules.map { encodeRule(ScheduledFrequencyRule(recurrence: $0)) }),
             "time_zone": .string(task.timeZoneIdentifier),
             "enabled": .bool(task.isEnabled),
@@ -206,6 +207,7 @@ extension AppCommandRouter {
         if let plan = params["plan_mode"]?.boolValue { draft.interactionMode = plan ? .plan : .default }
         if let raw = params["execution_mode"]?.stringValue, let mode = AgentExecutionMode(rawValue: raw) { draft.executionMode = mode }
         if let value = params["base_branch"] { draft.baseBranch = value.stringValue ?? "" }
+        if let value = params["max_concurrent_runs"]?.intValue { draft.maxConcurrentRuns = min(max(value, 1), 5) }
         if let rules = params["frequencies"]?.arrayValue { draft.frequencyRules = try rules.map(ScheduledTaskRemoteWire.decodeRule) }
         draft.timeZoneIdentifier = params["time_zone"]?.stringValue ?? draft.timeZoneIdentifier
         draft.isEnabled = params["enabled"]?.boolValue ?? draft.isEnabled

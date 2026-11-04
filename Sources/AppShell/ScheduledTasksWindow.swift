@@ -35,6 +35,7 @@ public struct ScheduledTaskEditorDraft: Identifiable, Equatable {
     public var interactionMode: AgentInteractionMode
     public var executionMode: AgentExecutionMode
     public var baseBranch: String
+    public var maxConcurrentRuns: Int
     public var frequencyRules: [ScheduledFrequencyRule]
     public var timeZoneIdentifier: String
     public var isEnabled: Bool
@@ -61,6 +62,7 @@ public struct ScheduledTaskEditorDraft: Identifiable, Equatable {
         interactionMode = task?.interactionMode ?? .default
         executionMode = task?.executionMode ?? .local
         baseBranch = task?.baseBranch ?? ""
+        maxConcurrentRuns = task?.maxConcurrentRuns ?? 1
         timeZoneIdentifier = task?.timeZoneIdentifier ?? TimeZone.current.identifier
         isEnabled = task?.isEnabled ?? true
         if let recurrence = task?.recurrence {
@@ -112,6 +114,7 @@ public struct ScheduledTaskEditorDraft: Identifiable, Equatable {
             interactionMode: interactionMode,
             executionMode: executionMode,
             baseBranch: executionMode == .worktree ? baseBranch.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
+            maxConcurrentRuns: min(max(maxConcurrentRuns, 1), 5),
             recurrence: recurrence,
             timeZoneIdentifier: timeZoneIdentifier,
             isEnabled: isEnabled,
@@ -1670,6 +1673,7 @@ private struct ScheduledTaskEditorView: View {
                         plan: Binding(get: { draft.interactionMode == .plan }, set: { draft.interactionMode = $0 ? .plan : .default }),
                         execution: Binding(get: { draft.executionMode }, set: { draft.executionMode = $0 }),
                         baseBranch: Binding(get: { draft.baseBranch }, set: { draft.baseBranch = $0 }),
+                        concurrency: Binding(get: { draft.maxConcurrentRuns }, set: { draft.maxConcurrentRuns = $0 }),
                         identifierPrefix: "scheduledTasks.editor"
                     )
                 }
@@ -2117,6 +2121,24 @@ private extension ScheduledWeekday {
     }
 }
 
+/// Per-task active-run limit (1...5). One picker for workspace and Bot schedules.
+struct ScheduleConcurrencyPicker: View {
+    @Binding var selection: Int
+
+    var body: some View {
+        Picker("Concurrent runs", selection: $selection) {
+            Text("One at a time (skip if running)").tag(1)
+            ForEach(2...5, id: \.self) { n in
+                Text("Up to \(n) at once").tag(n)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .fixedSize()
+        .accessibilityLabel("Concurrent runs")
+    }
+}
+
 /// The run options a new Agent App message carries, for any scheduled task
 /// (workspace or Bot): execution mode, permission, plan mode and execution location.
 /// One component so the two schedule editors cannot drift from each other.
@@ -2128,6 +2150,8 @@ struct ScheduledRunOptionsEditor: View {
     var plan: Binding<Bool>?
     var execution: Binding<AgentExecutionMode>?
     var baseBranch: Binding<String>?
+    /// Nil hides the concurrency picker (Bot schedules mount it in their own editor).
+    var concurrency: Binding<Int>?
     let identifierPrefix: String
 
     /// Plan mode always runs supervised, like the Agent App composer.
@@ -2183,6 +2207,12 @@ struct ScheduledRunOptionsEditor: View {
                     .pickerStyle(.segmented)
                     .fixedSize()
                     .accessibilityIdentifier("\(identifierPrefix).execution")
+                }
+                if let concurrency {
+                    ScheduleEditorRow("Concurrent runs", hint: "How many runs of this task may be active at once") {
+                        ScheduleConcurrencyPicker(selection: concurrency)
+                            .accessibilityIdentifier("\(identifierPrefix).concurrency")
+                    }
                 }
                 if execution.wrappedValue == .worktree, let baseBranch {
                     ScheduleEditorRow("Base branch") {

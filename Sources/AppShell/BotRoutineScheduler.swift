@@ -51,6 +51,21 @@ final class BotRoutineScheduler {
     /// Each slot runs on its own, so a slot waiting for its bot computer never
     /// holds back the next tick.
     private func start(_ fire: BotRemoteControlAuthority.RoutineFire, authority: BotRemoteControlAuthority) {
+        let limit = fire.routine.definition.scheduleSpec?.effectiveMaxConcurrentRuns ?? 1
+        if let active = botsViewModel()?.activeRoutineRunCount(id: fire.routine.definition.id), active >= limit {
+            let run = authority.skipRoutineFire(
+                fire,
+                reason: ScheduledTaskStore.concurrencyLimitSummary(active: active, limit: limit)
+            )
+            EventBus.shared.publish(kind: .botSchedulerUpdated, payload: .object([
+                "source": .string("bot_routine"),
+                "routine_id": .string(fire.routine.definition.id.value.uuidString.lowercased()),
+                "bot_id": .string(fire.routine.definition.botID.value.uuidString.lowercased()),
+                "result": .string(run["result"] as? String ?? "skipped"),
+                "run_id": .null,
+            ]))
+            return
+        }
         let id = UUID()
         fireTasks[id] = Task { [weak self] in
             let notReady = await self?.botsViewModel()?.awaitGuestForScheduledSend(

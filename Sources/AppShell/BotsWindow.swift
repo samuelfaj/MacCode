@@ -7850,8 +7850,10 @@ public final class BotsViewModel: ObservableObject {
                 errorMessage = "Task instruction is required."
                 return
             }
-            guard !isRoutineRunning(id: id) else {
-                errorMessage = "This scheduled task already has an active run."
+            let limit = routine.definition.scheduleSpec?.effectiveMaxConcurrentRuns ?? 1
+            let active = activeRoutineRunCount(id: id)
+            guard active < limit else {
+                errorMessage = "This scheduled task already has \(active) active run(s) (limit \(limit))."
                 return
             }
             // Like a scheduled fire, a stopped bot computer is started and awaited
@@ -7883,9 +7885,6 @@ public final class BotsViewModel: ObservableObject {
         let id = routine.definition.id
         do {
             let sent = try enqueueScheduledRoutine(routine)
-            if let raw = sent.objectValue?["thread_id"]?.stringValue, let uuid = UUID(uuidString: raw) {
-                runningRoutineThreads[id] = AgentThreadID(uuid)
-            }
             try botStore.requestRoutineTestRun(id: id)
             adoptTestRunRequested(id: id)
             if let index = scheduleTaskSource.firstIndex(where: { $0.id == id }) {
@@ -7904,14 +7903,20 @@ public final class BotsViewModel: ObservableObject {
 
     /// True while the run a Run Now started is still live.
     public func isRoutineRunning(id: BotRoutineID) -> Bool {
-        if startingRoutineIDs.contains(id) { return true }
-        guard let threadID = runningRoutineThreads[id] else { return false }
-        return context.coordinator.activeRunId(threadId: threadID) != nil
-            || context.coordinator.hasPendingProviderStart(threadId: threadID)
-            || context.coordinator.isPreparingProviderStart(threadId: threadID)
+        startingRoutineIDs.contains(id) || activeRoutineRunCount(id: id) > 0
     }
 
-    @Published private(set) var runningRoutineThreads: [BotRoutineID: AgentThreadID] = [:]
+    /// Live runs of a routine: Run Now and scheduled fires alike.
+    public func activeRoutineRunCount(id: BotRoutineID) -> Int {
+        let live = (runningRoutineThreads[id] ?? []).filter { threadID in
+            context.coordinator.activeRunId(threadId: threadID) != nil
+                || context.coordinator.hasPendingProviderStart(threadId: threadID)
+                || context.coordinator.isPreparingProviderStart(threadId: threadID)
+        }
+        return live.count + (startingRoutineIDs.contains(id) ? 1 : 0)
+    }
+
+    @Published private(set) var runningRoutineThreads: [BotRoutineID: [AgentThreadID]] = [:]
     /// Run Now waiting for its stopped bot computer to come up.
     @Published private(set) var startingRoutineIDs: Set<BotRoutineID> = []
 
@@ -7955,13 +7960,21 @@ public final class BotsViewModel: ObservableObject {
             route: route ?? BotDeskRouting(),
             title: routine.definition.name
         )
-        return try enqueueHostMessage(
+        let sent = try enqueueHostMessage(
             botID: routine.definition.botID,
             text: routine.definition.prompt,
             conversationID: pinned?.conversation.id,
             routing: pinned?.routing ?? route,
             adoptAsDeskRoute: true
         )
+        if let raw = sent.objectValue?["thread_id"]?.stringValue, let uuid = UUID(uuidString: raw) {
+            // Drop finished threads here, not while a view reads the count.
+            let id = routine.definition.id
+            runningRoutineThreads[id] = (runningRoutineThreads[id] ?? []).filter { context.coordinator.activeRunId(threadId: $0) != nil
+                || context.coordinator.hasPendingProviderStart(threadId: $0)
+                || context.coordinator.isPreparingProviderStart(threadId: $0) } + [AgentThreadID(uuid)]
+        }
+        return sent
     }
 
     /// A workspace-exclusive Bot's scheduled run is pinned to its workspace so it

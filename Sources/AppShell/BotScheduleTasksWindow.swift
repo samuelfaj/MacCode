@@ -511,6 +511,13 @@ struct BotScheduleTaskEditorView: View {
                         ),
                         identifierPrefix: "bots.scheduleTasks.editor"
                     )
+                    ScheduleEditorRow("Concurrent runs", hint: "How many runs of this task may be active at once") {
+                        ScheduleConcurrencyPicker(selection: Binding(
+                            get: { draft.spec.effectiveMaxConcurrentRuns },
+                            set: { draft.spec.maxConcurrentRuns = $0 }
+                        ))
+                        .accessibilityIdentifier("bots.scheduleTasks.editor.concurrency")
+                    }
                     ScheduleEditorRow("Use Bot default location", hint: "Where the run executes: Mac, a VM or a workspace") {
                         Toggle("Use bot default", isOn: Binding(
                             get: { draft.spec.executionDestination == nil },

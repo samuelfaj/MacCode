@@ -81,8 +81,9 @@ public final class ScheduledTaskStore: @unchecked Sendable {
                     model, reasoning_effort, reasoning_model, distill_main_effort_json, distill_reasoning_effort_json,
                     routing_mode, recurrence_json, timezone_id, enabled, next_run_at,
                     last_run_at, lease_owner, lease_expires_at, created_at, updated_at,
-                    distill_ultracode, permission_mode, interaction_mode, execution_mode, base_branch
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)
+                    distill_ultracode, permission_mode, interaction_mode, execution_mode, base_branch,
+                    max_concurrent_runs
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     title=excluded.title, prompt=excluded.prompt, workspace_id=excluded.workspace_id,
                     workspace_path_snapshot=excluded.workspace_path_snapshot,
@@ -97,7 +98,7 @@ public final class ScheduledTaskStore: @unchecked Sendable {
                     updated_at=excluded.updated_at,
                     distill_ultracode=excluded.distill_ultracode, permission_mode=excluded.permission_mode,
                     interaction_mode=excluded.interaction_mode, execution_mode=excluded.execution_mode,
-                    base_branch=excluded.base_branch;
+                    base_branch=excluded.base_branch, max_concurrent_runs=excluded.max_concurrent_runs;
                 """)
             defer { statement.reset() }
             try bindTask(task, recurrenceJSON: recurrence, statement: statement)
@@ -225,15 +226,15 @@ public final class ScheduledTaskStore: @unchecked Sendable {
             // `limit` is per-poll batch size only — no global active-run ceiling.
             let available = max(0, limit)
             guard available > 0 else { return [] }
+            // Leases do not gate selection: a task with an active run still fires
+            // up to its `maxConcurrentRuns` limit.
             let query = try db.prepare(Self.taskSelect + """
                  WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
-                  AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
                 ORDER BY next_run_at ASC LIMIT ?;
                 """)
             defer { query.reset() }
             try query.bind(1, string(now))
-            try query.bind(2, string(now))
-            try query.bind(3, available)
+            try query.bind(2, available)
             var due: [ScheduledTask] = []
             while try query.step() { due.append(try decodeTask(query)) }
 
@@ -250,6 +251,25 @@ public final class ScheduledTaskStore: @unchecked Sendable {
                     leaseOwner: owner,
                     heartbeatAt: now
                 )
+                let active = try activeRunCount(taskID: task.id)
+                if active >= task.maxConcurrentRuns {
+                    // Slot at the limit is spent, not queued: record it and move on.
+                    var skipped = run
+                    skipped.status = .skipped
+                    skipped.leaseOwner = nil
+                    skipped.heartbeatAt = nil
+                    skipped.finishedAt = now
+                    skipped.errorCode = "concurrency_limit"
+                    skipped.errorSummary = Self.concurrencyLimitSummary(active: active, limit: task.maxConcurrentRuns)
+                    _ = try insertRunIfNew(skipped)
+                    try advance(
+                        taskID: task.id,
+                        nextRunAt: task.calculatedNextRunAfterSpent(scheduledAt),
+                        lastRunAt: task.lastRunAt,
+                        at: now
+                    )
+                    continue
+                }
                 guard try insertRunIfNew(run) else {
                     // Duplicate occurrence_key: advance past the spent slot
                     // (not `after: scheduledAt` alone — subsecond truncation
@@ -264,14 +284,13 @@ public final class ScheduledTaskStore: @unchecked Sendable {
                 }
                 let update = try db.prepare("""
                     UPDATE scheduled_tasks SET lease_owner = ?, lease_expires_at = ?, updated_at = ?
-                    WHERE id = ? AND (lease_expires_at IS NULL OR lease_expires_at <= ?);
+                    WHERE id = ?;
                     """)
                 defer { update.reset() }
                 try update.bind(1, owner)
                 try update.bind(2, string(now.addingTimeInterval(leaseDuration)))
                 try update.bind(3, string(now))
                 try update.bind(4, task.id.uuidString.lowercased())
-                try update.bind(5, string(now))
                 _ = try update.step()
                 claims.append(ScheduledTaskClaim(task: task, run: run))
             }
@@ -282,11 +301,11 @@ public final class ScheduledTaskStore: @unchecked Sendable {
     public func claimManual(taskID: UUID, now: Date = Date(), owner: String, leaseDuration: TimeInterval = 6 * 60 * 60) throws -> ScheduledTaskClaim {
         try db.transaction {
             guard let task = try get(id: taskID) else { throw ScheduledTaskStoreError.missingTask(taskID) }
-            let sameTask = try db.prepare("SELECT COUNT(*) FROM scheduled_task_runs WHERE task_id = ? AND status IN ('queued', 'running');")
-            defer { sameTask.reset() }
-            try sameTask.bind(1, taskID.uuidString.lowercased())
-            guard try sameTask.step(), sameTask.columnInt64(0) == 0 else {
-                throw ScheduledTaskStoreError.invalidRow("This scheduled task already has an active run.")
+            let active = try activeRunCount(taskID: taskID)
+            guard active < task.maxConcurrentRuns else {
+                throw ScheduledTaskStoreError.invalidRow(
+                    "This scheduled task already has \(active) active run(s) (limit \(task.maxConcurrentRuns))."
+                )
             }
             let run = ScheduledTaskRun(
                 taskID: taskID,
@@ -452,6 +471,19 @@ public final class ScheduledTaskStore: @unchecked Sendable {
         }
     }
 
+    private func activeRunCount(taskID: UUID) throws -> Int {
+        let statement = try db.prepare("SELECT COUNT(*) FROM scheduled_task_runs WHERE task_id = ? AND status IN ('queued', 'running');")
+        defer { statement.reset() }
+        try statement.bind(1, taskID.uuidString.lowercased())
+        guard try statement.step() else { return 0 }
+        return Int(statement.columnInt64(0))
+    }
+
+    /// Shared with the scheduler log so skipped rows and UI copy stay identical.
+    public static func concurrencyLimitSummary(active: Int, limit: Int) -> String {
+        "Skipped: \(active) run(s) of this task already running (limit \(limit))."
+    }
+
     private func insertRunIfNew(_ run: ScheduledTaskRun) throws -> Bool {
         let existing = try db.prepare("SELECT 1 FROM scheduled_task_runs WHERE occurrence_key = ? LIMIT 1;")
         defer { existing.reset() }
@@ -531,7 +563,14 @@ public final class ScheduledTaskStore: @unchecked Sendable {
             try update.bind(9, id.uuidString.lowercased())
             _ = try update.step()
             if releaseTaskLease {
-                let release = try database.prepare("UPDATE scheduled_tasks SET lease_owner = NULL, lease_expires_at = NULL, last_run_at = ?, updated_at = ? WHERE id = ?;")
+                // Keep the task lease while sibling runs of the same task are still active.
+                let release = try database.prepare("""
+                    UPDATE scheduled_tasks SET
+                        lease_owner = CASE WHEN EXISTS (SELECT 1 FROM scheduled_task_runs WHERE task_id = scheduled_tasks.id AND status IN ('queued', 'running')) THEN lease_owner ELSE NULL END,
+                        lease_expires_at = CASE WHEN EXISTS (SELECT 1 FROM scheduled_task_runs WHERE task_id = scheduled_tasks.id AND status IN ('queued', 'running')) THEN lease_expires_at ELSE NULL END,
+                        last_run_at = ?, updated_at = ?
+                    WHERE id = ?;
+                    """)
                 defer { release.reset() }
                 try release.bind(1, string(finishedAt))
                 try release.bind(2, string(finishedAt ?? Date()))
@@ -569,6 +608,7 @@ public final class ScheduledTaskStore: @unchecked Sendable {
         try statement.bind(25, task.interactionMode.rawValue)
         try statement.bind(26, task.executionMode.rawValue)
         try statement.bind(27, task.baseBranch)
+        try statement.bind(28, Int64(min(max(task.maxConcurrentRuns, 1), 5)))
     }
 
     private func decodeTask(_ statement: SQLiteStatement) throws -> ScheduledTask {
@@ -604,6 +644,7 @@ public final class ScheduledTaskStore: @unchecked Sendable {
             interactionMode: statement.columnText(26).flatMap(AgentInteractionMode.init(rawValue:)) ?? .default,
             executionMode: statement.columnText(27).flatMap(AgentExecutionMode.init(rawValue:)) ?? .local,
             baseBranch: statement.columnText(28),
+            maxConcurrentRuns: Int(statement.columnInt64(29)),
             recurrence: recurrence, timeZoneIdentifier: timeZone,
             isEnabled: statement.columnInt64(17) != 0,
             nextRunAt: date(statement.columnText(18)), lastRunAt: date(statement.columnText(19)),
@@ -725,7 +766,8 @@ public final class ScheduledTaskStore: @unchecked Sendable {
                distill_main_effort_json, distill_reasoning_effort_json,
                routing_mode, recurrence_json, timezone_id, enabled, next_run_at,
                last_run_at, lease_owner, lease_expires_at, created_at, updated_at,
-               distill_ultracode, permission_mode, interaction_mode, execution_mode, base_branch
+               distill_ultracode, permission_mode, interaction_mode, execution_mode, base_branch,
+               max_concurrent_runs
         FROM scheduled_tasks
         """
 

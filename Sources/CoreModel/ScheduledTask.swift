@@ -40,6 +40,8 @@ public struct ScheduledTask: Codable, Sendable, Equatable, Identifiable {
     public var executionMode: AgentExecutionMode
     /// Required when `executionMode` is `.worktree`.
     public var baseBranch: String?
+    /// Max runs of this task allowed active at once (1...5). A due slot at the limit is skipped.
+    public var maxConcurrentRuns: Int
     public var recurrence: ScheduledTaskRecurrence
     public var timeZoneIdentifier: String
     public var isEnabled: Bool
@@ -69,6 +71,7 @@ public struct ScheduledTask: Codable, Sendable, Equatable, Identifiable {
         interactionMode: AgentInteractionMode = .default,
         executionMode: AgentExecutionMode = .local,
         baseBranch: String? = nil,
+        maxConcurrentRuns: Int = 1,
         recurrence: ScheduledTaskRecurrence,
         timeZoneIdentifier: String,
         isEnabled: Bool = true,
@@ -97,6 +100,7 @@ public struct ScheduledTask: Codable, Sendable, Equatable, Identifiable {
         self.interactionMode = interactionMode
         self.executionMode = executionMode
         self.baseBranch = baseBranch
+        self.maxConcurrentRuns = maxConcurrentRuns
         self.recurrence = recurrence
         self.timeZoneIdentifier = timeZoneIdentifier
         self.isEnabled = isEnabled
@@ -111,7 +115,7 @@ public struct ScheduledTask: Codable, Sendable, Equatable, Identifiable {
         case id, title, prompt, workspaceID, workspacePathSnapshot, runAsUser, runAsUID
         case provider, providerInstanceID, model, reasoningEffort, reasoningModel
         case distillMainEffortSelection, distillReasoningEffortSelection, routingMode
-        case permissionMode, interactionMode, executionMode, baseBranch
+        case permissionMode, interactionMode, executionMode, baseBranch, maxConcurrentRuns
         case distillExecutionMode = "distillUltracode"
         case recurrence, timeZoneIdentifier, isEnabled, nextRunAt, lastRunAt, createdAt, updatedAt
     }
@@ -139,6 +143,7 @@ public struct ScheduledTask: Codable, Sendable, Equatable, Identifiable {
         interactionMode = try c.decodeIfPresent(AgentInteractionMode.self, forKey: .interactionMode) ?? .default
         executionMode = try c.decodeIfPresent(AgentExecutionMode.self, forKey: .executionMode) ?? .local
         baseBranch = try c.decodeIfPresent(String.self, forKey: .baseBranch)
+        maxConcurrentRuns = try c.decodeIfPresent(Int.self, forKey: .maxConcurrentRuns) ?? 1
         recurrence = try c.decode(ScheduledTaskRecurrence.self, forKey: .recurrence)
         timeZoneIdentifier = try c.decode(String.self, forKey: .timeZoneIdentifier)
         isEnabled = try c.decode(Bool.self, forKey: .isEnabled)

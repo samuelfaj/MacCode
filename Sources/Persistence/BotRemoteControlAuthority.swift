@@ -445,6 +445,28 @@ public final class BotRemoteControlAuthority: @unchecked Sendable {
         return failed.run
     }
 
+    /// A claimed slot skipped because the routine is at its concurrency limit.
+    /// Recorded as `skipped` without the blocked attention item a failed start raises.
+    @discardableResult
+    public func skipRoutineFire(_ fire: RoutineFire, reason: String, now: Date = Date()) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        var run = routineRunRecord(fire.routine, scheduledAt: fire.scheduledAt, now: now)
+        run["result"] = "skipped"
+        run["skip_reason"] = reason
+        schedulerRuns.append(run)
+        if schedulerRuns.count > Self.schedulerRunHistoryLimit {
+            schedulerRuns.removeFirst(schedulerRuns.count - Self.schedulerRunHistoryLimit)
+        }
+        let routineKey = fire.routine.definition.id.value.uuidString.lowercased()
+        var runtime = routineRuntime[routineKey] ?? [:]
+        runtime["last_execution_at"] = now.timeIntervalSince1970
+        runtime["last_result"] = "skipped"
+        routineRuntime[routineKey] = runtime
+        persistSidecar()
+        return run
+    }
+
     private func claimDueRoutinesLocked(now: Date) throws -> (claims: [RoutineFire], changed: Bool) {
         // Automatic runs follow the Schedule Tasks switch; after a pause the
         // first tick skips what the pause missed. `reload`: the switch is

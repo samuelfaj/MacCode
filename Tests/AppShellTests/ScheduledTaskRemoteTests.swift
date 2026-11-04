@@ -38,6 +38,14 @@ final class ScheduledTaskRemoteTests: XCTestCase {
         XCTAssertEqual(list.objectValue?["tasks"]?.arrayValue?.count, 0)
     }
 
+    func test_maxConcurrentRunsReadsBackOnTheWire_becauseClientsMustSeeTheLimitTheyWrote() throws {
+        // WHY: iPhone edits the same limit; a missing readback key would show the default and overwrite it on save.
+        var task = try makeWireTask()
+        task.maxConcurrentRuns = 3
+        let encoded = ScheduledTaskRemoteWire.encodeTask(task, workspaceName: nil, active: nil)
+        XCTAssertEqual(encoded.objectValue?["max_concurrent_runs"], .number(3))
+    }
+
     func test_scheduledTaskMutationsEnterTheHostMutationGate() {
         for method in ScheduledTaskRemoteWire.methods {
             XCTAssertTrue(JSONRPCDispatcher.hostMutationMethods.contains(method), method)
@@ -188,5 +196,16 @@ final class ScheduledTaskRemoteTests: XCTestCase {
             XCTAssertTrue(String(describing: error).contains("eligible system user"), "\(error)")
         }
         XCTAssertTrue(try ScheduledTaskStore(db: context.db).list().isEmpty)
+    }
+
+    private func makeWireTask() throws -> ScheduledTask {
+        ScheduledTask(
+            title: "Audit", prompt: "Inspect", workspaceID: WorkspaceID(),
+            workspacePathSnapshot: "/tmp", runAsUser: "sam", runAsUID: 501,
+            provider: .distill, providerInstanceID: "distill-acp", model: "auto", reasoningEffort: .high,
+            recurrence: .daily(at: ScheduledLocalTime(hour: 8, minute: 15)!),
+            timeZoneIdentifier: "UTC", isEnabled: true,
+            createdAt: Date(timeIntervalSince1970: 10), updatedAt: Date(timeIntervalSince1970: 10)
+        )
     }
 }

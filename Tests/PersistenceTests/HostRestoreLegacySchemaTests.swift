@@ -68,9 +68,10 @@ final class HostRestoreLegacySchemaTests: XCTestCase {
                                  provider: .distill, providerInstanceID: "distill-acp", model: "test", reasoningEffort: .high,
                                  recurrence: .daily(at: ScheduledLocalTime(hour: 8, minute: 15)!), timeZoneIdentifier: "UTC",
                                  isEnabled: true, nextRunAt: base, createdAt: base, updatedAt: base)
-        // The store writes v100 run-option columns; a v93 source gets them only while seeding.
+        // The store writes v100/v103 run-option columns; a v93 source gets them only while seeding.
         let runOptionColumns = ["distill_ultracode INTEGER NOT NULL DEFAULT 0", "permission_mode TEXT NOT NULL DEFAULT 'full_access'",
-                                "interaction_mode TEXT NOT NULL DEFAULT 'default'", "execution_mode TEXT NOT NULL DEFAULT 'local'", "base_branch TEXT"]
+                                "interaction_mode TEXT NOT NULL DEFAULT 'default'", "execution_mode TEXT NOT NULL DEFAULT 'local'", "base_branch TEXT",
+                                "max_concurrent_runs INTEGER NOT NULL DEFAULT 1"]
         for column in runOptionColumns { try source.execute("ALTER TABLE scheduled_tasks ADD COLUMN \(column);") }
         try ScheduledTaskStore(db: source).save(task)
         let stopped = AgentRun(threadId: agent.id, provider: .distill, model: "test", status: .running)

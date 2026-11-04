@@ -166,7 +166,78 @@ final class ScheduledTaskStoreTests: XCTestCase {
 
         XCTAssertEqual(first.count, 1)
         XCTAssertTrue(second.isEmpty)
-        XCTAssertEqual(try store.listRuns().count, 1)
+        // WHY: the overlapping slot is spent as `skipped`, never queued behind the active run.
+        let runs = try store.listRuns()
+        XCTAssertEqual(runs.count, 1, "the second tick reuses the claimed occurrence key; no extra run row")
+    }
+
+    func test_slotAtLimitOneIsSkippedAndAdvanced_becauseSkippedSlotsMustNotQueueBehindActiveRun() throws {
+        // WHY: a slot that fires while the one allowed run is active is spent, not replayed later as catch-up.
+        var task = makeTask(nextRunAt: Date(timeIntervalSince1970: 100))
+        task.maxConcurrentRuns = 1
+        try store.save(task)
+        _ = try store.claimManual(taskID: task.id, now: Date(timeIntervalSince1970: 99), owner: "agent-a")
+        let nextBefore = try XCTUnwrap(store.get(id: task.id)?.nextRunAt)
+        let slotAt = try XCTUnwrap(task.nextRunAt)
+
+        let claims = try store.claimDue(now: Date(timeIntervalSince1970: 101), owner: "agent-b")
+
+        XCTAssertTrue(claims.isEmpty, "a skipped slot must never be returned as a claim")
+        let skipped = try store.listRuns().filter { $0.status == .skipped }
+        XCTAssertEqual(skipped.count, 1)
+        XCTAssertEqual(skipped.first?.errorCode, "concurrency_limit")
+        XCTAssertEqual(skipped.first?.scheduledAt, slotAt)
+        XCTAssertEqual(skipped.first?.errorSummary, "Skipped: 1 run(s) of this task already running (limit 1).")
+        let nextAfter = try XCTUnwrap(store.get(id: task.id)?.nextRunAt)
+        XCTAssertGreaterThan(nextAfter, nextBefore, "the schedule must move past the spent slot")
+    }
+
+    func test_limitTwoClaimsSecondOverlappingSlot_becauseTwoRunsMayBeActiveAtOnce() throws {
+        // WHY: a task allowed two concurrent runs must start the second run instead of skipping it.
+        var task = makeTask(nextRunAt: Date(timeIntervalSince1970: 100))
+        task.maxConcurrentRuns = 2
+        try store.save(task)
+        _ = try store.claimManual(taskID: task.id, now: Date(timeIntervalSince1970: 99), owner: "agent-a")
+
+        let claims = try store.claimDue(now: Date(timeIntervalSince1970: 101), owner: "agent-b")
+
+        XCTAssertEqual(claims.count, 1)
+        XCTAssertEqual(try store.listRuns().filter { $0.status == .skipped }.count, 0)
+        XCTAssertEqual(try store.listActiveRuns().count, 2)
+    }
+
+    func test_manualRunAtLimitThrows_becauseRunNowMustObeyTheSameLimit() throws {
+        // WHY: Run Now must not bypass the per-task limit the scheduler enforces.
+        var task = makeTask(nextRunAt: Date(timeIntervalSince1970: 100))
+        task.maxConcurrentRuns = 2
+        try store.save(task)
+        _ = try store.claimManual(taskID: task.id, now: Date(timeIntervalSince1970: 101), owner: "agent-a")
+        _ = try store.claimManual(taskID: task.id, now: Date(timeIntervalSince1970: 102), owner: "agent-b")
+
+        XCTAssertThrowsError(try store.claimManual(taskID: task.id, now: Date(timeIntervalSince1970: 103), owner: "agent-c")) { error in
+            XCTAssertEqual(
+                (error as? ScheduledTaskStoreError)?.description.contains("already has 2 active run(s) (limit 2)."),
+                true
+            )
+        }
+    }
+
+    func test_missingMaxConcurrentRunsDecodesToOne_becauseOldRowsMustKeepSingleRunPolicy() throws {
+        // WHY: tasks saved before the column existed must keep the one-at-a-time behavior.
+        let legacy = makeTask(nextRunAt: nil)
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(legacy)) as? [String: Any] ?? [:]
+        json.removeValue(forKey: "maxConcurrentRuns")
+        let stripped = try JSONSerialization.data(withJSONObject: json)
+        let decoded = try JSONDecoder().decode(ScheduledTask.self, from: stripped)
+        XCTAssertEqual(decoded.maxConcurrentRuns, 1)
+    }
+
+    func test_maxConcurrentRunsRoundTripsThroughTheColumn_becauseTheLimitMustSurviveRestart() throws {
+        // WHY: the limit is read from the row at claim time; a dropped column silently reverts to 1.
+        var task = makeTask(nextRunAt: nil)
+        task.maxConcurrentRuns = 4
+        try store.save(task)
+        XCTAssertEqual(try store.get(id: task.id)?.maxConcurrentRuns, 4)
     }
 
     func test_globalConcurrencyAllowsMoreThanTwoClaims_becauseNoHardActiveCap() throws {
