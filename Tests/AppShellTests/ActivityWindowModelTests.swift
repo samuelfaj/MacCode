@@ -862,6 +862,36 @@ final class ActivityWindowModelTests: XCTestCase {
         XCTAssertEqual(model.page.items.map(\.id), ["run:live"], "the open row stays in place")
     }
 
+    func testKeptFinishedRowCanBeDismissedWithoutAHostWrite() async {
+        // WHY: a finished row kept under Running had no Dismiss, so it stayed until the user picked another row.
+        let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
+        defaults.set("running", forKey: "activity.tab")
+        var finished = false
+        var listCalls = 0
+        var acknowledged = 0
+        let running = item("run:live", state: "running")
+        let model = ActivityViewModel(service: ActivityClient(
+            list: { _ in listCalls += 1; return self.page(finished ? [] : [running]) },
+            setViewed: { _ in self.updated([]) }, acknowledge: { _ in acknowledged += 1; return .object([:]) }
+        ), defaults: defaults)
+        model.refreshAfterFrame()
+        await waitUntil("running row loaded") { model.page.items.count == 1 && !model.loading }
+        model.openDetail(running)
+        finished = true
+        model.refreshAfterFrame()
+        await waitUntil("finished kept") { listCalls == 2 && !model.loading }
+        let kept = try! XCTUnwrap(model.detail)
+        XCTAssertTrue(kept.isClearable, "a kept finished row must offer Dismiss")
+
+        model.acknowledge(kept)
+        XCTAssertTrue(model.page.items.isEmpty)
+        XCTAssertNil(model.detail)
+        model.refreshAfterFrame()
+        await waitUntil("refresh after dismiss") { listCalls == 3 && !model.loading }
+        XCTAssertTrue(model.page.items.isEmpty, "a dismissed row must not be kept again")
+        XCTAssertEqual(acknowledged, 0, "the host has no alert to clear for this row")
+    }
+
     func testKeptFinishedRowIsReplacedByTheSameConversationsNextRun() async {
         // WHY: the auto-continuation started a new run of the same thread; keeping the finished row
         // next to it listed one conversation twice (finished and running).

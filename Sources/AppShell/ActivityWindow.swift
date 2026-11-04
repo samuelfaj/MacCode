@@ -52,7 +52,9 @@ struct ActivityWireItem: Codable, Identifiable, Equatable, Sendable {
     /// Clearing removes the item from Needs you only: a failure stays in Finished, and a
     /// request or conflict stays where it lives (its thread, bot conversation or file).
     /// Every Needs you item can be cleared, so Clear all leaves nothing behind.
-    var isClearable: Bool { needs_action }
+    /// A run kept open after it left Running is a local row; dismissing it only drops it from the list.
+    var isClearable: Bool { needs_action || isKeptFinished }
+    var isKeptFinished: Bool { state == "finished" }
     var occurredDate: Date? { ActivityViewModel.parseDate(occurred_at) }
     var displayTitle: String {
         let collapsed = title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
@@ -714,6 +716,7 @@ final class ActivityViewModel: ObservableObject {
 
     func acknowledge(_ item: ActivityWireItem) {
         guard item.isClearable else { return }
+        if item.isKeptFinished { return dismissKeptFinished(item) }
         let request = generation
         let previousUndoSnapshot = undoSnapshot
         let previousUndoCleared = undoCleared
@@ -803,6 +806,14 @@ final class ActivityViewModel: ObservableObject {
         guard !ids.isEmpty else { return }
         for index in page.items.indices where ids.contains(page.items[index].id) { page.items[index].viewed_at = viewedAt }
         if let current = detail, ids.contains(current.id) { detail?.viewed_at = viewedAt }
+    }
+
+    /// The host has nothing to clear for a kept row; leaving the selection also stops the refresh from re-keeping it.
+    private func dismissKeptFinished(_ item: ActivityWireItem) {
+        page.items.removeAll { $0.id == item.id }
+        if selectedID == item.id { selectedID = nil; detail = nil }
+        if scrollID == item.id { scrollID = nil }
+        persistPage()
     }
 
     private func applyCleared(_ ids: Set<String>) {
@@ -1445,7 +1456,7 @@ struct ActivityRootView: View {
                 }
                 if item.isClearable {
                     Button("Dismiss") { model.acknowledge(item) }.buttonStyle(DSSecondaryButtonStyle())
-                        .help(item.kind == "request" ? "Removes this from Needs you. The request stays in the bot's conversation." : "Removes this from Needs you. The result stays in Results.")
+                        .help(item.isKeptFinished ? "Removes this finished row from the list." : item.kind == "request" ? "Removes this from Needs you. The request stays in the bot's conversation." : "Removes this from Needs you. The result stays in Results.")
                 }
                 if item.isMarkable, !item.isNew {
                     Button("Mark as unread") { model.markUnread(item) }.buttonStyle(DSSecondaryButtonStyle())
