@@ -457,6 +457,14 @@ public final class BotComputerGuestService: @unchecked Sendable {
         guard !heldByAnotherRun(botID: botID, requestingThreadID: requestingThreadID) else {
             throw BotStoreError.invalidInput("The VM is busy. Wait for the current conversation before changing its workspace.")
         }
+        if !existing.running {
+            // A stopped VM is recreated like Start does; the live swap only protects a running one.
+            try saveWorkspaces(wanted, botID: botID)
+            _ = try provision(botID: botID, keeping: [workspace], requestingThreadID: requestingThreadID,
+                              contextualNetworkPolicy: contextualNetworkPolicy,
+                              sharedVirtualMachine: sharedVirtualMachine || existing.labels[Self.sharedVMLabel] == "1")
+            return
+        }
         let backup = canonical + "-backup"
         let network = try availableNetwork(botID: botID)
         var options = try BotComputerGuestSpec.containerCreateOptions(

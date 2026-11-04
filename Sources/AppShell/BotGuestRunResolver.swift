@@ -890,13 +890,15 @@ final class BotGuestDockerVM: BotGuestVMPreparing, @unchecked Sendable {
             // Anything but running and current takes the path every send took
             // before. It starts with `docker info`, which is what names a
             // daemon that is down.
-            if let workspace {
-                try service.ensureWorkspaceMounted(
-                    botID: botID, workspace: workspace,
-                    registered: registeredWorkspaces, requestingThreadID: threadID
-                )
+            let ready = try BotVMProvisionRetry.run {
+                if let workspace {
+                    try service.ensureWorkspaceMounted(
+                        botID: botID, workspace: workspace,
+                        registered: registeredWorkspaces, requestingThreadID: threadID
+                    )
+                }
+                return try service.provision(botID: botID, requestingThreadID: threadID)
             }
-            let ready = try service.provision(botID: botID, requestingThreadID: threadID)
             container = ready.containerID
             image = ready.imageReference
             recreated = !ready.resumed

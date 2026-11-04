@@ -436,6 +436,27 @@ final class BotComputerGuestServiceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: BotComputerGuestSpec.guestHomeURL(appSupport: support, botID: idB).path))
     }
 
+    func test_stoppedOutdatedVMWithMountedWorkspaceIsRecreatedWithoutLiveSwap() throws {
+        let support = makeSupport("rc-stopped-outdated-vm")
+        defer { try? FileManager.default.removeItem(at: support) }
+        let fake = FakeDocker()
+        let service = BotComputerGuestService(appSupport: support, docker: fake, observeAttempts: 1, observeDelay: 0)
+        let bot = BotID()
+        let path = makeSupport("workspace-stopped-outdated")
+        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: path) }
+        try service.ensureWorkspaceMounted(botID: bot, workspace: path.path, registered: [path.path])
+        let name = BotComputerGuestSpec.containerName(botID: bot)
+        fake.containers[name]?.running = false
+        fake.containers[name]?.labels[BotComputerGuestSpec.runtimeLabelKey] = "outdated-runtime"
+        fake.renamed = []
+        try service.ensureWorkspaceMounted(botID: bot, workspace: path.path, registered: [path.path])
+        // A stopped VM is recreated like Start does; the live swap is only for a running VM.
+        XCTAssertTrue(fake.renamed.isEmpty)
+        XCTAssertEqual(fake.containers[name]?.running, true)
+        XCTAssertEqual(fake.containers[name]?.labels[BotComputerGuestSpec.runtimeLabelKey], BotComputerGuestSpec.runtimeRevision)
+    }
+
     func test_contextualProvisionBootstrapsRootPolicyBeforeScreenshotsAndOnResume() throws {
         let support = makeSupport("rc-context-bootstrap")
         defer { try? FileManager.default.removeItem(at: support) }
