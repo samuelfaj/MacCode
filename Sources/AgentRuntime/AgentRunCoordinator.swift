@@ -4306,7 +4306,8 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                 excludedVictimIDs: [sourceThreadId]
             )
         }
-        try beginExclusiveThreadMutation(sourceThreadId, operation: "provider fork", requiresIdleThread: true)
+        // A side chat is opened while the source is still working; a branch waits for it to be idle.
+        try beginExclusiveThreadMutation(sourceThreadId, operation: "provider fork", requiresIdleThread: !childThread.isEphemeral)
         defer { endExclusiveThreadMutation(sourceThreadId) }
         try await recoverAdapterSessionIfNeeded(threadId: sourceThreadId, adapter: adapter)
         guard (await ProviderCLIProbe.runOffCooperativePool { adapter.forkSafety(threadId: sourceThreadId) }).supportsDurableFork else {

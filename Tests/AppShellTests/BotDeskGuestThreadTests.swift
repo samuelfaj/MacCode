@@ -187,16 +187,18 @@ final class BotDeskGuestThreadTests: XCTestCase {
         await finishAll(f)
     }
 
-    func test_otherProvidersAndOtherDesktopsKeepAnUnlockedMacDeskThread() async throws {
-        // Only Distill runs in the guest (B4): a marked Claude thread would fail every send.
+    func test_aVMBotNeverFallsBackToTheMacForANewThread() async throws {
+        // WHY: a bot with a VM always runs in the VM. A route the guest cannot
+        // run (another provider) is refused, never silently moved to the Mac.
         let f = try makeFixture()
         let docker = try makeBot(f, docker: true)
-        let claude = try await firstSend(f, bot: docker, provider: .claude)
-        XCTAssertNil(claude.actorLockedAt)
-        XCTAssertNil(claude.executionTarget)
-        XCTAssertNil(try f.ctx.threadRepo.guestPlacement(of: claude.id)?.guestRuntime)
-        XCTAssertFalse(try XCTUnwrap(f.claude.requests.first).prompt.contains(BotStandingInstructions.vmThreadRules))
-        XCTAssertFalse(try XCTUnwrap(f.claude.requests.first).prompt.contains(BotStandingInstructions.guestThreadRules))
+        f.vm.openDesk(docker)
+        XCTAssertTrue(f.vm.createDeskThread())
+        f.vm.setDeskProvider(.claude)
+        let accepted = f.vm.send("claude words")
+        let started = await waitUntil(timeout: 2) { !f.claude.requests.isEmpty }
+        XCTAssertFalse(accepted && started, "a VM bot's thread must not run on the Mac")
+        XCTAssertTrue(f.claude.requests.isEmpty)
         await finishAll(f)
 
         let plain = try makeBot(f, docker: false)
@@ -469,11 +471,10 @@ final class BotDeskGuestThreadTests: XCTestCase {
         }
     }
 
-    func test_aDeskConversationRunAsAnotherMacUserIsNotLockedToTheGuest() async throws {
-        // WHY (M9): the guest only ever gets the app user's own accounts, and the
-        // guest resolver refuses a run meant for another macOS user. Locking such a
-        // conversation to the guest would make every send fail with no way out,
-        // so it stays an unlocked Mac thread run as that user.
+    func test_aDeskConversationRunAsAnotherMacUserIsRefusedNotMovedToTheMac() async throws {
+        // WHY (M9): the guest only ever gets the app user's own accounts. A VM
+        // bot always runs in its VM, so a send as another macOS user is refused
+        // with a reason instead of quietly running on the Mac.
         let f = try makeFixture()
         let bot = try makeBot(f, docker: true)
         f.vm.openDesk(bot)
@@ -484,15 +485,10 @@ final class BotDeskGuestThreadTests: XCTestCase {
         other.generatedUID = "other-\(other.uid)"
         other.shortName = "someoneelse"
         f.vm.setDeskRunAsUser(other)
-        XCTAssertTrue(f.vm.send("as another user"), f.vm.errorMessage ?? "")
-        let threadID = try XCTUnwrap(f.vm.selectedConversation?.linkedAgentThreadID)
-        let thread = try XCTUnwrap(try f.ctx.threadRepo.get(id: threadID))
-        XCTAssertEqual(thread.runAsUser?.uid, other.uid)
-        XCTAssertNil(thread.actorLockedAt)
-        XCTAssertNil(thread.executionTarget)
-        XCTAssertNil(try f.ctx.threadRepo.guestPlacement(of: threadID)?.guestRuntime)
-        let started = await waitUntil { f.distill.requests.contains { $0.prompt.contains("as another user") } }
-        XCTAssertTrue(started, f.vm.errorMessage ?? "no run")
+        let accepted = f.vm.send("as another user")
+        let started = await waitUntil(timeout: 2) { f.distill.requests.contains { $0.prompt.contains("as another user") } }
+        XCTAssertFalse(accepted && started, "a VM bot's run must not move to the Mac")
+        XCTAssertTrue(f.vm.errorMessage?.contains("VM conversations use Distill") == true, f.vm.errorMessage ?? "no error")
         await finishAll(f)
     }
 
@@ -594,7 +590,7 @@ final class BotDeskGuestThreadTests: XCTestCase {
         XCTAssertTrue(linked.contains(BotDesktopKind.dockerDesktopGuestRunHonestyLabel), "a guest thread's preview reads its placement")
     }
 
-    func test_aGuestRunIsToldOnlyTheToolsItHasAndAMacRunKeepsItsOwn() async throws {
+    func test_aGuestRunIsToldOnlyTheToolsItHas() async throws {
         // WHY (plan A S11): a guest run has its own shell, linux-use, Playwright
         // and the bot tools the host gateway serves. bot_computer_* and
         // bot_browser_* are Mac-side relays it is never served; a prompt naming
@@ -617,14 +613,6 @@ final class BotDeskGuestThreadTests: XCTestCase {
         for relay in relays {
             XCTAssertFalse(guest.contains(relay), "a guest run is never served \(relay)")
         }
-        await finishAll(f)
-
-        _ = try await firstSend(f, bot: bot, provider: .claude, text: "mac words")
-        let mac = try XCTUnwrap(f.claude.requests.first).prompt
-        XCTAssertTrue(mac.contains(BotDesktopKind.dockerDesktopMacRunHonestyLabel))
-        XCTAssertTrue(mac.contains(BotStandingInstructions.computerObserveTool))
-        XCTAssertTrue(mac.contains(BotStandingInstructions.openBrowserTool))
-        XCTAssertFalse(mac.contains(BotStandingInstructions.generatedInGuestComputerLine))
         await finishAll(f)
     }
 

@@ -1131,6 +1131,9 @@ public final class BotComputerGuestService: @unchecked Sendable {
             _lastReady = ready
             _lastReason = ""
         }
+        // A run's own provision (not the Desk Start button) must also light the Desk screen.
+        notificationCenter.post(name: .botGuestReady, object: nil,
+                                userInfo: [BotHostNotificationKey.botID: botID, BotHostNotificationKey.screenURL: url])
         return ready
     }
 

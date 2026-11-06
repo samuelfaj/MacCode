@@ -78,10 +78,9 @@ public enum BotDesktopKind: String, Codable, Sendable, CaseIterable {
     public static let botOwnedBrowserHonestyLabel =
         "This Mac · this teammate's own Playwright browser. Not the owner's browser. Same macOS account."
 
-    /// Where a Docker bot's agent runs depends on the thread (plan A): new
-    /// Distill threads run inside the guest, every other thread on the Mac.
+    /// New threads of a Docker bot always run inside the guest.
     public static let dockerDesktopHonestyLabel =
-        "Linux screen in Docker on 127.0.0.1. New Distill threads run the bot's agent inside this Linux VM with your accounts; other threads run the agent on this Mac. Not a security boundary."
+        "Linux screen in Docker on 127.0.0.1. The bot's agent runs inside this Linux VM with your accounts. Not a security boundary."
 
     /// Compiled into a thread whose agent runs inside the bot's guest.
     public static let dockerDesktopGuestRunHonestyLabel =

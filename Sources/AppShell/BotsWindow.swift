@@ -4124,6 +4124,7 @@ public final class BotsViewModel: ObservableObject {
     }
     private var shellSidebarVisibilityObserver: NSObjectProtocol?
     private var guestIdleStopObserver: NSObjectProtocol?
+    private var guestReadyObserver: NSObjectProtocol?
     private var deskLiveTurnWatch: Task<Void, Never>?
     private var navigationFreshnessTask: Task<Void, Never>?
     private var navigationFreshnessGeneration: UInt64 = 0
@@ -4185,6 +4186,14 @@ public final class BotsViewModel: ObservableObject {
             guard let botID = note.userInfo?[BotHostNotificationKey.botID] as? BotID else { return }
             Task { @MainActor in self?.markGuestStoppedWhenIdle(botID) }
         }
+        guestReadyObserver = NotificationCenter.default.addObserver(
+            forName: .botGuestReady, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let resourceID = note.userInfo?[BotHostNotificationKey.botID] as? BotID,
+                  let screen = note.userInfo?[BotHostNotificationKey.screenURL] as? URL,
+                  let url = try? BotComputerGuestSpec.viewerURL(screen) else { return }
+            Task { @MainActor in self?.rememberGuestScreen(url: url, botID: resourceID, running: true, resourceID: resourceID) }
+        }
         if loadImmediately {
             reload()
         }
@@ -4211,6 +4220,9 @@ public final class BotsViewModel: ObservableObject {
         }
         if let guestIdleStopObserver {
             NotificationCenter.default.removeObserver(guestIdleStopObserver)
+        }
+        if let guestReadyObserver {
+            NotificationCenter.default.removeObserver(guestReadyObserver)
         }
         context.coordinator.removeObserver(self)
     }
@@ -12332,14 +12344,11 @@ public final class BotsViewModel: ObservableObject {
         bot: BotDefinition,
         routing: BotDeskRouting
     ) throws {
-        var destination = try routing.executionDestination ?? botStore.executionDestination(botID: bot.id)
+        let destination = try routing.executionDestination ?? botStore.executionDestination(botID: bot.id)
         let guestEligible = routing.provider == .distill && routing.runAsUser.uid == getuid()
+        // A bot on a VM always runs in the VM: refuse instead of moving it to the Mac.
         if destination.target == .vm, !guestEligible {
-            // Only an explicit VM choice is refused; the bot's default VM falls back to the Mac.
-            guard routing.executionDestination == nil else {
-                throw BotStoreError.invalidInput("VM conversations use Distill with your current Mac account.")
-            }
-            destination = .mac
+            throw BotStoreError.invalidInput("VM conversations use Distill with your current Mac account.")
         }
         try botStore.validateExecutionDestination(destination, botID: bot.id)
         try botStore.pinExecutionDestination(threadID: thread.id, botID: bot.id, destination: destination)
