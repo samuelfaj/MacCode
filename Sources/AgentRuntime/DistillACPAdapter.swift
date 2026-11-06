@@ -512,7 +512,7 @@ public final class DistillACPAdapter: AgentProviderAdapter, @unchecked Sendable 
                 supportsApprovals: true,
                 supportsUserInput: false,
                 supportsStreaming: true,
-                supportsFork: false,
+                supportsFork: initialized.sessionForkDurable,
                 supportsRollback: false,
                 supportsPlanReview: interactionModes.contains(.plan),
                 supportsDistillMainEffortAuto: true,
