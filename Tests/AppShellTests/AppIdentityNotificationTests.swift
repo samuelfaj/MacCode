@@ -61,8 +61,8 @@ final class AppIdentityNotificationTests: XCTestCase {
                       "local packaging must explicitly sign the supplemental agent with the durable CODESIGN_IDENTITY")
         XCTAssertTrue(script.contains("<key>SUFeedURL</key><string>${SPARKLE_FEED_URL}</string>"),
                       "release bundles must point Sparkle at the stable appcast feed")
-        XCTAssertTrue(script.contains("SPARKLE_FEED_URL=\"${RC2_SPARKLE_FEED_URL:-https://remotecode.io/downloads/macos/appcast.xml}\""),
-                      "default release bundles must use the public S3-backed appcast instead of release-hosted assets")
+        XCTAssertTrue(script.contains("SPARKLE_FEED_URL=\"${RC2_SPARKLE_FEED_URL:-https://github.com/samuelfaj/MacCode/releases/latest/download/appcast.xml}\""),
+                      "default release bundles must poll the appcast attached to the latest public GitHub release")
         XCTAssertTrue(script.contains("<key>SUPublicEDKey</key><string>${SPARKLE_PUBLIC_ED_KEY}</string>"),
                       "release bundles must embed the Sparkle EdDSA public key used to verify update archives")
         XCTAssertTrue(script.contains("<key>SUEnableAutomaticChecks</key><true/>"),
@@ -106,7 +106,7 @@ final class AppIdentityNotificationTests: XCTestCase {
                           "the live-bundle refusal must run before the destructive final app replacement")
     }
 
-    func testReleaseWorkflowPublishesSignedSparkleAppcastToS3() throws {
+    func testReleaseWorkflowPublishesSignedSparkleAppcastToGitHubRelease() throws {
         let entry = try String(contentsOf: releaseWorkflowURL())
         XCTAssertTrue(entry.contains("scripts/release-stable.sh"), "GitHub Actions must invoke the signed release script")
         let workflow = entry + (try String(contentsOf: releaseWorkflowURL().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("scripts/release-stable.sh")))
@@ -119,18 +119,16 @@ final class AppIdentityNotificationTests: XCTestCase {
                       "the release workflow must use Sparkle tooling to sign the DMG enclosure")
         XCTAssertTrue(workflow.contains("dist/pages/appcast.xml"),
                       "the release workflow must generate the appcast that Sparkle polls")
-        XCTAssertTrue(workflow.contains("assume-role-with-web-identity"),
-                      "release CI must assume the AWS role before publishing public artifacts to the private frontend bucket")
-        XCTAssertFalse(workflow.contains("--acl public-read"),
-                       "release uploads must rely on CloudFront OAC instead of public ACLs because the frontend bucket blocks public ACLs")
-        XCTAssertTrue(workflow.contains("s3://$S3_BUCKET/$S3_DOWNLOAD_PREFIX/$TAG/$ASSET_NAME"),
-                      "the notarized DMG must be copied to a versioned S3 key so Sparkle does not depend on private GitHub release URLs")
-        XCTAssertTrue(workflow.contains("s3://$S3_BUCKET/$S3_DOWNLOAD_PREFIX/appcast.xml"),
-                      "the signed appcast must be published to the public S3-backed feed URL")
-        XCTAssertTrue(workflow.contains("export RC2_SPARKLE_FEED_URL=\"$S3_DOWNLOAD_BASE_URL/appcast.xml\""),
-                      "packaged release bundles must embed the public S3-backed appcast URL")
-        XCTAssertTrue(workflow.contains("DMG_URL=\"$S3_DOWNLOAD_BASE_URL/$TAG/$ASSET_NAME\""),
-                      "Sparkle enclosures must point at the public versioned S3 DMG URL")
+        XCTAssertFalse(workflow.contains("aws "),
+                       "publishing must not depend on AWS credentials; the public GitHub release hosts every download")
+        XCTAssertTrue(workflow.contains("gh release create \"$TAG\" \"dist/$ASSET_NAME\" dist/pages/appcast.xml"),
+                      "the notarized DMG and signed appcast must be attached to the same GitHub release")
+        XCTAssertTrue(workflow.contains("APPCAST_URL=\"$REPO_URL/releases/latest/download/appcast.xml\""),
+                      "Sparkle must poll the latest release so the feed URL stays stable across versions")
+        XCTAssertTrue(workflow.contains("export RC2_SPARKLE_FEED_URL=\"$APPCAST_URL\""),
+                      "packaged release bundles must embed the GitHub-hosted appcast URL")
+        XCTAssertTrue(workflow.contains("DMG_URL=\"$REPO_URL/releases/download/$TAG/$ASSET_NAME\""),
+                      "Sparkle enclosures must point at the versioned release asset, not latest, so a signature always matches its DMG")
         XCTAssertTrue(workflow.contains("stable-macos-arm64-RemoteCode.dmg"),
                       "the appcast must keep referencing the notarized release DMG asset")
     }
