@@ -629,6 +629,20 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertTrue(settled)
         let status = try await parent.parallelTaskStatus?(links[0], caller.thread.id)
         XCTAssertEqual(status, .completed, "The card must use its exact child run's terminal state")
+
+        // WHY: the task pane says who is doing the task and lets the user keep talking to that Bot there.
+        XCTAssertEqual(parent.parallelTaskContext, "Task Bot")
+        let pane = try XCTUnwrap(parent.parallelTaskPreview)
+        XCTAssertNotNil(pane.embedding?.sendInterceptor, "the task pane has a working composer")
+        _ = try pane.embedding?.sendInterceptor?("Also check retries", [], links[1].threadID)
+        let followUpStarted = await waitUntil(timeout: 5) {
+            runner.requests.contains { $0.prompt.contains("User request:\n\nAlso check retries") }
+        }
+        XCTAssertTrue(followUpStarted)
+        let followUp = runner.requests.first { $0.prompt.contains("User request:\n\nAlso check retries") }
+        XCTAssertEqual(followUp?.model, "main-model", "the follow-up keeps the task's provider and model")
+        XCTAssertEqual(followUp?.threadId, links[1].threadID,
+            "a message typed in the task pane continues that task's Bot conversation")
         if let receipt = ProcessInfo.processInfo.environment["RC_BOT_TASK_FIXTURE_RECEIPT"] {
             try context.runRepo.upsert(AgentRun(id: caller.run.id, threadId: caller.thread.id,
                 provider: .distill, model: "main-model", status: .completed))
