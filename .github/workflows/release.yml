@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 concurrency:
   group: stable-macos-release
@@ -20,12 +19,8 @@ jobs:
     timeout-minutes: 120
     environment: release
     env:
-      AWS_REGION: us-east-1
       DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
       HOMEBREW_NO_AUTO_UPDATE: "1"
-      S3_BUCKET: remotecode.io
-      S3_DOWNLOAD_BASE_URL: https://remotecode.io/downloads/macos
-      S3_DOWNLOAD_PREFIX: downloads/macos
     steps:
       - name: Require a stable semver tag
         run: |
@@ -45,6 +40,4 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-          AWS_RELEASE_UPLOAD_ROLE_ARN: ${{ secrets.AWS_RELEASE_UPLOAD_ROLE_ARN }}
-          REMOTECODE_IO_CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.REMOTECODE_IO_CLOUDFRONT_DISTRIBUTION_ID }}
         run: bash scripts/release-stable.sh

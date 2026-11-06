@@ -23,7 +23,7 @@ else
   RC2_CHANNEL_VALUE="debug"
 fi
 VERSION="${RC2_VERSION:-2.0.37}"
-SPARKLE_FEED_URL="${RC2_SPARKLE_FEED_URL:-https://remotecode.io/downloads/macos/appcast.xml}"
+SPARKLE_FEED_URL="${RC2_SPARKLE_FEED_URL:-https://github.com/samuelfaj/MacCode/releases/latest/download/appcast.xml}"
 SPARKLE_PUBLIC_ED_KEY="${RC2_SPARKLE_PUBLIC_ED_KEY:-}"
 
 running_bundle_pids() {

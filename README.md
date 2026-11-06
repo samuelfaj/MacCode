@@ -8,7 +8,7 @@ The Mac is the source of truth. Agents, shells, git, browsers, and files run on 
 
 ## Download
 
-[Download the latest release for Apple Silicon (DMG)](https://remotecode.io/downloads/macos/latest/stable-macos-arm64-RemoteCode.dmg)
+[Download the latest release for Apple Silicon (DMG)](https://github.com/samuelfaj/MacCode/releases/latest/download/stable-macos-arm64-RemoteCode.dmg)
 
 ## Features
 
@@ -96,7 +96,7 @@ Tests live in `Tests/`, one target per module. Build and helper scripts live in 
 
 ## Releases
 
-Releases are for maintainers only. Pushing a `vX.Y.Z` tag to GitHub starts `.github/workflows/release.yml` on a GitHub-hosted Xcode 27 runner. The workflow runs `scripts/release-stable.sh`, which signs and notarizes the DMG, publishes it and the Sparkle appcast to remotecode.io, and creates the GitHub release.
+Releases are for maintainers only. Pushing a `vX.Y.Z` tag to GitHub starts `.github/workflows/release.yml` on a GitHub-hosted Xcode 27 runner. The workflow runs `scripts/release-stable.sh`, which signs and notarizes the DMG, and publishes it with the Sparkle appcast as assets of the GitHub release.
 
 ## Contributing
 
