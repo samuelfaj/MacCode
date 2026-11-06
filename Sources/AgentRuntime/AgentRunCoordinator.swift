@@ -4529,7 +4529,8 @@ public final class AgentRunCoordinator: @unchecked Sendable {
             sourceProviderThreadId: try threadRepo.providerThreadId(of: intent.sourceThreadId)
                 .flatMap { $0.isEmpty ? nil : $0 },
             sourceWorkingDirectory: ((try? providerSessionRepo?.get(threadId: intent.sourceThreadId)) ?? nil)?
-                .cwd.flatMap { $0.isEmpty ? nil : $0 }
+                .cwd.flatMap { $0.isEmpty ? nil : $0 },
+            isSide: intent.childThread.isEphemeral
         )
 
         if intent.state == .compensated {
