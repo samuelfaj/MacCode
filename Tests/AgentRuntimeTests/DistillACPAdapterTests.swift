@@ -407,20 +407,21 @@ final class DistillACPAdapterTests: ProviderProcessTestCase {
     }
 
     func test_initializeParsesSessionWorkerModelCapability() async throws {
-        // WHY: the Worker selector must only be used when the harness advertises per-session support.
+        // WHY: the Worker selector and /fork, /side must only be offered when the harness advertises them.
         for advertised in [true, false] {
             let root = try makeTempRoot("distill-acp-worker-cap")
             defer { try? FileManager.default.removeItem(at: root) }
             let flag = advertised ? "True" : "False"
             let (harness, _) = try writeWorkerHarness(
                 root: root,
-                initializeCapabilities: "{\"_meta\":{\"x.ai/capabilities\":{\"sessionWorkerModel\":\(flag),\"sessionReasoningModel\":True}}}",
+                initializeCapabilities: "{\"_meta\":{\"x.ai/capabilities\":{\"sessionWorkerModel\":\(flag),\"sessionForkDurable\":\(flag),\"sessionReasoningModel\":True}}}",
                 workerResult: "{}"
             )
             let client = try DistillACPClient(binary: harness.path, cwd: root.path, tagProcess: false)
             defer { client.stop() }
             let initialized = try await client.initialize()
             XCTAssertEqual(initialized.sessionWorkerModel, advertised)
+            XCTAssertEqual(initialized.sessionForkDurable, advertised)
         }
     }
 

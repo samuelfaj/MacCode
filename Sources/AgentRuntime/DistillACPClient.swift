@@ -348,6 +348,8 @@ public struct DistillACPInitializeResult: Sendable, Equatable {
     public let resumeSession: Bool
     /// `x.ai/capabilities.sessionWorkerModel`: per-session Worker model + independent effort.
     public let sessionWorkerModel: Bool
+    /// `x.ai/capabilities.sessionForkDurable`: `_x.ai/session/fork` honors a caller-chosen child id.
+    public let sessionForkDurable: Bool
     public let agentVersion: String?
     public let models: [AgentModelDescriptor]
     public let currentModelId: String?
@@ -360,6 +362,7 @@ public struct DistillACPInitializeResult: Sendable, Equatable {
         audio: Bool = false,
         resumeSession: Bool = false,
         sessionWorkerModel: Bool = false,
+        sessionForkDurable: Bool = false,
         agentVersion: String? = nil,
         models: [AgentModelDescriptor] = [],
         currentModelId: String? = nil
@@ -371,6 +374,7 @@ public struct DistillACPInitializeResult: Sendable, Equatable {
         self.audio = audio
         self.resumeSession = resumeSession
         self.sessionWorkerModel = sessionWorkerModel
+        self.sessionForkDurable = sessionForkDurable
         self.agentVersion = agentVersion
         self.models = models
         self.currentModelId = currentModelId
@@ -395,6 +399,7 @@ public struct DistillACPInitializeResult: Sendable, Equatable {
             audio: prompt["audio"] as? Bool ?? false,
             resumeSession: sessions["resume"] != nil,
             sessionWorkerModel: xaiCapabilities["sessionWorkerModel"] as? Bool ?? false,
+            sessionForkDurable: xaiCapabilities["sessionForkDurable"] as? Bool ?? false,
             agentVersion: metadata["agentVersion"] as? String,
             models: DistillACPClient.modelDescriptors(from: modelState),
             currentModelId: modelState?["currentModelId"] as? String
