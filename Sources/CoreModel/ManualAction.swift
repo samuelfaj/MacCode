@@ -215,6 +215,8 @@ public extension Notification.Name {
     static let botVMRebuildReleased = Notification.Name("io.remotecode.bot.vm-rebuild-released")
     /// userInfo: `botID` BotID. The idle sweep stopped that VM.
     static let botGuestStoppedWhenIdle = Notification.Name("io.remotecode.bot.guest-stopped-when-idle")
+    /// userInfo: `botID` BotID (the VM resource), `screenURL` URL. Any provision proved that VM's screen.
+    static let botGuestReady = Notification.Name("io.remotecode.bot.guest-ready")
     /// userInfo: `threadID` AgentThreadID. Posted after a manual-action take/resolve so every view model refreshes.
     static let manualActionStateChanged = Notification.Name("io.remotecode.bot.manual-action-state-changed")
     /// object: the `BotComputerControl`; userInfo: `botID` BotID. Who drives that bot's computer
@@ -230,6 +232,7 @@ public enum BotHostNotificationKey {
     public static let jpeg = "jpeg"
     public static let reason = "reason"
     public static let kind = "kind"
+    public static let screenURL = "screenURL"
     /// true when the request's thread was guessed (no caller thread), so the host must not stop its run.
     public static let threadIsFallback = "threadIsFallback"
 }

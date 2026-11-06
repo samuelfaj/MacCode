@@ -190,7 +190,9 @@ public final class DistillACPEventMapper: @unchecked Sendable {
         // Timeline content must not mint a fresh turnStarted (durable seq 1
         // collision). Session *state* (mode, commands, usage) still applies so
         // a follow-up prompt sees negotiated mode after load hydration.
-        if finished {
+        // Session state alone never opens a turn: on session/new it arrives
+        // before the prompt, and a turn minted here never completes.
+        if finished || (turnId == nil && Self.sessionStateKinds.contains(kind)) {
             applySessionStateOnly(kind: kind, update: update, events: &events)
             return events
         }
@@ -330,6 +332,11 @@ public final class DistillACPEventMapper: @unchecked Sendable {
 
     /// Session state that must survive after sealHydration / finishTurn without
     /// reopening a user-facing turn.
+    static let sessionStateKinds: Set<String> = [
+        "usage_update", "available_commands_update", "current_mode_update",
+        "config_option_update", "session_info_update",
+    ]
+
     private func applySessionStateOnly(
         kind: String,
         update: [String: Any],

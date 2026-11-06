@@ -932,6 +932,33 @@ final class AgentForkAtomicityTests: XCTestCase {
         XCTAssertEqual(try harness.messageRepo.list(threadId: harness.child.id).map(\.content), ["question", "answer"])
     }
 
+    /// The side chat button is meant for a thread that is still working. A
+    /// branch still waits for an idle source; a side chat must not.
+    func test_sideChatForksWhileTheSourceRunsButABranchStillWaits() async throws {
+        let harness = try makeHarness()
+        let adapter = KeyedForkAdapter()
+        let coordinator = harness.coordinator(adapter: adapter)
+        _ = try await coordinator.startRun(AgentRunRequest(
+            threadId: harness.parent.id, provider: .codex, model: "model", cwd: harness.root, prompt: "long work"
+        ))
+        XCTAssertNotNil(coordinator.activeRunId(threadId: harness.parent.id), "positive control: the source is running")
+
+        do {
+            _ = try await coordinator.forkThread(sourceThreadId: harness.parent.id, childThread: harness.child)
+            XCTFail("a branch of a running thread must wait for it to be idle")
+        } catch {
+            XCTAssertTrue(String(describing: error).contains("another provider mutation is active"))
+        }
+
+        let side = AgentThread(
+            workspaceId: harness.parent.workspaceId, title: "side", provider: harness.parent.provider,
+            model: harness.parent.model, status: .completed, worktreePath: harness.root, isEphemeral: true
+        )
+        let forked = try await coordinator.forkThread(sourceThreadId: harness.parent.id, childThread: side)
+        XCTAssertEqual(forked.id, side.id)
+        XCTAssertEqual(adapter.forkRequests.last?.isSide, true)
+    }
+
     func test_runStartCannotOvertakeForkSnapshotBoundary() async throws {
         let harness = try makeHarness()
         let adapter = KeyedForkAdapter()

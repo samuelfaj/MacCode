@@ -1766,6 +1766,11 @@ public struct AssistantTimelineState: Codable, Sendable, Equatable {
                 turns[idx].finalAssistantMessage = final.map { Self.cappedText($0, limit: Self.liveTextLimit) }
                 turns[idx].finished = true
             }
+            // An empty turn left open before this one (session state minted it)
+            // never completes on its own and would read "Working…" forever.
+            for idx in turns.indices where turns[idx].turnId != tid && !turns[idx].finished && turns[idx].items.isEmpty {
+                turns[idx].finished = true
+            }
             if let final, !final.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 clearActivePlan()
             }

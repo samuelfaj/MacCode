@@ -825,6 +825,34 @@ final class AgentChatLiveTurnChromeTests: XCTestCase {
                        ["chatcmpl-tool-8110ff6e67b184a9"])
     }
 
+    /// A fresh guest session/new sends available_commands_update before the
+    /// prompt. It used to mint a turn that never completed, so the Bot desk
+    /// showed "Working…" above the finished answer forever.
+    func test_sessionStateBeforePromptDoesNotLeaveAStuckWorkingTurn() throws {
+        let mapper = DistillACPEventMapper(sessionId: "s")
+        var timeline = AssistantTimelineState()
+        for event in mapper.consumeSessionUpdate(["sessionUpdate": "available_commands_update", "availableCommands": []]) {
+            timeline.apply(event)
+        }
+        XCTAssertTrue(timeline.turns.isEmpty, "session state alone must not open a user-facing turn")
+        for event in mapper.beginTurn() { timeline.apply(event) }
+        for event in mapper.consumeSessionUpdate(["sessionUpdate": "agent_message_chunk",
+                                                  "content": ["type": "text", "text": "Done."]]) {
+            timeline.apply(event)
+        }
+        for event in mapper.finishTurn(stopReason: "end_turn", usage: nil) { timeline.apply(event) }
+        XCTAssertEqual(timeline.turns.count, 1)
+        XCTAssertTrue(timeline.turns.allSatisfy(\.finished))
+    }
+
+    func test_completingATurnClosesAnEarlierEmptyOrphanTurn() {
+        var timeline = AssistantTimelineState()
+        timeline.apply(.turnStarted(turnId: "orphan"))
+        timeline.apply(.turnStarted(turnId: "real"))
+        timeline.apply(.turnCompleted(turnId: "real", finalMessage: "Done."))
+        XCTAssertTrue(timeline.turns.allSatisfy(\.finished), "an empty turn left open must not paint Working… forever")
+    }
+
     func test_recentToolOutputShowsLatestDistillPromptTextNotRawToolJSON() throws {
         let snapshots = ["line-1\n", "line-1\nline-2\n", "line-1\nline-2\nline-3\n", "line-1\nline-2\nline-3\nline-4\n"]
         let item = try distillShellItem(snapshots.map { ["sessionUpdate": "tool_call_update", "toolCallId": "shell", "rawOutput": distillBashRawOutput($0)] })
