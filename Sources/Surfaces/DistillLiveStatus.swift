@@ -100,11 +100,20 @@ public struct DistillLiveStatus: Equatable, Sendable {
     }
     public var operation: Operation?
 
-    public func operationHeadline(now: Date) -> String? {
+    /// `waitingOnBackground`: every running tool is a background-task wait, where silence is expected.
+    /// `activeSubagents`: subagents still working; the main agent's silent tool is waiting on them.
+    public func operationHeadline(now: Date, waitingOnBackground: Bool = false, activeSubagents: Int = 0) -> String? {
         guard guestRecoveryText == nil, let operation else { return nil }
-        let seconds = max(0, Int(now.timeIntervalSince(operation.lastProgressAt)))
-        if operation.stalled { return "\(operation.label) — no progress for \(seconds)s · Stop to cancel" }
-        return "\(operation.label) — last update \(seconds)s ago"
+        let waited = DistillLoopPresentation.compactDuration(max(0, Int(now.timeIntervalSince(operation.phaseStartedAt))))
+        if activeSubagents > 0, operation.label == "Running tool" {
+            return "Waiting on \(activeSubagents) \(activeSubagents == 1 ? "subagent" : "subagents") · \(waited)"
+        }
+        if waitingOnBackground, operation.label == "Running tool" {
+            return "Waiting for background task · \(waited)"
+        }
+        let quiet = DistillLoopPresentation.compactDuration(max(0, Int(now.timeIntervalSince(operation.lastProgressAt))))
+        if operation.stalled { return "\(operation.label) · no output for \(quiet)" }
+        return "\(operation.label) · updated \(quiet) ago"
     }
 
     public static let maxSubagents = 50
@@ -140,7 +149,7 @@ public struct DistillLiveStatus: Equatable, Sendable {
     /// "Subagent (<description>): Compacting…" / "Compacting…" / nil (keep existing copy).
     public var headline: String? {
         if let guestRecoveryText { return guestRecoveryText }
-        if let operation { return operation.stalled ? "\(operation.label) — no progress" : operation.label }
+        if let operation { return operation.stalled ? "\(operation.label) · no output" : operation.label }
         if let sub = compactingSubagent { return "Subagent (\(sub.description)): Compacting…" }
         if mainCompactingSince != nil { return "Compacting…" }
         if let text = guestStage?.text { return text }
@@ -171,6 +180,31 @@ public struct DistillLiveStatus: Equatable, Sendable {
 
     /// Latest tool call per running subagent, keyed like the native Subagents
     /// receipt (`child_session_id`, else `subagent_id`, as a run UUID).
+    /// Everything Distill reported about one child, keyed like `activityByChildRun`.
+    public struct SubagentDetail: Equatable, Sendable {
+        public var type: String
+        public var description: String
+        public var model: String?
+        public var effort: String?
+        public var tokensUsed: Int
+        public var durationMs: Int
+        public var activity: String?
+    }
+
+    /// Live and finished children, so a done row keeps its model, effort and token count.
+    public var detailByChildRun: [AgentRunID: SubagentDetail] {
+        var map: [AgentRunID: SubagentDetail] = [:]
+        for sub in subagents {
+            guard let uuid = UUID(uuidString: sub.childSessionId ?? sub.id) else { continue }
+            let activity = sub.isActive ? sub.lastActivity?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+            map[AgentRunID(uuid)] = SubagentDetail(
+                type: sub.type, description: sub.description, model: sub.model, effort: sub.effort,
+                tokensUsed: sub.tokensUsed, durationMs: sub.durationMs,
+                activity: activity?.isEmpty == false ? activity : nil)
+        }
+        return map
+    }
+
     public var activityByChildRun: [AgentRunID: String] {
         var map: [AgentRunID: String] = [:]
         for sub in subagents where sub.isActive {

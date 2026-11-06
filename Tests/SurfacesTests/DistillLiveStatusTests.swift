@@ -35,12 +35,19 @@ final class DistillLiveStatusTests: XCTestCase {
         let progress = status.operation?.lastProgressAt
         try apply("first", 2, 0, start.addingTimeInterval(5))
         XCTAssertEqual(status.operation?.lastProgressAt, progress, "a heartbeat cannot move the last real progress forward")
-        XCTAssertTrue(status.operationHeadline(now: start.addingTimeInterval(5))?.contains("7s ago") == true)
+        XCTAssertEqual(status.operationHeadline(now: start.addingTimeInterval(5)), "Running tool · updated 7s ago")
         try apply("second", 3, 700_000, start.addingTimeInterval(6), stalled: true)
         try apply("first", 2, 0, start.addingTimeInterval(7))
         XCTAssertEqual(status.operation?.id, "second", "an older operation cannot replace the current one")
-        XCTAssertTrue(status.operationHeadline(now: start.addingTimeInterval(7))?.contains("no progress") == true)
-        XCTAssertTrue(status.operationHeadline(now: start.addingTimeInterval(7))?.contains("Stop to cancel") == true)
+        XCTAssertEqual(status.operationHeadline(now: start.addingTimeInterval(7)), "Running tool · no output for 11m 41s")
+        // WHY: a tool that only waits on a background task is silent by design; "no output" there reads as a hang.
+        XCTAssertEqual(status.operationHeadline(now: start.addingTimeInterval(7), waitingOnBackground: true),
+                       "Waiting for background task · 11m 41s")
+        // WHY: while subagents work the main agent is quiet on purpose; say who it waits on, not "no output".
+        XCTAssertEqual(status.operationHeadline(now: start.addingTimeInterval(7), waitingOnBackground: true, activeSubagents: 1),
+                       "Waiting on 1 subagent · 11m 41s")
+        XCTAssertEqual(status.operationHeadline(now: start.addingTimeInterval(7), activeSubagents: 3),
+                       "Waiting on 3 subagents · 11m 41s")
     }
     private let method = "x.ai/session_notification"
 

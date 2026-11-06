@@ -1048,3 +1048,18 @@ private final class ActiveQueueRunner: AgentProviderRunner, @unchecked Sendable 
 private enum QueueForceDelegationError: Error {
     case rejected
 }
+
+final class AgentQueuedMessageEditorTests: XCTestCase {
+    func test_saveOnlyEnabledForARealChange() {
+        // WHY: saving an unchanged or emptied queued message is a no-op or a silent delete; Save must say so by being off.
+        func editor(_ text: String, original: String = "Fix the login", attachments: Bool = false) -> AgentQueuedMessageEditor {
+            AgentQueuedMessageEditor(text: .constant(text), original: original, allowsEmpty: attachments,
+                                     position: 1, identifier: "x", onSave: {}, onCancel: {})
+        }
+        XCTAssertFalse(editor("Fix the login").canSave)
+        XCTAssertFalse(editor("  Fix the login \n").canSave, "whitespace-only changes are not edits")
+        XCTAssertFalse(editor("   ").canSave, "a text-only message cannot be emptied")
+        XCTAssertTrue(editor("   ", attachments: true).canSave, "attachments keep an emptied message meaningful")
+        XCTAssertTrue(editor("Fix the login and signup").canSave)
+    }
+}

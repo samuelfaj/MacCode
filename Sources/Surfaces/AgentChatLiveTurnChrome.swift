@@ -1268,6 +1268,9 @@ public struct AgentChatWorkingStatusStrip: View {
     public let distill: DistillLiveStatus?
     public let contextTokens: Int?
     public let runningTools: [AssistantItem]
+    public let activeSubagents: [SubagentActivityItem]
+    /// Latest tool call per running subagent run (`DistillLiveStatus.activityByChildRun`).
+    public let subagentActivity: [AgentRunID: String]
     public let onStop: () -> Void
     @State private var toolsExpanded = true
     @State private var expandedToolIDs: Set<String> = []
@@ -1280,8 +1283,12 @@ public struct AgentChatWorkingStatusStrip: View {
         distill: DistillLiveStatus? = nil,
         contextTokens: Int? = nil,
         runningTools: [AssistantItem] = [],
+        activeSubagents: [SubagentActivityItem] = [],
+        subagentActivity: [AgentRunID: String] = [:],
         onStop: @escaping () -> Void
     ) {
+        self.activeSubagents = activeSubagents
+        self.subagentActivity = subagentActivity
         self.distill = distill
         self.contextTokens = contextTokens
         self.runningTools = runningTools
@@ -1308,12 +1315,20 @@ public struct AgentChatWorkingStatusStrip: View {
                         .foregroundColor(DS.Palette.textSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                        .accessibilityLabel(distill?.operationHeadline(now: timeline.date) ?? AgentChatWorkingCopy.accessibilityLabel(
+                        .accessibilityLabel(distill?.operationHeadline(now: timeline.date, waitingOnBackground: waitingOnBackground, activeSubagents: activeSubagents.count) ?? AgentChatWorkingCopy.accessibilityLabel(
                             context: context,
                             elapsedSeconds: seconds,
                             hold: hold
                         ))
                         .accessibilityIdentifier("agent.workingStatus")
+                        if let line = subagentLine {
+                            Text(line)
+                                .font(DS.Font.caption)
+                                .foregroundColor(DS.Palette.textTertiary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .accessibilityIdentifier("agent.workingStatus.subagent")
+                        }
                         if let extra = hold?.extraDescriptionsLine {
                             Text(extra)
                                 .font(DS.Font.caption)
@@ -1394,6 +1409,19 @@ public struct AgentChatWorkingStatusStrip: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// "<newest active subagent> · <its latest tool call> · +N more", so a quiet main agent reads as delegating.
+    private var subagentLine: String? {
+        guard let newest = activeSubagents.max(by: { $0.admittedAt < $1.admittedAt }) else { return nil }
+        var parts = [newest.displayName]
+        if let tool = newest.runId.flatMap({ subagentActivity[$0] }) { parts.append(tool) }
+        if activeSubagents.count > 1 { parts.append("+\(activeSubagents.count - 1) more") }
+        return parts.joined(separator: " · ")
+    }
+
+    private var waitingOnBackground: Bool {
+        !runningTools.isEmpty && runningTools.allSatisfy(AgentTimelineItemPresentation.isTaskWaitTool(for:))
+    }
+
     private func statusLine(seconds: Int, seed: UInt64, now: Date) -> Text {
         let base = AgentChatWorkingCopy.statusLabel(
             context: context,
@@ -1402,7 +1430,7 @@ public struct AgentChatWorkingStatusStrip: View {
             hold: hold
         )
         guard let distill else { return Text(base) }
-        var line = Text(distill.operationHeadline(now: now) ?? distill.headline.map { h in
+        var line = Text(distill.operationHeadline(now: now, waitingOnBackground: waitingOnBackground, activeSubagents: activeSubagents.count) ?? distill.headline.map { h in
             let secs = distill.headlineSince.map { max(0, Int(now.timeIntervalSince($0))) }
             return secs.map { "\(h) \($0)s" } ?? h
         } ?? distill.goalHeadline ?? base)

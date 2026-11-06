@@ -549,16 +549,19 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     @Published public var hidesToolActivity = false
     @Published public var parallelTaskPreview: AgentAppViewModel?
     @Published public var parallelTaskTitle = ""
+    /// "Bot · workspace" for the task pane header; the host fills it when it loads the task.
+    @Published public var parallelTaskContext = ""
     @Published public private(set) var selectedParallelTask: BotParallelTask?
-    public var parallelTaskLoader: ((BotParallelTask, AgentThreadID) throws -> AgentAppViewModel)?
+    public var parallelTaskLoader: ((BotParallelTask, AgentThreadID) throws -> (AgentAppViewModel, context: String))?
     public var parallelTaskStatus: ((BotParallelTask, AgentThreadID) async throws -> AgentRunStatus?)?
 
     public func openParallelTask(_ task: BotParallelTask) {
         guard let source = selectedThreadId, let parallelTaskLoader else { return }
         do {
-            let preview = try parallelTaskLoader(task, source)
+            let (preview, context) = try parallelTaskLoader(task, source)
             parallelTaskPreview?.dispose()
             parallelTaskTitle = task.title
+            parallelTaskContext = context
             selectedParallelTask = task
             parallelTaskPreview = preview
             if let data = try? JSONEncoder().encode(task) {
@@ -13290,6 +13293,7 @@ public struct AgentAppView: View {
     @State private var showSourceOptions = false
     /// Subagents activity popover (provider-neutral Active/Done list).
     @State private var showSubagentActivity = false
+    @State private var openSubagentID: UUID?
     // UX-MAC_AGENT-013: inline custom-model entry replaces the blocking NSAlert.
     @State private var showCustomModelField = false
     @State private var showExecutionSheet = false
@@ -15581,6 +15585,11 @@ public struct AgentAppView: View {
         return ids
     }
 
+    private func openSubagentItem(_ id: UUID) -> SubagentActivityItem? {
+        let snapshot = vm.subagentActivity
+        return (snapshot.active + snapshot.done + snapshot.unknown).first { $0.id == id }
+    }
+
     public var body: some View {
         GeometryReader { proxy in
             HSplitView {
@@ -15592,38 +15601,54 @@ public struct AgentAppView: View {
                             maxWidth: Self.threadRailWidthRange.upperBound
                         )
                 }
+                // HSplitView ignores idealWidth on a newly inserted pane and squeezed the
+                // conversation to a sliver; an HStack of two flexible columns splits 50/50.
+                HStack(spacing: 0) {
                 conversationColumn(availableHeight: proxy.size.height)
                     .frame(minWidth: 0, maxWidth: .infinity)
                 if let preview = vm.parallelTaskPreview {
+                    Rectangle().fill(DS.Palette.line).frame(width: DS.Border.hairline)
                     VStack(spacing: 0) {
-                        HStack {
-                            Text(vm.parallelTaskTitle)
-                                .font(DS.Font.body.weight(.medium))
-                                .lineLimit(1)
-                            Spacer()
-                            Button { vm.closeParallelTask() } label: {
-                                Image(systemName: "xmark")
+                        HStack(spacing: DS.Space.sm) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(vm.parallelTaskTitle)
+                                    .font(DS.Font.body.weight(.medium))
+                                    .foregroundColor(DS.Palette.text)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                if !vm.parallelTaskContext.isEmpty {
+                                    Text(vm.parallelTaskContext)
+                                        .font(DS.Font.caption)
+                                        .foregroundColor(DS.Palette.textSecondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .accessibilityIdentifier("agent.botTask.context")
+                                }
                             }
-                            .buttonStyle(.plain)
-                            .help("Close parallel conversation")
-                            .accessibilityLabel("Close parallel conversation")
-                            .accessibilityIdentifier("agent.botTask.close")
+                            .help(vm.parallelTaskContext.isEmpty ? vm.parallelTaskTitle : "\(vm.parallelTaskTitle)\n\(vm.parallelTaskContext)")
+                            Spacer(minLength: DS.Space.sm)
+                            DSIconButton("xmark", help: "Close parallel conversation") { vm.closeParallelTask() }
+                                .accessibilityLabel("Close parallel conversation")
+                                .accessibilityIdentifier("agent.botTask.close")
                         }
-                        .padding(DS.Space.md)
+                        .padding(.horizontal, DS.Space.lg).padding(.vertical, DS.Space.sm)
                         .dsBar(edge: .bottom)
-                        AgentAppView(vm: preview, layout: AgentAppViewLayout(
-                            showsThreadRail: false, showsHeader: false, showsComposer: false))
-                        Text("This Bot is managing the task. You can keep chatting in the original conversation.")
-                            .font(DS.Font.caption)
-                            .foregroundStyle(DS.Palette.textSecondary)
-                            .padding(DS.Space.md)
+                        AgentAppView(vm: preview, layout: AgentAppViewLayout(showsThreadRail: false, showsHeader: false))
                     }
-                    .frame(minWidth: 240, idealWidth: max(240, proxy.size.width * 0.46))
+                    .frame(minWidth: 0, maxWidth: .infinity)
                     .accessibilityIdentifier("agent.botTask.sideConversation")
+                }
+                if let id = openSubagentID, let item = openSubagentItem(id) {
+                    Rectangle().fill(DS.Palette.line).frame(width: DS.Border.hairline)
+                    DistillSubagentTranscriptPane(item: item) { openSubagentID = nil }
+                        .id(id)
+                        .frame(minWidth: 0, maxWidth: .infinity)
+                }
                 }
             }
             .onAppear { applyAdaptiveSidebars(width: proxy.size.width, event: .structural) }
             .task(id: vm.selectedThreadId) { vm.restoreParallelTask() }
+            .onChange(of: vm.selectedThreadId) { _ in openSubagentID = nil }
             .task(id: vm.selectedParallelTask?.threadID) { await vm.monitorParallelTaskAccess() }
             .onChange(of: proxy.size.width) { width in
                 applyAdaptiveSidebars(width: width, event: .resize)
@@ -15883,6 +15908,8 @@ public struct AgentAppView: View {
         VStack(spacing: 0) {
             if layout.showsHeader {
                 header
+            } else if !vm.subagentActivity.isEmpty {
+                headerlessSubagentBar
             }
             if vm.permissionMode == .fullAccess {
                 fullAccessBanner
@@ -16046,19 +16073,8 @@ public struct AgentAppView: View {
             // Auto (orchestrate) always exposes the chrome so delegated workers
             // are discoverable the moment the first child receipt lands — not
             // only after the user already knows to look for a hidden badge.
-            if !vm.subagentActivity.isEmpty || showSubagentActivity || vm.routingMode == .auto {
-                SubagentActivityBadge(
-                    snapshot: vm.subagentActivity,
-                    bots: snapshotMentionableBots(),
-                    now: Self.subagentActivityBadgeNow(
-                        snapshotEmpty: vm.subagentActivity.isEmpty,
-                        popoverPresented: showSubagentActivity,
-                        currentTime: vm.currentTime
-                    ),
-                    isPresented: $showSubagentActivity,
-                    orchestrateActive: vm.routingMode == .auto,
-                    liveActivity: vm.provider == .distill ? vm.distillLive?.activityByChildRun ?? [:] : [:]
-                )
+            if showsSubagentBadge {
+                subagentBadge
             }
             // Same action as `/side`; hidden where no host can open a side pane.
             if vm.onRequestSideChat != nil, !vm.selectedThreadIsEphemeral {
@@ -16071,6 +16087,39 @@ public struct AgentAppView: View {
         }
         .padding(.horizontal, DS.Space.lg).padding(.vertical, DS.Space.sm)
         .dsBar(edge: .bottom)
+    }
+
+    private var showsSubagentBadge: Bool {
+        !vm.subagentActivity.isEmpty || showSubagentActivity || vm.routingMode == .auto
+    }
+
+    private var subagentBadge: some View {
+        SubagentActivityBadge(
+            snapshot: vm.subagentActivity,
+            bots: snapshotMentionableBots(),
+            now: Self.subagentActivityBadgeNow(
+                snapshotEmpty: vm.subagentActivity.isEmpty,
+                popoverPresented: showSubagentActivity,
+                currentTime: vm.currentTime
+            ),
+            isPresented: $showSubagentActivity,
+            orchestrateActive: vm.routingMode == .auto,
+            liveActivity: vm.provider == .distill ? vm.distillLive?.activityByChildRun ?? [:] : [:],
+            liveDetail: vm.provider == .distill ? vm.distillLive?.detailByChildRun ?? [:] : [:],
+            onOpen: { openSubagentID = $0.id }
+        )
+    }
+
+    /// Hosts that hide the header (Activity, Bot desk, groups, task pane) still show
+    /// the thread's subagents; only rendered when there is something to show.
+    private var headerlessSubagentBar: some View {
+        HStack(spacing: DS.Space.sm) {
+            Spacer(minLength: 0)
+            subagentBadge
+        }
+        .padding(.horizontal, DS.Space.lg).padding(.vertical, DS.Space.xs)
+        .dsBar(edge: .bottom)
+        .accessibilityIdentifier("agent.subagents.bar")
     }
 
     @ViewBuilder
@@ -16453,6 +16502,8 @@ public struct AgentAppView: View {
                                     distill: vm.provider == .distill ? vm.distillLive : nil,
                                     contextTokens: vm.provider == .distill ? vm.timeline.tokenUsage?.contextTokens : nil,
                                     runningTools: AgentChatLiveTurnChrome.runningTools(in: vm.timeline.turns, since: vm.runStartedAt),
+                                    activeSubagents: vm.subagentActivity.active,
+                                    subagentActivity: vm.provider == .distill ? vm.distillLive?.activityByChildRun ?? [:] : [:],
                                     onStop: { vm.stop() }
                                 )
                                 .id("agent.workingStatus")
@@ -18721,8 +18772,10 @@ public struct AgentAppView: View {
     }
 
     private func queuedMessageRow(_ message: AgentQueuedMessage) -> some View {
-        AgentQueuedRow(
-            text: message.text.isEmpty ? attachmentSummary(message) : message.text,
+        let isEditing = vm.editingQueuedMessage?.id == message.id
+        return AgentQueuedRow(
+            // The editor already shows the text; repeating it above reads as a duplicate.
+            text: isEditing ? "" : (message.text.isEmpty ? attachmentSummary(message) : message.text),
             identifier: "agent.queued.row.\(message.id.value.uuidString)",
             leading: AnyView(
                 Text("#\(message.position)")
@@ -18732,15 +18785,19 @@ public struct AgentAppView: View {
             ),
             detail: AnyView(
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
-                    if vm.editingQueuedMessage?.id == message.id {
-                        TextEditor(text: $vm.queuedMessageDraft)
-                            .font(DS.Font.body)
-                            .frame(minHeight: 64, maxHeight: 120)
-                            .scrollContentBackground(.hidden)
-                            .background(DS.Palette.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
-                            .accessibilityLabel("Edit queued message \(message.position)")
-                            .accessibilityIdentifier("agent.queued.editor.\(message.id.value.uuidString)")
+                    if isEditing {
+                        AgentQueuedMessageEditor(
+                            text: $vm.queuedMessageDraft,
+                            original: message.text,
+                            allowsEmpty: !message.attachments.isEmpty,
+                            position: message.position,
+                            identifier: message.id.value.uuidString,
+                            onSave: { vm.saveQueuedMessageEdit() },
+                            onCancel: {
+                                vm.editingQueuedMessage = nil
+                                vm.queuedMessageDraft = ""
+                            }
+                        )
                     }
                     if !message.attachments.isEmpty {
                         Label("\(message.attachments.count) attachment\(message.attachments.count == 1 ? "" : "s")", systemImage: "paperclip")
@@ -18760,17 +18817,7 @@ public struct AgentAppView: View {
             )
         ) {
             HStack(spacing: DS.Space.sm) {
-                if vm.editingQueuedMessage?.id == message.id {
-                    Button("Save") { vm.saveQueuedMessageEdit() }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    Button("Cancel") {
-                        vm.editingQueuedMessage = nil
-                        vm.queuedMessageDraft = ""
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                } else {
+                if !isEditing {
                     Button {
                         Task { await vm.forceQueuedMessageNow(message) }
                     } label: {

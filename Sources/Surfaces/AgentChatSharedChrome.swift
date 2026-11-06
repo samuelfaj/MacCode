@@ -244,10 +244,13 @@ public struct AgentQueuedRow<Trailing: View>: View {
                 leading
             }
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                Text(text)
-                    .font(DS.Font.body)
-                    .foregroundColor(DS.Palette.text)
-                    .lineLimit(3)
+                // Empty text lets a caller replace the preview (an inline editor in `detail`).
+                if !text.isEmpty {
+                    Text(text)
+                        .font(DS.Font.body)
+                        .foregroundColor(DS.Palette.text)
+                        .lineLimit(3)
+                }
                 if let detail {
                     detail
                 }
@@ -1340,5 +1343,60 @@ public struct AgentChatThreadRail<Content: View>: View {
         }
         .padding(.horizontal, DS.Space.md)
         .padding(.vertical, DS.Space.xs)
+    }
+}
+
+/// Inline editor for one queued message: focused on open, grows with the text,
+/// Esc cancels, Cmd-Return saves, and Save stays off until the text changes.
+struct AgentQueuedMessageEditor: View {
+    @Binding var text: String
+    let original: String
+    let allowsEmpty: Bool
+    let position: Int
+    let identifier: String
+    let onSave: () -> Void
+    let onCancel: () -> Void
+    @FocusState private var focused: Bool
+
+    private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var canSave: Bool { trimmed != original.trimmingCharacters(in: .whitespacesAndNewlines) && (allowsEmpty || !trimmed.isEmpty) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
+            TextEditor(text: $text)
+                .font(DS.Font.body)
+                .focused($focused)
+                .scrollContentBackground(.hidden)
+                .padding(.horizontal, DS.Space.xs)
+                .padding(.vertical, DS.Space.xs)
+                .frame(minHeight: 72, maxHeight: 240)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(DS.Palette.bg)
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                        .strokeBorder(focused ? DS.Palette.accent : DS.Palette.line, lineWidth: DS.Border.hairline)
+                )
+                .onKeyPress(.escape) { onCancel(); return .handled }
+                .accessibilityLabel("Edit queued message \(position)")
+                .accessibilityIdentifier("agent.queued.editor.\(identifier)")
+            HStack(spacing: DS.Space.sm) {
+                Text("Esc to cancel · ⌘↩ to save")
+                    .font(DS.Font.caption)
+                    .foregroundColor(DS.Palette.textTertiary)
+                Spacer(minLength: DS.Space.sm)
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("agent.queued.editCancel.\(identifier)")
+                Button("Save", action: onSave)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(!canSave)
+                    .accessibilityIdentifier("agent.queued.editSave.\(identifier)")
+            }
+        }
+        .onAppear { focused = true }
     }
 }

@@ -314,6 +314,30 @@ public enum SubagentActivityProjection {
         )
     }
 
+    /// `Distill · gpt-6 · High · 12k tokens · 3m 10s`: receipt route first, then what the
+    /// provider reported live (it knows the model Auto actually picked and the effort in use).
+    public static func metaLabel(for item: SubagentActivityItem, detail: DistillLiveStatus.SubagentDetail?) -> String? {
+        guard let detail else { return item.providerModelLabel }
+        var parts = [item.providerModelLabel.flatMap { $0.split(separator: "·").first.map { $0.trimmingCharacters(in: .whitespaces) } } ?? "Distill"]
+        let model = detail.model?.trimmingCharacters(in: .whitespaces)
+        if let model, !model.isEmpty { parts.append(model) } else if let m = item.model, !m.isEmpty { parts.append(m) }
+        let effort = detail.effort?.trimmingCharacters(in: .whitespaces)
+        if let effort, !effort.isEmpty { parts.append(AgentReasoningEffort(rawValue: effort)?.displayName ?? effort) }
+        else if let e = item.reasoningEffort { parts.append(e.displayName) }
+        if detail.tokensUsed > 0 { parts.append("\(DistillLiveStatus.formatTokens(detail.tokensUsed)) tokens") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// `Explore · Review the kitchen plan`: the subagent type and the task it was given.
+    public static func taskLabel(for item: SubagentActivityItem, detail: DistillLiveStatus.SubagentDetail?) -> String? {
+        guard let detail else { return nil }
+        let description = detail.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let type = detail.type.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = [type.isEmpty ? nil : type, description.isEmpty || description == item.displayName ? nil : description]
+            .compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     public static func mapItem(
         receipt: AgentOrchestrationAdmissionReceipt,
         activeRunIds: Set<AgentRunID> = [],
@@ -841,6 +865,9 @@ public struct SubagentActivityBadge: View {
     let orchestrateActive: Bool
     /// Latest tool call per running child run (Distill `subagent_progress`).
     let liveActivity: [AgentRunID: String]
+    let liveDetail: [AgentRunID: DistillLiveStatus.SubagentDetail]
+    /// Opens a subagent's transcript; nil leaves rows inert.
+    let onOpen: ((SubagentActivityItem) -> Void)?
     @Binding var isPresented: Bool
     @State private var activeExpanded = false
     @State private var doneExpanded = false
@@ -852,13 +879,17 @@ public struct SubagentActivityBadge: View {
         now: Date = Date(),
         isPresented: Binding<Bool>,
         orchestrateActive: Bool = false,
-        liveActivity: [AgentRunID: String] = [:]
+        liveActivity: [AgentRunID: String] = [:],
+        liveDetail: [AgentRunID: DistillLiveStatus.SubagentDetail] = [:],
+        onOpen: ((SubagentActivityItem) -> Void)? = nil
     ) {
+        self.onOpen = onOpen
         self.snapshot = snapshot
         self.bots = bots
         self.now = now
         self.orchestrateActive = orchestrateActive
         self.liveActivity = liveActivity
+        self.liveDetail = liveDetail
         self._isPresented = isPresented
     }
 
@@ -890,6 +921,8 @@ public struct SubagentActivityBadge: View {
                 now: now,
                 orchestrateActive: orchestrateActive,
                 liveActivity: liveActivity,
+                liveDetail: liveDetail,
+                onOpen: onOpen.map { open in { item in isPresented = false; open(item) } },
                 activeExpanded: $activeExpanded,
                 doneExpanded: $doneExpanded,
                 unknownExpanded: $unknownExpanded
@@ -989,6 +1022,10 @@ struct SubagentActivityPopoverPanel: View {
     let now: Date
     let orchestrateActive: Bool
     var liveActivity: [AgentRunID: String] = [:]
+    var liveDetail: [AgentRunID: DistillLiveStatus.SubagentDetail] = [:]
+    var onOpen: ((SubagentActivityItem) -> Void)? = nil
+    /// Read from each Distill child's saved session when the popover opens.
+    @State private var diskDetail: [UUID: DistillLiveStatus.SubagentDetail] = [:]
     @Binding var activeExpanded: Bool
     @Binding var doneExpanded: Bool
     @Binding var unknownExpanded: Bool
@@ -1026,7 +1063,7 @@ struct SubagentActivityPopoverPanel: View {
                     sectionHeader("Active", count: snapshot.activeCount)
                     VStack(spacing: 0) {
                         ForEach(snapshot.visibleActive(expanded: activeExpanded)) { item in
-                            SubagentActivityRowView(item: item, bots: bots, now: now, activity: item.isActive ? item.runId.flatMap { liveActivity[$0] } : nil)
+                            row(item)
                             Divider().background(DS.Palette.line)
                         }
                     }
@@ -1043,7 +1080,7 @@ struct SubagentActivityPopoverPanel: View {
                     sectionHeader("Done", count: snapshot.doneCount)
                     VStack(spacing: 0) {
                         ForEach(snapshot.visibleDone(expanded: doneExpanded)) { item in
-                            SubagentActivityRowView(item: item, bots: bots, now: now, activity: item.isActive ? item.runId.flatMap { liveActivity[$0] } : nil)
+                            row(item)
                             Divider().background(DS.Palette.line)
                         }
                     }
@@ -1060,7 +1097,7 @@ struct SubagentActivityPopoverPanel: View {
                     sectionHeader("Unknown", count: snapshot.unknownCount)
                     VStack(spacing: 0) {
                         ForEach(snapshot.visibleUnknown(expanded: unknownExpanded)) { item in
-                            SubagentActivityRowView(item: item, bots: bots, now: now, activity: item.isActive ? item.runId.flatMap { liveActivity[$0] } : nil)
+                            row(item)
                             Divider().background(DS.Palette.line)
                         }
                     }
@@ -1075,6 +1112,44 @@ struct SubagentActivityPopoverPanel: View {
             }
         }
         .accessibilityIdentifier("agent.subagents.popover")
+        .task(id: snapshot.active.count + snapshot.done.count) {
+            let missing = (snapshot.active + snapshot.done + snapshot.unknown).filter {
+                $0.provider == .distill && diskDetail[$0.id] == nil && $0.runId.map { liveDetail[$0] == nil } ?? false
+            }
+            guard !missing.isEmpty else { return }
+            let found = await Task.detached(priority: .utility) {
+                Dictionary(missing.compactMap { item in
+                    item.runId.flatMap { DistillSubagentTranscriptReader.summaryDetail(sessionId: $0.value.uuidString.lowercased()) }
+                        .map { (item.id, $0) }
+                }, uniquingKeysWith: { a, _ in a })
+            }.value
+            diskDetail.merge(found) { _, new in new }
+        }
+    }
+
+    @ViewBuilder
+    private func row(_ item: SubagentActivityItem) -> some View {
+        let detail = item.runId.flatMap { liveDetail[$0] } ?? diskDetail[item.id]
+        let view = SubagentActivityRowView(item: item, bots: bots, now: now,
+                                           activity: item.isActive ? item.runId.flatMap { liveActivity[$0] } : nil,
+                                           detail: detail)
+        if let onOpen, DistillSubagentTranscriptPane.canOpen(item) {
+            Button { onOpen(item) } label: {
+                HStack(spacing: DS.Space.xs) {
+                    view
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(DS.Palette.textTertiary)
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("See what this subagent is doing")
+            .accessibilityHint("Opens the subagent's work in a side pane")
+        } else {
+            view
+        }
     }
 
     private var emptyCopy: String {
@@ -1118,6 +1193,8 @@ struct SubagentActivityRowView: View {
     let bots: [BotDefinition]
     let now: Date
     var activity: String? = nil
+    /// Provider-reported model, effort, tokens and task; nil when the provider sends none.
+    var detail: DistillLiveStatus.SubagentDetail? = nil
 
     var body: some View {
         HStack(alignment: .center, spacing: DS.Space.sm) {
@@ -1138,7 +1215,7 @@ struct SubagentActivityRowView: View {
                     Text(item.statusLabel)
                         .font(DS.Font.caption2)
                         .foregroundColor(statusColor)
-                    if let meta = item.providerModelLabel {
+                    if let meta = SubagentActivityProjection.metaLabel(for: item, detail: detail) {
                         Text("·")
                             .font(DS.Font.caption2)
                             .foregroundColor(DS.Palette.textTertiary)
@@ -1149,7 +1226,16 @@ struct SubagentActivityRowView: View {
                             .truncationMode(.middle)
                     }
                 }
-                if let activity {
+                if let task = SubagentActivityProjection.taskLabel(for: item, detail: detail) {
+                    Text(task)
+                        .font(DS.Font.caption2)
+                        .foregroundColor(DS.Palette.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(task)
+                        .accessibilityIdentifier("agent.subagents.row.task")
+                }
+                if let activity = activity ?? detail?.activity {
                     Text(activity)
                         .font(DS.Font.caption2)
                         .foregroundColor(DS.Palette.textSecondary)
@@ -1183,7 +1269,7 @@ struct SubagentActivityRowView: View {
 
     private var rowAccessibilityLabel: String {
         let time = SubagentActivityProjection.trailingTimeLabel(for: item, now: now)
-        let meta = item.providerModelLabel.map { ", \($0)" } ?? ""
+        let meta = SubagentActivityProjection.metaLabel(for: item, detail: detail).map { ", \($0)" } ?? ""
         let face = SubagentActivityProjection.delegatedBot(for: item.nodeId, among: bots)
             .map { $0.name.isEmpty ? "@\($0.handle)" : $0.name }
             ?? SubagentActivityStyle.avatarSpec(for: item).monogram

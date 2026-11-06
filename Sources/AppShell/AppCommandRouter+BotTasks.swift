@@ -22,6 +22,10 @@ extension AppCommandRouter {
             guard let thread = try context.threadRepo.get(id: task.threadID) else {
                 throw JSONRPCError(code: -32004, message: "The task conversation no longer exists.")
             }
+            let bot = try context.botStore.get(id: task.botID)
+            let botName = BotsViewModel.displayName(bot?.name ?? "")
+            // The composer sends to this Bot conversation the way the Bot window does:
+            // a follow-up queues behind the running task, otherwise it starts a run.
             let preview = AgentAppViewModel(
                 workspaceID: thread.workspaceId ?? BotsViewModel.botDeskWorkspaceID,
                 cwd: thread.worktreePath ?? context.appSupportDirectory.path,
@@ -30,11 +34,27 @@ extension AppCommandRouter {
                 messageRepo: context.messageRepo,
                 initialThreadId: task.threadID,
                 orchestrationRuntime: context.orchestrationRuntime,
-                embedding: AgentAppEmbedding(pinnedThreadId: task.threadID,
-                    pinnedThread: thread, ownsComposerDraft: false)
+                embedding: AgentAppEmbedding(
+                    pinnedThreadId: task.threadID,
+                    sendInterceptor: { [weak self] text, attachments, _ in
+                        guard let self, let bots = self.botsViewModel else {
+                            throw JSONRPCError(code: -32045, message: "MacCode Bot runtime is unavailable.")
+                        }
+                        let context = try self.authorizedBotTask(task, source: source)
+                        // Keep the task's own route; the Bot's desk default may be another provider.
+                        let routing = try context.threadRepo.get(id: task.threadID).map { BotDeskRouting(thread: $0) }
+                        _ = try bots.enqueueHostMessage(botID: task.botID, text: text,
+                            conversationID: task.conversationID, attachments: attachments, routing: routing)
+                        return []
+                    },
+                    composerPlaceholder: BotsViewModel.deskComposerPlaceholder(botName: botName),
+                    pinnedThread: thread,
+                    ownsComposerDraft: false
+                )
             )
             preview.hidesToolActivity = model?.hidesToolActivity ?? false
-            return preview
+            let workspace = thread.workspaceId.flatMap { context.state.workspaces[$0]?.name }
+            return (preview, [botName, workspace].compactMap { $0 }.joined(separator: " · "))
         }
     }
 
