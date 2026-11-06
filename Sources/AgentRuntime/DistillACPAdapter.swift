@@ -1143,7 +1143,7 @@ public final class DistillACPAdapter: AgentProviderAdapter, @unchecked Sendable 
                     sourceCwd: source.cwd,
                     newCwd: newCwd,
                     newSessionId: childId,
-                    kind: "fork"
+                    kind: request.isSide ? "side" : "fork"
                 )
             }
         }
@@ -1170,7 +1170,7 @@ public final class DistillACPAdapter: AgentProviderAdapter, @unchecked Sendable 
                 sourceCwd: sourceCwd,
                 newCwd: newCwd,
                 newSessionId: childId,
-                kind: "fork"
+                kind: request.isSide ? "side" : "fork"
             )
         }
     }

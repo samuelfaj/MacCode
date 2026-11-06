@@ -390,6 +390,8 @@ public struct AgentProviderForkRequest: Sendable, Equatable {
     /// The cwd the source's provider session was last opened with; a provider
     /// that stores sessions per directory needs it to fork a saved session.
     public let sourceWorkingDirectory: String?
+    /// The child is an ephemeral side chat (`/side`) rather than a kept fork (`/fork`).
+    public let isSide: Bool
 
     public init(
         sourceThreadId: AgentThreadID,
@@ -397,7 +399,8 @@ public struct AgentProviderForkRequest: Sendable, Equatable {
         idempotencyKey: String,
         workingDirectory: String? = nil,
         sourceProviderThreadId: String? = nil,
-        sourceWorkingDirectory: String? = nil
+        sourceWorkingDirectory: String? = nil,
+        isSide: Bool = false
     ) {
         self.sourceThreadId = sourceThreadId
         self.childThreadId = childThreadId
@@ -405,6 +408,7 @@ public struct AgentProviderForkRequest: Sendable, Equatable {
         self.workingDirectory = workingDirectory
         self.sourceProviderThreadId = sourceProviderThreadId
         self.sourceWorkingDirectory = sourceWorkingDirectory
+        self.isSide = isSide
     }
 }
 

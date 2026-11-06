@@ -96,6 +96,19 @@ final class DistillACPForkTests: ProviderProcessTestCase {
         XCTAssertEqual(params["newSessionId"] as? String, expectedChild)
         XCTAssertEqual(params["sessionKind"] as? String, "fork")
 
+        // WHY: the header side chat button is Distill /side; the message branch button is /fork.
+        let sideThreadId = AgentThreadID()
+        _ = try await adapter.forkThread(AgentProviderForkRequest(
+            sourceThreadId: sourceThreadId,
+            childThreadId: sideThreadId,
+            idempotencyKey: "remotecode-thread-fork:\(sideThreadId.value.uuidString.lowercased())",
+            workingDirectory: root.path,
+            sourceProviderThreadId: "sess-src",
+            isSide: true
+        ))
+        let sideParams = try XCTUnwrap(try requests(requestsURL).filter { $0.method == "_x.ai/session/fork" }.last?.params)
+        XCTAssertEqual(sideParams["sessionKind"] as? String, "side")
+
         // Compensation is idempotent and issues the provider delete.
         try await adapter.compensateFork(AgentProviderForkRequest(
             sourceThreadId: sourceThreadId,
