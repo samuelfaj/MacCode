@@ -394,6 +394,81 @@ final class BotDeskGuestThreadTests: XCTestCase {
         await finishAll(f)
     }
 
+    func test_deskSendResumesAPausedVMAndRunsWithoutTheBanner() async throws {
+        // WHY: the idle sweep pauses a bot's VM after 30 minutes. The next
+        // send must start it again and run, not refuse with "Linux desktop is
+        // starting" and make the user press Start VM and resend.
+        let f = try makeFixture()
+        let bot = try makeBot(f, docker: true)
+        let thread = try await firstSend(f, bot: bot, provider: .distill)
+        await finishAll(f)
+        let conversationID = try XCTUnwrap(f.vm.selectedConversation?.id)
+        XCTAssertTrue(f.vm.createDeskThread())
+        f.vm.selectDeskThread(conversationID)
+        let agent = try XCTUnwrap(f.vm.deskAgentVM)
+        XCTAssertEqual(agent.selectedThreadId, thread.id)
+        agent.providerSnapshots = f.snapshots
+        agent.providerLaunchConfig = { _, _ in ("/usr/bin/true", [:]) }
+
+        let docker = StartableDocker()
+        let name = BotComputerGuestSpec.containerName(botID: bot.id)
+        docker.containers[name] = BotComputerContainerInspect(running: false, imageID: "img", hostPort: 49152)
+        f.vm.computerGuestService = BotComputerGuestService(
+            appSupport: f.ctx.appSupportDirectory, docker: docker, observeAttempts: 1, observeDelay: 0
+        )
+        f.vm.dockerGuestReadyOverrideForTesting = nil
+        f.vm.desktopKindOverrideForTesting = .dockerDesktop
+        f.vm.markGuestStoppedWhenIdle(bot.id)
+
+        agent.prompt = "after the idle pause"
+        await agent.send()
+        let started = await waitUntil { f.distill.requests.contains { $0.prompt.contains("after the idle pause") } }
+        XCTAssertTrue(started, agent.statusMessage)
+        XCTAssertNil(agent.vmUnavailableBotID, agent.statusMessage)
+        XCTAssertEqual(docker.containers[name]?.running, true, "the send started the paused VM")
+        XCTAssertTrue(f.vm.isGuestRunning(bot.id))
+        await finishAll(f)
+    }
+
+    private final class StartableDocker: BotComputerDockerClienting, @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [String: BotComputerContainerInspect] = [:]
+        var containers: [String: BotComputerContainerInspect] {
+            get { lock.withLock { storage } }
+            set { lock.withLock { storage = newValue } }
+        }
+        func info() throws -> String { "ok" }
+        func imageExists(tag: String) throws -> Bool { true }
+        func imageLabel(tag: String, key: String) throws -> String {
+            key == BotComputerGuestSpec.recipeLabelKey ? BotComputerGuestSpec.recipeRevision : ""
+        }
+        func imageID(tag: String) throws -> String { "img" }
+        func build(context: URL, tag: String) throws {}
+        func create(options: BotComputerContainerCreateOptions) throws -> String {
+            containers[options.name] = BotComputerContainerInspect(running: false, imageID: "img", hostPort: 49152)
+            return options.name
+        }
+        func start(name: String) throws { containers[name]?.running = true }
+        func stop(name: String) throws { containers[name]?.running = false }
+        func inspect(name: String) throws -> BotComputerContainerInspect {
+            guard let value = containers[name] else { throw BotComputerGuestError.notReady }
+            return value
+        }
+        func containerExists(name: String) throws -> Bool { containers[name] != nil }
+        func exec(name: String, command: [String], user: String?, detach: Bool, workdir: String?, environment: [String: String]) throws -> Data {
+            BotComputerGuestObserve.pngSignature + Data(repeating: 1, count: 16)
+        }
+        func rename(from: String, to: String) throws {
+            containers[to] = containers[from]
+            containers[from] = nil
+        }
+        func ensureNetwork(name: String) throws {}
+        func remove(name: String) throws { containers[name] = nil }
+        func removeMatching(namePrefix: String) throws {
+            for key in containers.keys where key.hasPrefix(namePrefix) { containers[key] = nil }
+        }
+    }
+
     func test_aDeskConversationRunAsAnotherMacUserIsNotLockedToTheGuest() async throws {
         // WHY (M9): the guest only ever gets the app user's own accounts, and the
         // guest resolver refuses a run meant for another macOS user. Locking such a

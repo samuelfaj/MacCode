@@ -11433,9 +11433,9 @@ public final class BotsViewModel: ObservableObject {
     /// `guestRunningByBot` only knows the app's own launches and stops; a
     /// container stopped outside the app (`docker stop`, OrbStack quit, a
     /// crash) would still read running, so a cached "running" is confirmed
-    /// with one `docker inspect`. A desktop that is down is started in the
-    /// background, as `admitDesktopSend` does, and the send fails at once
-    /// with the D11 banner instead of waiting on a provision.
+    /// with one `docker inspect`. A desktop that is down (paused by the idle
+    /// sweep, stopped outside the app, or still starting) is started and the
+    /// send waits for it; only a failed start shows the D11 banner.
     private func deskGuestDesktopPreflight(_ botID: BotID) async -> String? {
         if let dockerGuestReadyOverrideForTesting {
             return dockerGuestReadyOverrideForTesting ? nil : "Docker desktop is not ready."
@@ -11450,15 +11450,7 @@ public final class BotsViewModel: ObservableObject {
             guestLaunchStateByBot[botID.value] = .idle
             objectWillChange.send()
         }
-        // The idle sweep stopped it: resuming takes seconds, so wait instead
-        // of failing the send.
-        if let resourceID = try? guestDisplayResourceID(botID),
-           BotComputerGuestService.wasStoppedWhenIdle(botID: resourceID) {
-            return await deskGuestDesktopFailure(botID)
-        }
-        presentGuestDesktop(botID: botID)
-        if case .failed(let message) = guestLaunchState(for: botID) { return message }
-        return "Linux desktop is starting. Try again when it is ready."
+        return await deskGuestDesktopFailure(botID)
     }
 
     /// "Start VM": nil once the bot's Linux desktop is up, starting it
@@ -11469,6 +11461,12 @@ public final class BotsViewModel: ObservableObject {
         if let dockerGuestReadyOverrideForTesting {
             return dockerGuestReadyOverrideForTesting ? nil : "Docker desktop is not ready."
         }
+        // A start already in flight (a Studio open, an earlier send) settles
+        // first; `presentGuestDesktop` would return at once without waiting.
+        while guestLaunchState(for: botID) == .starting {
+            guard (try? await Task.sleep(nanoseconds: 200_000_000)) != nil else { break }
+        }
+        if isGuestRunning(botID) { return nil }
         let ready = await withCheckedContinuation { continuation in
             presentGuestDesktop(botID: botID) { continuation.resume(returning: $0) }
         }
