@@ -839,6 +839,8 @@ public struct SubagentActivityBadge: View {
     /// When true (Auto/orchestrate), empty chrome still explains that delegated
     /// workers appear here — so orchestrate never looks like a missing feature.
     let orchestrateActive: Bool
+    /// Latest tool call per running child run (Distill `subagent_progress`).
+    let liveActivity: [AgentRunID: String]
     @Binding var isPresented: Bool
     @State private var activeExpanded = false
     @State private var doneExpanded = false
@@ -849,12 +851,14 @@ public struct SubagentActivityBadge: View {
         bots: [BotDefinition] = [],
         now: Date = Date(),
         isPresented: Binding<Bool>,
-        orchestrateActive: Bool = false
+        orchestrateActive: Bool = false,
+        liveActivity: [AgentRunID: String] = [:]
     ) {
         self.snapshot = snapshot
         self.bots = bots
         self.now = now
         self.orchestrateActive = orchestrateActive
+        self.liveActivity = liveActivity
         self._isPresented = isPresented
     }
 
@@ -885,6 +889,7 @@ public struct SubagentActivityBadge: View {
                 bots: bots,
                 now: now,
                 orchestrateActive: orchestrateActive,
+                liveActivity: liveActivity,
                 activeExpanded: $activeExpanded,
                 doneExpanded: $doneExpanded,
                 unknownExpanded: $unknownExpanded
@@ -983,6 +988,7 @@ struct SubagentActivityPopoverPanel: View {
     let bots: [BotDefinition]
     let now: Date
     let orchestrateActive: Bool
+    var liveActivity: [AgentRunID: String] = [:]
     @Binding var activeExpanded: Bool
     @Binding var doneExpanded: Bool
     @Binding var unknownExpanded: Bool
@@ -1020,7 +1026,7 @@ struct SubagentActivityPopoverPanel: View {
                     sectionHeader("Active", count: snapshot.activeCount)
                     VStack(spacing: 0) {
                         ForEach(snapshot.visibleActive(expanded: activeExpanded)) { item in
-                            SubagentActivityRowView(item: item, bots: bots, now: now)
+                            SubagentActivityRowView(item: item, bots: bots, now: now, activity: item.isActive ? item.runId.flatMap { liveActivity[$0] } : nil)
                             Divider().background(DS.Palette.line)
                         }
                     }
@@ -1037,7 +1043,7 @@ struct SubagentActivityPopoverPanel: View {
                     sectionHeader("Done", count: snapshot.doneCount)
                     VStack(spacing: 0) {
                         ForEach(snapshot.visibleDone(expanded: doneExpanded)) { item in
-                            SubagentActivityRowView(item: item, bots: bots, now: now)
+                            SubagentActivityRowView(item: item, bots: bots, now: now, activity: item.isActive ? item.runId.flatMap { liveActivity[$0] } : nil)
                             Divider().background(DS.Palette.line)
                         }
                     }
@@ -1054,7 +1060,7 @@ struct SubagentActivityPopoverPanel: View {
                     sectionHeader("Unknown", count: snapshot.unknownCount)
                     VStack(spacing: 0) {
                         ForEach(snapshot.visibleUnknown(expanded: unknownExpanded)) { item in
-                            SubagentActivityRowView(item: item, bots: bots, now: now)
+                            SubagentActivityRowView(item: item, bots: bots, now: now, activity: item.isActive ? item.runId.flatMap { liveActivity[$0] } : nil)
                             Divider().background(DS.Palette.line)
                         }
                     }
@@ -1111,6 +1117,7 @@ struct SubagentActivityRowView: View {
     let item: SubagentActivityItem
     let bots: [BotDefinition]
     let now: Date
+    var activity: String? = nil
 
     var body: some View {
         HStack(alignment: .center, spacing: DS.Space.sm) {
@@ -1142,6 +1149,15 @@ struct SubagentActivityRowView: View {
                             .truncationMode(.middle)
                     }
                 }
+                if let activity {
+                    Text(activity)
+                        .font(DS.Font.caption2)
+                        .foregroundColor(DS.Palette.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(activity)
+                        .accessibilityIdentifier("agent.subagents.row.activity")
+                }
             }
             Spacer(minLength: DS.Space.sm)
             Text(SubagentActivityProjection.trailingTimeLabel(for: item, now: now))
@@ -1171,7 +1187,8 @@ struct SubagentActivityRowView: View {
         let face = SubagentActivityProjection.delegatedBot(for: item.nodeId, among: bots)
             .map { $0.name.isEmpty ? "@\($0.handle)" : $0.name }
             ?? SubagentActivityStyle.avatarSpec(for: item).monogram
-        return "\(item.displayName), avatar \(face), \(item.statusLabel)\(meta), \(time)"
+        let current = activity.map { ", \($0)" } ?? ""
+        return "\(item.displayName), avatar \(face), \(item.statusLabel)\(meta)\(current), \(time)"
     }
 }
 

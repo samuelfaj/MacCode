@@ -19,6 +19,8 @@ public struct DistillLiveStatus: Equatable, Sendable {
         public var compactingSince: Date?
         /// `completed` / `failed` / `cancelled` once the subagent ended.
         public var finishedStatus: String?
+        /// Latest tool call title from `subagent_progress`; cleared when the subagent ends.
+        public var lastActivity: String? = nil
 
         public var isActive: Bool { finishedStatus == nil }
         public var isCompacting: Bool { isActive && compactingSince != nil }
@@ -167,6 +169,18 @@ public struct DistillLiveStatus: Equatable, Sendable {
         return text.isEmpty ? nil : text
     }
 
+    /// Latest tool call per running subagent, keyed like the native Subagents
+    /// receipt (`child_session_id`, else `subagent_id`, as a run UUID).
+    public var activityByChildRun: [AgentRunID: String] {
+        var map: [AgentRunID: String] = [:]
+        for sub in subagents where sub.isActive {
+            guard let text = sub.lastActivity?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty,
+                  let uuid = UUID(uuidString: sub.childSessionId ?? sub.id) else { continue }
+            map[AgentRunID(uuid)] = text
+        }
+        return map
+    }
+
     public var isEmpty: Bool {
         headline == nil && modelEffortText == nil && subagents.isEmpty
             && goal == nil && scheduledTasks.isEmpty
@@ -267,6 +281,8 @@ public struct DistillLiveStatus: Equatable, Sendable {
             sub.tokensUsed = Self.int(update["tokens_used"]) ?? sub.tokensUsed
             sub.model = Self.string(update["active_model"]) ?? sub.model
             sub.effort = Self.string(update["active_reasoning_effort"]) ?? sub.effort
+            sub.lastActivity = Self.lastString(update["recent_activity"])
+                ?? Self.lastString(update["tools_used"]) ?? sub.lastActivity
             sub.receivedAt = receivedAt
             store(sub)
         case "subagent_finished":
@@ -276,6 +292,7 @@ public struct DistillLiveStatus: Equatable, Sendable {
             sub.durationMs = Self.int(update["duration_ms"]) ?? sub.durationMs
             sub.tokensUsed = Self.int(update["tokens_used"]) ?? sub.tokensUsed
             sub.compactingSince = nil
+            sub.lastActivity = nil
             store(sub)
         case "model_changed":
             model = Self.string(update["model_id"]) ?? model
@@ -390,6 +407,10 @@ public struct DistillLiveStatus: Equatable, Sendable {
     private static func string(_ value: Any?) -> String? {
         guard let s = value as? String, !s.isEmpty else { return nil }
         return s
+    }
+
+    private static func lastString(_ value: Any?) -> String? {
+        string((value as? [Any])?.last)
     }
 
     private static func int(_ value: Any?) -> Int? {

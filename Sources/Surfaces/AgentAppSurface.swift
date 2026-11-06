@@ -16056,7 +16056,8 @@ public struct AgentAppView: View {
                         currentTime: vm.currentTime
                     ),
                     isPresented: $showSubagentActivity,
-                    orchestrateActive: vm.routingMode == .auto
+                    orchestrateActive: vm.routingMode == .auto,
+                    liveActivity: vm.provider == .distill ? vm.distillLive?.activityByChildRun ?? [:] : [:]
                 )
             }
             // Same action as `/side`; hidden where no host can open a side pane.

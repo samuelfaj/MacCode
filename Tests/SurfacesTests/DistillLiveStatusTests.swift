@@ -72,6 +72,23 @@ final class DistillLiveStatusTests: XCTestCase {
         XCTAssertTrue(ProviderRuntimeEvent.isLiveStatusCarrier(method: "effort_applied"))
     }
 
+    /// PR distill#59: the Subagents popover names the tool call a running child is on,
+    /// keyed by the same run id the native receipt uses, and drops it once the child ends.
+    func test_subagentRecentActivity_showsLatestToolCallOnlyWhileRunning() {
+        var s = DistillLiveStatus()
+        let child = "6F9619FF-8B86-D011-B42D-00C04FC964FF"
+        send(&s, "main", ["sessionUpdate": "subagent_progress", "subagent_id": "a1", "child_session_id": child,
+                          "tools_used": ["bash"], "recent_activity": ["Read `a.rs`", "Edit `foo.rs`"]])
+        XCTAssertEqual(s.subagents[0].lastActivity, "Edit `foo.rs`", "newest title is last")
+        XCTAssertEqual(s.activityByChildRun[AgentRunID(UUID(uuidString: child)!)], "Edit `foo.rs`")
+        send(&s, "main", ["sessionUpdate": "subagent_progress", "subagent_id": "a1", "child_session_id": child,
+                          "tools_used": ["bash", "grep"]])
+        XCTAssertEqual(s.subagents[0].lastActivity, "grep", "older Distill without recent_activity falls back to tools_used")
+        send(&s, "main", ["sessionUpdate": "subagent_finished", "subagent_id": "a1", "status": "completed"])
+        XCTAssertNil(s.subagents[0].lastActivity)
+        XCTAssertTrue(s.activityByChildRun.isEmpty, "a finished child must not keep a stale live line")
+    }
+
     func test_childCompaction_namesSubagentSoUserSeesWhoIsBusy() {
         var s = DistillLiveStatus()
         spawn(&s)
