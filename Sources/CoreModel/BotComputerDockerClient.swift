@@ -766,6 +766,8 @@ public final class BotComputerDockerResolver: @unchecked Sendable {
         append("/usr/local/bin/docker")
         append("/opt/homebrew/bin/docker")
         append("/Applications/Docker.app/Contents/Resources/bin/docker")
+        append((homeDirectory as NSString).appendingPathComponent("Applications/Docker.app/Contents/Resources/bin/docker"))
+        append((homeDirectory as NSString).appendingPathComponent(".docker/bin/docker"))
         append("/Applications/OrbStack.app/Contents/MacOS/xbin/docker")
         append((homeDirectory as NSString).appendingPathComponent(".orbstack/bin/docker"))
         return ordered

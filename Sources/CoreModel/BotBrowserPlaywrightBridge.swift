@@ -428,6 +428,7 @@ public final class BotBrowserPlaywrightHost: BotBrowserBridging, @unchecked Send
             guard !directory.isEmpty, !ordered.contains(directory) else { return }
             ordered.append(directory)
         }
+        append((homeDirectory as NSString).appendingPathComponent(".local/share/maccode-node/bin"))
         for directory in pathEnvironment.split(separator: ":") {
             append(String(directory))
         }
@@ -464,13 +465,7 @@ public final class BotBrowserPlaywrightHost: BotBrowserBridging, @unchecked Send
         base: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String: String] {
         var environment = base
-        var path = environment["PATH"] ?? ""
-        var seen = Set(path.split(separator: ":").map(String.init))
-        for directory in nodeSearchDirectories(pathEnvironment: path) where !seen.contains(directory) {
-            seen.insert(directory)
-            path = path.isEmpty ? directory : path + ":" + directory
-        }
-        environment["PATH"] = path
+        environment["PATH"] = nodeSearchDirectories(pathEnvironment: environment["PATH"] ?? "").joined(separator: ":")
         return environment
     }
 

@@ -47,6 +47,7 @@ public enum RunAsUserProcessBootstrap {
     ]
 
     private static let installationLock = NSLock()
+    public static var isHelperReady: Bool { isUsableInstalledHelper(at: installedHelperPath) }
 
     public struct LaunchPlan: Equatable, Sendable {
         public var executablePath: String

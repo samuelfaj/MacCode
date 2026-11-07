@@ -400,7 +400,15 @@ public final class DistillAccounts: Sendable {
         if Task.isCancelled { throw DistillAccountError.cancelled }
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: binaryPath)
+        // Accounts can be created before first-run provisioning finishes.
+        // Resolve the name at launch so the newly installed CLI works without
+        // requiring the user to restart MacCode.
+        let executable = binaryPath.contains("/") ? binaryPath : DistillProvisioner.resolveInstalledBinary(
+            environmentPath: environment["PATH"],
+            homeDirectory: environment["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path
+        )
+        guard let executable else { throw DistillAccountError.failed("Distill is not installed. Open Set Up MacCode to install it.") }
+        process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         var env = environment
         env["DISTILL_HOME"] = home.path

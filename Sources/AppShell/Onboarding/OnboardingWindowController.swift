@@ -9,10 +9,10 @@ public final class OnboardingWindowController: NSObject, NSWindowDelegate {
     let viewModel: OnboardingViewModel
     private let onFinish: () -> Void
 
-    init(viewModel: OnboardingViewModel, onFinish: @escaping () -> Void) {
+    init(viewModel: OnboardingViewModel, setup: OnboardingSetupController, onFinish: @escaping () -> Void) {
         self.viewModel = viewModel
         self.onFinish = onFinish
-        let host = NSHostingController(rootView: OnboardingView(vm: viewModel))
+        let host = NSHostingController(rootView: OnboardingView(vm: viewModel, setup: setup))
         let win = NSWindow(contentViewController: host)
         win.title = "Set up MacCode"
         win.styleMask = [.titled, .closable, .resizable, .fullSizeContentView]
@@ -39,8 +39,7 @@ public final class OnboardingWindowController: NSObject, NSWindowDelegate {
 }
 
 extension AppDelegate {
-    /// Launch hook: show setup to new installs only. Existing installs are
-    /// recorded once so they never see the window.
+    /// Resume unfinished setup; only completion or explicit Skip stops it.
     func presentOnboardingIfNeeded() -> Bool {
         guard !LocalAuthAdapter.isE2EPairingAutoApproveEnabled, let context else { return false }
         let store = OnboardingStateStore(repo: context.settingsRepo)
@@ -70,9 +69,9 @@ extension AppDelegate {
         var state = store.load() ?? OnboardingState()
         if state.status != .inProgress {
             state.status = .inProgress
-            if state.completedAt != nil { state.step = .account }
+            if state.completedAt != nil { state.step = .distill }
         }
-        // Step 1 is always reachable; once the project exists the flow is locked.
+        // The sidebar account entry stays reachable until the project exists.
         if let step, !state.completedSteps.contains(.workspace) { state.step = step }
         store.save(state)
         let vm = OnboardingViewModel(
@@ -82,7 +81,9 @@ extension AppDelegate {
         ) { [weak self] _ in
             self?.onboardingController?.window.close()
         }
-        let controller = OnboardingWindowController(viewModel: vm) { [weak self] in
+        let setup = OnboardingSetupController(appSupport: context.appSupportDirectory,
+            distillOverride: (try? context.settingsRepo.get("cli.distill.path")) ?? nil)
+        let controller = OnboardingWindowController(viewModel: vm, setup: setup) { [weak self] in
             self?.onboardingController = nil
             // A first-run launch kept the main window hidden behind setup.
             if self?.windowController?.window.isVisible == false { self?.windowController?.show() }

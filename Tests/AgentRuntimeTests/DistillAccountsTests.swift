@@ -96,6 +96,18 @@ final class DistillAccountsTests: XCTestCase {
 
     // MARK: statuses
 
+    func test_accountsCreatedBeforeInstallResolveFreshBinaryWithoutRestart() async throws {
+        let accounts = DistillAccounts(home: home, binaryPath: "distill", environment: [
+            "HOME": root.path, "PATH": "/usr/bin:/bin", "FAKE_LOG": log.path,
+        ], openURL: { _ in })
+        let bin = root.appendingPathComponent(".local/share/distill/bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: script, to: bin.appendingPathComponent("distill"))
+        try await accounts.login(.grok, onURL: { _ in })
+        XCTAssertTrue(accounts.statuses().contains { $0.provider == .grok && $0.connected })
+        XCTAssertTrue(logLines().contains("argv: accounts login legacy-grok"))
+    }
+
     func test_statuses_missingFilesAreDisconnectedInAllCasesOrder() {
         let statuses = makeAccounts().statuses()
         XCTAssertEqual(statuses.map(\.provider), DistillAccountProvider.allCases)

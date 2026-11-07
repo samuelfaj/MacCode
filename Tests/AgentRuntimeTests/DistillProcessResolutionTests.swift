@@ -175,6 +175,13 @@ final class DistillProcessResolutionTests: ProviderProcessTestCase {
 }
 
 final class DistillProvisionerBoundedInstallerTests: XCTestCase {
+    func test_downloadFailureIsNotMaskedByTheInstallerShell() {
+        let official = DistillProvisioner.installPlan()
+        var arguments = official.shellArguments
+        arguments[arguments.count - 1] = "/usr/bin/false | /bin/sh"
+        let failedDownload = DistillInstallPlan(shellPath: official.shellPath, shellArguments: arguments, commandLine: "failed download")
+        XCTAssertNotEqual(DistillProvisioner.runInstaller(failedDownload, timeoutSeconds: 5), 0)
+    }
     func test_officialInstallLayoutResolvesWithoutShellPath_becauseTheGUIAppMustFindAFreshAutoInstall() throws {
         // WHY: install.sh puts the binary in ~/.local/share/distill/bin, which a GUI app's PATH never contains.
         // After an auto-install RemoteCode must still find it, or every run keeps failing as "not installed".

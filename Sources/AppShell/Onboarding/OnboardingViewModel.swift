@@ -57,9 +57,13 @@ public final class OnboardingViewModel: ObservableObject {
         self.store = store
         self.onClose = onClose
         var state = initial
+        if state.version < 2, state.status == .inProgress {
+            state.version = 2
+            state.step = .distill
+        }
         // Resources that disappeared since the last run are created again.
         if let id = state.workspaceID, !services.workspaceExists(id) { state.workspaceID = nil }
-        // Step 7 needs the project; without it, choose one again on step 6.
+        // Follow needs the project; without it, choose one again on Project.
         if state.completedSteps.contains(.workspace), state.workspaceID == nil, state.status == .inProgress {
             state.completedSteps.remove(.workspace)
             if state.step == .follow { state.step = .workspace }
@@ -73,8 +77,8 @@ public final class OnboardingViewModel: ObservableObject {
 
     // MARK: Navigation
 
-    /// The project is created on step 6; earlier choices can no longer change it.
-    public var isLocked: Bool { state.completedSteps.contains(.workspace) }
+    /// After creating the project, only prerequisite review stays editable.
+    public var isLocked: Bool { state.completedSteps.contains(.workspace) && state.step.index > OnboardingStep.tools.index }
 
     public func goBack() {
         guard !isLocked, let previous = state.step.previous else { return }
@@ -86,7 +90,8 @@ public final class OnboardingViewModel: ObservableObject {
         direction = 1
         update {
             $0.complete(step)
-            if let next = step.next { $0.step = next }
+            if step == .tools, $0.completedSteps.contains(.workspace) { $0.step = .follow }
+            else if let next = step.next { $0.step = next }
         }
     }
 
@@ -94,7 +99,8 @@ public final class OnboardingViewModel: ObservableObject {
         direction = 1
         update {
             $0.skip(step)
-            if let next = step.next { $0.step = next }
+            if step == .tools, $0.completedSteps.contains(.workspace) { $0.step = .follow }
+            else if let next = step.next { $0.step = next }
         }
     }
 
@@ -107,10 +113,19 @@ public final class OnboardingViewModel: ObservableObject {
     /// Steps before the furthest decided one stay reachable from the stepper.
     public var furthestReachable: OnboardingStep {
         let decided = state.completedSteps.union(state.skippedSteps)
-        return OnboardingStep.allCases.first { !decided.contains($0) } ?? .follow
+        let next = OnboardingStep.allCases.first { !decided.contains($0) } ?? .follow
+        if state.completedSteps.contains(.workspace), state.step.index <= OnboardingStep.tools.index,
+           next.index > OnboardingStep.tools.index { return .tools }
+        return next
     }
 
-    /// Closing keeps progress; launch no longer reopens the window.
+    public func skipSetup() {
+        update { $0.status = .skipped }
+        guard persistenceError == nil else { return }
+        close()
+    }
+
+    /// Closing keeps unfinished progress so the next launch resumes it.
     /// Idempotent: the window's own close path calls back into here.
     /// Closing on the last step still finishes: the project is already open.
     public func close() {
@@ -118,8 +133,6 @@ public final class OnboardingViewModel: ObservableObject {
         closed = true
         if state.step == .follow, state.completedSteps.contains(.workspace), state.status == .inProgress {
             completeAndHandOff()
-        } else if state.status == .inProgress {
-            update { $0.status = .dismissed }
         }
         onClose(state)
     }
@@ -290,7 +303,7 @@ public final class OnboardingViewModel: ObservableObject {
                 $0.complete(.workspace)
                 $0.step = .follow
             }
-            // Only on this transition, so resuming at step 7 never reopens it.
+            // Only on this transition, so resuming at Follow never reopens it.
             services.openInBrowser(OnboardingFollow.url)
         } catch {
             finishError = "Could not finish setup: \(error.localizedDescription)"

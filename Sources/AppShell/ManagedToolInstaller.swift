@@ -6,6 +6,20 @@ import CoreModel
 
 private let managedToolLog = Logger(subsystem: "io.remotecode.agent", category: "managed.tools")
 
+/// Launch and onboarding can request the same first-run download together.
+private actor ManagedToolInstalls {
+    static let shared = ManagedToolInstalls()
+    private var running: [String: Task<Void, Error>] = [:]
+
+    func perform(_ key: String, operation: @escaping @Sendable () async throws -> Void) async throws {
+        if let task = running[key] { return try await task.value }
+        let task = Task { try await operation() }
+        running[key] = task
+        defer { running[key] = nil }
+        try await task.value
+    }
+}
+
 func sleepSeconds(_ seconds: TimeInterval) async throws {
     try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
 }
@@ -74,6 +88,14 @@ enum ManagedToolInstaller {
     }
 
     static func installMacUse(distillBinary: String?, environment: [String: String]) async throws {
+        guard let distillBinary else { throw Failure("Install Distill before registering computer automation.") }
+        let home = DistillProvisioner.homeURL(environment: environment)
+        try await ManagedToolInstalls.shared.perform("mac-use:\(home.path)") {
+            try await installMacUseRelease(distillBinary: distillBinary, environment: environment)
+        }
+    }
+
+    private static func installMacUseRelease(distillBinary: String?, environment: [String: String]) async throws {
         let release = try await latestRelease(repo: "samuelfaj/mac-use")
         let version = release.tag.hasPrefix("v") ? String(release.tag.dropFirst()) : release.tag
         let root = macUseRoot()
@@ -111,9 +133,17 @@ enum ManagedToolInstaller {
     static let linuxUseVersionFile = "VERSION"
 
     static func installLinuxUse(appSupport: URL) async throws {
+        try await ManagedToolInstalls.shared.perform("linux-use:\(appSupport.path)") {
+            try await installLinuxUseRelease(appSupport: appSupport)
+        }
+    }
+
+    private static func installLinuxUseRelease(appSupport: URL) async throws {
         let release = try await latestRelease(repo: "samuelfaj/linux-use")
         let target = linuxUseDirectory(appSupport: appSupport)
-        let installed = try? String(contentsOf: target.appendingPathComponent(linuxUseVersionFile), encoding: .utf8)
+        let marker = target.appendingPathComponent(linuxUseVersionFile)
+        let installed = FileManager.default.fileExists(atPath: marker.path)
+            ? try? String(contentsOf: marker, encoding: .utf8) : nil
         if installed?.trimmingCharacters(in: .whitespacesAndNewlines) == release.tag { return }
         let version = release.tag.hasPrefix("v") ? String(release.tag.dropFirst()) : release.tag
         let extracted = try await downloadVerifiedTarball(release, asset: "linux-use-server-v\(version).tar.gz")

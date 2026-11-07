@@ -182,6 +182,7 @@ public enum ProcessLocator {
         var paths = (environmentPath ?? "")
             .split(separator: ":")
             .map(String.init)
+        paths.insert("\(homeDirectory)/.local/share/maccode-node/bin", at: 0)
         paths.insert("\(homeDirectory)/.remote-code/bin", at: 0)
         paths.append(contentsOf: [
             // Official Distill install.sh target; GUI apps never have it on PATH.

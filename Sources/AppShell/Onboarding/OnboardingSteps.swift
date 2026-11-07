@@ -14,7 +14,7 @@ struct OnboardingAccountStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            eyebrow: "Step 1 of 7",
+            eyebrow: OnboardingStep.account.eyebrow,
             title: vm.signedInEmail == nil ? (vm.creatingAccount ? "Create your account." : "Your next project starts here.") : "You're signed in.",
             subtitle: vm.signedInEmail == nil
                 ? "One MacCode account links this Mac, your iPhone and your settings."
@@ -102,7 +102,7 @@ struct OnboardingJevStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            eyebrow: "Step 2 of 7 · Jev",
+            eyebrow: OnboardingStep.jev.eyebrow,
             title: "Less noise in every prompt.",
             subtitle: "Jev decides what each step needs to read and drops the rest, so agents spend fewer tokens on irrelevant context. Savings vary by task."
         ) {
@@ -218,7 +218,7 @@ struct OnboardingProvidersStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            eyebrow: "Step 3 of 7 · AI accounts",
+            eyebrow: OnboardingStep.accounts.eyebrow,
             title: "Your AI subscriptions. One place.",
             subtitle: "Connect only the plans you already pay for. Agents use them directly; nothing is billed by MacCode."
         ) {
@@ -302,7 +302,7 @@ struct OnboardingRoutingStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            eyebrow: "Step 4 of 7 · Auto",
+            eyebrow: OnboardingStep.routing.eyebrow,
             title: "The right model, without choosing every time.",
             subtitle: "Auto picks a model from the accounts you connected. It applies to new conversations and Bots set to Auto."
         ) {
@@ -454,7 +454,7 @@ struct OnboardingBotsStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            eyebrow: "Step 5 of 7 · Bots",
+            eyebrow: OnboardingStep.bots.eyebrow,
             title: "You have a team. And Titio.",
             subtitle: "Bots are agents with a role, memory and their own conversations. Titio is your general assistant: it knows MacCode and can coordinate the others."
         ) {
@@ -530,7 +530,7 @@ struct OnboardingWorkspaceStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            eyebrow: "Step 6 of 7 · Project",
+            eyebrow: OnboardingStep.workspace.eyebrow,
             title: "Open something of yours.",
             subtitle: "Pick a project folder. MacCode opens it as a workspace\(vm.state.createDeveloper ? " with \(vm.state.developerName) ready" : "")."
         ) {
@@ -692,7 +692,7 @@ struct OnboardingFollowStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            eyebrow: "Step 7 of 7 · Follow",
+            eyebrow: OnboardingStep.follow.eyebrow,
             title: "You're all set.",
             subtitle: "MacCode is built in the open. Follow along on X for releases, tips and what's coming next."
         ) {

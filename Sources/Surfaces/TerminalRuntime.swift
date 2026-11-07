@@ -155,6 +155,16 @@ struct TerminalStartupEnvironment: Equatable {
             assignments["LANG"] = "en_US.UTF-8"
         }
 
+        let home = parent["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let installedBins = [(".local/share/maccode-node/bin", "node"), (".local/share/distill/bin", "distill")]
+            .map { (home + "/" + $0.0, $0.1) }
+            .filter { FileManager.default.isExecutableFile(atPath: $0.0 + "/" + $0.1) }.map { $0.0 }
+        if !installedBins.isEmpty {
+            var seen = Set<String>()
+            assignments["PATH"] = (installedBins + (parent["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init))
+                .filter { seen.insert($0).inserted }.joined(separator: ":")
+        }
+
         for key in Self.blankedInheritedAgentKeys where parent[key] != nil {
             assignments[key] = ""
         }
