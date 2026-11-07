@@ -4,6 +4,23 @@ import XCTest
 @testable import Surfaces
 
 final class TerminalSpawnEnvironmentContractTests: XCTestCase {
+  func test_onboardingInstalledToolsAreAvailableWithoutShellProfileEdits() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: home) }
+    for (directory, binary) in [("maccode-node", "node"), ("distill", "distill")] {
+      let bin = home.appendingPathComponent(".local/share/\(directory)/bin")
+      try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+      let executable = bin.appendingPathComponent(binary)
+      try Data("#!/bin/sh\nexit 0\n".utf8).write(to: executable)
+      try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+    }
+    let parent = ["HOME": home.path, "PATH": "/usr/bin:/bin"]
+    let environment = TerminalStartupEnvironment(parent: parent, workspaceID: WorkspaceID(), surfaceID: SurfaceID()).mergedEnvironment(parent: parent)
+    let path = environment["PATH"] ?? ""
+    XCTAssertTrue(path.contains(home.appendingPathComponent(".local/share/maccode-node/bin").path))
+    XCTAssertTrue(path.contains(home.appendingPathComponent(".local/share/distill/bin").path))
+    XCTAssertTrue(path.hasSuffix("/usr/bin:/bin"))
+  }
   func test_spawnEnvironmentIsPreparedCompletelyBeforeFork() {
     let workspaceID = WorkspaceID(UUID(uuidString: "00000000-0000-0000-0000-000000000011")!)
     let surfaceID = SurfaceID(UUID(uuidString: "00000000-0000-0000-0000-000000000012")!)

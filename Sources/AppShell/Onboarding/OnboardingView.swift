@@ -5,21 +5,27 @@ import CoreModel
 import DesignSystemKit
 import Surfaces
 
-/// First-run setup: seven steps in one native window. Each step is one
+/// First-run setup in one native window. Each step is one
 /// decision on the left and a live illustration of its effect on the right.
 struct OnboardingView: View {
     @ObservedObject var vm: OnboardingViewModel
     @ObservedObject var accounts: DistillAccountsController
+    @ObservedObject var setup: OnboardingSetupController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(vm: OnboardingViewModel) {
+    init(vm: OnboardingViewModel, setup: OnboardingSetupController) {
         self.vm = vm
         self.accounts = vm.accounts
+        self.setup = setup
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            OnboardingStepper(current: vm.state.step, done: vm.state.completedSteps, reachable: vm.isLocked ? vm.state.step : vm.furthestReachable) { vm.jump(to: $0) }
+            HStack(spacing: DS.Space.xl) {
+                OnboardingStepper(current: vm.state.step, done: vm.state.completedSteps, reachable: vm.isLocked ? vm.state.step : vm.furthestReachable) { vm.jump(to: $0) }
+                Button("Skip setup") { vm.skipSetup() }.buttonStyle(.link)
+                    .accessibilityHint("Stop showing setup automatically. Reopen it from the MacCode menu.")
+            }
                 .padding(.horizontal, 40)
                 .padding(.top, DS.Space.xxxl)
                 .padding(.bottom, DS.Space.xl)
@@ -57,6 +63,9 @@ struct OnboardingView: View {
 
     @ViewBuilder private var stepContent: some View {
         switch vm.state.step {
+        case .distill: OnboardingDistillStep(vm: vm, setup: setup)
+        case .permissions: OnboardingPermissionsStep(vm: vm)
+        case .tools: OnboardingToolsStep(vm: vm, setup: setup)
         case .account: OnboardingAccountStep(vm: vm)
         case .jev: OnboardingJevStep(vm: vm, accounts: accounts)
         case .accounts: OnboardingProvidersStep(vm: vm, accounts: accounts)
@@ -158,12 +167,20 @@ struct OnboardingPrimaryButton: View {
 }
 
 struct OnboardingStepper: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let current: OnboardingStep
     let done: Set<OnboardingStep>
     let reachable: OnboardingStep
     let select: (OnboardingStep) -> Void
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            steps(showLabels: true)
+            steps(showLabels: false)
+        }
+    }
+
+    private func steps(showLabels: Bool) -> some View {
         HStack(spacing: DS.Space.md) {
             ForEach(OnboardingStep.allCases, id: \.self) { step in
                 let isDone = done.contains(step)
@@ -182,10 +199,10 @@ struct OnboardingStepper: View {
                         }
                         .foregroundColor(isCurrent || isDone ? DS.Palette.onAccent : DS.Palette.textSecondary)
                         .frame(width: 20, height: 20)
-                        Text(step.title)
+                        if showLabels || isCurrent { Text(step.title)
                             .font(isCurrent ? DS.Font.bodyStrong : DS.Font.body)
                             .foregroundColor(isCurrent ? DS.Palette.text : DS.Palette.textSecondary)
-                            .lineLimit(1)
+                            .lineLimit(1) }
                     }
                     .fixedSize()
                 }
@@ -198,7 +215,7 @@ struct OnboardingStepper: View {
                         .fill(isDone ? DS.Palette.accent.opacity(0.7) : DS.Palette.line)
                         .frame(height: 2)
                         .frame(minWidth: 12, maxWidth: .infinity)
-                        .animation(DS.Motion.standard, value: isDone)
+                        .animation(reduceMotion ? nil : DS.Motion.standard, value: isDone)
                 }
             }
         }

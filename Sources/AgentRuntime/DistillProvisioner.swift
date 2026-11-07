@@ -6,7 +6,7 @@ import CoreModel
 public struct DistillInstallPlan: Equatable, Sendable {
     public let shellPath: String
     public let shellArguments: [String]
-    /// The exact official one-liner, for logging and for operators to copy.
+    /// The official installer command, for logging and for operators to copy.
     public let commandLine: String
 
     public init(shellPath: String, shellArguments: [String], commandLine: String) {
@@ -49,15 +49,16 @@ public enum DistillProvisioner {
     public static let installScriptURL =
         "https://raw.githubusercontent.com/samuelfaj/distill/main/install.sh"
 
-    /// The installer is a POSIX shell pipeline, so it runs through `/bin/sh -c`.
-    public static let installerShellPath = "/bin/sh"
+    /// The pipeline runs through bash with pipefail so a failed download cannot look successful.
+    public static let installerShellPath = "/bin/bash"
     public static let installTimeoutSeconds: TimeInterval = 600
+    private static let installationLock = NSLock()
 
     public static func installPlan() -> DistillInstallPlan {
-        let commandLine = "curl -fsSL \(installScriptURL) | sh"
+        let commandLine = "/usr/bin/curl -fsSL --connect-timeout 30 --max-time 120 --retry 3 \(installScriptURL) | /bin/sh"
         return DistillInstallPlan(
             shellPath: installerShellPath,
-            shellArguments: ["-c", commandLine],
+            shellArguments: ["-o", "pipefail", "-c", commandLine],
             commandLine: commandLine
         )
     }
@@ -137,6 +138,10 @@ public enum DistillProvisioner {
         homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path,
         runInstaller: (DistillInstallPlan) throws -> Int32 = DistillProvisioner.runInstallerProcess
     ) throws -> Outcome {
+        // Launch, Accounts and setup share this entry point. Two first-run
+        // callers must not replace the release symlink at the same time.
+        installationLock.lock()
+        defer { installationLock.unlock() }
         let existing = resolveInstalledBinary(
             override: override,
             environmentPath: environmentPath,

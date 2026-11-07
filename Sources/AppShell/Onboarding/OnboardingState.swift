@@ -4,10 +4,13 @@ import Persistence
 
 /// The first-run setup steps, in order.
 public enum OnboardingStep: String, Codable, CaseIterable, Sendable {
-    case account, jev, accounts, routing, bots, workspace, follow
+    case distill, permissions, tools, account, jev, accounts, routing, bots, workspace, follow
 
     public var title: String {
         switch self {
+        case .distill: return "Distill"
+        case .permissions: return "Permissions"
+        case .tools: return "Tools"
         case .account: return "Account"
         case .jev: return "Jev"
         case .accounts: return "AI accounts"
@@ -21,6 +24,7 @@ public enum OnboardingStep: String, Codable, CaseIterable, Sendable {
     public var index: Int { Self.allCases.firstIndex(of: self) ?? 0 }
     public var next: OnboardingStep? { Self.allCases.dropFirst(index + 1).first }
     public var previous: OnboardingStep? { index == 0 ? nil : Self.allCases[index - 1] }
+    public var eyebrow: String { "Step \(index + 1) of \(Self.allCases.count)" }
 }
 
 /// Durable setup progress. Holds only non-secret choices and the ids of
@@ -28,19 +32,20 @@ public enum OnboardingStep: String, Codable, CaseIterable, Sendable {
 /// them twice. Credentials stay in their own stores.
 public struct OnboardingState: Codable, Equatable, Sendable {
     public enum Status: String, Codable, Sendable {
-        /// Shown at launch until finished or closed.
+        /// Shown at launch until finished or explicitly skipped.
         case inProgress
-        /// Closed before finishing; reopened only from the app menu.
+        /// Legacy window-close state; now resumes on launch.
         case dismissed
         case completed
-        /// An install that already had projects or an account when this
-        /// setup shipped. It never sees the first-run window.
+        /// Legacy implicit exemption, now migrated to unfinished setup.
         case existingUser
+        /// Explicitly chose Skip setup, rather than closing the window.
+        case skipped
     }
 
-    public var version = 1
+    public var version = 2
     public var status: Status = .inProgress
-    public var step: OnboardingStep = .account
+    public var step: OnboardingStep = .distill
     public var completedSteps: Set<OnboardingStep> = []
     public var skippedSteps: Set<OnboardingStep> = []
     public var createDeveloper = true
@@ -90,25 +95,26 @@ public final class OnboardingStateStore {
 }
 
 public enum OnboardingGate {
-    /// Whether launch shows the setup window. With no saved state, only an
-    /// install without projects or an account counts as new; everyone else
-    /// is recorded as an existing user so the window never appears for them.
+    /// Only completion or an explicit Skip setup dismisses first-run setup.
+    /// Existing projects/accounts do not prove the setup was handled.
     public static func launchDecision(
         saved: OnboardingState?,
         hasWorkspaces: Bool,
         hasAccountSession: Bool
     ) -> (present: Bool, stateToSave: OnboardingState?) {
-        if let saved { return (saved.status == .inProgress, nil) }
-        if hasWorkspaces || hasAccountSession {
-            var existing = OnboardingState()
-            existing.status = .existingUser
-            return (false, existing)
+        if var saved {
+            if saved.status == .completed || saved.status == .skipped { return (false, nil) }
+            if saved.status != .inProgress {
+                saved.status = .inProgress
+                return (true, saved)
+            }
+            return (true, nil)
         }
         return (true, OnboardingState())
     }
 
     /// Where the sidebar "Sign in" button leads. Signed-out users who never
-    /// finished setup get it from step 1; everyone else gets the account sheet.
+    /// finished setup get its Account step; everyone else gets the account sheet.
     public static func signInOpensSetup(saved: OnboardingState?, signedIn: Bool) -> Bool {
         guard !signedIn else { return false }
         return saved?.status != .completed

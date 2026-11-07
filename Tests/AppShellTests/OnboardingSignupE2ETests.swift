@@ -59,7 +59,8 @@ final class OnboardingSignupE2ETests: XCTestCase {
     }
 
     private func makeViewModel(_ services: HTTPServices, email: String, password: String) throws -> OnboardingViewModel {
-        let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: OnboardingState())
+        var state = OnboardingState(); state.step = .account
+        let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
         vm.creatingAccount = true
         vm.email = email
         vm.password = password

@@ -79,8 +79,7 @@ final class OnboardingTests: XCTestCase {
         AgentModelDescriptor(id: id, label: id, provider: .distill, accountProvider: provider.rawValue)
     }
 
-    // Upgrading users must never be dropped into a first-run window; only an
-    // install with no projects and no account is new.
+    // Existing projects or account sessions do not prove setup was handled.
     // The sidebar Sign in button is the natural door into setup for anyone
     // who never finished it, including upgraders recorded as existing users.
     // After setup is done, or once signed in, it must stay a plain sign-in.
@@ -95,15 +94,18 @@ final class OnboardingTests: XCTestCase {
         XCTAssertFalse(OnboardingGate.signInOpensSetup(saved: nil, signedIn: true))
     }
 
-    func test_launchShowsSetupOnlyForNewInstalls() {
+    func test_launchResumesUntilCompletedOrExplicitlySkipped() {
         XCTAssertTrue(OnboardingGate.launchDecision(saved: nil, hasWorkspaces: false, hasAccountSession: false).present)
         let upgraded = OnboardingGate.launchDecision(saved: nil, hasWorkspaces: true, hasAccountSession: false)
-        XCTAssertFalse(upgraded.present)
-        XCTAssertEqual(upgraded.stateToSave?.status, .existingUser)
-        XCTAssertFalse(OnboardingGate.launchDecision(saved: nil, hasWorkspaces: false, hasAccountSession: true).present)
+        XCTAssertTrue(upgraded.present)
+        XCTAssertEqual(upgraded.stateToSave?.status, .inProgress)
+        XCTAssertTrue(OnboardingGate.launchDecision(saved: nil, hasWorkspaces: false, hasAccountSession: true).present)
         var dismissed = OnboardingState(); dismissed.status = .dismissed
-        XCTAssertFalse(OnboardingGate.launchDecision(saved: dismissed, hasWorkspaces: false, hasAccountSession: false).present,
-                       "Closing setup must stop it from reappearing at every launch")
+        XCTAssertTrue(OnboardingGate.launchDecision(saved: dismissed, hasWorkspaces: false, hasAccountSession: false).present)
+        var skipped = OnboardingState(); skipped.status = .skipped
+        XCTAssertFalse(OnboardingGate.launchDecision(saved: skipped, hasWorkspaces: false, hasAccountSession: false).present)
+        var completed = OnboardingState(); completed.status = .completed
+        XCTAssertFalse(OnboardingGate.launchDecision(saved: completed, hasWorkspaces: true, hasAccountSession: true).present)
     }
 
     // A deferred step is not a success: it must stay distinguishable so the
@@ -123,13 +125,14 @@ final class OnboardingTests: XCTestCase {
     func test_stepperCannotSkipAheadOfUndecidedSteps() throws {
         let vm = OnboardingViewModel(services: Services(accounts: Accounts()), store: try makeStore(), initial: OnboardingState())
         vm.jump(to: .workspace)
-        XCTAssertEqual(vm.state.step, .account)
+        XCTAssertEqual(vm.state.step, .distill)
     }
 
     func test_failedSignInStaysOnStepWithActionableMessage() async throws {
         let services = Services(accounts: Accounts())
         services.signInError = PrivateAccountAPIError.http(401)
-        let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: OnboardingState())
+        var state = OnboardingState(); state.step = .account
+        let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
         vm.email = "dev@example.com"; vm.password = "correct-horse"
         await vm.submitAccount()
         XCTAssertEqual(vm.state.step, .account)
@@ -140,6 +143,40 @@ final class OnboardingTests: XCTestCase {
     func test_registerConflictPointsToSignIn() {
         XCTAssertEqual(OnboardingViewModel.accountErrorMessage(PrivateAccountAPIError.conflict(code: "email_already_registered"), creating: true),
                        "An account with this email already exists. Sign in instead.")
+    }
+
+    func test_closeResumesButExplicitSkipPersistsAcrossLaunch() throws {
+        let services = Services(accounts: Accounts())
+        let store = try makeStore()
+        let vm = OnboardingViewModel(services: services, store: store, initial: OnboardingState())
+        vm.advance(completing: .distill)
+        vm.close()
+        XCTAssertEqual(store.load()?.step, .permissions)
+        XCTAssertTrue(OnboardingGate.launchDecision(saved: store.load(), hasWorkspaces: true, hasAccountSession: true).present)
+        let resumed = OnboardingViewModel(services: services, store: store, initial: try XCTUnwrap(store.load()))
+        resumed.skipSetup()
+        XCTAssertFalse(OnboardingGate.launchDecision(saved: store.load(), hasWorkspaces: true, hasAccountSession: true).present)
+        XCTAssertEqual(store.load()?.status, .skipped)
+    }
+
+    func test_legacyUnfinishedSetupAddsPrerequisitesAndPreservesChoices() throws {
+        var old = OnboardingState(); old.version = 1; old.step = .accounts
+        old.complete(.account); old.createDeveloper = false
+        let vm = OnboardingViewModel(services: Services(accounts: Accounts()), store: try makeStore(), initial: old)
+        XCTAssertEqual(vm.state.step, .distill)
+        XCTAssertTrue(vm.state.completedSteps.contains(.account))
+        XCTAssertFalse(vm.state.createDeveloper)
+        XCTAssertEqual(Array(OnboardingStep.allCases.suffix(7)), [.account, .jev, .accounts, .routing, .bots, .workspace, .follow])
+    }
+
+    func test_failedToolInstallCanRetryAndNeverClaimsReady() async {
+        let setup = OnboardingSetupController(check: { _ in .missing }, install: { _ in throw URLError(.notConnectedToInternet) })
+        await setup.prepareDistill()
+        guard case .failed = setup.state(.distill) else { return XCTFail("Expected an actionable failure") }
+        XCTAssertFalse(setup.state(.distill).isReady)
+        let ready = OnboardingSetupController(check: { _ in .ready("Distill test") }, install: { _ in XCTFail("Existing tools must be reused") })
+        await ready.prepareDistill()
+        XCTAssertTrue(ready.state(.distill).isReady)
     }
 
     // Auto must only contain accounts that are connected and models the live
