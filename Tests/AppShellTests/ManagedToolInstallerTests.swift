@@ -3,6 +3,12 @@ import XCTest
 import AgentRuntime
 
 final class ManagedToolInstallerTests: XCTestCase {
+    func test_automationCannotSucceedWithoutDistillRegistration() async {
+        do {
+            try await ManagedToolInstaller.installMacUse(distillBinary: nil, environment: [:])
+            XCTFail("Missing Distill must not coalesce into a successful registered install")
+        } catch { XCTAssertTrue(String(describing: error).contains("Distill")) }
+    }
     func test_directoryReplacementKeepsTheNewToolsOnReinstall() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

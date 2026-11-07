@@ -113,7 +113,10 @@ public final class OnboardingViewModel: ObservableObject {
     /// Steps before the furthest decided one stay reachable from the stepper.
     public var furthestReachable: OnboardingStep {
         let decided = state.completedSteps.union(state.skippedSteps)
-        return OnboardingStep.allCases.first { !decided.contains($0) } ?? .follow
+        let next = OnboardingStep.allCases.first { !decided.contains($0) } ?? .follow
+        if state.completedSteps.contains(.workspace), state.step.index <= OnboardingStep.tools.index,
+           next.index > OnboardingStep.tools.index { return .tools }
+        return next
     }
 
     public func skipSetup() {

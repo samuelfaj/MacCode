@@ -167,6 +167,23 @@ final class OnboardingTests: XCTestCase {
         XCTAssertTrue(vm.state.completedSteps.contains(.account))
         XCTAssertFalse(vm.state.createDeveloper)
         XCTAssertEqual(Array(OnboardingStep.allCases.suffix(7)), [.account, .jev, .accounts, .routing, .bots, .workspace, .follow])
+
+        let services = Services(accounts: Accounts())
+        let workspace = WorkspaceID(); services.workspaces.insert(workspace)
+        old.workspaceID = workspace; old.complete(.workspace)
+        old.completedSteps.formUnion([.account, .jev, .accounts, .routing, .bots])
+        let resumed = OnboardingViewModel(services: services, store: try makeStore(), initial: old)
+        resumed.advance(completing: .distill)
+        resumed.advance(completing: .permissions)
+        resumed.goBack()
+        XCTAssertEqual(resumed.state.step, .permissions, "Prerequisite review can go back without unlocking the existing project")
+        resumed.advance(completing: .permissions)
+        resumed.jump(to: .bots)
+        XCTAssertEqual(resumed.state.step, .tools, "An existing project must not become editable through completed stepper buttons")
+        resumed.advance(completing: .tools)
+        XCTAssertEqual(resumed.state.step, .follow)
+        XCTAssertEqual(resumed.state.workspaceID, workspace)
+        XCTAssertEqual(services.openCalls, 0)
     }
 
     func test_failedToolInstallCanRetryAndNeverClaimsReady() async {

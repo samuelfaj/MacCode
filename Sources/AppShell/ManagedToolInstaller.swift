@@ -88,6 +88,7 @@ enum ManagedToolInstaller {
     }
 
     static func installMacUse(distillBinary: String?, environment: [String: String]) async throws {
+        guard let distillBinary else { throw Failure("Install Distill before registering computer automation.") }
         let home = DistillProvisioner.homeURL(environment: environment)
         try await ManagedToolInstalls.shared.perform("mac-use:\(home.path)") {
             try await installMacUseRelease(distillBinary: distillBinary, environment: environment)
