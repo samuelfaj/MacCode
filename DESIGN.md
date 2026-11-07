@@ -130,6 +130,8 @@ Every screen must work at any window width, from the narrowest the window allows
 
 **New conversation** — `AgentNewConversationEmptyState` (Agent App and Bot Desk): 40 purple sparkles tile, title, subtitle, and the inline Accounts & Auto editor when available. The editor is a disclosure card (`DistillAccountsInlineDisclosure`): 28 icon tile, `bodyStrong` title, summary line (2 lines max), chevron rotating 90° with "Show"/"Hide", `micro` motion, open until Auto routing is set up; the choice persists in `agent.emptyState.accountsExpanded`.
 
+**Subagents** — Every delegated run has a stable cat name and bundled pixel-art avatar derived from Titio. Use the same receipt-seeded identity in the compact badge, roster and transcript header, including Bot delegations. Keep the original execution identity in metadata/help. The roster uses a bounded scroll area, Active / Done / Unknown groups, explicit status pills and reversible Show More / Show Less controls. Cat art is an intentional raster identity asset; render with nearest-neighbor interpolation.
+
 ## 9. States
 
 - **Empty:** `DSEmptyState` or `AgentNewConversationEmptyState`; one clear next action; reserve height (`minHeight: 280` in chat) so the layout does not jump.

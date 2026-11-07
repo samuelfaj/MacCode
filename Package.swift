@@ -107,7 +107,8 @@ let package = Package(
             dependencies: ["CoreModel", "AgentRuntime", "Persistence", "RemoteCodeCSystem", "DesignSystemKit", "GhosttyKit"],
             path: "Sources/Surfaces",
             resources: [
-                .copy("Resources/ghostty")
+                .copy("Resources/ghostty"),
+                .process("Resources/SubagentCats")
             ],
             linkerSettings: [
                 .linkedLibrary("c++"),
