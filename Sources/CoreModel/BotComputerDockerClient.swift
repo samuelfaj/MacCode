@@ -203,10 +203,7 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
     }
 
     public func info() throws -> String {
-        // A busy daemon can miss one `docker info`; only a timeout is retried.
-        // After the Mac wakes, Docker can take far longer than 5 s to answer:
-        // dropping the cached binary sends the retry through the resolver's
-        // 5 s / 15 s / 30 s probe ladder instead of three more 5 s attempts.
+        // Retry only timeouts; re-resolve in case the cached CLI is stale.
         var attempt = 0
         while true {
             do {
@@ -590,9 +587,10 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
 
     static func timeoutForArguments(_ args: [String]) -> TimeInterval {
         switch args.first {
-        case "info": return 5
-        // Asked on every send, ahead of `info`: a daemon that hangs must not
-        // be named much later than `info` alone names it.
+        // Resolution accepts daemons that need up to 30 s after wake. The
+        // subsequent info command must allow the same response window.
+        case "info": return 30
+        // Asked on every send; keep image freshness checks bounded.
         case "image" where args.starts(with: imageStatesArguments(tags: [])): return 5
         case "build": return BotComputerGuestSpec.imageBuildDeadlineSeconds
         case "exec":

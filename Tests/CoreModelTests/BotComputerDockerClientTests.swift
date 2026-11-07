@@ -763,7 +763,7 @@ final class BotComputerDockerClientTests: XCTestCase {
         let observe = ["exec", "remotecode-bot-x", "env", "DISPLAY=:1", "import", "-window", "root", "png:-"]
         XCTAssertEqual(BotComputerDockerCLI.timeoutForArguments(observe), 15)
         XCTAssertEqual(BotComputerDockerCLI.timeoutForArguments(["ps", "-aq", "--filter", "name=x"]), 15)
-        XCTAssertEqual(BotComputerDockerCLI.timeoutForArguments(["info"]), 5)
+        XCTAssertEqual(BotComputerDockerCLI.timeoutForArguments(["info"]), 30)
         XCTAssertEqual(
             BotComputerDockerCLI.timeoutForArguments(["build", "."]),
             BotComputerGuestSpec.imageBuildDeadlineSeconds
@@ -832,6 +832,14 @@ final class BotComputerDockerClientTests: XCTestCase {
         XCTAssertEqual(try resolver.resolveHealthyExecutable(), "/bin/echo")
         XCTAssertEqual(calls.timeouts.count, 2)
         XCTAssertGreaterThan(calls.timeouts[1], calls.timeouts[0])
+    }
+
+    /// A healthy slow daemon must not pass resolution and then fail the send's shorter info deadline.
+    func testInfoDeadlineAcceptsEverySuccessfulProbeWindow() {
+        let infoTimeout = BotComputerDockerCLI.timeoutForArguments(["info"])
+        for probeTimeout in BotComputerDockerResolver.retryTimeouts(base: 5) {
+            XCTAssertGreaterThanOrEqual(infoTimeout, probeTimeout)
+        }
     }
 
     /// Retrying a stopped daemon only delays the real message.
