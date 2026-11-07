@@ -172,23 +172,28 @@ struct DistillSubagentTranscriptPane: View {
 
     private var header: some View {
         HStack(spacing: DS.Space.sm) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.displayName)
-                    .font(DS.Font.body.weight(.medium))
+            SubagentCatAvatar(cat: item.cat, size: 40)
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                Text(item.cat.name)
+                    .font(DS.Font.bodyStrong)
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    .help("\(item.cat.breed) · \(item.displayName) · \(item.id.uuidString)")
                 HStack(spacing: DS.Space.xs) {
-                    if item.isActive {
-                        Circle().fill(DS.Palette.success).frame(width: 5, height: 5).accessibilityHidden(true)
-                    }
-                    Text(([item.statusLabel] + [item.providerModelLabel].compactMap { $0 }).joined(separator: " · "))
+                    SubagentStatusPill(item: item)
+                    Text(item.providerModelLabel ?? item.cat.breed)
                         .font(DS.Font.caption2)
-                        .foregroundColor(item.isActive ? DS.Palette.success : DS.Palette.textTertiary)
+                        .foregroundColor(DS.Palette.textSecondary)
                         .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(item.providerModelLabel ?? item.cat.breed)
                 }
             }
             Spacer()
-            Button(action: onClose) { Image(systemName: "xmark") }
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
                 .buttonStyle(.plain)
                 .help("Close subagent view")
                 .accessibilityLabel("Close subagent view")

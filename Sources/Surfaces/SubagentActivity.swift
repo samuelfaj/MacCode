@@ -719,154 +719,15 @@ public enum SubagentActivityProjection {
     }
 }
 
-// MARK: - Visual tokens (per-worker avatar + provider accent)
+// MARK: - SwiftUI: compact badge + cat roster
 
-/// Deterministic “gravatar-like” face for one subagent run.
-///
-/// Seeded from receipt id so the same worker keeps the same face across polls;
-/// pattern + monogram distinguish workers even when provider color matches.
-public struct SubagentAvatarSpec: Equatable, Sendable {
-    public let seed: UInt64
-    public let monogram: String
-    public let primaryIndex: Int
-    public let secondaryIndex: Int
-    /// 15 bits of a 5×5 horizontally-mirrored grid (GitHub-style identicon).
-    public let patternBits: UInt16
-    public let provider: SubagentProviderKind
-
-    public init(
-        seed: UInt64,
-        monogram: String,
-        primaryIndex: Int,
-        secondaryIndex: Int,
-        patternBits: UInt16,
-        provider: SubagentProviderKind
-    ) {
-        self.seed = seed
-        self.monogram = monogram
-        self.primaryIndex = primaryIndex
-        self.secondaryIndex = secondaryIndex
-        self.patternBits = patternBits
-        self.provider = provider
-    }
-}
-
-public enum SubagentActivityStyle {
-    /// Accessible dark-UI palette — high chroma, no pure gray faces.
-    public static let avatarPalette: [UInt32] = [
-        0x3DD6C6, // teal (codex-adjacent)
-        0xE8A838, // amber (claude-adjacent)
-        0xF472B6, // pink (grok-adjacent)
-        0x7CC7FF, // sky
-        0xA78BFA, // violet
-        0x34D399, // emerald
-        0xFB923C, // orange
-        0xF87171, // rose
-        0x38BDF8, // light blue
-        0xC084FC, // purple
-        0x4ADE80, // green
-        0xFBBF24, // gold
-    ]
-
-    /// Stable colors per normalized provider — ring accent, not the whole face.
-    public static func glyphColor(for provider: SubagentProviderKind) -> Color {
-        switch provider {
-        case .codex: return Color(hex: 0x3DD6C6)
-        case .claude: return Color(hex: 0xE8A838)
-        case .grok: return Color(hex: 0xF472B6)
-        case .distill: return Color(hex: 0x6E56CF)
-        case .unknown: return DS.Palette.textTertiary
-        }
-    }
-
-    public static let glyphSystemName = "hexagon.fill"
-
-    public static func avatarSpec(for item: SubagentActivityItem) -> SubagentAvatarSpec {
-        avatarSpec(id: item.id, displayName: item.displayName, provider: item.provider)
-    }
-
-    public static func avatarSpec(
-        id: UUID,
-        displayName: String,
-        provider: SubagentProviderKind
-    ) -> SubagentAvatarSpec {
-        let seed = seed(from: id)
-        let paletteCount = UInt64(avatarPalette.count)
-        let primary = Int(seed % paletteCount)
-        let secondary = Int((seed / 7) % paletteCount)
-        // Avoid identical primary/secondary when possible.
-        let secondaryResolved = secondary == primary
-            ? Int((seed / 11 + 1) % paletteCount)
-            : secondary
-        let patternBits = UInt16(truncatingIfNeeded: (seed >> 16) ^ (seed >> 32)) & 0x7FFF
-        return SubagentAvatarSpec(
-            seed: seed,
-            monogram: monogram(from: displayName),
-            primaryIndex: primary,
-            secondaryIndex: secondaryResolved,
-            patternBits: patternBits,
-            provider: provider
-        )
-    }
-
-    public static func seed(from id: UUID) -> UInt64 {
-        let bytes = withUnsafeBytes(of: id.uuid) { Array($0) }
-        var hi: UInt64 = 0
-        var lo: UInt64 = 0
-        for i in 0..<8 { hi = (hi << 8) | UInt64(bytes[i]) }
-        for i in 8..<16 { lo = (lo << 8) | UInt64(bytes[i]) }
-        // Mix so nearby UUIDs do not share faces.
-        return hi &+ (lo &* 0x9E3779B97F4A7C15)
-    }
-
-    /// 1–2 letter monogram from a humanized display name.
-    public static func monogram(from displayName: String) -> String {
-        let parts = displayName
-            .split(whereSeparator: { $0.isWhitespace || $0 == "·" || $0 == "-" || $0 == "_" })
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        if parts.isEmpty { return "?" }
-        if parts.count == 1 {
-            let word = parts[0]
-            if word.count >= 2 {
-                return String(word.prefix(2)).uppercased()
-            }
-            return String(word.prefix(1)).uppercased()
-        }
-        let a = parts[0].first.map(String.init) ?? ""
-        let b = parts[1].first.map(String.init) ?? ""
-        return (a + b).uppercased()
-    }
-
-    public static func paletteColor(at index: Int) -> Color {
-        let safe = ((index % avatarPalette.count) + avatarPalette.count) % avatarPalette.count
-        return Color(hex: avatarPalette[safe])
-    }
-
-    /// Whether the mirrored 5×5 cell is filled (column 0…2 maps to mirrored right).
-    public static func patternCellFilled(bits: UInt16, row: Int, col: Int) -> Bool {
-        let mirroredCol = col > 2 ? 4 - col : col
-        let index = row * 3 + mirroredCol
-        guard index >= 0, index < 15 else { return false }
-        return (bits & (1 << index)) != 0
-    }
-}
-
-// MARK: - SwiftUI: compact badge + popover panel
-
-/// Compact Subagents control for the Agent App chrome.
-/// Popover holds Active / Done sections with “Show N more”.
 public struct SubagentActivityBadge: View {
     let snapshot: SubagentActivitySnapshot
     let bots: [BotDefinition]
     let now: Date
-    /// When true (Auto/orchestrate), empty chrome still explains that delegated
-    /// workers appear here — so orchestrate never looks like a missing feature.
     let orchestrateActive: Bool
-    /// Latest tool call per running child run (Distill `subagent_progress`).
     let liveActivity: [AgentRunID: String]
     let liveDetail: [AgentRunID: DistillLiveStatus.SubagentDetail]
-    /// Opens a subagent's transcript; nil leaves rows inert.
     let onOpen: ((SubagentActivityItem) -> Void)?
     @Binding var isPresented: Bool
     @State private var activeExpanded = false
@@ -883,37 +744,38 @@ public struct SubagentActivityBadge: View {
         liveDetail: [AgentRunID: DistillLiveStatus.SubagentDetail] = [:],
         onOpen: ((SubagentActivityItem) -> Void)? = nil
     ) {
-        self.onOpen = onOpen
         self.snapshot = snapshot
         self.bots = bots
         self.now = now
         self.orchestrateActive = orchestrateActive
         self.liveActivity = liveActivity
         self.liveDetail = liveDetail
+        self.onOpen = onOpen
         self._isPresented = isPresented
     }
 
     public var body: some View {
-        Button {
-            isPresented.toggle()
-        } label: {
+        Button { isPresented.toggle() } label: {
             ViewThatFits(in: .horizontal) {
                 badgeLabel(compact: false)
                 badgeLabel(compact: true)
             }
-            .padding(.horizontal, DS.Space.sm)
+            .padding(.horizontal, DS.Space.md)
             .padding(.vertical, DS.Space.xs)
-            .background(DS.Palette.surfaceOverlay)
-            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
-                    .strokeBorder(DS.Palette.line, lineWidth: DS.Border.hairline)
-            )
+            .background(DS.Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .strokeBorder(isPresented ? DS.Palette.accent : DS.Palette.line, lineWidth: DS.Border.hairline)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(helpText)
+        .dsHoverFill()
+        .help(accessibilityLabel)
         .accessibilityIdentifier("agent.subagents.badge")
         .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(isPresented ? "Expanded" : "Collapsed")
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             SubagentActivityPopoverPanel(
                 snapshot: snapshot,
@@ -927,9 +789,8 @@ public struct SubagentActivityBadge: View {
                 doneExpanded: $doneExpanded,
                 unknownExpanded: $unknownExpanded
             )
-            .frame(minWidth: 240, idealWidth: 320, maxWidth: 320)
-            .padding(DS.Space.md)
-            .background(DS.Palette.surfaceRaised)
+            .frame(minWidth: 280, idealWidth: 400, maxWidth: 400)
+            .background(DS.Palette.surface)
         }
         .onChange(of: isPresented) { open in
             if !open {
@@ -941,78 +802,49 @@ public struct SubagentActivityBadge: View {
     }
 
     private func badgeLabel(compact: Bool) -> some View {
-        HStack(spacing: DS.Space.xs) {
-            Image(systemName: "person.2")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(DS.Palette.textSecondary)
+        HStack(spacing: DS.Space.sm) {
+            HStack(spacing: -DS.Space.sm) {
+                ForEach(snapshot.compactAvatarItems.prefix(compact ? 1 : 3)) { item in
+                    SubagentCatAvatar(cat: item.cat, size: 24)
+                }
+                if snapshot.isEmpty {
+                    Image(systemName: "pawprint.fill")
+                        .font(DS.Font.captionStrong)
+                        .foregroundStyle(DS.Palette.accent)
+                }
+            }
+            .accessibilityHidden(true)
             if !compact {
                 Text("Subagents")
-                    .font(DS.Font.caption.weight(.semibold))
-                    .foregroundColor(DS.Palette.text)
+                    .font(DS.Font.captionStrong)
+                    .foregroundStyle(DS.Palette.text)
             }
-            if !compact, !snapshot.compactAvatarItems.isEmpty {
-                let botsIndex = SubagentActivityProjection.botsByNormalizedHandle(bots)
-                HStack(spacing: 2) {
-                    ForEach(snapshot.compactAvatarItems) { item in
-                        SubagentIdentityAvatarView(
-                            item: item,
-                            bots: bots,
-                            botsByHandle: botsIndex,
-                            size: 12,
-                            showsMonogram: false
-                        )
-                    }
-                }
-                .accessibilityHidden(true)
-            }
-            if snapshot.isLive {
-                Circle()
-                    .fill(DS.Palette.accent)
-                    .frame(width: 6, height: 6)
-                    .accessibilityHidden(true)
-            }
-            Text(countLabel)
-                .font(DS.Font.caption2.monospacedDigit())
-                .foregroundColor(DS.Palette.textSecondary)
+            Text(compact ? "\(snapshot.activeCount + snapshot.doneCount + snapshot.unknownCount)" : countLabel)
+                .font(DS.Font.caption.monospacedDigit())
+                .foregroundStyle(snapshot.isLive ? DS.Palette.accent : DS.Palette.textSecondary)
             Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundColor(DS.Palette.textTertiary)
+                .font(DS.Font.caption2)
+                .foregroundStyle(DS.Palette.textSecondary)
+                .accessibilityHidden(true)
         }
         .lineLimit(1)
         .fixedSize(horizontal: true, vertical: false)
     }
 
     private var countLabel: String {
-        if snapshot.isEmpty {
-            return orchestrateActive ? "ready" : "0 done"
-        }
-        if snapshot.activeCount == 0, snapshot.unknownCount == 0 {
-            return "\(snapshot.doneCount) done"
-        }
-        if snapshot.unknownCount > 0 {
-            return "\(snapshot.activeCount) active · \(snapshot.doneCount) done · ?\(snapshot.unknownCount)"
-        }
-        return "\(snapshot.activeCount) active · \(snapshot.doneCount) done"
-    }
-
-    private var helpText: String {
-        if snapshot.isEmpty {
-            return orchestrateActive
-                ? "Auto orchestrate is ready; delegated workers appear here"
-                : "No subagent activity yet"
-        }
-        var parts = ["\(snapshot.activeCount) active", "\(snapshot.doneCount) done"]
+        if snapshot.isEmpty { return orchestrateActive ? "Ready" : "0" }
+        var parts: [String] = []
+        if snapshot.activeCount > 0 { parts.append("\(snapshot.activeCount) working") }
+        if snapshot.doneCount > 0 { parts.append("\(snapshot.doneCount) done") }
         if snapshot.unknownCount > 0 { parts.append("\(snapshot.unknownCount) unknown") }
-        return parts.joined(separator: ", ")
+        return parts.joined(separator: " · ")
     }
 
     private var accessibilityLabel: String {
         if snapshot.isEmpty, orchestrateActive {
-            return "Subagents, Auto orchestrate ready, no workers active"
+            return "Subagents, ready to help, no workers active"
         }
-        var label = "Subagents, \(snapshot.activeCount) active, \(snapshot.doneCount) done"
-        if snapshot.unknownCount > 0 { label += ", \(snapshot.unknownCount) unknown" }
-        return label
+        return "Subagents, \(snapshot.activeCount) active, \(snapshot.doneCount) done, \(snapshot.unknownCount) unknown"
     }
 }
 
@@ -1024,92 +856,72 @@ struct SubagentActivityPopoverPanel: View {
     var liveActivity: [AgentRunID: String] = [:]
     var liveDetail: [AgentRunID: DistillLiveStatus.SubagentDetail] = [:]
     var onOpen: ((SubagentActivityItem) -> Void)? = nil
-    /// Read from each Distill child's saved session when the popover opens.
     @State private var diskDetail: [UUID: DistillLiveStatus.SubagentDetail] = [:]
     @Binding var activeExpanded: Bool
     @Binding var doneExpanded: Bool
     @Binding var unknownExpanded: Bool
 
     var body: some View {
-        // Title + lists only — no summary strip / avatar legend (redundant with
-        // badge counts and per-row faces; reduces noise above Active/Done).
-        VStack(alignment: .leading, spacing: DS.Space.sm) {
-            HStack(spacing: DS.Space.sm) {
-                Text("Subagents")
-                    .font(DS.Font.bodyStrong)
-                    .foregroundColor(DS.Palette.text)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: DS.Space.md) {
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                    Text("Subagents")
+                        .font(DS.Font.title3)
+                        .foregroundStyle(DS.Palette.text)
+                    Text("Titio’s little helpers")
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Palette.textSecondary)
+                }
                 Spacer(minLength: 0)
                 if snapshot.isLive {
-                    HStack(spacing: DS.Space.xxs) {
-                        Circle()
-                            .fill(DS.Palette.accent)
-                            .frame(width: 6, height: 6)
-                        Text("Live")
-                            .font(DS.Font.caption2.weight(.semibold))
-                            .foregroundColor(DS.Palette.accent)
-                    }
-                    .accessibilityIdentifier("agent.subagents.live")
+                    DSPill("Live", tone: .accent)
+                        .accessibilityIdentifier("agent.subagents.live")
                 }
             }
+            .padding(DS.Space.lg)
+            .dsBar(edge: .bottom)
 
-            if snapshot.isEmpty {
-                Text(emptyCopy)
-                    .font(DS.Font.caption)
-                    .foregroundColor(DS.Palette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("agent.subagents.empty")
-            } else {
-                if !snapshot.active.isEmpty {
-                    sectionHeader("Active", count: snapshot.activeCount)
-                    VStack(spacing: 0) {
-                        ForEach(snapshot.visibleActive(expanded: activeExpanded)) { item in
-                            row(item)
-                            Divider().background(DS.Palette.line)
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Space.md) {
+                    if snapshot.isEmpty {
+                        HStack(alignment: .top, spacing: DS.Space.lg) {
+                            Image(systemName: "pawprint")
+                                .font(DS.Font.title2)
+                                .foregroundStyle(DS.Palette.accent)
+                                .accessibilityHidden(true)
+                            Text(orchestrateActive
+                                 ? "Ready to help. Cats appear here when the agent delegates work."
+                                 : "No helpers yet. Delegated work will appear here.")
+                                .font(DS.Font.bodyDense)
+                                .foregroundStyle(DS.Palette.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
+                        .padding(DS.Space.lg)
+                        .accessibilityIdentifier("agent.subagents.empty")
                     }
-                    if snapshot.hiddenActiveCount(expanded: activeExpanded) > 0 {
-                        showMoreButton(
-                            count: snapshot.hiddenActiveCount(expanded: activeExpanded),
-                            expanded: $activeExpanded,
-                            identifier: "agent.subagents.active.showMore"
-                        )
+                    if !snapshot.active.isEmpty {
+                        section("Active", count: snapshot.activeCount,
+                                items: snapshot.visibleActive(expanded: activeExpanded),
+                                hidden: snapshot.hiddenActiveCount(expanded: activeExpanded),
+                                expanded: $activeExpanded)
+                    }
+                    if !snapshot.done.isEmpty {
+                        section("Done", count: snapshot.doneCount,
+                                items: snapshot.visibleDone(expanded: doneExpanded),
+                                hidden: snapshot.hiddenDoneCount(expanded: doneExpanded),
+                                expanded: $doneExpanded)
+                    }
+                    if !snapshot.unknown.isEmpty {
+                        section("Unknown", count: snapshot.unknownCount,
+                                items: snapshot.visibleUnknown(expanded: unknownExpanded),
+                                hidden: snapshot.hiddenUnknownCount(expanded: unknownExpanded),
+                                expanded: $unknownExpanded)
                     }
                 }
-
-                if !snapshot.done.isEmpty {
-                    sectionHeader("Done", count: snapshot.doneCount)
-                    VStack(spacing: 0) {
-                        ForEach(snapshot.visibleDone(expanded: doneExpanded)) { item in
-                            row(item)
-                            Divider().background(DS.Palette.line)
-                        }
-                    }
-                    if snapshot.hiddenDoneCount(expanded: doneExpanded) > 0 {
-                        showMoreButton(
-                            count: snapshot.hiddenDoneCount(expanded: doneExpanded),
-                            expanded: $doneExpanded,
-                            identifier: "agent.subagents.done.showMore"
-                        )
-                    }
-                }
-
-                if !snapshot.unknown.isEmpty {
-                    sectionHeader("Unknown", count: snapshot.unknownCount)
-                    VStack(spacing: 0) {
-                        ForEach(snapshot.visibleUnknown(expanded: unknownExpanded)) { item in
-                            row(item)
-                            Divider().background(DS.Palette.line)
-                        }
-                    }
-                    if snapshot.hiddenUnknownCount(expanded: unknownExpanded) > 0 {
-                        showMoreButton(
-                            count: snapshot.hiddenUnknownCount(expanded: unknownExpanded),
-                            expanded: $unknownExpanded,
-                            identifier: "agent.subagents.unknown.showMore"
-                        )
-                    }
-                }
+                .padding(DS.Space.md)
             }
+            .frame(maxHeight: 480)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityIdentifier("agent.subagents.popover")
         .task(id: snapshot.active.count + snapshot.done.count) {
@@ -1127,64 +939,65 @@ struct SubagentActivityPopoverPanel: View {
         }
     }
 
+    private func section(_ title: String, count: Int, items: [SubagentActivityItem],
+                         hidden: Int, expanded: Binding<Bool>) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            HStack {
+                Text(title.uppercased())
+                    .tracking(0.6)
+                Spacer()
+                Text("\(count)").monospacedDigit()
+            }
+            .font(DS.Font.caption2.weight(.semibold))
+            .foregroundStyle(DS.Palette.textSecondary)
+            .padding(.horizontal, DS.Space.md)
+            .accessibilityIdentifier("agent.subagents.section.\(title.lowercased())")
+            ForEach(items) { item in row(item) }
+            if hidden > 0 || expanded.wrappedValue {
+                Button { expanded.wrappedValue.toggle() } label: {
+                    HStack(spacing: DS.Space.xs) {
+                        Text(expanded.wrappedValue ? "Show Less" : "Show \(hidden) More")
+                        Image(systemName: expanded.wrappedValue ? "chevron.up" : "chevron.down")
+                            .accessibilityHidden(true)
+                    }
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Palette.accent)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .padding(.horizontal, DS.Space.md)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .dsHoverFill()
+                .accessibilityIdentifier("agent.subagents.\(title.lowercased()).showMore")
+            }
+        }
+    }
+
     @ViewBuilder
     private func row(_ item: SubagentActivityItem) -> some View {
         let detail = item.runId.flatMap { liveDetail[$0] } ?? diskDetail[item.id]
         let view = SubagentActivityRowView(item: item, bots: bots, now: now,
-                                           activity: item.isActive ? item.runId.flatMap { liveActivity[$0] } : nil,
-                                           detail: detail)
+                                          activity: item.isActive ? item.runId.flatMap { liveActivity[$0] } : nil,
+                                          detail: detail)
         if let onOpen, DistillSubagentTranscriptPane.canOpen(item) {
             Button { onOpen(item) } label: {
                 HStack(spacing: DS.Space.xs) {
                     view
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(DS.Palette.textTertiary)
+                        .font(DS.Font.caption2)
+                        .foregroundStyle(DS.Palette.textSecondary)
                         .accessibilityHidden(true)
                 }
+                .padding(.trailing, DS.Space.md)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("See what this subagent is doing")
+            .dsHoverFill(cornerRadius: DS.Radius.card)
+            .help("Open \(item.cat.name)’s work")
             .accessibilityHint("Opens the subagent's work in a side pane")
         } else {
             view
         }
-    }
-
-    private var emptyCopy: String {
-        if orchestrateActive {
-            return "Auto orchestrate is on. Each delegated worker (Agent App nested or native subagent) appears here under this controller."
-        }
-        return "No subagent runs recorded yet."
-    }
-
-    private func sectionHeader(_ title: String, count: Int) -> some View {
-        Text("\(title) · \(count)")
-            .font(DS.Font.caption2.weight(.semibold))
-            .tracking(0.4)
-            .foregroundColor(DS.Palette.textTertiary)
-            .padding(.top, DS.Space.xs)
-            .accessibilityIdentifier("agent.subagents.section.\(title.lowercased())")
-    }
-
-    private func showMoreButton(count: Int, expanded: Binding<Bool>, identifier: String) -> some View {
-        Button {
-            expanded.wrappedValue = true
-        } label: {
-            HStack(spacing: DS.Space.xxs) {
-                Text("Show \(count) more")
-                    .font(DS.Font.caption)
-                    .foregroundColor(DS.Palette.textSecondary)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(DS.Palette.textTertiary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, DS.Space.xs)
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(identifier)
     }
 }
 
@@ -1193,208 +1006,80 @@ struct SubagentActivityRowView: View {
     let bots: [BotDefinition]
     let now: Date
     var activity: String? = nil
-    /// Provider-reported model, effort, tokens and task; nil when the provider sends none.
     var detail: DistillLiveStatus.SubagentDetail? = nil
 
     var body: some View {
-        HStack(alignment: .center, spacing: DS.Space.sm) {
-            SubagentIdentityAvatarView(item: item, bots: bots, size: 28, showsMonogram: true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.displayName)
-                    .font(DS.Font.bodyDense.weight(.medium))
-                    .foregroundColor(DS.Palette.text)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                HStack(spacing: DS.Space.xs) {
-                    if item.isActive {
-                        Circle()
-                            .fill(DS.Palette.success)
-                            .frame(width: 5, height: 5)
-                            .accessibilityHidden(true)
-                    }
-                    Text(item.statusLabel)
+        HStack(alignment: .top, spacing: DS.Space.lg) {
+            SubagentCatAvatar(cat: item.cat, size: 48)
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
+                    Text(item.cat.name)
+                        .font(DS.Font.bodyStrong)
+                        .foregroundStyle(DS.Palette.text)
+                        .lineLimit(1)
+                    Text(item.cat.shortID)
+                        .font(DS.Font.monoSmall)
+                        .foregroundStyle(DS.Palette.textSecondary)
+                    Spacer(minLength: 0)
+                    Text(SubagentActivityProjection.trailingTimeLabel(for: item, now: now))
+                        .font(DS.Font.caption2.monospacedDigit())
+                        .foregroundStyle(DS.Palette.textSecondary)
+                        .fixedSize()
+                }
+                .help(identityHelp)
+                HStack(spacing: DS.Space.sm) {
+                    SubagentStatusPill(item: item)
+                    Text(item.cat.breed)
                         .font(DS.Font.caption2)
-                        .foregroundColor(statusColor)
-                    if let meta = SubagentActivityProjection.metaLabel(for: item, detail: detail) {
-                        Text("·")
-                            .font(DS.Font.caption2)
-                            .foregroundColor(DS.Palette.textTertiary)
-                        Text(meta)
-                            .font(DS.Font.caption2)
-                            .foregroundColor(DS.Palette.textTertiary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
+                        .foregroundStyle(DS.Palette.textSecondary)
+                        .lineLimit(1)
                 }
                 if let task = SubagentActivityProjection.taskLabel(for: item, detail: detail) {
                     Text(task)
-                        .font(DS.Font.caption2)
-                        .foregroundColor(DS.Palette.textTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                        .font(DS.Font.bodyDense)
+                        .foregroundStyle(DS.Palette.text)
+                        .lineLimit(2)
                         .help(task)
                         .accessibilityIdentifier("agent.subagents.row.task")
                 }
                 if let activity = activity ?? detail?.activity {
                     Text(activity)
-                        .font(DS.Font.caption2)
-                        .foregroundColor(DS.Palette.textSecondary)
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Palette.textSecondary)
                         .lineLimit(1)
-                        .truncationMode(.tail)
+                        .truncationMode(.middle)
                         .help(activity)
                         .accessibilityIdentifier("agent.subagents.row.activity")
                 }
+                if let meta = SubagentActivityProjection.metaLabel(for: item, detail: detail) {
+                    Text(meta)
+                        .font(DS.Font.caption2)
+                        .foregroundStyle(DS.Palette.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(meta)
+                }
             }
-            Spacer(minLength: DS.Space.sm)
-            Text(SubagentActivityProjection.trailingTimeLabel(for: item, now: now))
-                .font(DS.Font.caption2.monospacedDigit())
-                .foregroundColor(DS.Palette.textTertiary)
-                .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, DS.Space.sm)
+        .padding(DS.Space.md)
+        .background(DS.Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         .accessibilityIdentifier("agent.subagents.row.\(item.id.uuidString)")
         .accessibilityElement(children: .combine)
         .accessibilityLabel(rowAccessibilityLabel)
     }
 
-    private var statusColor: Color {
-        switch item.phase {
-        case .working: return DS.Palette.success
-        case .completed: return DS.Palette.textSecondary
-        case .failed: return DS.Palette.danger
-        case .cancelled: return DS.Palette.warning
-        case .unknown: return DS.Palette.textTertiary
-        }
+    private var identityHelp: String {
+        let bot = SubagentActivityProjection.delegatedBot(for: item.nodeId, among: bots)
+        return [item.cat.name, item.cat.breed, bot?.name, item.displayName, item.id.uuidString]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 
     private var rowAccessibilityLabel: String {
         let time = SubagentActivityProjection.trailingTimeLabel(for: item, now: now)
-        let meta = SubagentActivityProjection.metaLabel(for: item, detail: detail).map { ", \($0)" } ?? ""
-        let face = SubagentActivityProjection.delegatedBot(for: item.nodeId, among: bots)
-            .map { $0.name.isEmpty ? "@\($0.handle)" : $0.name }
-            ?? SubagentActivityStyle.avatarSpec(for: item).monogram
-        let current = activity.map { ", \($0)" } ?? ""
-        return "\(item.displayName), avatar \(face), \(item.statusLabel)\(meta)\(current), \(time)"
-    }
-}
-
-/// One identity resolver shared by compact and popover Subagents chrome.
-struct SubagentIdentityAvatarView: View {
-    let item: SubagentActivityItem
-    let bots: [BotDefinition]
-    /// Optional precomputed index (CH-15). When painting N avatars against one
-    /// bots snapshot, pass `botsByNormalizedHandle(bots)` once from the parent.
-    var botsByHandle: [String: BotDefinition]? = nil
-    var size: CGFloat = 18
-    var showsMonogram: Bool = true
-
-    var body: some View {
-        let bot: BotDefinition? = {
-            if let index = botsByHandle {
-                guard let raw = SubagentActivityProjection.botDelegationHandle(from: item.nodeId),
-                      let handle = BotHandle.normalize(raw) else { return nil }
-                return index[handle]
-            }
-            return SubagentActivityProjection.delegatedBot(for: item.nodeId, among: bots)
-        }()
-        if let bot {
-            BotsAvatarView(
-                name: bot.name,
-                handle: bot.handle,
-                symbol: bot.avatarSymbol,
-                size: size
-            )
-        } else {
-            SubagentAvatarView(item: item, size: size, showsMonogram: showsMonogram)
-        }
-    }
-}
-
-/// Per-worker circular avatar: mirrored geometric pattern + monogram + provider ring.
-/// Color alone never carries identity (pattern + letters stay distinct for a11y).
-struct SubagentAvatarView: View {
-    let spec: SubagentAvatarSpec
-    var size: CGFloat = 18
-    var showsMonogram: Bool = true
-
-    init(item: SubagentActivityItem, size: CGFloat = 18, showsMonogram: Bool = true) {
-        self.spec = SubagentActivityStyle.avatarSpec(for: item)
-        self.size = size
-        self.showsMonogram = showsMonogram
-    }
-
-    init(spec: SubagentAvatarSpec, size: CGFloat = 18, showsMonogram: Bool = true) {
-        self.spec = spec
-        self.size = size
-        self.showsMonogram = showsMonogram
-    }
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            SubagentActivityStyle.paletteColor(at: spec.primaryIndex).opacity(0.92),
-                            SubagentActivityStyle.paletteColor(at: spec.secondaryIndex).opacity(0.72),
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-            // Soft vignette so monogram and pattern read on bright palette pairs.
-            Circle()
-                .fill(Color.black.opacity(0.18))
-            Canvas { context, canvasSize in
-                let cell = canvasSize.width / 5
-                let ink = Color.white.opacity(0.55)
-                for row in 0..<5 {
-                    for col in 0..<5 {
-                        guard SubagentActivityStyle.patternCellFilled(
-                            bits: spec.patternBits,
-                            row: row,
-                            col: col
-                        ) else { continue }
-                        let rect = CGRect(
-                            x: CGFloat(col) * cell + cell * 0.12,
-                            y: CGFloat(row) * cell + cell * 0.12,
-                            width: cell * 0.76,
-                            height: cell * 0.76
-                        )
-                        context.fill(Path(ellipseIn: rect), with: .color(ink))
-                    }
-                }
-            }
-            .clipShape(Circle())
-            if showsMonogram, size >= 14 {
-                Text(spec.monogram)
-                    .font(.system(size: max(8, size * 0.34), weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.45), radius: 0.5, y: 0.5)
-                    .minimumScaleFactor(0.7)
-                    .lineLimit(1)
-            }
-            Circle()
-                .strokeBorder(
-                    SubagentActivityStyle.glyphColor(for: spec.provider).opacity(0.85),
-                    lineWidth: max(1, size * 0.06)
-                )
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-}
-
-/// Provider-only glyph kept for any caller that still wants a host mark without a run id.
-struct SubagentActivityGlyphView: View {
-    let provider: SubagentProviderKind
-    var size: CGFloat = 16
-
-    var body: some View {
-        Image(systemName: SubagentActivityStyle.glyphSystemName)
-            .font(.system(size: size * 0.85, weight: .semibold))
-            .foregroundColor(SubagentActivityStyle.glyphColor(for: provider))
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
+        let meta = SubagentActivityProjection.metaLabel(for: item, detail: detail)
+        let task = SubagentActivityProjection.taskLabel(for: item, detail: detail)
+        return [item.cat.name, item.cat.breed, item.cat.shortID, item.statusLabel,
+                task, activity ?? detail?.activity, meta, time].compactMap { $0 }.joined(separator: ", ")
     }
 }
