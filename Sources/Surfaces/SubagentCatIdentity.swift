@@ -41,7 +41,7 @@ struct SubagentCatIdentity: Equatable, Sendable {
 }
 
 extension SubagentActivityItem {
-    var cat: SubagentCatIdentity { SubagentCatIdentity(id: id) }
+    var cat: SubagentCatIdentity { SubagentCatIdentity(id: runId?.value ?? id) }
 }
 
 /// The same bundled artwork is used in the badge, roster and transcript header.

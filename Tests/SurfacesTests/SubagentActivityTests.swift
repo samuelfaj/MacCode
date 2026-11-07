@@ -455,13 +455,19 @@ final class SubagentActivityTests: XCTestCase {
     @MainActor
     func test_catIdentity_isStableAcrossLifecycleAndMetadataChanges() {
         let id = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
-        let working = makeReceipt(id: id, lifecycle: .accepted, nodeId: "native.distill.worker", provider: .distill)
-        let completed = makeReceipt(id: id, lifecycle: .finalized, finalStatus: .completed,
+        let working = makeReceipt(id: id, lifecycle: .accepted, runId: AgentRunID(id), nodeId: "native.distill.worker", provider: .distill)
+        let completed = makeReceipt(id: id, lifecycle: .finalized, finalStatus: .completed, runId: AgentRunID(id),
                                     nodeId: "nested.claude.worker", provider: .claude)
         let activeCat = SubagentActivityProjection.project(receipts: [working]).active.first!.cat
         let doneCat = SubagentActivityProjection.project(receipts: [completed]).done.first!.cat
         XCTAssertEqual(activeCat, doneCat, "completion and reopening must keep the cat's name and artwork")
         XCTAssertEqual(activeCat, SubagentCatIdentity(id: id))
+        XCTAssertEqual(activeCat.name, "Chico", "UUID identities must match the iOS child-session mapping")
+        XCTAssertEqual(activeCat.assetName, "cat-ginger")
+        let child = SubagentActivityProjection.project(receipts: [makeReceipt(
+            lifecycle: .unknown, runId: AgentRunID(id), nodeId: "native.distill.child", provider: .distill
+        )]).unknown.first!
+        XCTAssertEqual(child.cat, activeCat, "the child run ID is shared with iOS even when receipt IDs differ")
         XCTAssertFalse(activeCat.name.isEmpty)
         XCTAssertFalse(activeCat.breed.isEmpty)
         XCTAssertTrue(activeCat.assetName.hasPrefix("cat-"))
