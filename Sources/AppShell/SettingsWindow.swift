@@ -491,7 +491,7 @@ public final class SettingsViewModel: ObservableObject {
                 case 500...599: return "Service unavailable"
                 default: return "Service error"
                 }
-            case .invalidResponse:
+            case .invalidResponse, .conflict:
                 return "Service error"
             }
         }

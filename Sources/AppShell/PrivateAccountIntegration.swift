@@ -471,6 +471,8 @@ public extension PrivateAccountAPI {
 public enum PrivateAccountAPIError: Error, Equatable {
     case invalidResponse
     case http(Int)
+    /// 409 with the backend's machine-readable `code`, so callers never guess why it conflicted.
+    case conflict(code: String?)
 }
 
 public final class URLSessionPrivateAccountAPI: PrivateAccountAPI, @unchecked Sendable {
@@ -646,7 +648,7 @@ public final class URLSessionPrivateAccountAPI: PrivateAccountAPI, @unchecked Se
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw PrivateAccountAPIError.invalidResponse }
-        guard (200..<300).contains(http.statusCode) else { throw PrivateAccountAPIError.http(http.statusCode) }
+        guard (200..<300).contains(http.statusCode) else { throw Self.failure(status: http.statusCode, body: data) }
         return try decoder.decode(Response.self, from: data)
     }
 
@@ -668,9 +670,15 @@ public final class URLSessionPrivateAccountAPI: PrivateAccountAPI, @unchecked Se
             request.httpBody = try encoder.encode(AnyEncodable(body))
         }
 
-        let (_, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw PrivateAccountAPIError.invalidResponse }
-        guard (200..<300).contains(http.statusCode) else { throw PrivateAccountAPIError.http(http.statusCode) }
+        guard (200..<300).contains(http.statusCode) else { throw Self.failure(status: http.statusCode, body: data) }
+    }
+
+    static func failure(status: Int, body: Data) -> PrivateAccountAPIError {
+        guard status == 409 else { return .http(status) }
+        struct ErrorBody: Decodable { let code: String? }
+        return .conflict(code: (try? JSONDecoder().decode(ErrorBody.self, from: body))?.code)
     }
 }
 

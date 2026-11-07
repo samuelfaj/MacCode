@@ -138,7 +138,7 @@ final class OnboardingTests: XCTestCase {
     }
 
     func test_registerConflictPointsToSignIn() {
-        XCTAssertEqual(OnboardingViewModel.accountErrorMessage(PrivateAccountAPIError.http(409), creating: true),
+        XCTAssertEqual(OnboardingViewModel.accountErrorMessage(PrivateAccountAPIError.conflict(code: "email_already_registered"), creating: true),
                        "An account with this email already exists. Sign in instead.")
     }
 

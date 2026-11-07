@@ -178,9 +178,13 @@ public final class OnboardingViewModel: ObservableObject {
 
     static func accountErrorMessage(_ error: Error, creating: Bool) -> String {
         if let error = error as? OnboardingAccountError { return error.message }
+        if let api = error as? PrivateAccountAPIError, case .conflict(let code) = api {
+            return code == "email_already_registered"
+                ? "An account with this email already exists. Sign in instead."
+                : "Account could not be created right now. Try again shortly."
+        }
         if let api = error as? PrivateAccountAPIError, case .http(let code) = api {
             switch code {
-            case 409: return "An account with this email already exists. Sign in instead."
             case 400: return creating ? "Check the email address and use at least 8 characters for the password." : "Check the email address and password."
             case 401, 403: return "Email or password is incorrect."
             case 429: return "Too many attempts. Wait a minute and try again."
