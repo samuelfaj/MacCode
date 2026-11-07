@@ -256,6 +256,94 @@ final class TransientNetworkRetryCoordinatorTests: XCTestCase {
         XCTAssertEqual(runner.requests.last?.providerThreadId, "session-1")
     }
 
+    /// Throws `message` from `startRun` for the first `failures` starts, the
+    /// way a bot thread fails when its VM check cannot reach Docker.
+    private final class StartFailingRunner: AgentProviderRunner, @unchecked Sendable {
+        struct Failure: Error, CustomStringConvertible { let description: String }
+        let provider: AgentProvider = .distill
+        let message: String
+        let failures: Int
+        private let lock = NSLock()
+        private var _requests: [AgentRunRequest] = []
+        var requests: [AgentRunRequest] { lock.lock(); defer { lock.unlock() }; return _requests }
+
+        init(message: String, failures: Int) {
+            self.message = message
+            self.failures = failures
+        }
+
+        func listModels() async -> [AgentModelDescriptor] { [] }
+
+        func startRun(_ request: AgentRunRequest, onEvent: @escaping @Sendable (AgentRunEvent) -> Void) async throws -> AgentRunHandle {
+            lock.lock(); _requests.append(request); let attempt = _requests.count; lock.unlock()
+            if attempt <= failures { throw Failure(description: message) }
+            Task.detached {
+                onEvent(.status(.running))
+                onEvent(.event(.turnStarted(turnId: "t\(attempt)")))
+                onEvent(.event(.turnCompleted(turnId: "t\(attempt)", finalMessage: "done")))
+                onEvent(.finished(.completed, finalMessage: "done", providerThreadId: "session-1"))
+            }
+            return AgentRunHandle(runId: request.runId, process: nil) {}
+        }
+    }
+
+    /// WHY: Bot conversations and scheduled tasks stopped on "VM unavailable:
+    /// Checking Docker timed out" after the Mac woke from sleep. The provider
+    /// never got the prompt, so the retry must resend the original prompt
+    /// (not "continue") and must not store the user's message twice.
+    func test_dockerTimeoutBeforeProviderStart_resendsTheOriginalPromptOnce() async throws {
+        let runner = StartFailingRunner(message: "VM unavailable: Checking Docker timed out. Try again.", failures: 1)
+        let tmp = NSTemporaryDirectory() + "rc2-start-retry-" + UUID().uuidString
+        let (_, db) = try Bootstrap(channel: .debug, appSupportOverride: tmp).run()
+        let threadRepo = AgentThreadRepository(db: db)
+        let messageRepo = AgentMessageRepository(db: db)
+        let thread = AgentThread(title: "vm", provider: .distill, model: "fake-model")
+        try threadRepo.upsert(thread)
+        let coordinator = AgentRunCoordinator(
+            runRepo: AgentRunRepository(db: db),
+            messageRepo: messageRepo,
+            threadRepo: threadRepo,
+            providers: [.distill: runner]
+        )
+        coordinator.networkRetryDelays = [0, 0, 0]
+        _ = try? await coordinator.startRun(AgentRunRequest(
+            threadId: thread.id, provider: .distill, model: "fake-model", cwd: tmp, prompt: "review the PRs"
+        ))
+
+        await waitUntil { runner.requests.count == 2 && (try? threadRepo.status(of: thread.id)) == .completed }
+
+        XCTAssertEqual(runner.requests.count, 2)
+        XCTAssertEqual(try threadRepo.status(of: thread.id), .completed)
+        XCTAssertEqual(runner.requests.last?.prompt, "review the PRs")
+        let userMessages = try messageRepo.list(threadId: thread.id).filter { $0.role == .user }
+        XCTAssertEqual(userMessages.map(\.content), ["review the PRs"])
+    }
+
+    func test_startFailureThatRepeats_isNotRetried() async throws {
+        let runner = StartFailingRunner(
+            message: "VM unavailable: Docker is not running. Start Docker Desktop or OrbStack, then try again.",
+            failures: 99
+        )
+        let tmp = NSTemporaryDirectory() + "rc2-start-retry-" + UUID().uuidString
+        let (_, db) = try Bootstrap(channel: .debug, appSupportOverride: tmp).run()
+        let threadRepo = AgentThreadRepository(db: db)
+        let thread = AgentThread(title: "vm", provider: .distill, model: "fake-model")
+        try threadRepo.upsert(thread)
+        let coordinator = AgentRunCoordinator(
+            runRepo: AgentRunRepository(db: db),
+            messageRepo: AgentMessageRepository(db: db),
+            threadRepo: threadRepo,
+            providers: [.distill: runner]
+        )
+        coordinator.networkRetryDelays = [0, 0, 0]
+        _ = try? await coordinator.startRun(AgentRunRequest(
+            threadId: thread.id, provider: .distill, model: "fake-model", cwd: tmp, prompt: "x"
+        ))
+        await waitUntil { (try? threadRepo.status(of: thread.id)) == .failed }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(runner.requests.count, 1)
+    }
+
     func test_nonNetworkFailure_isNotRetried() async throws {
         let runner = FlakyRunner(failure: "[auth-required] Distill authentication failed: 401", failures: 99)
         let (_, thread, threadRepo) = try await start(runner)

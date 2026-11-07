@@ -387,6 +387,20 @@ public final class ScheduledTaskStore: @unchecked Sendable {
         )
     }
 
+    /// Point a running occurrence at the agent run that automatically retried
+    /// its failed one, so the occurrence finishes with the retry's outcome.
+    public func relinkAgentRun(runID: UUID, agentRunID: AgentRunID) throws {
+        try db.performSync { database in
+            let update = try database.prepare(
+                "UPDATE scheduled_task_runs SET agent_run_id = ? WHERE id = ? AND status = 'running';"
+            )
+            defer { update.reset() }
+            try update.bind(1, agentRunID.value.uuidString.lowercased())
+            try update.bind(2, runID.uuidString.lowercased())
+            _ = try update.step()
+        }
+    }
+
     public func finish(runID: UUID, status: ScheduledTaskRunStatus, errorCode: String? = nil, errorSummary: String? = nil, at date: Date = Date()) throws {
         guard status == .completed || status == .failed || status == .cancelled || status == .skipped else {
             throw ScheduledTaskStoreError.invalidRow("A finished run needs a terminal status.")

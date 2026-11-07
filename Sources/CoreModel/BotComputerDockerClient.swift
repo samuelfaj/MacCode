@@ -204,13 +204,16 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
 
     public func info() throws -> String {
         // A busy daemon can miss one `docker info`; only a timeout is retried.
-        // ponytail: same 5 s limit per attempt; grow it if 15 s total proves short.
+        // After the Mac wakes, Docker can take far longer than 5 s to answer:
+        // dropping the cached binary sends the retry through the resolver's
+        // 5 s / 15 s / 30 s probe ladder instead of three more 5 s attempts.
         var attempt = 0
         while true {
             do {
                 return String(data: try run(["info"]), encoding: .utf8) ?? ""
             } catch BotComputerDockerError.probeTimedOut where attempt < 2 {
                 attempt += 1
+                BotComputerDockerResolver.shared.invalidate()
             }
         }
     }

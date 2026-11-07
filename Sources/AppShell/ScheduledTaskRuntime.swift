@@ -998,6 +998,18 @@ public final class ScheduledTaskScheduler {
                 try store.finish(runID: run.id, status: .completed, at: chrome.finishedAt ?? now)
                 ScheduledTaskCrossProcess.notifyStoreChanged(reason: "completed")
             case .failed, .interrupted:
+                // A transient failure (e.g. the bot VM's Docker check timing
+                // out after sleep) is retried by the coordinator: wait for it
+                // and follow the retry run instead of failing the occurrence.
+                // ponytail: a retry that starts and ends between two ticks is
+                // missed and the occurrence reports the first failure.
+                if let threadID = run.threadID {
+                    if context.coordinator.isAutoRetryPending(threadId: threadID) { continue }
+                    if let retry = try context.runRepo.latestActive(for: threadID), retry.id != agentRunID {
+                        try store.relinkAgentRun(runID: run.id, agentRunID: retry.id)
+                        continue
+                    }
+                }
                 let errorSummary = try? context.runRepo.errorMessage(of: agentRunID)
                 try store.finish(
                     runID: run.id,

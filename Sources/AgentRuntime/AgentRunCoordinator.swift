@@ -657,6 +657,8 @@ public final class AgentRunCoordinator: @unchecked Sendable {
     private var autoContinuationTokens: [AgentThreadID: Int] = [:]
     /// Consecutive automatic resumes after transient provider network failures.
     private var networkRetryCounts: [AgentThreadID: Int] = [:]
+    /// Threads whose automatic retry is waiting out its backoff delay.
+    private var pendingAutoRetryThreads: Set<AgentThreadID> = []
     // PERF-MAC_AGENT-006: last assistant text persisted per thread, to dedup the
     // turnCompleted/finished pair without reloading the whole thread history.
     private var lastPersistedAssistantContent: [AgentThreadID: String] = [:]
@@ -1037,6 +1039,13 @@ public final class AgentRunCoordinator: @unchecked Sendable {
     public func activeRunId(threadId: AgentThreadID) -> AgentRunID? {
         lock.lock(); defer { lock.unlock() }
         return activeThreads[threadId]
+    }
+
+    /// True while a failed run on this thread waits to be retried automatically,
+    /// so observers (scheduled tasks) do not report the failure as final yet.
+    public func isAutoRetryPending(threadId: AgentThreadID) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return pendingAutoRetryThreads.contains(threadId)
     }
 
     /// Returns the raw bearer only when the in-memory owner, durable receipt,
@@ -4043,6 +4052,7 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         let token = (autoContinuationTokens[threadId] ?? 0) + 1
         autoContinuationTokens[threadId] = token
         let delay = networkRetryDelays[attempt - 1]
+        pendingAutoRetryThreads.insert(threadId)
         lock.unlock()
         let identity = try? threadRepo.identity(of: threadId)
         let request = AgentRunRequest(
@@ -4067,6 +4077,7 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         agentRunLog.info("run.networkRetry.scheduled thread=\(threadId.value.uuidString, privacy: .public) attempt=\(attempt, privacy: .public)")
         Task { [weak self] in
             guard let self else { return }
+            defer { self.clearPendingAutoRetry(threadId: threadId, token: token) }
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: UInt64((delay * 1_000_000_000).rounded()))
             }
@@ -4082,16 +4093,22 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         }
     }
 
+    private func clearPendingAutoRetry(threadId: AgentThreadID, token: Int) {
+        lock.lock()
+        if autoContinuationTokens[threadId] == token { pendingAutoRetryThreads.remove(threadId) }
+        lock.unlock()
+    }
+
     /// Same guard as the background-await nudge, but the thread must still be
     /// in the failed state the retry was scheduled for.
-    private func networkRetryStillValid(threadId: AgentThreadID, token: Int) -> Bool {
+    private func networkRetryStillValid(threadId: AgentThreadID, token: Int, status: AgentRunStatus = .failed) -> Bool {
         lock.lock()
         let ok = autoContinuationTokens[threadId] == token
             && activeThreads[threadId] == nil
             && !pendingThreadStops.contains(threadId)
         lock.unlock()
         guard ok else { return false }
-        return (try? threadRepo.status(of: threadId)) == .failed
+        return (try? threadRepo.status(of: threadId)) == status
     }
 
     /// True iff the scheduled continuation is still the latest one for the thread
@@ -7030,7 +7047,73 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         }
         onAssistantEvent?(pending.event, pending.request.threadId, runId)
         if !pending.otherRunActive {
+            maybeScheduleStartFailureRetry(pending)
             onRunFinished?(pending.request.threadId, runId, .failed)
+        }
+    }
+
+    /// A Distill start that failed before the provider took the prompt (for
+    /// example the bot's VM check timed out while Docker woke with the Mac)
+    /// is retried with the original prompt, like a mid-turn network failure.
+    /// The user message is already stored, so the retry does not add another.
+    private func maybeScheduleStartFailureRetry(_ pending: PendingStartFailure) {
+        let original = pending.request
+        let threadId = original.threadId
+        // Distill prompts are never Auto-wrapped, so a second admission
+        // cannot wrap them twice.
+        guard original.provider == .distill,
+              TransientNetworkRetry.isRetryableInterruption(pending.message) else { return }
+        lock.lock()
+        let attempt = (networkRetryCounts[threadId] ?? 0) + 1
+        guard attempt <= networkRetryDelays.count else {
+            lock.unlock()
+            return
+        }
+        networkRetryCounts[threadId] = attempt
+        let token = (autoContinuationTokens[threadId] ?? 0) + 1
+        autoContinuationTokens[threadId] = token
+        let delay = networkRetryDelays[attempt - 1]
+        pendingAutoRetryThreads.insert(threadId)
+        lock.unlock()
+        let request = AgentRunRequest(
+            threadId: threadId,
+            provider: original.provider,
+            providerInstanceId: original.providerInstanceId,
+            model: original.model,
+            cwd: original.cwd,
+            prompt: original.prompt,
+            userMessageContent: original.userMessageContent,
+            attachments: original.attachments,
+            providerThreadId: original.providerThreadId,
+            permissionMode: original.permissionMode,
+            reasoningEffort: original.reasoningEffort,
+            reasoningModel: original.reasoningModel,
+            distillMainEffortSelection: original.distillMainEffortSelection,
+            distillReasoningEffortSelection: original.distillReasoningEffortSelection,
+            distillExecutionMode: original.distillExecutionMode,
+            serviceTier: original.serviceTier,
+            interactionMode: original.interactionMode,
+            providerBinary: original.providerBinary,
+            extraArgs: original.extraArgs,
+            runAsUser: original.runAsUser
+        )
+        let expectedStatus: AgentRunStatus = pending.preserveRecoverableSession ? .interrupted : .failed
+        agentRunLog.info("run.startFailureRetry.scheduled thread=\(threadId.value.uuidString, privacy: .public) attempt=\(attempt, privacy: .public)")
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.clearPendingAutoRetry(threadId: threadId, token: token) }
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: UInt64((delay * 1_000_000_000).rounded()))
+            }
+            guard self.networkRetryStillValid(threadId: threadId, token: token, status: expectedStatus) else { return }
+            if let claim = self.autoContinuationClaimsBotVM {
+                guard await claim(threadId, request.runId) else { return }
+            }
+            do {
+                _ = try await self.startRun(request, isAutoContinuation: true, recordUserMessage: false)
+            } catch {
+                await self.autoContinuationReleasesBotVM?(request.runId)
+            }
         }
     }
 
