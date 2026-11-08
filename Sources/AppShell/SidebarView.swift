@@ -4832,7 +4832,7 @@ public final class SidebarView: NSObject {
             saved: setup.load(),
             signedIn: PrivateAccountSessionStore(repo: context.settingsRepo).load() != nil
         ), let app = NSApp.delegate as? AppDelegate {
-            app.openOnboarding(startingAt: .account)
+            app.openOnboarding(startingAt: .accounts)
             return
         }
         let controller = accountController ?? AccountWindowController(

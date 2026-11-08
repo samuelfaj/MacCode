@@ -1,54 +1,6 @@
 import SwiftUI
 import DesignSystemKit
 
-struct OnboardingBasicsStep: View {
-    @ObservedObject var vm: OnboardingViewModel
-
-    var body: some View {
-        OnboardingStepLayout(
-            eyebrow: OnboardingStep.basics.eyebrow,
-            title: "Meet your new workspace.",
-            subtitle: "MacCode brings your project, AI agents and tools together. This Mac runs the work; your iPhone can follow when connected."
-        ) {
-            VStack(alignment: .leading, spacing: DS.Space.xxl) {
-                lesson("folder", title: "Start with a project", detail: "Open a folder to keep files, terminals, browser tabs and agent conversations together.")
-                lesson("bubble.left.and.bubble.right", title: "Give an agent a goal", detail: "Describe what you need in Agent App. Choose a Bot for a role, then follow its progress and review the changes.")
-                lesson("lock.shield", title: "Choose how it can act", detail: "Review the permissions before sending a task. The first project opens with a draft you can read and edit before sending.")
-            }
-        } illustration: {
-            OnboardingPanel {
-                VStack(alignment: .leading, spacing: DS.Space.xxl) {
-                    OnboardingTitioImage(size: 140)
-                    Text("Try one small task.")
-                        .font(DS.Font.title2).foregroundColor(DS.Palette.text)
-                    Text(OnboardingDeveloperTemplate.firstPrompt)
-                        .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Label("Review the plan before asking for changes.", systemImage: "checklist")
-                        .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
-                }
-            }
-        } footer: {
-            OnboardingBackButton(vm: vm)
-            Spacer()
-            OnboardingPrimaryButton(title: "Continue") { vm.advance(completing: .basics) }
-                .accessibilityIdentifier("onboarding.basics.continue")
-        }
-    }
-
-    private func lesson(_ symbol: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: DS.Space.lg) {
-            Image(systemName: symbol).foregroundColor(DS.Palette.accent)
-                .frame(width: 24).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: DS.Space.sm) {
-                Text(title).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
-                Text(detail).font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-}
-
 struct OnboardingChromeStep: View {
     @ObservedObject var vm: OnboardingViewModel
     @ObservedObject var setup: OnboardingSetupController

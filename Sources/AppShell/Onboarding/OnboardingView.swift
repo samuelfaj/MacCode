@@ -63,18 +63,11 @@ struct OnboardingView: View {
 
     @ViewBuilder private var stepContent: some View {
         switch vm.state.step {
-        case .distill: OnboardingDistillStep(vm: vm, setup: setup)
+        case .setup: OnboardingSetupStep(vm: vm, setup: setup)
         case .permissions: OnboardingPermissionsStep(vm: vm)
-        case .tools: OnboardingToolsStep(vm: vm, setup: setup)
-        case .basics: OnboardingBasicsStep(vm: vm)
         case .chrome: OnboardingChromeStep(vm: vm, setup: setup)
-        case .account: OnboardingAccountStep(vm: vm)
-        case .jev: OnboardingJevStep(vm: vm, accounts: accounts)
-        case .accounts: OnboardingProvidersStep(vm: vm, accounts: accounts)
-        case .routing: OnboardingRoutingStep(vm: vm, accounts: accounts)
-        case .bots: OnboardingBotsStep(vm: vm)
-        case .workspace: OnboardingWorkspaceStep(vm: vm)
-        case .follow: OnboardingFollowStep(vm: vm)
+        case .accounts: OnboardingAccountsStep(vm: vm, accounts: accounts)
+        case .project: OnboardingProjectStep(vm: vm)
         }
     }
 }

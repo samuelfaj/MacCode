@@ -114,28 +114,28 @@ final class OnboardingTests: XCTestCase {
         let services = Services(accounts: Accounts())
         let store = try makeStore()
         let vm = OnboardingViewModel(services: services, store: store, initial: OnboardingState())
-        vm.skip(.account)
-        XCTAssertEqual(vm.state.step, .jev)
-        XCTAssertTrue(vm.state.skippedSteps.contains(.account))
-        XCTAssertFalse(vm.state.completedSteps.contains(.account))
+        vm.skip(.setup)
+        XCTAssertEqual(vm.state.step, .permissions)
+        XCTAssertTrue(vm.state.skippedSteps.contains(.setup))
+        XCTAssertFalse(vm.state.completedSteps.contains(.setup))
         XCTAssertEqual(store.load(), vm.state, "Progress survives a relaunch")
     }
 
     // Users cannot jump past an undecided step via the stepper.
     func test_stepperCannotSkipAheadOfUndecidedSteps() throws {
         let vm = OnboardingViewModel(services: Services(accounts: Accounts()), store: try makeStore(), initial: OnboardingState())
-        vm.jump(to: .workspace)
-        XCTAssertEqual(vm.state.step, .distill)
+        vm.jump(to: .project)
+        XCTAssertEqual(vm.state.step, .setup)
     }
 
     func test_failedSignInStaysOnStepWithActionableMessage() async throws {
         let services = Services(accounts: Accounts())
         services.signInError = PrivateAccountAPIError.http(401)
-        var state = OnboardingState(); state.step = .account
+        var state = OnboardingState(); state.step = .accounts
         let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
         vm.email = "dev@example.com"; vm.password = "correct-horse"
         await vm.submitAccount()
-        XCTAssertEqual(vm.state.step, .account)
+        XCTAssertEqual(vm.state.step, .accounts)
         XCTAssertEqual(vm.accountError, "Email or password is incorrect.")
         XCTAssertEqual(vm.password, "correct-horse", "Keep the password for a retry")
     }
@@ -149,7 +149,7 @@ final class OnboardingTests: XCTestCase {
         let services = Services(accounts: Accounts())
         let store = try makeStore()
         let vm = OnboardingViewModel(services: services, store: store, initial: OnboardingState())
-        vm.advance(completing: .distill)
+        vm.advance(completing: .setup)
         vm.close()
         XCTAssertEqual(store.load()?.step, .permissions)
         XCTAssertTrue(OnboardingGate.launchDecision(saved: store.load(), hasWorkspaces: true, hasAccountSession: true).present)
@@ -159,58 +159,43 @@ final class OnboardingTests: XCTestCase {
         XCTAssertEqual(store.load()?.status, .skipped)
     }
 
-    func test_legacyUnfinishedSetupAddsPrerequisitesAndPreservesChoices() throws {
-        var old = OnboardingState(); old.version = 1; old.step = .accounts
-        old.complete(.account); old.createDeveloper = false
-        let vm = OnboardingViewModel(services: Services(accounts: Accounts()), store: try makeStore(), initial: old)
-        XCTAssertEqual(vm.state.step, .distill)
-        XCTAssertTrue(vm.state.completedSteps.contains(.account))
-        XCTAssertFalse(vm.state.createDeveloper)
-        XCTAssertEqual(Array(OnboardingStep.allCases.suffix(7)), [.account, .jev, .accounts, .routing, .bots, .workspace, .follow])
-
-        let services = Services(accounts: Accounts())
-        let workspace = WorkspaceID(); services.workspaces.insert(workspace)
-        old.workspaceID = workspace; old.complete(.workspace)
-        old.completedSteps.formUnion([.account, .jev, .accounts, .routing, .bots])
-        let resumed = OnboardingViewModel(services: services, store: try makeStore(), initial: old)
-        resumed.advance(completing: .distill)
-        resumed.advance(completing: .permissions)
-        resumed.goBack()
-        XCTAssertEqual(resumed.state.step, .permissions, "Prerequisite review can go back without unlocking the existing project")
-        resumed.advance(completing: .permissions)
-        resumed.jump(to: .bots)
-        XCTAssertEqual(resumed.state.step, .tools, "An existing project must not become editable through completed stepper buttons")
-        resumed.advance(completing: .tools)
-        XCTAssertEqual(resumed.state.step, .basics)
-        resumed.advance(completing: .basics)
-        XCTAssertEqual(resumed.state.step, .chrome)
-        resumed.skip(.chrome)
-        XCTAssertEqual(resumed.state.step, .follow)
-        XCTAssertEqual(resumed.state.workspaceID, workspace)
-        XCTAssertEqual(services.openCalls, 0)
+    // Setup was twelve steps; saved progress must fold into the five current
+    // ones without repeating work the user already did or promoting a skip.
+    func test_savedTwelveStepProgressFoldsIntoFiveSteps() throws {
+        let json = """
+        {"version":3,"status":"inProgress","step":"accounts","createDeveloper":false,"developerName":"Dev",
+         "completedSteps":["distill","permissions","tools","basics","account","jev"],"skippedSteps":["chrome"]}
+        """
+        let old = try JSONDecoder().decode(OnboardingState.self, from: Data(json.utf8))
+        XCTAssertEqual(old.version, 4)
+        XCTAssertEqual(old.step, .accounts)
+        XCTAssertEqual(old.completedSteps, [.setup, .permissions])
+        XCTAssertEqual(old.skippedSteps, [.chrome], "A skipped Chrome step is not a completed one")
+        XCTAssertFalse(old.createDeveloper)
+        XCTAssertEqual(Array(OnboardingStep.allCases), [.setup, .permissions, .chrome, .accounts, .project])
+        XCTAssertEqual(OnboardingStep.chrome.index, 2, "Chrome is the third step")
+        XCTAssertEqual(OnboardingStep.allCases.count, 5)
     }
 
-    func test_versionTwoAddsProductAndChromeLessonsWithoutRepeatingPrerequisites() throws {
-        var old = OnboardingState(); old.version = 2; old.step = .accounts
-        old.completedSteps = [.distill, .permissions, .tools, .account, .jev]
-        old.createDeveloper = false
-        let services = Services(accounts: Accounts())
-        let store = try makeStore()
-        let vm = OnboardingViewModel(services: services, store: store, initial: old)
-        XCTAssertEqual(vm.state.version, 3)
-        XCTAssertEqual(vm.state.step, .basics)
-        XCTAssertTrue(old.completedSteps.isSubset(of: vm.state.completedSteps))
-        XCTAssertFalse(vm.state.createDeveloper)
-        XCTAssertEqual(Array(OnboardingStep.allCases.prefix(5)), [.distill, .permissions, .tools, .basics, .chrome])
-        vm.advance(completing: .basics)
-        vm.skip(.chrome)
-        XCTAssertEqual(vm.state.step, .accounts, "The new lessons resume the first undecided step without repeating saved account setup")
-        XCTAssertTrue(store.load()?.skippedSteps.contains(.chrome) == true)
-        XCTAssertFalse(store.load()?.completedSteps.contains(.chrome) == true)
+    func test_halfFinishedLegacyGroupIsNotMarkedDone() throws {
+        let json = #"{"version":3,"status":"inProgress","step":"tools","completedSteps":["distill"]}"#
+        let old = try JSONDecoder().decode(OnboardingState.self, from: Data(json.utf8))
+        XCTAssertEqual(old.step, .setup)
+        XCTAssertFalse(old.completedSteps.contains(.setup), "Tools were never completed, so Setup must stay open")
+    }
 
-        old.step = .permissions
-        let prerequisiteReview = OnboardingViewModel(services: services, store: try makeStore(), initial: old)
-        XCTAssertEqual(prerequisiteReview.state.step, .permissions, "An unfinished prerequisite must not be bypassed by the new lessons")
+    func test_legacyFinishedProjectStaysLocked() throws {
+        let services = Services(accounts: Accounts())
+        let workspace = WorkspaceID(); services.workspaces.insert(workspace)
+        let json = #"{"version":3,"status":"inProgress","step":"follow","completedSteps":["workspace"]}"#
+        var old = try JSONDecoder().decode(OnboardingState.self, from: Data(json.utf8))
+        XCTAssertEqual(old.step, .project)
+        XCTAssertFalse(old.completedSteps.contains(.project), "Follow was not completed, so the project step is not final")
+        old.workspaceID = workspace; old.complete(.project)
+        let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: old)
+        XCTAssertTrue(vm.isLocked)
+        vm.jump(to: .setup)
+        XCTAssertEqual(vm.state.step, .project, "An existing project must not become editable through the stepper")
     }
 
     func test_failedToolInstallCanRetryAndNeverClaimsReady() async {
@@ -254,32 +239,31 @@ final class OnboardingTests: XCTestCase {
     }
 
     // A failed save must leave the user on the step with the shared profile untouched.
-    func test_failedAutoSaveDoesNotAdvance() async throws {
+    func test_failedAutoSaveKeepsUserOnAccountsStep() async throws {
         let accounts = Accounts()
         accounts.statusesValue = [DistillAccountStatus(provider: .chatgpt, connected: true)]
         accounts.saveFails = true
         let services = Services(accounts: accounts)
         services.models = [model("gpt-6", .chatgpt)]
-        var state = OnboardingState(); state.step = .routing
+        var state = OnboardingState(); state.step = .accounts
         let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
-        await vm.prepareRouting()
+        await vm.finishAccounts()
         XCTAssertFalse(vm.routingDraft.options.isEmpty)
-        await vm.saveRouting()
-        XCTAssertEqual(vm.state.step, .routing)
+        XCTAssertEqual(vm.state.step, .accounts)
         XCTAssertEqual(accounts.routing, DistillAutoRouting())
         XCTAssertNotNil(vm.routingNote)
     }
 
-    func test_confirmedAutoSaveAdvances() async throws {
+    func test_leavingAccountsStepSavesRecommendedAutoAndAdvances() async throws {
         let accounts = Accounts()
         accounts.statusesValue = [DistillAccountStatus(provider: .claude, connected: true)]
         let services = Services(accounts: accounts)
         services.models = [model("sonnet", .claude)]
-        var state = OnboardingState(); state.step = .routing
+        var state = OnboardingState(); state.step = .accounts
         let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
-        await vm.prepareRouting()
-        await vm.saveRouting()
-        XCTAssertEqual(vm.state.step, .bots)
+        await vm.finishAccounts()
+        XCTAssertEqual(vm.state.step, .project)
+        XCTAssertTrue(vm.state.completedSteps.contains(.accounts))
         XCTAssertEqual(accounts.routing.options.map(\.mainModel), ["sonnet"])
     }
 
@@ -289,7 +273,7 @@ final class OnboardingTests: XCTestCase {
         let services = Services(accounts: Accounts())
         services.failCreate = true
         let store = try makeStore()
-        var state = OnboardingState(); state.step = .workspace
+        var state = OnboardingState(); state.step = .project
         let vm = OnboardingViewModel(services: services, store: store, initial: state)
         vm.chooseFolder(URL(fileURLWithPath: NSTemporaryDirectory()))
         vm.finish()
@@ -303,8 +287,8 @@ final class OnboardingTests: XCTestCase {
         XCTAssertNil(vm.finishError)
         XCTAssertEqual(services.openCalls, 1, "Retry must reuse the workspace")
         XCTAssertEqual(services.createCalls, 2)
-        XCTAssertEqual(vm.state.step, .follow, "Creating the project leads to the last step")
-        XCTAssertEqual(services.opened, [OnboardingFollow.url], "Reaching step 7 opens the X profile once")
+        XCTAssertTrue(vm.state.completedSteps.contains(.project))
+        XCTAssertTrue(services.opened.isEmpty, "The X profile is a footer link; it never opens by itself")
         XCTAssertTrue(services.handOffs.isEmpty, "The project opens only when setup finishes")
         vm.done()
         XCTAssertEqual(vm.state.status, .completed)
@@ -318,7 +302,7 @@ final class OnboardingTests: XCTestCase {
 
     func test_finishWithoutDeveloperHandsOffWithoutActor() throws {
         let services = Services(accounts: Accounts())
-        var state = OnboardingState(); state.step = .workspace; state.createDeveloper = false
+        var state = OnboardingState(); state.step = .project; state.createDeveloper = false
         let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
         vm.chooseFolder(URL(fileURLWithPath: NSTemporaryDirectory()))
         vm.finish()
@@ -333,7 +317,7 @@ final class OnboardingTests: XCTestCase {
     // overflowed when setup finished.
     func test_closeIsReentrantSafeAndFinishKeepsCompletedStatus() throws {
         let services = Services(accounts: Accounts())
-        var state = OnboardingState(); state.step = .workspace; state.createDeveloper = false
+        var state = OnboardingState(); state.step = .project; state.createDeveloper = false
         var closes = 0
         var vm: OnboardingViewModel!
         vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state) { _ in
@@ -351,15 +335,15 @@ final class OnboardingTests: XCTestCase {
     // must still finish setup and open the project, never leave it dismissed
     // with a workspace the user never saw; and the created project cannot be
     // re-chosen by navigating back.
-    func test_followStepFinishesOnCloseAndLocksEarlierSteps() throws {
+    func test_closingAfterProjectFinishesSetupAndLocksProject() throws {
         let services = Services(accounts: Accounts())
-        var state = OnboardingState(); state.step = .workspace; state.createDeveloper = false
+        var state = OnboardingState(); state.step = .project; state.createDeveloper = false
         let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
         vm.chooseFolder(URL(fileURLWithPath: NSTemporaryDirectory()))
         vm.finish()
-        XCTAssertEqual(vm.state.step, .follow)
-        vm.goBack(); vm.jump(to: .bots)
-        XCTAssertEqual(vm.state.step, .follow, "The created project cannot be revisited")
+        XCTAssertEqual(vm.state.step, .project)
+        vm.goBack(); vm.jump(to: .setup)
+        XCTAssertEqual(vm.state.step, .project, "The created project cannot be revisited")
         vm.close()
         XCTAssertEqual(vm.state.status, .completed)
         XCTAssertEqual(services.handOffs.count, 1)
@@ -368,11 +352,11 @@ final class OnboardingTests: XCTestCase {
 
     // Resuming a setup that is already on step 7 must not open the browser
     // again at launch; only the transition into the step does.
-    func test_resumingOnFollowStepDoesNotReopenBrowser() throws {
+    func test_resumingFinishedProjectNeverOpensBrowser() throws {
         let services = Services(accounts: Accounts())
         let workspace = WorkspaceID(); services.workspaces.insert(workspace)
-        var state = OnboardingState(); state.step = .follow
-        state.complete(.workspace); state.workspaceID = workspace
+        var state = OnboardingState(); state.step = .project
+        state.complete(.project); state.workspaceID = workspace
         let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
         vm.finish()
         XCTAssertTrue(services.opened.isEmpty)
@@ -381,14 +365,15 @@ final class OnboardingTests: XCTestCase {
         XCTAssertEqual(vm.state.status, .completed)
     }
 
-    // A project deleted while setup waited on step 7 must not strand the user
-    // on a step whose only action needs it: setup returns to step 6.
-    func test_resumingOnFollowStepWithDeletedProjectReturnsToProjectStep() throws {
+    // A project deleted while setup was open must not strand the user: the
+    // project step becomes choosable again.
+    func test_resumingWithDeletedProjectAllowsChoosingAgain() throws {
         let services = Services(accounts: Accounts())
-        var state = OnboardingState(); state.step = .follow
-        state.complete(.workspace); state.workspaceID = WorkspaceID()
+        var state = OnboardingState(); state.step = .project
+        state.complete(.project); state.workspaceID = WorkspaceID()
         let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
-        XCTAssertEqual(vm.state.step, .workspace)
+        XCTAssertEqual(vm.state.step, .project)
+        XCTAssertFalse(vm.state.completedSteps.contains(.project))
         XCTAssertFalse(vm.isLocked)
     }
 
@@ -398,7 +383,7 @@ final class OnboardingTests: XCTestCase {
     func test_reusedDeveloperFollowsRecreatedWorkspace() throws {
         let services = Services(accounts: Accounts())
         let bot = BotID(); services.bots.insert(bot)
-        var state = OnboardingState(); state.step = .workspace
+        var state = OnboardingState(); state.step = .project
         state.workspaceID = WorkspaceID(); state.developerBotID = bot
         let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
         vm.chooseFolder(URL(fileURLWithPath: NSTemporaryDirectory()))

@@ -69,10 +69,10 @@ extension AppDelegate {
         var state = store.load() ?? OnboardingState()
         if state.status != .inProgress {
             state.status = .inProgress
-            if state.completedAt != nil { state.step = .distill }
+            if state.completedAt != nil { state.step = .setup }
         }
         // The sidebar account entry stays reachable until the project exists.
-        if let step, !state.completedSteps.contains(.workspace) { state.step = step }
+        if let step, !state.completedSteps.contains(.project) { state.step = step }
         store.save(state)
         let vm = OnboardingViewModel(
             services: OnboardingLiveServices(context: context),

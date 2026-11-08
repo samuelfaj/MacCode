@@ -2,46 +2,63 @@ import AppKit
 import SwiftUI
 import DesignSystemKit
 
-struct OnboardingDistillStep: View {
+struct OnboardingSetupStep: View {
     @ObservedObject var vm: OnboardingViewModel
     @ObservedObject var setup: OnboardingSetupController
 
+    private let required: [OnboardingTool] = [.distill, .git, .node, .automation]
+    private let optional: [OnboardingTool] = [.docker, .helper]
+    private var ready: Bool { setup.state(.distill).isReady && setup.requiredToolsReady }
+
     var body: some View {
         OnboardingStepLayout(
-            eyebrow: OnboardingStep.distill.eyebrow,
-            title: "First, your AI engine.",
-            subtitle: "MacCode installs Distill automatically, then checks that it can run. Keep this window open while it downloads."
+            eyebrow: OnboardingStep.setup.eyebrow,
+            title: "Getting your Mac ready.",
+            subtitle: "MacCode installs what it needs in your home folder, with no Terminal. Keep this window open while it downloads."
         ) {
-            VStack(alignment: .leading, spacing: DS.Space.xl) {
-                OnboardingToolRow(tool: .distill, state: setup.state(.distill)) {
-                    Task { await setup.install(.distill) }
+            VStack(alignment: .leading, spacing: DS.Space.lg) {
+                ForEach(required, id: \.self) { tool in
+                    OnboardingToolRow(tool: tool, state: setup.state(tool)) { Task { await setup.install(tool) } }
                 }
-                Text("You need an internet connection and space in your home folder. If a download fails, reconnect and try again. Your existing accounts are preserved.")
-                    .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text("OPTIONAL").font(DS.Font.captionStrong).tracking(1).foregroundColor(DS.Palette.textSecondary)
+                    .padding(.top, DS.Space.md)
+                ForEach(optional, id: \.self) { tool in
+                    OnboardingToolRow(tool: tool, state: setup.state(tool)) { Task { await setup.install(tool) } }
+                }
+                Button("Check again") {
+                    Task { for tool in OnboardingTool.allCases { await setup.refresh(tool) } }
+                }.buttonStyle(.link)
             }
         } illustration: {
             OnboardingPanel {
-                VStack(spacing: DS.Space.xxl) {
-                    OnboardingTitioImage(size: 160)
-                    Text(setup.state(.distill).isReady ? "Ready for your accounts." : "Getting this Mac ready.")
+                VStack(alignment: .leading, spacing: DS.Space.xl) {
+                    OnboardingTitioImage(size: 140)
+                    Text(ready ? "Your Mac is ready." : "Getting this Mac ready.")
                         .font(DS.Font.title2).foregroundColor(DS.Palette.text)
-                    Text("ChatGPT · Claude · Grok · OpenRouter")
-                        .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
-                }.frame(maxWidth: .infinity)
+                    Text("Downloads come from the official releases. MacCode checks checksums or macOS signatures before installing. Existing Chrome, Docker, OrbStack and Node installations are reused when compatible.")
+                        .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
+                    Text("You need an internet connection and space in your home folder. If a download fails, reconnect and retry. Your existing accounts are preserved.")
+                        .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
+                }
             }
         } footer: {
             Spacer()
-            Button("Skip for now") { vm.skip(.distill) }.buttonStyle(.link)
+            Button("Skip for now") { vm.skip(.setup) }.buttonStyle(.link)
                 .accessibilityHint("AI conversations need Distill. You can install it later from setup.")
-            OnboardingPrimaryButton(title: "Continue", busy: setup.state(.distill).isBusy) {
-                vm.advance(completing: .distill)
-            }.disabled(!setup.state(.distill).isReady)
+            OnboardingPrimaryButton(title: "Continue", busy: !ready && (setup.state(.distill).isBusy || setup.states.values.contains { $0.isBusy })) {
+                vm.advance(completing: .setup)
+            }.disabled(!ready)
         }
         .onChange(of: setup.state(.distill).isReady) { _, ready in
             if ready { vm.accounts.ensureDistillInstalled() }
         }
-        .task { await setup.prepareDistill() }
+        .task {
+            await setup.prepareDistill()
+            await setup.prepareTools()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { for tool in OnboardingTool.allCases { await setup.refresh(tool) } }
+        }
     }
 }
 
@@ -127,53 +144,6 @@ struct OnboardingPermissionsStep: View {
     private func openPrivacy(_ pane: String) {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")!)
         permissions = ComputerUsePermissionBroker.snapshot()
-    }
-}
-
-struct OnboardingToolsStep: View {
-    @ObservedObject var vm: OnboardingViewModel
-    @ObservedObject var setup: OnboardingSetupController
-
-    var body: some View {
-        OnboardingStepLayout(
-            eyebrow: OnboardingStep.tools.eyebrow,
-            title: "The tools behind your project.",
-            subtitle: "MacCode prepares Git, Node.js and computer automation. Add Chrome or Docker if you use their features. You can return to setup at any time."
-        ) {
-            VStack(alignment: .leading, spacing: DS.Space.xl) {
-                ForEach(OnboardingTool.allCases.filter { $0 != .distill }, id: \.self) { tool in
-                    OnboardingToolRow(tool: tool, state: setup.state(tool)) {
-                        Task { await setup.install(tool) }
-                    }
-                }
-                Button("Check again") {
-                    Task { for tool in OnboardingTool.allCases where tool != .distill { await setup.refresh(tool) } }
-                }.buttonStyle(.link)
-                if setup.state(.chrome).isReady { ChromeExtensionSettingsSection() }
-            }
-        } illustration: {
-            OnboardingPanel {
-                VStack(alignment: .leading, spacing: DS.Space.xl) {
-                    OnboardingTitioImage(size: 140)
-                    Text("No Terminal setup required.").font(DS.Font.title2).foregroundColor(DS.Palette.text)
-                    Text("Downloads come from the official releases. MacCode checks checksums or macOS signatures before installing. Existing Chrome, Docker, OrbStack and Node installations are reused when compatible.")
-                        .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
-                    Text("Linux packages, the Bot desktop and its browser are prepared automatically on first use. That first start needs internet access and extra disk space.")
-                        .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        } footer: {
-            OnboardingBackButton(vm: vm)
-            Spacer()
-            Button("Skip for now") { vm.skip(.tools) }.buttonStyle(.link)
-            OnboardingPrimaryButton(title: "Continue") {
-                vm.advance(completing: .tools)
-            }.disabled(!setup.requiredToolsReady)
-        }
-        .task { await setup.prepareTools() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { for tool in OnboardingTool.allCases where tool != .distill { await setup.refresh(tool) } }
-        }
     }
 }
 
