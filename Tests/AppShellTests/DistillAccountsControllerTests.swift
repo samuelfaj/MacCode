@@ -24,7 +24,9 @@ final class DistillAccountsControllerTests: XCTestCase {
         var holdSave = false
         var saveCount = 0
         var saveContinuation: CheckedContinuation<Void, Never>?
+        var loadError: Error?
         func loadState() async throws -> DistillAccountsState {
+            if let loadError { throw loadError }
             if holdLoad { return try await withCheckedThrowingContinuation { loadContinuation = $0 } }
             return .init(accounts: statusesValue, routing: routing)
         }
@@ -179,12 +181,17 @@ final class DistillAccountsControllerTests: XCTestCase {
     func test_missingDistillInstallsOnceAndRefreshesAfterSuccess() async {
         var installerCalls = 0
         var refreshCalls = 0
+        let accounts = Accounts()
+        accounts.loadError = DistillAccountError.failed("Distill is not installed.")
         let controller = DistillAccountsController(
-            accounts: Accounts(),
+            accounts: accounts,
             installer: { installerCalls += 1; return "/tmp/distill" },
             resolveBinary: { nil },
             didChange: { _, succeeded in if succeeded { refreshCalls += 1 } }
         )
+        await controller.refreshAndWait()
+        XCTAssertNotNil(controller.lastError)
+        accounts.loadError = nil
         controller.ensureDistillInstalled()
         XCTAssertEqual(controller.installState, .installing)
         for _ in 0..<100 where controller.installState == .installing {
@@ -193,6 +200,9 @@ final class DistillAccountsControllerTests: XCTestCase {
         XCTAssertEqual(controller.installState, .installed)
         XCTAssertEqual(installerCalls, 1)
         XCTAssertEqual(refreshCalls, 1)
+        await controller.refreshAndWait()
+        XCTAssertTrue(controller.hasLoadedState, "The same controller must read the installed CLI without restarting")
+        XCTAssertNil(controller.lastError, "The pre-install read failure must disappear after recovery")
     }
 
     func test_installIsSingleFlightWhileInstallerWaits() async {
@@ -241,16 +251,24 @@ final class DistillAccountsControllerTests: XCTestCase {
         XCTAssertEqual(installerCalls, 2)
     }
 
-    func test_alreadyInstalledSkipsInstaller() {
+    func test_alreadyInstalledSkipsInstallerAndRefreshesOnce() async {
         var installerCalls = 0
+        var refreshCalls = 0
         let controller = DistillAccountsController(
             accounts: Accounts(),
             installer: { installerCalls += 1; return "/tmp/distill" },
-            resolveBinary: { "/tmp/distill" }
+            resolveBinary: { "/tmp/distill" },
+            didChange: { _, succeeded in if succeeded { refreshCalls += 1 } }
         )
         controller.ensureDistillInstalled()
+        controller.ensureDistillInstalled()
+        for _ in 0..<100 where !controller.hasLoadedState {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
         XCTAssertEqual(controller.installState, .installed)
         XCTAssertEqual(installerCalls, 0)
+        XCTAssertEqual(refreshCalls, 1, "An installation discovered after setup must refresh the catalog exactly once")
+        XCTAssertTrue(controller.hasLoadedState)
     }
 
     func test_loginAllowsOnlyOneOperationAndCancelClearsBusyState() async {
@@ -298,6 +316,8 @@ final class DistillAccountsControllerTests: XCTestCase {
         for _ in 0..<50 where controller.busyProvider != nil { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertEqual(controller.lastError, "login failed")
         XCTAssertNil(controller.busyProvider)
+        await controller.refreshAndWait()
+        XCTAssertEqual(controller.lastError, "login failed", "Background recovery must not dismiss an unrelated sign-in failure")
     }
     func test_namedRowsUseExactIDAndRejectLateRefreshAfterCancel() async throws {
         let accounts = Accounts()

@@ -38,6 +38,9 @@ struct OnboardingDistillStep: View {
                 vm.advance(completing: .distill)
             }.disabled(!setup.state(.distill).isReady)
         }
+        .onChange(of: setup.state(.distill).isReady) { _, ready in
+            if ready { vm.accounts.ensureDistillInstalled() }
+        }
         .task { await setup.prepareDistill() }
     }
 }

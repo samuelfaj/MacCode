@@ -87,6 +87,7 @@ public final class DistillAccountsController: ObservableObject {
         let token = refreshGeneration
         let operationToken = generation
         isRefreshing = true
+        if lastError == stateError { lastError = nil }
         stateError = nil
         refreshTask = Task { [weak self] in
             guard let self else { return }
@@ -123,7 +124,13 @@ public final class DistillAccountsController: ObservableObject {
     public func ensureDistillInstalled() {
         guard installState != .installing else { return }
         if resolveBinary() != nil {
+            guard installState != .installed else { return }
             installState = .installed
+            Task { [weak self] in
+                guard let self else { return }
+                await didChange(nil, true)
+                refresh()
+            }
             return
         }
         installGeneration &+= 1

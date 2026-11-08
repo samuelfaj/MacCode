@@ -5,7 +5,7 @@ Escopo: dependências e autorizações consumidas pelo MacCode. As sete etapas a
 | Falta ou problema | Efeito | Tratamento no onboarding / recuperação |
 |---|---|---|
 | Distill ausente | Contas, modelos e conversas indisponíveis | Download oficial automático, verificação `--version`, progresso real e retry na etapa 1. |
-| Distill instalado depois que o app abriu | Serviço de contas tentava executar o nome relativo salvo no lançamento | Resolve o executável em cada operação; não exige reiniciar o MacCode. |
+| Distill instalado depois que o app abriu | Serviço de contas tentava executar o nome relativo salvo no lançamento; erro anterior podia continuar visível | Resolve o executável em cada operação, atualiza contas e catálogo ao detectar a instalação e limpa o erro de leitura obsoleto; não exige reiniciar o MacCode. Erros de login independentes continuam visíveis. |
 | Duas instalações de Distill ao mesmo tempo | Corrida na troca do binário/symlink | Provisionamento serializado em um ponto compartilhado. |
 | Download do script falha | Pipeline de shell podia devolver sucesso | `pipefail`, curl absoluto, retries e limites de tempo. Falha fica visível. |
 | PATH mínimo de app aberto pelo Finder | CLI instalado, mas não encontrado | Busca explícita em diretórios oficiais e no runtime gerenciado. |

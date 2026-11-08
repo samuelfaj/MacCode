@@ -21,7 +21,7 @@ final class ManagedToolInstallerTests: XCTestCase {
         try ManagedToolInstaller.replace(source, with: target)
         XCTAssertEqual(try String(contentsOf: target.appendingPathComponent("VERSION"), encoding: .utf8), "second")
     }
-    func test_realPrerequisiteInstallersInPrivateHome() async throws {
+    @MainActor func test_realPrerequisiteInstallersInPrivateHome() async throws {
         guard ProcessInfo.processInfo.environment["MACCODE_TEST_REAL_INSTALLERS"] == "1" else {
             throw XCTSkip("Opt in to official downloads in the sandbox-private home")
         }
@@ -32,10 +32,25 @@ final class ManagedToolInstallerTests: XCTestCase {
         let support = home.appendingPathComponent("OnboardingInstallerProof-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: support) }
-        let status = await ProviderCLIProbe.runOffCooperativePool {
-            (try? DistillProvisioner.runInstallerProcess(DistillProvisioner.installPlan())) ?? -1
-        }
-        XCTAssertEqual(status, 0)
+        let path = "/usr/bin:/bin:/usr/sbin:/sbin"
+        XCTAssertNil(DistillProvisioner.resolveInstalledBinary(environmentPath: path, homeDirectory: home.path),
+                     "Start this proof in a fresh sandbox home with no Distill")
+        let accounts = DistillAccounts(home: home.appendingPathComponent(".distill"), binaryPath: "distill",
+            environment: ["HOME": home.path, "PATH": path], openURL: { _ in })
+        let installed = expectation(description: "Official Distill installed and catalog refresh requested")
+        let controller = DistillAccountsController(accounts: accounts,
+            installer: { try DistillProvisioner.ensureInstalled(environmentPath: path, homeDirectory: home.path).binaryPath },
+            resolveBinary: { DistillProvisioner.resolveInstalledBinary(environmentPath: path, homeDirectory: home.path) },
+            didChange: { _, succeeded in if succeeded { installed.fulfill() } })
+        await controller.refreshAndWait()
+        XCTAssertFalse(controller.hasLoadedState)
+        XCTAssertNotNil(controller.lastError)
+        controller.ensureDistillInstalled()
+        await fulfillment(of: [installed], timeout: 650)
+        await controller.refreshAndWait()
+        XCTAssertEqual(controller.installState, .installed)
+        XCTAssertTrue(controller.hasLoadedState, "The pre-install account client must use the newly installed CLI")
+        XCTAssertNil(controller.lastError, "Installation recovery must remove the obsolete missing-Distill error")
         let distill = home.appendingPathComponent(".local/share/distill/bin/distill")
         XCTAssertNotNil(ProviderCLIProbe.version(binaryPath: distill.path))
         do { try await OnboardingToolInstaller.install(.node, appSupport: support, distillOverride: distill.path) }
