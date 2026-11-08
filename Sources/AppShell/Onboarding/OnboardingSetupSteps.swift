@@ -164,10 +164,8 @@ struct OnboardingToolsStep: View {
             Spacer()
             Button("Skip for now") { vm.skip(.tools) }.buttonStyle(.link)
             OnboardingPrimaryButton(title: "Continue") {
-                if [OnboardingTool.git, .node, .automation].allSatisfy({ setup.state($0).isReady }) {
-                    vm.advance(completing: .tools)
-                } else { vm.skip(.tools) }
-            }
+                vm.advance(completing: .tools)
+            }.disabled(!setup.requiredToolsReady)
         }
         .task { await setup.prepareTools() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in

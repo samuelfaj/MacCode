@@ -191,9 +191,15 @@ final class OnboardingTests: XCTestCase {
         await setup.prepareDistill()
         guard case .failed = setup.state(.distill) else { return XCTFail("Expected an actionable failure") }
         XCTAssertFalse(setup.state(.distill).isReady)
+        XCTAssertFalse(setup.requiredToolsReady, "Continue must stay disabled while required tools are unchecked or missing")
         let ready = OnboardingSetupController(check: { _ in .ready("Distill test") }, install: { _ in XCTFail("Existing tools must be reused") })
         await ready.prepareDistill()
         XCTAssertTrue(ready.state(.distill).isReady)
+        await ready.prepareTools()
+        XCTAssertTrue(ready.requiredToolsReady)
+        let failedNode = OnboardingSetupController(check: { $0 == .node ? .failed("download failed") : .ready("ok") }, install: { _ in })
+        await failedNode.prepareTools()
+        XCTAssertFalse(failedNode.requiredToolsReady, "One failed prerequisite must never silently advance as a skipped step")
     }
 
     // Auto must only contain accounts that are connected and models the live
