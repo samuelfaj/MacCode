@@ -181,9 +181,36 @@ final class OnboardingTests: XCTestCase {
         resumed.jump(to: .bots)
         XCTAssertEqual(resumed.state.step, .tools, "An existing project must not become editable through completed stepper buttons")
         resumed.advance(completing: .tools)
+        XCTAssertEqual(resumed.state.step, .basics)
+        resumed.advance(completing: .basics)
+        XCTAssertEqual(resumed.state.step, .chrome)
+        resumed.skip(.chrome)
         XCTAssertEqual(resumed.state.step, .follow)
         XCTAssertEqual(resumed.state.workspaceID, workspace)
         XCTAssertEqual(services.openCalls, 0)
+    }
+
+    func test_versionTwoAddsProductAndChromeLessonsWithoutRepeatingPrerequisites() throws {
+        var old = OnboardingState(); old.version = 2; old.step = .accounts
+        old.completedSteps = [.distill, .permissions, .tools, .account, .jev]
+        old.createDeveloper = false
+        let services = Services(accounts: Accounts())
+        let store = try makeStore()
+        let vm = OnboardingViewModel(services: services, store: store, initial: old)
+        XCTAssertEqual(vm.state.version, 3)
+        XCTAssertEqual(vm.state.step, .basics)
+        XCTAssertTrue(old.completedSteps.isSubset(of: vm.state.completedSteps))
+        XCTAssertFalse(vm.state.createDeveloper)
+        XCTAssertEqual(Array(OnboardingStep.allCases.prefix(5)), [.distill, .permissions, .tools, .basics, .chrome])
+        vm.advance(completing: .basics)
+        vm.skip(.chrome)
+        XCTAssertEqual(vm.state.step, .accounts, "The new lessons resume the first undecided step without repeating saved account setup")
+        XCTAssertTrue(store.load()?.skippedSteps.contains(.chrome) == true)
+        XCTAssertFalse(store.load()?.completedSteps.contains(.chrome) == true)
+
+        old.step = .permissions
+        let prerequisiteReview = OnboardingViewModel(services: services, store: try makeStore(), initial: old)
+        XCTAssertEqual(prerequisiteReview.state.step, .permissions, "An unfinished prerequisite must not be bypassed by the new lessons")
     }
 
     func test_failedToolInstallCanRetryAndNeverClaimsReady() async {

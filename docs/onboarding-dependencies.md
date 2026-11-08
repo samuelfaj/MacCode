@@ -1,6 +1,6 @@
 # Auditoria de instalação em um Mac novo
 
-Escopo: dependências e autorizações consumidas pelo MacCode. As sete etapas anteriores continuam no fluxo: Account, Jev, AI accounts, Auto, Bots, Project e Follow. Antes delas entram **Distill → Permissions → Tools**. Ferramentas opcionais têm instalação dentro do setup; autorizações do sistema continuam sendo decisões do usuário.
+Escopo: dependências e autorizações consumidas pelo MacCode. As sete etapas anteriores continuam no fluxo: Account, Jev, AI accounts, Auto, Bots, Project e Follow. Antes delas entram **Distill → Permissions → Tools → MacCode → Chrome**. As duas últimas ensinam o fluxo do produto e a instalação da extensão, com modo desenvolvedor, Load unpacked, pasta correta e verificação real de conexão. Ferramentas opcionais têm instalação dentro do setup; autorizações do sistema continuam sendo decisões do usuário.
 
 | Falta ou problema | Efeito | Tratamento no onboarding / recuperação |
 |---|---|---|

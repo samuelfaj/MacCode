@@ -66,6 +66,8 @@ struct OnboardingView: View {
         case .distill: OnboardingDistillStep(vm: vm, setup: setup)
         case .permissions: OnboardingPermissionsStep(vm: vm)
         case .tools: OnboardingToolsStep(vm: vm, setup: setup)
+        case .basics: OnboardingBasicsStep(vm: vm)
+        case .chrome: OnboardingChromeStep(vm: vm, setup: setup)
         case .account: OnboardingAccountStep(vm: vm)
         case .jev: OnboardingJevStep(vm: vm, accounts: accounts)
         case .accounts: OnboardingProvidersStep(vm: vm, accounts: accounts)
@@ -181,7 +183,7 @@ struct OnboardingStepper: View {
     }
 
     private func steps(showLabels: Bool) -> some View {
-        HStack(spacing: DS.Space.md) {
+        HStack(spacing: showLabels ? DS.Space.md : DS.Space.sm) {
             ForEach(OnboardingStep.allCases, id: \.self) { step in
                 let isDone = done.contains(step)
                 let isCurrent = step == current
@@ -214,7 +216,7 @@ struct OnboardingStepper: View {
                     Capsule()
                         .fill(isDone ? DS.Palette.accent.opacity(0.7) : DS.Palette.line)
                         .frame(height: 2)
-                        .frame(minWidth: 12, maxWidth: .infinity)
+                        .frame(minWidth: showLabels ? DS.Space.lg : DS.Space.xs, maxWidth: .infinity)
                         .animation(reduceMotion ? nil : DS.Motion.standard, value: isDone)
                 }
             }

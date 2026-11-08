@@ -109,7 +109,13 @@ final class ChromeExtensionSetup: ObservableObject {
 }
 
 struct ChromeExtensionSettingsSection: View {
-    @StateObject private var setup = ChromeExtensionSetup()
+    @StateObject private var setup: ChromeExtensionSetup
+    private let showGuide: Bool
+
+    @MainActor init(setup: ChromeExtensionSetup? = nil, showGuide: Bool = false) {
+        _setup = StateObject(wrappedValue: setup ?? ChromeExtensionSetup())
+        self.showGuide = showGuide
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
@@ -118,26 +124,34 @@ struct ChromeExtensionSettingsSection: View {
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Button(setup.extensionDirectory == nil ? "Set Up Chrome Extension" : "Open Chrome Setup") {
-                    Task { await setup.install() }
-                }
-                .buttonStyle(.bordered)
-                .disabled(setup.state == .preparing)
-                .accessibilityIdentifier("settings.computerUse.chrome.setup")
-                Button(setup.checking ? "Checking…" : "Check Connection") {
-                    Task { await setup.refresh() }
-                }
-                .buttonStyle(.bordered)
-                .disabled(setup.checking || setup.state == .preparing)
-                .accessibilityIdentifier("settings.computerUse.chrome.check")
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: DS.Space.md) { actions }
+                VStack(alignment: .leading, spacing: DS.Space.md) { actions }
             }
             Text(setup.state.message)
                 .font(DS.Font.caption)
-                .foregroundColor(setup.state == .connected ? DS.Palette.success : DS.Palette.textSecondary)
+                .foregroundColor(statusColor)
                 .textSelection(.enabled)
                 .accessibilityIdentifier("settings.computerUse.chrome.status")
-            if setup.extensionDirectory != nil && setup.state != .connected {
+            if showGuide, let folder = setup.extensionDirectory {
+                Text(folder.path).font(DS.Font.monoSmall).foregroundColor(DS.Palette.textSecondary)
+                    .lineLimit(3).truncationMode(.middle).textSelection(.enabled)
+                    .help(folder.path)
+                    .accessibilityIdentifier("onboarding.chrome.extensionFolder")
+                Button("Show Extension Folder") { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
+                    .buttonStyle(.link)
+                    .accessibilityIdentifier("onboarding.chrome.showFolder")
+            }
+            if showGuide {
+                VStack(alignment: .leading, spacing: DS.Space.lg) {
+                    instruction("1", title: "Prepare the extension", detail: "Click Set Up Chrome Extension. MacCode prepares the files and opens Finder and Chrome's extensions page.")
+                    instruction("2", title: "Enable Developer mode", detail: "In Chrome, choose the profile you want to connect. Turn on Developer mode at the top right of chrome://extensions.")
+                    instruction("3", title: "Choose Load unpacked", detail: "Select the extension folder shown in Finder, not a file inside it. Confirm MacCode Computer Use is enabled and review any Chrome permission prompts.")
+                    instruction("4", title: "Check the connection", detail: "Return to MacCode and click Check Connection. If disconnected, click MacCode Computer Use in Chrome's Extensions menu once, then check again. Continue becomes available when Chrome replies.")
+                }
+                .accessibilityIdentifier("onboarding.chrome.guide")
+            }
+            if !showGuide && setup.extensionDirectory != nil && setup.state != .connected {
                 Text("One-time Chrome setup: enable Developer mode, choose Load unpacked, and select the extension folder shown in Finder. Return here to check the connection.")
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
@@ -150,6 +164,40 @@ struct ChromeExtensionSettingsSection: View {
         .task { await setup.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await setup.refresh() }
+        }
+    }
+
+    private var statusColor: Color {
+        if setup.state == .connected { return DS.Palette.success }
+        if case .failed = setup.state { return DS.Palette.danger }
+        return DS.Palette.textSecondary
+    }
+
+    @ViewBuilder private var actions: some View {
+        Button(setup.extensionDirectory == nil ? "Set Up Chrome Extension" : "Open Chrome Setup") {
+            Task { await setup.install() }
+        }
+        .buttonStyle(.bordered)
+        .disabled(setup.state == .preparing)
+        .accessibilityIdentifier("settings.computerUse.chrome.setup")
+        Button(setup.checking ? "Checking…" : "Check Connection") {
+            Task { await setup.refresh() }
+        }
+        .buttonStyle(.bordered)
+        .disabled(setup.checking || setup.state == .preparing)
+        .accessibilityIdentifier("settings.computerUse.chrome.check")
+    }
+
+    private func instruction(_ number: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: DS.Space.md) {
+            Text(number).font(DS.Font.captionStrong).foregroundColor(DS.Palette.accent)
+                .frame(width: DS.Space.xl)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: DS.Space.sm) {
+                Text(title).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
+                Text(detail).font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }
