@@ -61,13 +61,8 @@ struct OnboardingChromeStep: View {
             subtitle: "Install the Chrome extension once to let agents work in background tabs using the profile you choose."
         ) {
             VStack(alignment: .leading, spacing: DS.Space.xl) {
-                if setup.state(.chrome).isReady {
-                    Label("Google Chrome is installed", systemImage: "checkmark.circle.fill")
-                        .font(DS.Font.captionStrong).foregroundColor(DS.Palette.success)
-                } else {
-                    OnboardingToolRow(tool: .chrome, state: setup.state(.chrome)) {
-                        Task { await setup.install(.chrome) }
-                    }
+                OnboardingToolRow(tool: .chrome, state: setup.state(.chrome)) {
+                    Task { await setup.install(.chrome) }
                 }
                 ChromeExtensionSettingsSection(setup: connection, showGuide: true)
                     .disabled(!setup.state(.chrome).isReady)
@@ -93,6 +88,10 @@ struct OnboardingChromeStep: View {
         } footer: {
             OnboardingBackButton(vm: vm)
             Spacer()
+            if connection.state != .connected {
+                Text("Continue unlocks once Chrome is connected.")
+                    .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
+            }
             Button("Skip for now") { vm.skip(.chrome) }.buttonStyle(.link)
                 .accessibilityHint("Continue without Chrome automation. Set it up later in Settings.")
             OnboardingPrimaryButton(title: "Continue") { vm.advance(completing: .chrome) }

@@ -143,7 +143,8 @@ struct ChromeExtensionSettingsSection: View {
                     .accessibilityIdentifier("onboarding.chrome.showFolder")
             }
             if showGuide {
-                VStack(alignment: .leading, spacing: DS.Space.lg) {
+                VStack(alignment: .leading, spacing: DS.Space.xl) {
+                    Divider().overlay(DS.Palette.line)
                     instruction("1", title: "Prepare the extension", detail: "Click Set Up Chrome Extension. MacCode prepares the files and opens Finder and Chrome's extensions page.")
                     instruction("2", title: "Enable Developer mode", detail: "In Chrome, choose the profile you want to connect. Turn on Developer mode at the top right of chrome://extensions.")
                     instruction("3", title: "Choose Load unpacked", detail: "Select the extension folder shown in Finder, not a file inside it. Confirm MacCode Computer Use is enabled and review any Chrome permission prompts.")
@@ -191,7 +192,8 @@ struct ChromeExtensionSettingsSection: View {
     private func instruction(_ number: String, title: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: DS.Space.md) {
             Text(number).font(DS.Font.captionStrong).foregroundColor(DS.Palette.accent)
-                .frame(width: DS.Space.xl)
+                .frame(width: DS.Space.xxxl, height: DS.Space.xxxl)
+                .background(Circle().fill(DS.Palette.selection))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: DS.Space.sm) {
                 Text(title).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)

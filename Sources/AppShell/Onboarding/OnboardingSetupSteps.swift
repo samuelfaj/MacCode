@@ -191,31 +191,50 @@ struct OnboardingToolRow: View {
         }
     }
 
+    private var symbol: String {
+        switch tool {
+        case .distill: return "cpu"
+        case .git: return "arrow.triangle.branch"
+        case .node: return "shippingbox"
+        case .automation: return "cursorarrow.motionlines"
+        case .chrome: return "globe"
+        case .docker: return "cube.transparent"
+        case .helper: return "person.2"
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.md) {
-            HStack(spacing: DS.Space.lg) {
+        HStack(alignment: .top, spacing: DS.Space.xl) {
+            RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                .fill(DS.Palette.surfaceOverlay)
+                .frame(width: 32, height: 32)
+                .overlay(Image(systemName: symbol).font(.system(size: 14, weight: .medium)).foregroundColor(DS.Palette.text))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: DS.Space.sm) {
                 Text(tool.title).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
-                Spacer(minLength: DS.Space.md)
-                if state.isBusy { ProgressView().controlSize(.small) }
-                else if state.isReady {
-                    Image(systemName: "checkmark.circle.fill").foregroundColor(DS.Palette.success).accessibilityLabel("Ready")
-                } else {
-                    Button(state == .missing ? "Install" : "Try again", action: install)
-                        .buttonStyle(DSSecondaryButtonStyle()).accessibilityLabel("Install or retry \(tool.title)")
-                }
+                Text(tool.detail).font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(state.message).font(DS.Font.caption)
+                    .foregroundColor(tone)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    .accessibilityLabel(tool.title)
+                    .accessibilityValue(state.message)
+                    .accessibilityIdentifier("onboarding.tool.\(tool.rawValue).status")
             }
-            Text(tool.detail).font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(state.message).font(DS.Font.caption)
-                .foregroundColor(tone)
-                .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                .accessibilityLabel(tool.title)
-                .accessibilityValue(state.message)
-                .accessibilityIdentifier("onboarding.tool.\(tool.rawValue).status")
+            Spacer(minLength: DS.Space.md)
+            if state.isBusy { ProgressView().controlSize(.small).padding(.top, DS.Space.xs) }
+            else if state.isReady {
+                Image(systemName: "checkmark.circle.fill").foregroundColor(DS.Palette.success)
+                    .padding(.top, DS.Space.xs).accessibilityLabel("Ready")
+            } else {
+                Button(state == .missing ? "Install" : "Try again", action: install)
+                    .buttonStyle(DSSecondaryButtonStyle()).accessibilityLabel("Install or retry \(tool.title)")
+            }
         }
         .padding(DS.Space.xl)
         .background(DS.Palette.surface)
         .clipShape(RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous).strokeBorder(DS.Palette.line))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
+            .strokeBorder(state.isReady ? DS.Palette.success.opacity(0.3) : DS.Palette.line))
     }
 }

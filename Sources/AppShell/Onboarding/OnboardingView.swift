@@ -90,45 +90,61 @@ struct OnboardingStepLayout<Decision: View, Illustration: View, Footer: View>: V
     @ViewBuilder var illustration: Illustration
     @ViewBuilder var footer: Footer
 
+    private var column: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xxxl) {
+            VStack(alignment: .leading, spacing: DS.Space.lg) {
+                Text(eyebrow.uppercased())
+                    .font(DS.Font.captionStrong)
+                    .tracking(1.2)
+                    .foregroundColor(DS.Palette.accent)
+                    .onboardingReveal(0)
+                Text(title)
+                    .font(.system(size: 34, weight: .semibold))
+                    .tracking(-0.6)
+                    .foregroundColor(DS.Palette.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                    .onboardingReveal(1)
+                Text(subtitle)
+                    .font(.system(size: 16))
+                    .foregroundColor(DS.Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onboardingReveal(2)
+            }
+            decision
+                .onboardingReveal(3)
+        }
+    }
+
+    /// The decision column scrolls on its own; the illustration stays centered
+    /// in view instead of drifting below the fold on tall steps.
     var body: some View {
         VStack(spacing: 0) {
             GeometryReader { proxy in
-                let wide = proxy.size.width >= 820
-                ScrollView {
+                if proxy.size.width >= 820 {
                     HStack(alignment: .center, spacing: 48) {
-                        VStack(alignment: .leading, spacing: DS.Space.xxxl) {
-                            VStack(alignment: .leading, spacing: DS.Space.lg) {
-                                Text(eyebrow.uppercased())
-                                    .font(DS.Font.captionStrong)
-                                    .tracking(1.2)
-                                    .foregroundColor(DS.Palette.accent)
-                                    .onboardingReveal(0)
-                                Text(title)
-                                    .font(.system(size: 34, weight: .semibold))
-                                    .tracking(-0.6)
-                                    .foregroundColor(DS.Palette.text)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .accessibilityAddTraits(.isHeader)
-                                    .onboardingReveal(1)
-                                Text(subtitle)
-                                    .font(.system(size: 16))
-                                    .foregroundColor(DS.Palette.textSecondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .onboardingReveal(2)
-                            }
-                            decision
-                                .onboardingReveal(3)
+                        ScrollView {
+                            column
+                                .padding(.vertical, 36)
+                                .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .leading)
                         }
-                        .frame(maxWidth: wide ? 440 : .infinity, alignment: .leading)
-                        if wide {
+                        .frame(width: 456)
+                        ScrollView(showsIndicators: false) {
                             illustration
-                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 36)
+                                .frame(maxWidth: .infinity, minHeight: proxy.size.height)
                                 .onboardingReveal(4, scale: true)
                         }
                     }
-                    .padding(.horizontal, 48)
-                    .padding(.vertical, 36)
-                    .frame(minHeight: proxy.size.height)
+                    .padding(.leading, 48)
+                    .padding(.trailing, 40)
+                } else {
+                    ScrollView {
+                        column
+                            .padding(.horizontal, 48)
+                            .padding(.vertical, 36)
+                            .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .leading)
+                    }
                 }
             }
             Divider().overlay(DS.Palette.line)
@@ -230,6 +246,7 @@ struct OnboardingPanel<Content: View>: View {
     var body: some View {
         content
             .padding(DS.Space.xxl)
+            .frame(maxWidth: 420, alignment: .leading)
             .background(DS.Palette.surface)
             .clipShape(RoundedRectangle(cornerRadius: DS.Radius.modal, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: DS.Radius.modal, style: .continuous).strokeBorder(DS.Palette.line))
@@ -372,6 +389,7 @@ struct OnboardingTitioImage: View {
             }
         }
         .frame(width: size, height: size)
+        .frame(maxWidth: .infinity)
         .accessibilityHidden(true)
     }
 }
