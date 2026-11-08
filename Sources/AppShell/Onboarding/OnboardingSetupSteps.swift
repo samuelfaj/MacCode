@@ -177,7 +177,7 @@ struct OnboardingToolsStep: View {
     }
 }
 
-private struct OnboardingToolRow: View {
+struct OnboardingToolRow: View {
     let tool: OnboardingTool
     let state: OnboardingToolState
     let install: () -> Void

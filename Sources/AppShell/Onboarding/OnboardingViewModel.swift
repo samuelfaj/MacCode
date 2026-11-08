@@ -57,9 +57,10 @@ public final class OnboardingViewModel: ObservableObject {
         self.store = store
         self.onClose = onClose
         var state = initial
-        if state.version < 2, state.status == .inProgress {
-            state.version = 2
-            state.step = .distill
+        if state.version < 3, state.status == .inProgress {
+            if state.version < 2 { state.step = .distill }
+            else if state.step.index > OnboardingStep.tools.index { state.step = .basics }
+            state.version = 3
         }
         // Resources that disappeared since the last run are created again.
         if let id = state.workspaceID, !services.workspaceExists(id) { state.workspaceID = nil }
@@ -78,7 +79,7 @@ public final class OnboardingViewModel: ObservableObject {
     // MARK: Navigation
 
     /// After creating the project, only prerequisite review stays editable.
-    public var isLocked: Bool { state.completedSteps.contains(.workspace) && state.step.index > OnboardingStep.tools.index }
+    public var isLocked: Bool { state.completedSteps.contains(.workspace) && state.step.index > OnboardingStep.chrome.index }
 
     public func goBack() {
         guard !isLocked, let previous = state.step.previous else { return }
@@ -90,7 +91,7 @@ public final class OnboardingViewModel: ObservableObject {
         direction = 1
         update {
             $0.complete(step)
-            if step == .tools, $0.completedSteps.contains(.workspace) { $0.step = .follow }
+            if step == .chrome { $0.step = stepAfterChrome(in: $0) }
             else if let next = step.next { $0.step = next }
         }
     }
@@ -99,7 +100,7 @@ public final class OnboardingViewModel: ObservableObject {
         direction = 1
         update {
             $0.skip(step)
-            if step == .tools, $0.completedSteps.contains(.workspace) { $0.step = .follow }
+            if step == .chrome { $0.step = stepAfterChrome(in: $0) }
             else if let next = step.next { $0.step = next }
         }
     }
@@ -110,12 +111,19 @@ public final class OnboardingViewModel: ObservableObject {
         update { $0.step = step }
     }
 
+    private func stepAfterChrome(in state: OnboardingState) -> OnboardingStep {
+        if state.completedSteps.contains(.workspace) { return .follow }
+        let decided = state.completedSteps.union(state.skippedSteps)
+        return OnboardingStep.allCases.dropFirst(OnboardingStep.chrome.index + 1)
+            .first { !decided.contains($0) } ?? .follow
+    }
+
     /// Steps before the furthest decided one stay reachable from the stepper.
     public var furthestReachable: OnboardingStep {
         let decided = state.completedSteps.union(state.skippedSteps)
         let next = OnboardingStep.allCases.first { !decided.contains($0) } ?? .follow
-        if state.completedSteps.contains(.workspace), state.step.index <= OnboardingStep.tools.index,
-           next.index > OnboardingStep.tools.index { return .tools }
+        if state.completedSteps.contains(.workspace), state.step.index <= OnboardingStep.chrome.index,
+           next.index > OnboardingStep.chrome.index { return .chrome }
         return next
     }
 

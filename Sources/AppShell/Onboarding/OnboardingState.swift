@@ -4,13 +4,15 @@ import Persistence
 
 /// The first-run setup steps, in order.
 public enum OnboardingStep: String, Codable, CaseIterable, Sendable {
-    case distill, permissions, tools, account, jev, accounts, routing, bots, workspace, follow
+    case distill, permissions, tools, basics, chrome, account, jev, accounts, routing, bots, workspace, follow
 
     public var title: String {
         switch self {
         case .distill: return "Distill"
         case .permissions: return "Permissions"
         case .tools: return "Tools"
+        case .basics: return "MacCode"
+        case .chrome: return "Chrome"
         case .account: return "Account"
         case .jev: return "Jev"
         case .accounts: return "AI accounts"
@@ -43,7 +45,7 @@ public struct OnboardingState: Codable, Equatable, Sendable {
         case skipped
     }
 
-    public var version = 2
+    public var version = 3
     public var status: Status = .inProgress
     public var step: OnboardingStep = .distill
     public var completedSteps: Set<OnboardingStep> = []
