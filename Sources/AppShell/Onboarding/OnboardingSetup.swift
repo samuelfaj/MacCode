@@ -71,6 +71,7 @@ final class OnboardingSetupController: ObservableObject {
     }
 
     func state(_ tool: OnboardingTool) -> OnboardingToolState { states[tool] ?? .checking }
+    var requiredToolsReady: Bool { [OnboardingTool.git, .node, .automation].allSatisfy { state($0).isReady } }
 
     func refresh(_ tool: OnboardingTool) async {
         guard running.insert(tool).inserted else { return }
