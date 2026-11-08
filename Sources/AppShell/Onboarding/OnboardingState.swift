@@ -4,22 +4,15 @@ import Persistence
 
 /// The first-run setup steps, in order.
 public enum OnboardingStep: String, Codable, CaseIterable, Sendable {
-    case distill, permissions, tools, basics, chrome, account, jev, accounts, routing, bots, workspace, follow
+    case setup, permissions, chrome, accounts, project
 
     public var title: String {
         switch self {
-        case .distill: return "Distill"
+        case .setup: return "Setup"
         case .permissions: return "Permissions"
-        case .tools: return "Tools"
-        case .basics: return "MacCode"
         case .chrome: return "Chrome"
-        case .account: return "Account"
-        case .jev: return "Jev"
         case .accounts: return "AI accounts"
-        case .routing: return "Auto"
-        case .bots: return "Bots"
-        case .workspace: return "Project"
-        case .follow: return "Follow"
+        case .project: return "Project"
         }
     }
 
@@ -27,6 +20,27 @@ public enum OnboardingStep: String, Codable, CaseIterable, Sendable {
     public var next: OnboardingStep? { Self.allCases.dropFirst(index + 1).first }
     public var previous: OnboardingStep? { index == 0 ? nil : Self.allCases[index - 1] }
     public var eyebrow: String { "Step \(index + 1) of \(Self.allCases.count)" }
+
+    /// Version 3 steps, folded into the current ones. A current step counts as
+    /// done only when every legacy step it replaced was done.
+    static let legacyGroups: [(OnboardingStep, [String])] = [
+        (.setup, ["distill", "tools"]),
+        (.permissions, ["permissions"]),
+        (.chrome, ["basics", "chrome"]),
+        (.accounts, ["accounts"]),
+        (.project, ["workspace", "follow"]),
+    ]
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        if let step = Self(rawValue: raw) { self = step; return }
+        let legacy: [String: OnboardingStep] = ["distill": .setup, "tools": .setup, "basics": .chrome,
+            "account": .accounts, "jev": .accounts, "routing": .accounts, "bots": .project, "workspace": .project, "follow": .project]
+        guard let step = legacy[raw] else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unknown step \(raw)"))
+        }
+        self = step
+    }
 }
 
 /// Durable setup progress. Holds only non-secret choices and the ids of
@@ -45,9 +59,9 @@ public struct OnboardingState: Codable, Equatable, Sendable {
         case skipped
     }
 
-    public var version = 3
+    public var version = 4
     public var status: Status = .inProgress
-    public var step: OnboardingStep = .distill
+    public var step: OnboardingStep = .setup
     public var completedSteps: Set<OnboardingStep> = []
     public var skippedSteps: Set<OnboardingStep> = []
     public var createDeveloper = true
@@ -57,6 +71,31 @@ public struct OnboardingState: Codable, Equatable, Sendable {
     public var completedAt: Date?
 
     public init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case version, status, step, completedSteps, skippedSteps, createDeveloper, developerName, workspaceID, developerBotID, completedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let saved = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        status = try c.decodeIfPresent(Status.self, forKey: .status) ?? .inProgress
+        step = try c.decodeIfPresent(OnboardingStep.self, forKey: .step) ?? .setup
+        createDeveloper = try c.decodeIfPresent(Bool.self, forKey: .createDeveloper) ?? true
+        developerName = try c.decodeIfPresent(String.self, forKey: .developerName) ?? OnboardingDeveloperTemplate.defaultName
+        workspaceID = try c.decodeIfPresent(WorkspaceID.self, forKey: .workspaceID)
+        developerBotID = try c.decodeIfPresent(BotID.self, forKey: .developerBotID)
+        completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
+        let completed = Set(try c.decodeIfPresent([String].self, forKey: .completedSteps) ?? [])
+        let skipped = Set(try c.decodeIfPresent([String].self, forKey: .skippedSteps) ?? [])
+        for (step, legacy) in OnboardingStep.legacyGroups {
+            let names = saved >= 4 ? [step.rawValue] : legacy
+            let required = saved >= 4 || step != .chrome ? names : ["chrome"]
+            if required.allSatisfy(completed.contains) { completedSteps.insert(step) }
+            else if required.contains(where: skipped.contains) { skippedSteps.insert(step) }
+        }
+        version = 4
+    }
 
     public mutating func complete(_ step: OnboardingStep) {
         completedSteps.insert(step)

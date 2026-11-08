@@ -57,17 +57,11 @@ public final class OnboardingViewModel: ObservableObject {
         self.store = store
         self.onClose = onClose
         var state = initial
-        if state.version < 3, state.status == .inProgress {
-            if state.version < 2 { state.step = .distill }
-            else if state.step.index > OnboardingStep.tools.index { state.step = .basics }
-            state.version = 3
-        }
         // Resources that disappeared since the last run are created again.
         if let id = state.workspaceID, !services.workspaceExists(id) { state.workspaceID = nil }
-        // Follow needs the project; without it, choose one again on Project.
-        if state.completedSteps.contains(.workspace), state.workspaceID == nil, state.status == .inProgress {
-            state.completedSteps.remove(.workspace)
-            if state.step == .follow { state.step = .workspace }
+        // A finished project step needs its workspace; without it, choose one again.
+        if state.completedSteps.contains(.project), state.workspaceID == nil, state.status == .inProgress {
+            state.completedSteps.remove(.project)
         }
         if let id = state.developerBotID, !services.botExists(id) { state.developerBotID = nil }
         self.state = state
@@ -78,8 +72,8 @@ public final class OnboardingViewModel: ObservableObject {
 
     // MARK: Navigation
 
-    /// After creating the project, only prerequisite review stays editable.
-    public var isLocked: Bool { state.completedSteps.contains(.workspace) && state.step.index > OnboardingStep.chrome.index }
+    /// Once the project exists, it cannot be chosen again.
+    public var isLocked: Bool { state.completedSteps.contains(.project) && state.step == .project }
 
     public func goBack() {
         guard !isLocked, let previous = state.step.previous else { return }
@@ -91,8 +85,7 @@ public final class OnboardingViewModel: ObservableObject {
         direction = 1
         update {
             $0.complete(step)
-            if step == .chrome { $0.step = stepAfterChrome(in: $0) }
-            else if let next = step.next { $0.step = next }
+            if let next = step.next { $0.step = next }
         }
     }
 
@@ -100,8 +93,7 @@ public final class OnboardingViewModel: ObservableObject {
         direction = 1
         update {
             $0.skip(step)
-            if step == .chrome { $0.step = stepAfterChrome(in: $0) }
-            else if let next = step.next { $0.step = next }
+            if let next = step.next { $0.step = next }
         }
     }
 
@@ -111,20 +103,10 @@ public final class OnboardingViewModel: ObservableObject {
         update { $0.step = step }
     }
 
-    private func stepAfterChrome(in state: OnboardingState) -> OnboardingStep {
-        if state.completedSteps.contains(.workspace) { return .follow }
-        let decided = state.completedSteps.union(state.skippedSteps)
-        return OnboardingStep.allCases.dropFirst(OnboardingStep.chrome.index + 1)
-            .first { !decided.contains($0) } ?? .follow
-    }
-
     /// Steps before the furthest decided one stay reachable from the stepper.
     public var furthestReachable: OnboardingStep {
         let decided = state.completedSteps.union(state.skippedSteps)
-        let next = OnboardingStep.allCases.first { !decided.contains($0) } ?? .follow
-        if state.completedSteps.contains(.workspace), state.step.index <= OnboardingStep.chrome.index,
-           next.index > OnboardingStep.chrome.index { return .chrome }
-        return next
+        return OnboardingStep.allCases.first { !decided.contains($0) } ?? .project
     }
 
     public func skipSetup() {
@@ -135,19 +117,19 @@ public final class OnboardingViewModel: ObservableObject {
 
     /// Closing keeps unfinished progress so the next launch resumes it.
     /// Idempotent: the window's own close path calls back into here.
-    /// Closing on the last step still finishes: the project is already open.
+    /// Closing after the project exists still finishes setup.
     public func close() {
         guard !closed else { return }
         closed = true
-        if state.step == .follow, state.completedSteps.contains(.workspace), state.status == .inProgress {
+        if state.step == .project, state.completedSteps.contains(.project), state.status == .inProgress {
             completeAndHandOff()
         }
         onClose(state)
     }
 
-    /// Last step: mark setup done, open the workspace with the draft, close.
+    /// After the project exists: mark setup done, open the workspace with the draft, close.
     public func done() {
-        guard state.step == .follow, state.completedSteps.contains(.workspace) else { return }
+        guard state.step == .project, state.completedSteps.contains(.project) else { return }
         completeAndHandOff()
         close()
     }
@@ -155,7 +137,6 @@ public final class OnboardingViewModel: ObservableObject {
     private func completeAndHandOff() {
         guard state.status != .completed, let workspace = state.workspaceID else { return }
         update {
-            $0.complete(.follow)
             $0.status = .completed
             $0.completedAt = Date()
         }
@@ -191,7 +172,6 @@ public final class OnboardingViewModel: ObservableObject {
                 : try await services.signIn(email: trimmed, password: password)
             password = ""
             signedInEmail = user.email
-            advance(completing: .account)
         } catch {
             accountError = Self.accountErrorMessage(error, creating: creatingAccount)
         }
@@ -252,12 +232,25 @@ public final class OnboardingViewModel: ObservableObject {
         routingDraft.strategy = strategy
     }
 
+    /// Leaving the accounts step sets up Auto from what is connected, unless a
+    /// routing profile already exists. A failed save keeps the user on the step.
+    public func finishAccounts() async {
+        await prepareRouting()
+        let existing = accounts.routing
+        if routingDraft.options.isEmpty || existing.enabled || !existing.options.isEmpty {
+            routingNote = nil
+            advance(completing: .accounts)
+        } else {
+            await saveRouting()
+        }
+    }
+
     /// Saves through the shared controller, so Settings and conversations
     /// read the same profile. Advances only after Distill confirms the save.
     public func saveRouting() async {
         guard !routingDraft.options.isEmpty else { return }
         if await accounts.saveRoutingAndWait(routingDraft) {
-            advance(completing: .routing)
+            advance(completing: .accounts)
         } else {
             routingNote = accounts.lastError ?? "Auto was not saved. Try again."
         }
@@ -282,7 +275,7 @@ public final class OnboardingViewModel: ObservableObject {
     /// to the conversation with an unsent prompt. Ids are saved after each
     /// mutation, so a retry resumes at the first missing resource.
     public func finish() {
-        guard !finishing, !state.completedSteps.contains(.workspace) else { return }
+        guard !finishing, !state.completedSteps.contains(.project) else { return }
         guard let folder else { finishError = "Choose a project folder first."; return }
         finishing = true
         finishError = nil
@@ -306,13 +299,7 @@ public final class OnboardingViewModel: ObservableObject {
                     update { $0.developerBotID = created }
                 }
             }
-            direction = 1
-            update {
-                $0.complete(.workspace)
-                $0.step = .follow
-            }
-            // Only on this transition, so resuming at Follow never reopens it.
-            services.openInBrowser(OnboardingFollow.url)
+            update { $0.complete(.project) }
         } catch {
             finishError = "Could not finish setup: \(error.localizedDescription)"
         }

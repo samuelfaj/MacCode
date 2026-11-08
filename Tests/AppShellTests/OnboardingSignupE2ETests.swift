@@ -59,7 +59,7 @@ final class OnboardingSignupE2ETests: XCTestCase {
     }
 
     private func makeViewModel(_ services: HTTPServices, email: String, password: String) throws -> OnboardingViewModel {
-        var state = OnboardingState(); state.step = .account
+        var state = OnboardingState(); state.step = .accounts
         let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
         vm.creatingAccount = true
         vm.email = email
@@ -76,13 +76,13 @@ final class OnboardingSignupE2ETests: XCTestCase {
         return URLSessionPrivateAccountAPI(baseURL: URL(string: "https://private.example.test")!, session: URLSession(configuration: configuration))
     }
 
-    func test_signupSucceedsAndLeavesAccountStep() async throws {
+    func test_signupSucceedsAndSignsIn() async throws {
         let api = stubbedAPI(status: 200, body: #"{"accessToken":"a","refreshToken":"r","user":{"id":"u1","email":"new@example.com","subscribed":false,"daysRemaining":0}}"#)
         let vm = try makeViewModel(HTTPServices(api: api), email: "new@example.com", password: "supersecret")
         await vm.submitAccount()
         XCTAssertNil(vm.accountError)
         XCTAssertEqual(vm.signedInEmail, "new@example.com")
-        XCTAssertNotEqual(vm.state.step, .account)
+        XCTAssertNotNil(vm.signedInEmail, "Signing up stays on the accounts step, which carries on separately")
         XCTAssertEqual(SignupStubProtocol.lastPath, "/v1/private/auth/register")
     }
 
@@ -91,7 +91,7 @@ final class OnboardingSignupE2ETests: XCTestCase {
         let vm = try makeViewModel(HTTPServices(api: api), email: "taken@example.com", password: "supersecret")
         await vm.submitAccount()
         XCTAssertEqual(vm.accountError, "An account with this email already exists. Sign in instead.")
-        XCTAssertEqual(vm.state.step, .account)
+        XCTAssertEqual(vm.state.step, .accounts)
     }
 
     // The production bug: a 409 that is not a duplicate email must never tell a
@@ -101,7 +101,7 @@ final class OnboardingSignupE2ETests: XCTestCase {
         let vm = try makeViewModel(HTTPServices(api: api), email: "new@example.com", password: "supersecret")
         await vm.submitAccount()
         XCTAssertEqual(vm.accountError, "Account could not be created right now. Try again shortly.")
-        XCTAssertEqual(vm.state.step, .account)
+        XCTAssertEqual(vm.state.step, .accounts)
     }
 
     // MARK: Real backend (RC_PRIVATE_BACKEND_URL)
