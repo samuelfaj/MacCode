@@ -941,8 +941,9 @@ public actor TitioNoticeCenter {
         let items = rows.map(TitioNoticeRenderItem.init(record:))
         let cardOptions = TitioNoticeCopy.composeBatch(items, language: language, catchUp: catchUp, timeZone: timeZone)?.cardOptions
         let sensitive = items.contains { $0.kind.isLockScreenSensitive }
-        let expectsJSON = cardOptions != nil || sensitive
-        let optionCount = cardOptions?.count
+        let wordsCard = TitioVoicePrompt.needsCardWording(cardOptions)
+        let expectsJSON = wordsCard || sensitive
+        let optionCount = wordsCard ? cardOptions?.count : nil
         let forbidden = TitioVoicePrompt.lockScreenForbidden(items)
         let request = TitioVoiceRequest(
             purpose: items.count > 1 ? .digest : .notice,

@@ -988,6 +988,8 @@ struct ActivityRootView: View {
     let openThread: (ActivityWireItem) -> Void
     let openEvidence: (ActivityWireItem, String?) -> Void
     private let makeConversation: (ActivityWireItem) -> ActivityConversation?
+    /// The live terminal behind a terminal run; nil when its tab is gone.
+    private let terminalSnapshot: (ActivityWireItem) -> TerminalTextSnapshot?
     private let workspaceOptions: () -> [(id: String, name: String)]
     /// Whether a workspace is still open in this Mac's layout; a thread outside one has nowhere to open.
     private let isWorkspaceOpen: (String) -> Bool
@@ -1006,6 +1008,7 @@ struct ActivityRootView: View {
         self.openThread = openThread
         self.openEvidence = openEvidence
         makeConversation = { [weak router] item in router?.makeActivityConversation(item) }
+        terminalSnapshot = { [weak router] item in router?.activityTerminalSnapshot(item) }
         self.route = route
         self.consumeRoute = consumeRoute
         workspaceOptions = { router.activityWorkspaceOptions }
@@ -1019,11 +1022,12 @@ struct ActivityRootView: View {
     }
 
     /// Renders a prepared model without a router: offscreen layout proofs and worst-case data.
-    init(model: ActivityViewModel, workspaceOptions: @escaping () -> [(id: String, name: String)] = { [] }, isWorkspaceOpen: @escaping (String) -> Bool = { _ in true }, makeConversation: @escaping (ActivityWireItem) -> ActivityConversation? = { _ in nil }, botForItem: @escaping (ActivityWireItem) -> BotDefinition? = { _ in nil }, workspaceColor: @escaping (String) -> Color? = { _ in nil }) {
+    init(model: ActivityViewModel, workspaceOptions: @escaping () -> [(id: String, name: String)] = { [] }, isWorkspaceOpen: @escaping (String) -> Bool = { _ in true }, makeConversation: @escaping (ActivityWireItem) -> ActivityConversation? = { _ in nil }, terminalSnapshot: @escaping (ActivityWireItem) -> TerminalTextSnapshot? = { _ in nil }, botForItem: @escaping (ActivityWireItem) -> BotDefinition? = { _ in nil }, workspaceColor: @escaping (String) -> Color? = { _ in nil }) {
         _model = StateObject(wrappedValue: model)
         openThread = { _ in }
         openEvidence = { _, _ in }
         self.makeConversation = makeConversation
+        self.terminalSnapshot = terminalSnapshot
         route = nil
         consumeRoute = {}
         self.workspaceOptions = workspaceOptions
@@ -1324,7 +1328,7 @@ struct ActivityRootView: View {
         }
     }
 
-    /// A chat opens as its conversation; anything without a thread keeps the summary.
+    /// A chat opens as its conversation and a terminal run as its output; anything else keeps the summary.
     @ViewBuilder
     private func detailPane(_ item: ActivityWireItem) -> some View {
         if let conversation, conversation.threadID == item.thread_id {
@@ -1342,6 +1346,15 @@ struct ActivityRootView: View {
             }
             .task(id: item.id) { model.detailPresented(item) }
             .accessibilityIdentifier("activity.conversation")
+        } else if item.thread_id == nil, let terminal = terminalSnapshot(item) {
+            VStack(spacing: 0) {
+                conversationHeader(item)
+                Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
+                ActivityTerminalView(initial: terminal, read: { terminalSnapshot(item) })
+                    .id(item.id)
+            }
+            .task(id: item.id) { model.detailPresented(item) }
+            .accessibilityIdentifier("activity.terminalDetail")
         } else {
             detailView(item)
         }

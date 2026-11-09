@@ -230,6 +230,7 @@ public final class TitioNoticeRepository: @unchecked Sendable {
         try query("""
             SELECT \(Self.columns) FROM titio_notices
             WHERE state IN ('posted', 'awaiting_reply') AND actions_json IS NOT NULL AND message_id IS NOT NULL
+              AND urgency != 'info'
             ORDER BY posted_at, key LIMIT ?;
             """) { try $0.bind(1, limit) }
     }

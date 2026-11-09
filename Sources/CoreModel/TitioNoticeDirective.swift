@@ -16,7 +16,7 @@ public enum TitioNoticeDirective {
         let chronological = rows.sorted {
             $0.occurredAt == $1.occurredAt ? $0.key < $1.key : $0.occurredAt < $1.occurredAt
         }
-        let decisions = chronological.filter { $0.actions != nil && ($0.state == .posted || $0.state == .awaitingReply) }
+        let decisions = chronological.filter { $0.actions != nil && $0.urgency != .info && ($0.state == .posted || $0.state == .awaitingReply) }
         let decisionKeys = Set(decisions.map(\.key))
         let selectedKeys = Set(
             (Array(chronological.filter { !decisionKeys.contains($0.key) }.suffix(max(0, maxRows - decisions.count)))

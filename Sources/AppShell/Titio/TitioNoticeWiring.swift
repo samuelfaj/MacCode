@@ -362,7 +362,7 @@ extension AppContext {
         return TitioRunFacts(
             botConversation: conversation,
             bot: bot,
-            summary: result?.summary,
+            summary: result?.summary.map(BackgroundAwaitContinuation.strippingAwaitingMarker),
             durationMs: durationMs,
             finalMessageText: finalText,
             scheduled: scheduled
@@ -428,7 +428,8 @@ extension AppContext {
                     conversationId: conversation.id.value.uuidString.lowercased(),
                     finalMessageId: finalMessageId
                 ),
-                facts: botFacts
+                facts: botFacts,
+                actions: TitioNoticeAction.defaultActions(kind: .botReply, facts: botFacts)
             ))
             return true
         }

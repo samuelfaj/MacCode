@@ -220,6 +220,9 @@ public struct AgentOverviewMetaColumn: View {
     public let width: CGFloat
     public let alignment: HorizontalAlignment
     public let multilineTextAlignment: TextAlignment
+    /// When set, the value is a link that runs this instead of opening the card.
+    public let action: (() -> Void)?
+    public let actionHelp: String
 
     public init(
         title: String,
@@ -227,7 +230,9 @@ public struct AgentOverviewMetaColumn: View {
         valueColor: Color = DS.Palette.text,
         width: CGFloat = 140,
         alignment: HorizontalAlignment = .leading,
-        multilineTextAlignment: TextAlignment = .leading
+        multilineTextAlignment: TextAlignment = .leading,
+        action: (() -> Void)? = nil,
+        actionHelp: String = ""
     ) {
         self.title = title
         self.value = value
@@ -235,6 +240,16 @@ public struct AgentOverviewMetaColumn: View {
         self.width = width
         self.alignment = alignment
         self.multilineTextAlignment = multilineTextAlignment
+        self.action = action
+        self.actionHelp = actionHelp
+    }
+
+    private var valueText: some View {
+        Text(value)
+            .font(DS.Font.caption.weight(.medium))
+            .foregroundColor(action == nil ? valueColor : DS.Palette.accent)
+            .lineLimit(2)
+            .multilineTextAlignment(multilineTextAlignment)
     }
 
     public var body: some View {
@@ -242,11 +257,13 @@ public struct AgentOverviewMetaColumn: View {
             Text(title)
                 .font(DS.Font.caption2)
                 .foregroundColor(DS.Palette.textTertiary)
-            Text(value)
-                .font(DS.Font.caption.weight(.medium))
-                .foregroundColor(valueColor)
-                .lineLimit(2)
-                .multilineTextAlignment(multilineTextAlignment)
+            if let action {
+                Button(action: action) { valueText.contentShape(Rectangle()) }
+                    .buttonStyle(.plain)
+                    .help(actionHelp)
+            } else {
+                valueText
+            }
         }
         .frame(width: width, alignment: alignment == .trailing ? .trailing : .leading)
     }

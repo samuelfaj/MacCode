@@ -465,7 +465,7 @@ final class TitioNoticeActTests: XCTestCase {
         _ = await post(approval("Q1", f), f)
         _ = await post(approval("Q2", f), f)
         XCTAssertFalse(f.center.takeOptionText("Approve"), "two open notices offer it: ambiguous")
-        XCTAssertFalse(f.center.takeOptionText("Open thread"), "navigation never matches")
+        XCTAssertFalse(f.center.takeOptionText("Open conversation"), "navigation never matches")
         let pick = question("Q3", options: ["Staging", "Production"], f)
         _ = await post(pick, f)
         XCTAssertTrue(f.center.takeOptionText("Staging"))

@@ -140,6 +140,8 @@ public final class ScheduledTasksViewModel: ObservableObject {
     @Published public private(set) var providersLoading = false
     @Published public private(set) var users: [ScheduledSystemUser] = []
     @Published public private(set) var runCounts: [UUID: Int] = [:]
+    /// Each task's newest run that was not skipped; its thread is what Last run opens.
+    @Published public private(set) var latestRuns: [UUID: ScheduledTaskRun] = [:]
     /// Live run status per task (queued / running). Drives overview + detail badges.
     @Published public private(set) var activeRunStatuses: [UUID: ScheduledTaskRunStatus] = [:]
     /// In-memory progress phase of a queued run (e.g. "Checking provider…"). Never persisted.
@@ -576,6 +578,7 @@ public final class ScheduledTasksViewModel: ObservableObject {
             case .active, .paused: tasks = visible
             }
             runCounts = try store.runCounts()
+            latestRuns = try store.latestRuns()
             // Overview is a full list; do not auto-select a task into the detail page.
             // Only a deleted task leaves the selection; a task hidden by search keeps it.
             if let selectedTaskID, try store.get(id: selectedTaskID) == nil {
@@ -588,6 +591,7 @@ public final class ScheduledTasksViewModel: ObservableObject {
     }
 
     private func reloadRuns() {
+        if let latest = try? store.latestRuns(), latest != latestRuns { latestRuns = latest }
         reloadRunHistory()
         // Keep overview badges in sync when history refreshes (e.g. after Run Now).
         reloadActiveRunStatuses()
@@ -644,7 +648,10 @@ public final class ScheduledTasksViewModel: ObservableObject {
     /// in flight, so the history reloads when one of them does (start, thread
     /// attached, finish) instead of every tick.
     func pollActiveRunsOnce() {
-        if reloadActiveRunStatuses() { reloadRunHistory() }
+        if reloadActiveRunStatuses() {
+            if let latest = try? store.latestRuns(), latest != latestRuns { latestRuns = latest }
+            reloadRunHistory()
+        }
     }
 
     private func ensureActiveRunPolling() {
@@ -770,6 +777,11 @@ public struct ScheduledTasksRootView: View {
             if let botsVM, botsVM.scheduleTaskDraft != nil {
                 BotScheduleTaskEditorScreen(vm: botsVM)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let botsVM, let detail = botsVM.scheduleTaskDetailItem {
+                BotScheduleTaskDetailScreen(vm: botsVM, item: detail)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
+                footerBar
             } else {
             Group {
                 switch screen {
@@ -948,6 +960,8 @@ public struct ScheduledTasksRootView: View {
             workspaceName: vm.workspaceName(for: task),
             providerLabel: shortProviderModel(task),
             runCount: vm.runCounts[task.id, default: 0],
+            lastRun: vm.latestRuns[task.id],
+            onOpenLastRun: { if let run = vm.latestRuns[task.id] { vm.openThread(run) } },
             activeRunStatus: vm.activeRunStatus(for: task.id),
             activeRunPhase: vm.activeRunPhase(for: task.id),
             onOpen: {
@@ -1210,7 +1224,8 @@ public struct ScheduledTasksRootView: View {
     }
 
     private func nextRunLabel(_ task: ScheduledTask) -> String {
-        guard task.isEnabled, let next = task.nextRunAt else { return "Paused" }
+        guard task.isEnabled else { return "Paused" }
+        guard let next = task.nextRunAt ?? task.calculatedNextRun(after: Date()) else { return "—" }
         return next.formatted(.dateTime.month(.abbreviated).day().hour().minute())
     }
 
@@ -1444,6 +1459,8 @@ private struct ScheduledTaskCard: View {
     let workspaceName: String
     let providerLabel: String
     let runCount: Int
+    let lastRun: ScheduledTaskRun?
+    let onOpenLastRun: () -> Void
     let activeRunStatus: ScheduledTaskRunStatus?
     let activeRunPhase: String?
     let onOpen: () -> Void
@@ -1472,6 +1489,16 @@ private struct ScheduledTaskCard: View {
                     title: isActiveRun ? "Status" : "Next run",
                     value: statusOrNext,
                     valueColor: isActiveRun ? DS.Palette.warning : DS.Palette.text
+                )
+                AgentOverviewMetaColumn(
+                    title: "Last run",
+                    value: ScheduleLastRunLabel.text(
+                        date: lastRun.map { $0.startedAt ?? $0.queuedAt },
+                        failed: lastRun?.status == .failed
+                    ),
+                    valueColor: lastRun?.status == .failed ? DS.Palette.danger : DS.Palette.text,
+                    action: lastRun?.threadID == nil ? nil : onOpenLastRun,
+                    actionHelp: "Open the conversation of this run"
                 )
                 HStack(spacing: DS.Space.xs) {
                     Image(systemName: "clock")
@@ -1523,7 +1550,7 @@ private struct ScheduledTaskCard: View {
         if activeRunStatus == .queued { return activeRunPhase ?? "Queued" }
         if activeRunStatus == .running || isActiveRun { return "Running now" }
         if !task.isEnabled { return "Paused" }
-        guard let next = task.nextRunAt else { return "—" }
+        guard let next = task.nextRunAt ?? task.calculatedNextRun(after: Date()) else { return "—" }
         return next.formatted(.dateTime.month(.abbreviated).day().hour().minute())
     }
 

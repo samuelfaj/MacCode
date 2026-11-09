@@ -30,17 +30,17 @@ final class TitioNoticeCopyTests: XCTestCase {
         let ask = TitioNoticeFacts(title: "Deploy", workspaceName: "api", prompt: "Which DB?", options: ["Postgres", "SQLite"])
         var cases: [(TitioNoticeKind, TitioNoticeFacts, String, String)] = [
             (.runCompleted, run,
-             "A tarefa **Deploy** do **api** foi concluída em 10,4 s.",
-             "**Deploy** in **api** is done in 10.4s."),
+             "A tarefa **Deploy** do **api** foi concluída em 10,4 s: All green.",
+             "**Deploy** in **api** is done in 10.4s: All green."),
             (.runFailed, run,
-             "A tarefa **Deploy** do **api** falhou.",
-             "**Deploy** in **api** failed."),
+             "A tarefa **Deploy** do **api** falhou: All green.",
+             "**Deploy** in **api** failed: All green."),
             (.runInterrupted, run,
              "A tarefa **Deploy** do **api** foi interrompida.",
              "**Deploy** in **api** was interrupted."),
             (.botReply, TitioNoticeFacts(workspaceName: "api", botName: "Scout", summary: "Sent the report."),
-             "O **Scout** respondeu no **api**.",
-             "**Scout** replied in **api**."),
+             "O **Scout** respondeu no **api**: Sent the report.",
+             "**Scout** replied in **api**: Sent the report."),
             // The provider title ("Command approval") is a label, never the
             // verb: the request kind is (real Codex/Claude input below).
             (.approval, TitioNoticeFacts(title: "Deploy", workspaceName: "api", detail: "rm -rf build",
@@ -152,16 +152,39 @@ final class TitioNoticeCopyTests: XCTestCase {
                        "Uma tarefa falhou.")
     }
 
-    func test_theFallbackNeverPastesAClippedSummary() {
-        // WHY: the owner saw `Resumo: “… **[Draft PR #3109](https://github.com/…”`:
-        // a 140-char cut through a Markdown link. The fallback leaves the
-        // summary to the thread instead of cutting it.
+    func test_theFallbackNamesTheResultWithoutCuttingMarkdown() {
+        // WHY: "O Developer respondeu no star" never said what was answered or whether it worked, and an
+        // earlier build pasted `Resumo: “… **[Draft PR #3109](https://github.com/…”`, a cut through a link.
+        // The fallback keeps only the summary's first sentence, as plain text.
         let summary = "Implemented DEV-5277. **[Draft PR #3109](https://github.com/o/r/pull/3109)** is up."
         for kind in [TitioNoticeKind.runCompleted, .runFailed, .botReply] {
             let body = TitioNoticeCopy.body(for: item(kind, TitioNoticeFacts(title: "T", botName: "B", summary: summary)),
                                             language: .ptBR, timeZone: utc)
-            XCTAssertFalse(body.contains("DEV-5277"), body)
+            XCTAssertTrue(body.hasSuffix(": Implemented DEV-5277."), body)
             XCTAssertFalse(body.contains("Resumo"), body)
+            XCTAssertFalse(body.contains("https"), body)
+            XCTAssertFalse(body.contains("[Draft"), body)
+        }
+    }
+
+    func test_theFallbackStripsTheWaitMarkerAndStaysOnOneLine() {
+        // WHY: a run that ends while it waits on background work prefixes `[[RC_AWAITING]]`; Titio must not read it out.
+        let body = TitioNoticeCopy.body(
+            for: item(.botReply, TitioNoticeFacts(botName: "Dev", summary: "[[RC_AWAITING]]\nDeploy is running. More soon.")),
+            language: .en, timeZone: utc)
+        XCTAssertEqual(body, "**Dev** replied: Deploy is running.")
+    }
+
+    func test_successNoticesOfferOpenConversationAsButtonsWithoutAQuestion() {
+        // WHY: "Open conversation / Got it" decides nothing, so no "What should I do?" question may sit on it.
+        for (kind, label) in [(TitioNoticeKind.runCompleted, "Open conversation"), (.botReply, "Open conversation")] {
+            let facts = TitioNoticeFacts(title: "Deploy", workspaceName: "api", botName: "Scout")
+            let composed = TitioNoticeCopy.compose(
+                item(kind, facts, actions: TitioNoticeAction.defaultActions(kind: kind, facts: facts)), language: .en, timeZone: utc)
+            let choices = BotChoicesBlock.parse(composed.text).choices
+            XCTAssertEqual(choices?.options, [label, "Got it"], "\(kind)")
+            XCTAssertNil(choices?.question, "\(kind)")
+            XCTAssertFalse(TitioVoicePrompt.needsCardWording(composed.cardOptions), "\(kind): fixed labels need no writer wording")
         }
     }
 
@@ -197,7 +220,7 @@ final class TitioNoticeCopyTests: XCTestCase {
         XCTAssertEqual(composed.preview, "O agente de Deploy no api quer executar uma ação (make ship).")
 
         let en = TitioNoticeCopy.compose(approval, language: .en, timeZone: utc)
-        XCTAssertEqual(BotChoicesBlock.parse(en.text).choices?.options, ["Approve", "Decline", "Open thread"])
+        XCTAssertEqual(BotChoicesBlock.parse(en.text).choices?.options, ["Approve", "Decline", "Open conversation"])
     }
 
     func test_twoStackedApprovalCardsNameTheirOwnSubject() {
@@ -265,9 +288,12 @@ final class TitioNoticeCopyTests: XCTestCase {
         XCTAssertEqual(TitioNoticeAction.defaultActions(kind: .botBlocked, facts: none), [.openBot, .ack])
         XCTAssertEqual(TitioNoticeAction.defaultActions(kind: .scheduledFailed, facts: none), [.rerun, .openActivity])
         XCTAssertNil(TitioNoticeAction.defaultActions(kind: .manualAction, facts: none), "manual actions have no card in v1")
-        XCTAssertNil(TitioNoticeAction.defaultActions(kind: .runCompleted, facts: none))
-        XCTAssertEqual(TitioNoticeCopy.label(for: .openBot, language: .ptBR, botName: "Scout"), "Abrir o Scout")
-        XCTAssertEqual(TitioNoticeCopy.label(for: .openBot, language: .en, botName: "Scout"), "Open Scout")
+        XCTAssertEqual(TitioNoticeAction.defaultActions(kind: .runCompleted, facts: none), [.openThread, .ack],
+                       "a finished task must lead to its conversation")
+        XCTAssertEqual(TitioNoticeAction.defaultActions(kind: .botReply, facts: none), [.openBot, .ack],
+                       "a Bot reply must lead to the Bot conversation")
+        XCTAssertEqual(TitioNoticeCopy.label(for: .openBot, language: .ptBR, botName: "Scout"), "Abrir conversa")
+        XCTAssertEqual(TitioNoticeCopy.label(for: .openBot, language: .en, botName: "Scout"), "Open conversation")
     }
 
     func test_actionsRoundTripThroughJSON() throws {

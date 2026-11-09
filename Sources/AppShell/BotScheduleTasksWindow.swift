@@ -35,12 +35,58 @@ public struct BotScheduleTaskItem: Identifiable, Equatable {
         self.workspaceID = workspaceID ?? bot.workspaceID
     }
 
+    /// The schedule the scheduler runs: saved JSON, else the note it was written with.
+    public var resolvedSpec: BotScheduleSpec? {
+        BotScheduleSpec.decodeJSON(scheduleSpecJSON) ?? BotScheduleSpec.parseDisplayNote(scheduleNote)
+    }
+
     /// Next run is when this task would actually fire, not whether it is armed.
     /// An enabled task still does not run while global autonomy is paused.
-    public func nextRunLabel(isAutonomyActive: Bool) -> String {
+    public func nextRunLabel(isAutonomyActive: Bool, now: Date = Date()) -> String {
         if !isEnabled { return "Paused" }
         if !isAutonomyActive { return "Scheduler paused" }
-        return "While MacCode is open"
+        guard let next = resolvedSpec?.nextOccurrence(after: now) else { return "—" }
+        return next.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+    }
+}
+
+/// One Run History row of a Bot schedule: the recorded run plus the agent run it started.
+public struct BotRoutineRunRow: Identifiable, Equatable {
+    public let record: BotRoutineRunRecord
+    public let agentRun: AgentRun?
+
+    public var id: String { record.id }
+
+    public var canOpen: Bool { record.conversationID != nil && record.result == "started" }
+
+    public enum Status: Equatable { case running, completed, failed, cancelled, skipped, started }
+
+    public var status: Status {
+        switch record.result {
+        case "failed": return .failed
+        case "skipped": return .skipped
+        default: break
+        }
+        switch agentRun?.status {
+        case .pending, .running: return .running
+        case .completed: return .completed
+        case .failed, .interrupted: return .failed
+        case .cancelled: return .cancelled
+        case nil: return .started
+        }
+    }
+
+    public var errorText: String? {
+        record.error ?? record.skipReason ?? (status == .failed ? agentRun?.errorMessage : nil)
+    }
+
+    public func duration(now: Date) -> String {
+        guard let run = agentRun else { return "—" }
+        let seconds = Int(((run.finishedAt ?? (status == .running ? now : run.startedAt)).timeIntervalSince(run.startedAt)))
+        guard seconds >= 0, run.finishedAt != nil || status == .running else { return "—" }
+        if seconds < 60 { return "\(seconds)s" }
+        if run.finishedAt == nil { return "\(seconds / 60)m" }
+        return "\(seconds / 60)m \(seconds % 60)s"
     }
 }
 
@@ -131,6 +177,10 @@ public struct BotScheduleTasksRootView: View {
         VStack(spacing: 0) {
             if vm.scheduleTaskDraft != nil {
                 editorScreen
+            } else if let detail = vm.scheduleTaskDetailItem {
+                BotScheduleTaskDetailScreen(vm: vm, item: detail)
+                Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
+                footerBar
             } else {
                 overviewScreen
                 Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
@@ -168,6 +218,12 @@ public struct BotScheduleTasksRootView: View {
         }
         let workspaceID = vm.scheduleWorkspace(for: bot)
         scopedSource = routines.map { BotScheduleTaskItem(routine: $0, bot: bot, workspaceID: workspaceID) }
+    }
+
+    private func openLastRun(_ item: BotScheduleTaskItem) {
+        if let last = vm.routineRunSummaries[item.id]?.last {
+            vm.openRoutineRunConversation(last, botID: item.botID)
+        }
     }
 
     private var subtitle: String {
@@ -254,7 +310,10 @@ public struct BotScheduleTasksRootView: View {
                                 isAutonomyActive: vm.isAutonomyActive,
                                 isRunning: vm.isRoutineRunning(id: item.id),
                                 isStarting: vm.isRoutineStartingGuest(id: item.id),
-                                onOpen: { vm.editScheduleTask(item) },
+                                lastRun: vm.routineRunSummaries[item.id]?.last,
+                                runCount: vm.routineRunSummaries[item.id]?.count ?? 0,
+                                onOpenLastRun: { openLastRun(item) },
+                                onOpen: { vm.openScheduleTaskDetail(item) },
                                 onToggle: { vm.setRoutineEnabled(id: item.id, enabled: !item.isEnabled) },
                                 onRunNow: { vm.runRoutineNow(id: item.id) },
                                 onEdit: { vm.editScheduleTask(item) },
@@ -350,6 +409,9 @@ struct BotScheduleTaskCard: View {
     let isAutonomyActive: Bool
     var isRunning = false
     var isStarting = false
+    var lastRun: BotRoutineRunRecord? = nil
+    var runCount = 0
+    var onOpenLastRun: () -> Void = {}
     let onOpen: () -> Void
     let onToggle: () -> Void
     let onRunNow: () -> Void
@@ -397,16 +459,24 @@ struct BotScheduleTaskCard: View {
                     title: "Next run",
                     value: item.nextRunLabel(isAutonomyActive: isAutonomyActive)
                 )
+                AgentOverviewMetaColumn(
+                    title: "Last run",
+                    value: ScheduleLastRunLabel.text(date: lastRun?.executedAt, failed: lastRun?.result == "failed"),
+                    valueColor: lastRun?.result == "failed" ? DS.Palette.danger : DS.Palette.text,
+                    action: lastRun?.conversationID == nil ? nil : onOpenLastRun,
+                    actionHelp: "Open the conversation of this run"
+                )
                 HStack(spacing: DS.Space.xs) {
                     Image(systemName: "clock")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(DS.Palette.textTertiary)
-                    Text(item.lastTestRunRequestedAt == nil ? "0" : "1")
+                    Text("\(runCount)")
                         .font(DS.Font.caption.weight(.medium))
                         .foregroundColor(DS.Palette.textSecondary)
                         .monospacedDigit()
                 }
                 .frame(width: 44, alignment: .trailing)
+                .accessibilityLabel("\(runCount) runs")
             }
         } trailing: {
             Menu {
@@ -870,7 +940,14 @@ struct BotScheduleTaskRow: View {
             isAutonomyActive: vm.isAutonomyActive,
             isRunning: vm.isRoutineRunning(id: item.id),
             isStarting: vm.isRoutineStartingGuest(id: item.id),
-            onOpen: { vm.editScheduleTask(item) },
+            lastRun: vm.routineRunSummaries[item.id]?.last,
+            runCount: vm.routineRunSummaries[item.id]?.count ?? 0,
+            onOpenLastRun: {
+                if let last = vm.routineRunSummaries[item.id]?.last {
+                    vm.openRoutineRunConversation(last, botID: item.botID)
+                }
+            },
+            onOpen: { vm.openScheduleTaskDetail(item) },
             onToggle: { vm.setRoutineEnabled(id: item.id, enabled: !item.isEnabled) },
             onRunNow: { vm.runRoutineNow(id: item.id) },
             onEdit: { vm.editScheduleTask(item) },
@@ -895,6 +972,278 @@ struct BotScheduleTaskEditorScreen: View {
                 onBack: { vm.scheduleTaskDraft = nil },
                 onSave: { vm.saveScheduleTask($0) }
             )
+        }
+    }
+}
+
+/// "Last run" text shared by the Agent and Bot schedule cards.
+enum ScheduleLastRunLabel {
+    static func text(date: Date?, failed: Bool) -> String {
+        guard let date else { return "Never" }
+        let when = date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+        return failed ? "Failed · \(when)" : when
+    }
+}
+
+/// Run History of one Bot schedule: the page a card opens, like an Agent scheduled task's.
+struct BotScheduleTaskDetailScreen: View {
+    @ObservedObject var vm: BotsViewModel
+    let item: BotScheduleTaskItem
+
+    private var spec: BotScheduleSpec? { item.resolvedSpec }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.xxl) {
+                header
+                summaryCard
+                historySection
+                Button {
+                    vm.editScheduleTask(item)
+                } label: {
+                    Label("Edit Schedule", systemImage: "pencil")
+                }
+                .buttonStyle(DSSecondaryButtonStyle())
+                .accessibilityIdentifier("bots.scheduleTasks.detail.edit")
+            }
+            .padding(DS.Space.xxl)
+            .frame(maxWidth: 1100, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityIdentifier("bots.scheduleTasks.detail")
+        .task(id: item.id) {
+            vm.reloadScheduleDetailRuns()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                if vm.scheduleDetailRuns.contains(where: { $0.status == .running }) { vm.reloadScheduleDetailRuns() }
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: DS.Space.lg) {
+            Button { vm.closeScheduleTaskDetail() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(DS.Palette.textSecondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back to scheduled tasks")
+            .accessibilityIdentifier("bots.scheduleTasks.detail.back")
+
+            HStack(spacing: DS.Space.md) {
+                Text(item.name)
+                    .font(DS.Font.title2.weight(.semibold))
+                    .foregroundColor(DS.Palette.text)
+                    .lineLimit(1)
+                statusPill
+            }
+            Spacer(minLength: DS.Space.lg)
+            HStack(spacing: DS.Space.sm) {
+                Button("Run Now") { vm.runRoutineNow(id: item.id) }
+                    .buttonStyle(DSPrimaryButtonStyle())
+                    .disabled(vm.isRoutineRunning(id: item.id))
+                    .accessibilityIdentifier("bots.scheduleTasks.detail.runNow")
+                Button(item.isEnabled ? "Pause" : "Resume") {
+                    vm.setRoutineEnabled(id: item.id, enabled: !item.isEnabled)
+                }
+                .buttonStyle(DSSecondaryButtonStyle())
+                .accessibilityIdentifier("bots.scheduleTasks.detail.toggle")
+                Menu {
+                    Button("Edit Schedule") { vm.editScheduleTask(item) }
+                    Divider()
+                    Button("Delete", role: .destructive) { vm.deleteScheduleTask(item) }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(DS.Palette.textSecondary)
+                        .frame(width: 36, height: 32)
+                        .background(DS.Palette.surfaceRaised)
+                        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                                .strokeBorder(DS.Palette.line, lineWidth: DS.Border.hairline)
+                        )
+                }
+                .menuStyle(.borderlessButton)
+                .accessibilityLabel("More actions")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var statusPill: some View {
+        if vm.isRoutineRunning(id: item.id) {
+            DSPill("Running", tone: .success)
+        } else if item.isEnabled {
+            DSPill("Active", tone: .success)
+        } else {
+            DSPill("Paused", tone: .neutral)
+        }
+    }
+
+    private var summaryCard: some View {
+        let workspace = vm.executionWorkspaces.first { $0.id == item.workspaceID }?.name ?? "—"
+        let model: String = {
+            guard let spec else { return "—" }
+            if spec.provider != .distill && spec.routingMode == .auto { return "Auto" }
+            return spec.model.isEmpty ? "Default model" : spec.model
+        }()
+        return VStack(alignment: .leading, spacing: DS.Space.lg) {
+            HStack(alignment: .top, spacing: DS.Space.xl) {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(DS.Palette.accent)
+                    .frame(width: 40, height: 40)
+                    .background(DS.Palette.accent.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+                    .accessibilityHidden(true)
+                metaCell("Workspace", workspace)
+                metaCell("Bot", "\(item.botName) · @\(item.botHandle)")
+                metaCell("Provider", spec?.provider.rawValue.capitalized ?? "—")
+                metaCell("Model", model)
+                metaCell("Reasoning", spec?.reasoningEffort.displayName ?? "—")
+                metaCell("Schedule", item.scheduleNote.isEmpty ? "—" : item.scheduleNote)
+                metaCell("Time zone", spec?.timeZoneIdentifier ?? "—")
+            }
+            HStack(spacing: DS.Space.sm) {
+                Image(systemName: "clock")
+                    .foregroundColor(DS.Palette.textTertiary)
+                    .accessibilityHidden(true)
+                Text("Next run: \(item.nextRunLabel(isAutonomyActive: vm.isAutonomyActive))")
+                    .font(DS.Font.caption)
+                    .foregroundColor(DS.Palette.textSecondary)
+            }
+        }
+        .padding(DS.Space.xl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DS.Palette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                .strokeBorder(DS.Palette.line, lineWidth: DS.Border.hairline)
+        )
+    }
+
+    private func metaCell(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(DS.Font.caption2)
+                .foregroundColor(DS.Palette.textTertiary)
+            Text(value)
+                .font(DS.Font.caption.weight(.medium))
+                .foregroundColor(DS.Palette.text)
+                .lineLimit(2)
+                .textSelection(.enabled)
+        }
+        .frame(minWidth: 88, alignment: .leading)
+    }
+
+    private var historySection: some View {
+        VStack(alignment: .leading, spacing: DS.Space.md) {
+            Text("Run History")
+                .font(DS.Font.title3.weight(.semibold))
+                .foregroundColor(DS.Palette.text)
+            if vm.scheduleDetailRuns.isEmpty {
+                Text("No runs yet. Use Run Now or wait for the next scheduled occurrence.")
+                    .font(DS.Font.body)
+                    .foregroundColor(DS.Palette.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .dsPanel(padding: DS.Space.xl)
+            } else {
+                LazyVStack(spacing: 0) {
+                    historyHeader
+                    ForEach(vm.scheduleDetailRuns) { row in
+                        Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
+                        historyRow(row)
+                    }
+                }
+                .background(DS.Palette.surface)
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                        .strokeBorder(DS.Palette.line, lineWidth: DS.Border.hairline)
+                )
+                .accessibilityIdentifier("bots.scheduleTasks.detail.history")
+            }
+        }
+    }
+
+    private var historyHeader: some View {
+        HStack(spacing: DS.Space.lg) {
+            Text("Started").frame(width: 140, alignment: .leading)
+            Text("Duration").frame(width: 80, alignment: .leading)
+            Text("Status").frame(width: 110, alignment: .leading)
+            Text("Agent Task").frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(DS.Font.caption2.weight(.semibold))
+        .foregroundColor(DS.Palette.textTertiary)
+        .padding(.horizontal, DS.Space.lg)
+        .padding(.vertical, DS.Space.md)
+    }
+
+    @ViewBuilder
+    private func historyRow(_ row: BotRoutineRunRow) -> some View {
+        let content = HStack(spacing: DS.Space.lg) {
+            Text(row.record.executedAt.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
+                .font(DS.Font.caption)
+                .foregroundColor(DS.Palette.text)
+                .frame(width: 140, alignment: .leading)
+            Group {
+                if row.status == .running {
+                    TimelineView(.periodic(from: .now, by: 1)) { timeline in Text(row.duration(now: timeline.date)) }
+                } else {
+                    Text(row.duration(now: Date()))
+                }
+            }
+            .font(DS.Font.caption)
+            .foregroundColor(DS.Palette.textSecondary)
+            .frame(width: 80, alignment: .leading)
+            statusPill(row.status)
+                .frame(width: 110, alignment: .leading)
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                Text(taskTitle(row))
+                    .font(DS.Font.caption.weight(row.canOpen ? .medium : .regular))
+                    .foregroundColor(row.canOpen ? DS.Palette.accent : DS.Palette.textSecondary)
+                if let error = row.errorText {
+                    Text(error)
+                        .font(DS.Font.caption2)
+                        .foregroundColor(row.status == .skipped ? DS.Palette.textSecondary : DS.Palette.danger)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(error)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, DS.Space.lg)
+        .padding(.vertical, DS.Space.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        if row.canOpen {
+            Button { vm.openRoutineRunConversation(row.record, botID: item.botID) } label: { content }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open agent task \(taskTitle(row))")
+                .accessibilityIdentifier("bots.scheduleTasks.detail.openRun")
+        } else {
+            content.accessibilityElement(children: .combine)
+        }
+    }
+
+    private func taskTitle(_ row: BotRoutineRunRow) -> String {
+        "\(item.name) · \(row.record.executedAt.formatted(.dateTime.month(.abbreviated).day()))"
+    }
+
+    private func statusPill(_ status: BotRoutineRunRow.Status) -> some View {
+        switch status {
+        case .completed: return AnyView(DSPill("Completed", tone: .success))
+        case .failed: return AnyView(DSPill("Failed", tone: .danger))
+        case .running: return AnyView(DSPill("Running", tone: .warning))
+        case .started: return AnyView(DSPill("Started", tone: .neutral))
+        case .cancelled: return AnyView(DSPill("Cancelled", tone: .neutral))
+        case .skipped: return AnyView(DSPill("Skipped", tone: .neutral))
         }
     }
 }

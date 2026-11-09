@@ -363,6 +363,10 @@ public enum TitioNoticeAction: Codable, Equatable, Hashable, Sendable {
     /// Digests build their own card in `TitioNoticeCopy`.
     public static func defaultActions(kind: TitioNoticeKind, facts: TitioNoticeFacts) -> [TitioNoticeAction]? {
         switch kind {
+        case .runCompleted:
+            return [.openThread, .ack]
+        case .botReply:
+            return [.openBot, .ack]
         case .runFailed:
             return [.openThread, .ack]
         case .runInterrupted:

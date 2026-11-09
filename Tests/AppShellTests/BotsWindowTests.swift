@@ -4742,9 +4742,11 @@ final class BotsWindowTests: XCTestCase {
             "Scheduler paused"
         )
         vm.setAutonomyActive(true)
+        // WHY: "While MacCode is open" hid when the task fires; the label is the real next slot.
+        let next = try XCTUnwrap(armed.resolvedSpec?.nextOccurrence(after: Date()))
         XCTAssertEqual(
             armed.nextRunLabel(isAutonomyActive: vm.isAutonomyActive),
-            "While MacCode is open"
+            next.formatted(.dateTime.month(.abbreviated).day().hour().minute())
         )
         vm.setRoutineEnabled(id: id, enabled: false)
         let paused = try XCTUnwrap(vm.scheduleTaskItems.first)
