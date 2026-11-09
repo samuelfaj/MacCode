@@ -14,6 +14,52 @@ private let botRemoteControlLog = Logger(
     category: "bot-remote-control"
 )
 
+/// One recorded run of a Bot routine: a scheduled slot, a paired Run now, or a Mac Run Now.
+public struct BotRoutineRunRecord: Sendable, Equatable, Identifiable {
+    public let routineID: BotRoutineID
+    public let executedAt: Date
+    /// `started`, `failed` or `skipped`.
+    public let result: String
+    public let error: String?
+    public let skipReason: String?
+    public let runID: AgentRunID?
+    public let conversationID: BotConversationID?
+    public let automatic: Bool
+
+    public var id: String { "\(routineID.value.uuidString)-\(executedAt.timeIntervalSince1970)" }
+
+    init?(_ run: [String: Any], routineID: BotRoutineID) {
+        guard let executed = run["executed_at"] as? Double else { return nil }
+        self.routineID = routineID
+        executedAt = Date(timeIntervalSince1970: executed)
+        result = run["result"] as? String ?? "failed"
+        error = run["error"] as? String
+        skipReason = run["skip_reason"] as? String
+        runID = (run["run_id"] as? String).flatMap(UUID.init(uuidString:)).map(AgentRunID.init)
+        conversationID = (run["conversation_id"] as? String).flatMap(UUID.init(uuidString:)).map(BotConversationID.init)
+        automatic = run["automatic"] as? Bool == true
+    }
+
+    public init(
+        routineID: BotRoutineID, executedAt: Date, result: String, error: String? = nil, skipReason: String? = nil,
+        runID: AgentRunID? = nil, conversationID: BotConversationID? = nil, automatic: Bool = false
+    ) {
+        self.routineID = routineID
+        self.executedAt = executedAt
+        self.result = result
+        self.error = error
+        self.skipReason = skipReason
+        self.runID = runID
+        self.conversationID = conversationID
+        self.automatic = automatic
+    }
+}
+
+public struct BotRoutineRunSummary: Sendable, Equatable {
+    public let last: BotRoutineRunRecord
+    public let count: Int
+}
+
 /// Host-authoritative paired Bot remote-control engine.
 ///
 /// Mutations succeed only with a logical request id plus receipt/status/readback.
@@ -454,10 +500,7 @@ public final class BotRemoteControlAuthority: @unchecked Sendable {
         var run = routineRunRecord(fire.routine, scheduledAt: fire.scheduledAt, now: now)
         run["result"] = "skipped"
         run["skip_reason"] = reason
-        schedulerRuns.append(run)
-        if schedulerRuns.count > Self.schedulerRunHistoryLimit {
-            schedulerRuns.removeFirst(schedulerRuns.count - Self.schedulerRunHistoryLimit)
-        }
+        appendSchedulerRun(run)
         let routineKey = fire.routine.definition.id.value.uuidString.lowercased()
         var runtime = routineRuntime[routineKey] ?? [:]
         runtime["last_execution_at"] = now.timeIntervalSince1970
@@ -465,6 +508,77 @@ public final class BotRemoteControlAuthority: @unchecked Sendable {
         routineRuntime[routineKey] = runtime
         persistSidecar()
         return run
+    }
+
+    /// Recent history only, per routine: every sidecar write re-encodes it, and
+    /// a busy routine must not push a quiet one out of its own Run History.
+    private func appendSchedulerRun(_ run: [String: Any]) {
+        var stored = run
+        stored["schedule_spec_json"] = nil
+        schedulerRuns.append(stored)
+        guard let routineID = run["routine_id"] as? String else { return }
+        var excess = schedulerRuns.filter { $0["routine_id"] as? String == routineID }.count
+            - Self.schedulerRunHistoryLimit
+        guard excess > 0 else { return }
+        schedulerRuns.removeAll { entry in
+            guard excess > 0, entry["routine_id"] as? String == routineID else { return false }
+            excess -= 1
+            return true
+        }
+    }
+
+    /// Runs recorded for one routine, newest first.
+    public func routineRuns(for routineID: BotRoutineID) -> [BotRoutineRunRecord] {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = routineID.value.uuidString.lowercased()
+        return schedulerRuns.reversed().compactMap { run in
+            run["routine_id"] as? String == key ? BotRoutineRunRecord(run, routineID: routineID) : nil
+        }
+    }
+
+    /// Per routine: its newest run that started or failed to start, and how many runs it has recorded.
+    /// A run skipped at the concurrency limit is not a run the user can open.
+    public func routineRunSummaries() -> [BotRoutineID: BotRoutineRunSummary] {
+        lock.lock()
+        defer { lock.unlock() }
+        var summaries: [BotRoutineID: BotRoutineRunSummary] = [:]
+        for run in schedulerRuns.reversed() where run["result"] as? String != "skipped" {
+            guard let raw = run["routine_id"] as? String, let uuid = UUID(uuidString: raw) else { continue }
+            let id = BotRoutineID(uuid)
+            if let existing = summaries[id] {
+                summaries[id] = BotRoutineRunSummary(last: existing.last, count: existing.count + 1)
+            } else if let record = BotRoutineRunRecord(run, routineID: id) {
+                summaries[id] = BotRoutineRunSummary(last: record, count: 1)
+            }
+        }
+        return summaries
+    }
+
+    /// Run Now on this Mac starts its conversation outside the authority; record it so
+    /// the routine's Run History and Last run show it like a scheduled or paired run.
+    public func recordManualRoutineRun(
+        _ routine: BotRoutine,
+        runID: String,
+        conversationID: String,
+        now: Date = Date()
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        var run = routineRunRecord(routine, scheduledAt: nil, now: now)
+        run["run_id"] = runID
+        run["conversation_id"] = conversationID
+        run["result"] = "started"
+        appendSchedulerRun(run)
+        let key = routine.definition.id.value.uuidString.lowercased()
+        var runtime = routineRuntime[key] ?? [:]
+        runtime["last_run_id"] = runID
+        runtime["last_execution_at"] = now.timeIntervalSince1970
+        runtime["last_result"] = "started"
+        runtime["last_error"] = NSNull()
+        runtime["last_conversation_id"] = conversationID
+        routineRuntime[key] = runtime
+        persistSidecar()
     }
 
     private func claimDueRoutinesLocked(now: Date) throws -> (claims: [RoutineFire], changed: Bool) {
@@ -596,12 +710,7 @@ public final class BotRemoteControlAuthority: @unchecked Sendable {
         let routineKey = definition.id.value.uuidString.lowercased()
         let botID = definition.botID.value.uuidString.lowercased()
         let error = run["error"] as? String
-        // Recent history only: every sidecar write re-encodes it, and each
-        // routine row already carries its own last result.
-        schedulerRuns.append(run)
-        if schedulerRuns.count > Self.schedulerRunHistoryLimit {
-            schedulerRuns.removeFirst(schedulerRuns.count - Self.schedulerRunHistoryLimit)
-        }
+        appendSchedulerRun(run)
         var runtime = routineRuntime[routineKey] ?? [:]
         let previousAttentionID = (runtime["attention_item_id"] as? String).flatMap(UUID.init(uuidString:))
         runtime["last_run_id"] = run["run_id"] ?? NSNull()
@@ -4139,18 +4248,8 @@ public final class BotRemoteControlAuthority: @unchecked Sendable {
         enabled: Bool,
         after date: Date
     ) -> Date? {
-        guard enabled,
-              let spec = definition.scheduleSpec,
-              let recurrence = try? spec.makeRecurrence(),
-              let timeZone = TimeZone(identifier: spec.timeZoneIdentifier) else {
-            return nil
-        }
-        return ScheduledTaskOccurrenceCalculator.nextOccurrence(
-            after: date,
-            recurrence: recurrence,
-            timeZone: timeZone,
-            calendar: Calendar(identifier: .gregorian)
-        )
+        guard enabled else { return nil }
+        return definition.scheduleSpec?.nextOccurrence(after: date)
     }
 
     private func dateValue(_ date: Date?) -> Any {

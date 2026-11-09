@@ -279,6 +279,25 @@ final class ScheduledTaskStoreTests: XCTestCase {
         XCTAssertEqual(try store.get(id: task.id)?.nextRunAt, task.calculatedNextRun(after: Date(timeIntervalSince1970: 100)))
     }
 
+    /// WHY: "Last run" opens the newest run's conversation, so it must be each task's newest
+    /// run per task, and a skipped run (which has no thread) must never replace a real one.
+    func test_latestRunsReturnsEachTasksNewestNonSkippedRun_becauseLastRunOpensItsConversation() throws {
+        let first = makeTask(nextRunAt: Date(timeIntervalSince1970: 100))
+        let second = makeTask(nextRunAt: Date(timeIntervalSince1970: 100))
+        try store.save(first)
+        try store.save(second)
+        let older = try store.claimManual(taskID: first.id, now: Date(timeIntervalSince1970: 101), owner: "a")
+        try store.finish(runID: older.run.id, status: .completed, at: Date(timeIntervalSince1970: 102))
+        let newer = try store.claimManual(taskID: first.id, now: Date(timeIntervalSince1970: 200), owner: "a")
+        try store.finish(runID: newer.run.id, status: .failed, at: Date(timeIntervalSince1970: 201))
+        let skipped = try store.claimManual(taskID: first.id, now: Date(timeIntervalSince1970: 300), owner: "a")
+        try store.finish(runID: skipped.run.id, status: .skipped, at: Date(timeIntervalSince1970: 301))
+
+        let latest = try store.latestRuns()
+        XCTAssertEqual(latest[first.id]?.id, newer.run.id)
+        XCTAssertNil(latest[second.id], "a task that never ran has no last run")
+    }
+
     func test_manualRunRejectsSameTaskOverlap_becauseRunNowMustNotBypassLeasePolicy() throws {
         let task = makeTask(nextRunAt: Date(timeIntervalSince1970: 100))
         try store.save(task)

@@ -2267,6 +2267,58 @@ final class BotRemoteControlAuthorityTests: XCTestCase {
         XCTAssertEqual(runs.last?["run_id"] as? String, "run-\(limit + 10)", "the newest run is kept")
     }
 
+    /// WHY: Run History must keep a quiet routine's runs when a busy routine fires often,
+    /// so retention is per routine, not one shared window.
+    func test_schedulerRunHistoryIsKeptPerRoutine() throws {
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        let quiet = try scheduleRoutine(prefix: "quiet", base: base)
+        let busy = try scheduleRoutine(prefix: "busy", base: base)
+        _ = try authority.dispatch(method: "bot.routine.run", params: [
+            "client_request_id": "quiet-run", "bot_id": quiet.botID, "routine_id": quiet.routineID,
+        ], now: base)
+        for index in 0..<(BotRemoteControlAuthority.schedulerRunHistoryLimit + 5) {
+            _ = try authority.dispatch(method: "bot.routine.run", params: [
+                "client_request_id": "busy-\(index)", "bot_id": busy.botID, "routine_id": busy.routineID,
+            ], now: base.addingTimeInterval(Double(index + 1)))
+        }
+        let summaries = authority.routineRunSummaries()
+        let quietID = BotRoutineID(try XCTUnwrap(UUID(uuidString: quiet.routineID)))
+        let busyID = BotRoutineID(try XCTUnwrap(UUID(uuidString: busy.routineID)))
+        XCTAssertEqual(summaries[quietID]?.count, 1, "a busy routine must not evict a quiet one's history")
+        XCTAssertEqual(summaries[busyID]?.count, BotRemoteControlAuthority.schedulerRunHistoryLimit)
+    }
+
+    /// WHY: Last run and Run History must show Run Now clicked on this Mac, not only scheduled
+    /// and paired runs, and "Last run" must open the conversation that run started.
+    func test_manualRoutineRunIsRecordedWithItsConversation() throws {
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try scheduleRoutine(prefix: "manual", base: base)
+        let routine = try XCTUnwrap(store.listRoutines(botID: BotID(try XCTUnwrap(UUID(uuidString: fixture.botID)))).first)
+        let conversationID = UUID().uuidString.lowercased()
+        let runID = UUID().uuidString.lowercased()
+        authority.recordManualRoutineRun(routine, runID: runID, conversationID: conversationID, now: base)
+        let last = try XCTUnwrap(authority.routineRunSummaries()[routine.definition.id]?.last)
+        XCTAssertEqual(last.conversationID?.value.uuidString.lowercased(), conversationID)
+        XCTAssertEqual(last.runID?.value.uuidString.lowercased(), runID)
+        XCTAssertEqual(last.result, "started")
+        XCTAssertFalse(last.automatic)
+        XCTAssertEqual(try routineRow(authority, botID: fixture.botID)["last_conversation_id"] as? String, conversationID)
+    }
+
+    /// WHY: a run skipped at the concurrency limit has no conversation, so it must not become "Last run".
+    func test_skippedRunIsNotLastRun() throws {
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try scheduleRoutine(prefix: "skipped", base: base)
+        let routine = try XCTUnwrap(store.listRoutines(botID: BotID(try XCTUnwrap(UUID(uuidString: fixture.botID)))).first)
+        let runID = UUID().uuidString.lowercased()
+        authority.recordManualRoutineRun(routine, runID: runID, conversationID: UUID().uuidString.lowercased(), now: base)
+        let slot = BotRemoteControlAuthority.RoutineFire(routine: routine, scheduledAt: base.addingTimeInterval(60))
+        _ = authority.skipRoutineFire(slot, reason: "limit", now: base.addingTimeInterval(60))
+        let summary = try XCTUnwrap(authority.routineRunSummaries()[routine.definition.id])
+        XCTAssertEqual(summary.last.runID?.value.uuidString.lowercased(), runID)
+        XCTAssertEqual(summary.count, 1)
+    }
+
     /// WHY: Notify Off is a delivery preference, not permission to erase Bot
     /// attention. Muted work must remain authoritative across relaunch, while
     /// OS/private-push projection stays empty and a later enabled delivery

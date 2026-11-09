@@ -154,6 +154,18 @@ public struct BotScheduleSpec: Codable, Sendable, Equatable {
         frequencyRules.map { $0.displayNote() }.joined(separator: ", ")
     }
 
+    /// The first scheduled slot strictly after `date`, or nil for an invalid spec or a spent one-time schedule.
+    public func nextOccurrence(after date: Date) -> Date? {
+        guard let recurrence = try? makeRecurrence(),
+              let timeZone = TimeZone(identifier: timeZoneIdentifier) else { return nil }
+        return ScheduledTaskOccurrenceCalculator.nextOccurrence(
+            after: date,
+            recurrence: recurrence,
+            timeZone: timeZone,
+            calendar: Calendar(identifier: .gregorian)
+        )
+    }
+
     // PERF: JSONEncoder/Decoder with iso8601 strategy are expensive. Share one pair behind lock.
     private static let codecLock = NSLock()
     private static let sharedEncoder: JSONEncoder = {

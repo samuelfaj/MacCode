@@ -2,7 +2,7 @@ import AppKit
 import CoreModel
 import Persistence
 import SwiftUI
-import Surfaces
+@testable import Surfaces
 import XCTest
 @testable import AppShell
 import SocketServer
@@ -61,7 +61,8 @@ final class ActivityWindowSnapshotTests: XCTestCase {
     private func render(
         _ name: String, items: [ActivityWireItem], counts: ActivityWireCounts, cursor: String? = nil,
         size: CGSize, selecting selected: String? = nil, failing: Bool = false, clearAll: Bool = false,
-        makeConversation: @escaping (ActivityWireItem) -> ActivityConversation? = { _ in nil }
+        makeConversation: @escaping (ActivityWireItem) -> ActivityConversation? = { _ in nil },
+        terminalSnapshot: @escaping (ActivityWireItem) -> TerminalTextSnapshot? = { _ in nil }
     ) async throws -> NSBitmapImageRep {
         let defaults = UserDefaults(suiteName: "activity-snapshot-\(UUID())")!
         defaults.set("needsYou", forKey: "activity.tab")
@@ -90,7 +91,7 @@ final class ActivityWindowSnapshotTests: XCTestCase {
             while model.error == nil, clock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
         }
 
-        let hosting = NSHostingView(rootView: ActivityRootView(model: model, workspaceOptions: { [("workspace", "star")] }, makeConversation: makeConversation)
+        let hosting = NSHostingView(rootView: ActivityRootView(model: model, workspaceOptions: { [("workspace", "star")] }, makeConversation: makeConversation, terminalSnapshot: terminalSnapshot)
             .frame(width: size.width, height: size.height))
         hosting.frame = NSRect(origin: .zero, size: size)
         hosting.wantsLayer = true
@@ -190,6 +191,33 @@ final class ActivityWindowSnapshotTests: XCTestCase {
         )
         XCTAssertEqual(made, ["run:chat"], "one conversation per selected thread, built once")
         XCTAssertGreaterThan(inkSamples(in: bitmap, columns: 0.4...1), 150, "the conversation must paint in the detail pane")
+    }
+
+    /// WHY: a terminal run used to show only "Open terminal" and an empty summary; the right pane
+    /// must show the terminal's own output, like a chat item shows its conversation.
+    func testTerminalItemShowsItsLiveOutputInTheDetailPane() async throws {
+        var terminal = item("surface:term", kind: "operation", state: "running", title: "npm run dev", workspace: "star", provider: nil, origin: "Terminal")
+        terminal.thread_id = nil
+        terminal.surface_id = UUID().uuidString
+        let green = "\u{001B}[32m"
+        let reset = "\u{001B}[0m"
+        let output = "$ npm run dev\n\(green)ready\(reset) - started server on http://localhost:3000\ncompiled /page in 412ms"
+        let snapshot = TerminalTextSnapshot(
+            text: "$ npm run dev\nready - started server on http://localhost:3000\ncompiled /page in 412ms", ansiText: output,
+            complete: true, source: "test", timestamp: Date(), partialReason: nil, pendingBytes: 0, rows: 24, cols: 80
+        )
+        var reads = 0
+        let bitmap = try await render(
+            "terminal-output", items: [terminal], counts: ActivityWireCounts(running: 1), size: CGSize(width: 1_300, height: 800),
+            selecting: "surface:term", terminalSnapshot: { _ in reads += 1; return snapshot }
+        )
+        XCTAssertGreaterThan(reads, 0, "the pane must read the live terminal it mirrors")
+        XCTAssertGreaterThan(inkSamples(in: bitmap, columns: 0.4...1), 40, "the terminal output must paint in the detail pane")
+        let gone = try await render(
+            "terminal-gone", items: [terminal], counts: ActivityWireCounts(running: 1), size: CGSize(width: 1_300, height: 800),
+            selecting: "surface:term"
+        )
+        XCTAssertGreaterThan(inkSamples(in: gone, columns: 0.4...1), 40, "a closed terminal keeps the summary with its actions")
     }
 
     func testNarrowWindowKeepsListReadableAtMinimumWidth() async throws {

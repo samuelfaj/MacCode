@@ -201,6 +201,27 @@ public final class ScheduledTaskStore: @unchecked Sendable {
         }
     }
 
+    /// Each task's newest run that was not skipped. Its thread, when it has one, is the conversation "Last run" opens.
+    public func latestRuns() throws -> [UUID: ScheduledTaskRun] {
+        try db.performSync { database in
+            let statement = try database.prepare(
+                Self.runSelect + """
+                 WHERE status != 'skipped' AND queued_at = (
+                     SELECT MAX(s.queued_at) FROM scheduled_task_runs s
+                     WHERE s.task_id = scheduled_task_runs.task_id AND s.status != 'skipped'
+                 );
+                """
+            )
+            defer { statement.reset() }
+            var result: [UUID: ScheduledTaskRun] = [:]
+            while try statement.step() {
+                let run = try decodeRun(statement)
+                result[run.taskID] = run
+            }
+            return result
+        }
+    }
+
     public func runCounts() throws -> [UUID: Int] {
         try db.performSync { database in
             let statement = try database.prepare("SELECT task_id, COUNT(*) FROM scheduled_task_runs GROUP BY task_id;")

@@ -3651,6 +3651,13 @@ public final class BotsViewModel: ObservableObject {
     @Published public private(set) var scheduleTaskItems: [BotScheduleTaskItem] = []
     @Published public private(set) var scheduleTaskFilterCounts: (all: Int, active: Int, paused: Int) = (0, 0, 0)
     @Published public var scheduleTaskDraft: BotScheduleTaskDraft?
+    /// The scheduled task whose Run History is open; nil shows the overview.
+    @Published public var scheduleTaskDetailID: BotRoutineID?
+    /// Per task: its last run and run count, from the paired Bot authority's recorded runs.
+    @Published public private(set) var routineRunSummaries: [BotRoutineID: BotRoutineRunSummary] = [:]
+    /// Run History rows of `scheduleTaskDetailID`, newest first.
+    @Published public private(set) var scheduleDetailRuns: [BotRoutineRunRow] = []
+    private var routineRunsSubscription: UUID?
     @Published public var inspectorTab: BotDeskInspectorTab = .routines {
         didSet { persistInspectorTab() }
     }
@@ -4215,6 +4222,9 @@ public final class BotsViewModel: ObservableObject {
     deinit {
         deskLiveTurnWatch?.cancel()
         navigationFreshnessTask?.cancel()
+        if let routineRunsSubscription {
+            EventBus.shared.unsubscribe(routineRunsSubscription)
+        }
         if let shellSidebarVisibilityObserver {
             NotificationCenter.default.removeObserver(shellSidebarVisibilityObserver)
         }
@@ -4419,6 +4429,64 @@ public final class BotsViewModel: ObservableObject {
         }
         scheduleTaskSource = rows
         applyScheduleTaskFilters()
+        ensureRoutineRunsSubscription()
+        reloadRoutineRunSummaries()
+    }
+
+    public var scheduleTaskDetailItem: BotScheduleTaskItem? {
+        scheduleTaskDetailID.flatMap { id in scheduleTaskSource.first { $0.id == id } }
+    }
+
+    public func openScheduleTaskDetail(_ item: BotScheduleTaskItem) {
+        scheduleDetailRuns = []
+        scheduleTaskDetailID = item.id
+        reloadScheduleDetailRuns()
+    }
+
+    public func closeScheduleTaskDetail() {
+        scheduleTaskDetailID = nil
+        scheduleDetailRuns = []
+    }
+
+    public func reloadRoutineRunSummaries() {
+        let next = resolvedRouter()?.botRoutineAuthority?.routineRunSummaries() ?? [:]
+        if next != routineRunSummaries { routineRunSummaries = next }
+    }
+
+    public func reloadScheduleDetailRuns() {
+        guard let id = scheduleTaskDetailID else { return }
+        let records = resolvedRouter()?.botRoutineAuthority?.routineRuns(for: id) ?? []
+        let next = records.map { record -> BotRoutineRunRow in
+            let agentRun = record.runID.flatMap { (try? context.runRepo.get(id: $0)) ?? nil }
+            return BotRoutineRunRow(record: record, agentRun: agentRun)
+        }
+        if next != scheduleDetailRuns { scheduleDetailRuns = next }
+    }
+
+    /// Scheduled fires start in the background; refresh Last run and Run History when one does.
+    private func ensureRoutineRunsSubscription() {
+        guard routineRunsSubscription == nil else { return }
+        routineRunsSubscription = EventBus.shared.subscribe(since: EventBus.shared.currentSeq) { [weak self] event in
+            guard event.kind == "bot.scheduler.updated" else { return }
+            Task { @MainActor in
+                self?.reloadRoutineRunSummaries()
+                self?.reloadScheduleDetailRuns()
+            }
+        }
+    }
+
+    /// Opens the conversation a run started, in the Bot's Desk.
+    public func openRoutineRunConversation(_ record: BotRoutineRunRecord, botID: BotID) {
+        guard let conversationID = record.conversationID else { return }
+        do {
+            guard let router = resolvedRouter(),
+                  try router.openBotsDesk(botID: botID, conversationID: conversationID) else {
+                errorMessage = "This run's conversation is no longer available."
+                return
+            }
+        } catch {
+            errorMessage = "Could not open conversation: \(error.localizedDescription)"
+        }
     }
 
     public func createScheduleTask() {
@@ -4506,6 +4574,7 @@ public final class BotsViewModel: ObservableObject {
     public func deleteScheduleTask(_ item: BotScheduleTaskItem) {
         do {
             try botStore.deleteRoutine(id: item.id)
+            if scheduleTaskDetailID == item.id { closeScheduleTaskDetail() }
             if selectedBotID == item.botID {
                 routines.removeAll { $0.definition.id == item.id }
             }
@@ -7897,6 +7966,15 @@ public final class BotsViewModel: ObservableObject {
         let id = routine.definition.id
         do {
             let sent = try enqueueScheduledRoutine(routine)
+            if let started = sent.objectValue,
+               let runID = started["run_id"]?.stringValue,
+               let conversationID = started["conversation_id"]?.stringValue {
+                resolvedRouter()?.botRoutineAuthority?.recordManualRoutineRun(
+                    routine, runID: runID, conversationID: conversationID
+                )
+                reloadRoutineRunSummaries()
+                reloadScheduleDetailRuns()
+            }
             try botStore.requestRoutineTestRun(id: id)
             adoptTestRunRequested(id: id)
             if let index = scheduleTaskSource.firstIndex(where: { $0.id == id }) {
