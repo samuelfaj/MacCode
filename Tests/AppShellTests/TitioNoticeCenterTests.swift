@@ -350,7 +350,7 @@ final class TitioNoticeCenterTests: XCTestCase {
         ]))
         let decision = try XCTUnwrap(try f.repo.get(key: "thread.T.attention.Q1"))
         XCTAssertEqual(decision.state, .posted)
-        XCTAssertEqual(decision.actions?.compactMap(\.label), ["Approve", "Decline", "Open thread"])
+        XCTAssertEqual(decision.actions?.compactMap(\.label), ["Approve", "Decline", "Open conversation"])
         let text = try XCTUnwrap(f.messages.get(id: AgentMessageID(TitioNoticeIDs.messageID(forKey: "thread.T.attention.Q1"))))
         XCTAssertEqual(BotChoicesBlock.parse(text.content).choices?.notice, "thread.T.attention.Q1")
         XCTAssertEqual(f.recorder.posted.last?.conversation?.attentionState, .needsAttention)

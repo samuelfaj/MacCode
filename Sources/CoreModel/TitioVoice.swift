@@ -235,6 +235,9 @@ public enum TitioVoicePrompt {
     "Heads up", "FYI", "Uh-oh", "Hey there", "Just so you know"). Start with the news itself and vary \
     your wording.
     - Use complete, natural sentences, not terse fragments or telegraphic notes.
+    - Say what actually happened and how it ended: worked, failed, blocked or still waiting. \
+    "X replied" or "the task finished" alone is never enough; name the concrete result from the summary, \
+    in the first sentence.
     - Use only the facts below. Never invent names, numbers, results, links or reasons. If a fact is \
     missing, leave it out.
     - Retell a summary in your own words; do not paste it. Keep names, PR numbers and links exact if \
@@ -278,8 +281,16 @@ public enum TitioVoicePrompt {
         }
         var sections = [persona, task, styleRules + (sensitive ? "\n" + lockScreenRule : ""), language.instruction]
         sections.append("Facts (JSON):\n" + factsJSON(items, timeZone: timeZone))
-        sections.append(outputFormat(cardOptions: cardOptions, botName: items.first?.facts.botName, sensitive: sensitive))
+        sections.append(outputFormat(
+            cardOptions: needsCardWording(cardOptions) ? cardOptions : nil, botName: items.first?.facts.botName, sensitive: sensitive
+        ))
         return sections.joined(separator: "\n\n")
+    }
+
+    /// Only a card with a real choice needs the writer's labels and question; "Open conversation / Got it"
+    /// keeps its fixed labels, so the writer owes just the message and a bad card reply cannot discard it.
+    public static func needsCardWording(_ options: [TitioNoticeCardOption]?) -> Bool {
+        options?.contains { !$0.action.isNavigation && $0.action != .ack } == true
     }
 
     /// Titio's line after the host acted on a card (approve, answer, …).
@@ -455,10 +466,10 @@ extension TitioNoticeKind {
 
     var voiceDescription: String {
         switch self {
-        case .runCompleted: return "A coding-agent task finished successfully."
+        case .runCompleted: return "A coding-agent task ended its turn without an error. The summary is the agent's final message: it may report success, partial progress or a problem. Read it and say which."
         case .runFailed: return "A coding-agent task failed."
         case .runInterrupted: return "A coding-agent task was interrupted before it finished; it can be continued."
-        case .botReply: return "A Bot (one of the user's AI teammates) replied in its own chat."
+        case .botReply: return "A Bot (one of the user's AI teammates) finished its turn in its own chat. The summary is what it said: it may be good news, bad news or a question. Read it and say what it did or answered and whether it worked."
         case .approval: return "A coding agent is waiting for the user's approval before it goes on."
         case .userInput: return "A coding agent asked the user a question and is waiting for the answer."
         case .manualAction: return "An agent is waiting for the user to do something by hand on the Mac."

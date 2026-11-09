@@ -183,7 +183,9 @@ public enum TitioNoticeCopy {
         guard options.count >= 2 else {
             return TitioNoticeComposed(text: body, preview: itemPreview, cardOptions: nil, cardOwnerKey: nil)
         }
-        let question = cardQuestion(for: item, language: language)
+        // "Open conversation / Got it" answers no question; only a real choice gets one.
+        let asksSomething = options.contains { !$0.action.isNavigation && $0.action != .ack }
+        let question = asksSomething ? cardQuestion(for: item, language: language) : nil
         let block = choicesBlock(question: question, options: options.compactMap(\.label), notice: item.key, source: sourceLabels(item.facts), canReply: actions.contains(.replyHere))
         return TitioNoticeComposed(text: body + "\n\n" + block, preview: itemPreview,
                                    cardOptions: options, cardOwnerKey: item.key)
@@ -292,27 +294,29 @@ public enum TitioNoticeCopy {
         let wsPt = ws.map { " do **\($0)**" } ?? ""
         let wsNoPt = ws.map { " no **\($0)**" } ?? ""
         let wsEn = ws.map { " in **\($0)**" } ?? ""
+        // The agent's own first sentence says what happened; without it a notice only says that something did.
+        let saidTail = summarySentence(f.summary).map { ": " + $0 + (".!?…".contains($0.last ?? " ") ? "" : ".") } ?? "."
 
         switch item.kind {
         case .runCompleted:
             if pt {
                 let subject = title.map { "A tarefa **\($0)**" } ?? "Uma tarefa"
-                return "\(subject)\(wsPt) foi concluída\(duration.map { " em \($0)" } ?? "")."
+                return "\(subject)\(wsPt) foi concluída\(duration.map { " em \($0)" } ?? "")" + saidTail
             }
             let subject = title.map { "**\($0)**" } ?? "A task"
-            return "\(subject)\(wsEn) is done\(duration.map { " in \($0)" } ?? "")."
+            return "\(subject)\(wsEn) is done\(duration.map { " in \($0)" } ?? "")" + saidTail
 
         case .runFailed:
-            if pt { return "\(title.map { "A tarefa **\($0)**" } ?? "Uma tarefa")\(wsPt) falhou." }
-            return "\(title.map { "**\($0)**" } ?? "A task")\(wsEn) failed."
+            if pt { return "\(title.map { "A tarefa **\($0)**" } ?? "Uma tarefa")\(wsPt) falhou" + saidTail }
+            return "\(title.map { "**\($0)**" } ?? "A task")\(wsEn) failed" + saidTail
 
         case .runInterrupted:
             if pt { return "\(title.map { "A tarefa **\($0)**" } ?? "Uma tarefa")\(wsPt) foi interrompida." }
             return "\(title.map { "**\($0)**" } ?? "A task")\(wsEn) was interrupted."
 
         case .botReply:
-            if pt { return "\(bot.map { "O **\($0)**" } ?? "Um Bot") respondeu\(wsNoPt)." }
-            return "\(bot.map { "**\($0)**" } ?? "A Bot") replied\(wsEn)."
+            if pt { return "\(bot.map { "O **\($0)**" } ?? "Um Bot") respondeu\(wsNoPt)" + saidTail }
+            return "\(bot.map { "**\($0)**" } ?? "A Bot") replied\(wsEn)" + saidTail
 
         case .approval:
             let verb = approvalVerb(kind: f.requestKind, requestTitle: f.requestTitle, language: language)
@@ -417,6 +421,13 @@ public enum TitioNoticeCopy {
         }
     }
 
+    /// The first sentence of a run summary as plain text, so a fallback names the result without cutting Markdown.
+    static func summarySentence(_ summary: String?) -> String? {
+        guard let summary else { return nil }
+        let sentence = TitioVoiceOutput.firstSentence(BackgroundAwaitContinuation.strippingAwaitingMarker(summary), maxCharacters: 160)
+        return sentence.isEmpty ? nil : sentence
+    }
+
     // MARK: Card
 
     /// Card option label (§6 "Card option labels"). Provider and Bot options show their own text.
@@ -432,8 +443,8 @@ public enum TitioNoticeCopy {
         case .rerun: return pt ? "Rodar de novo" : "Run again"
         case .ack: return pt ? "Entendi" : "Got it"
         case .replyHere: return pt ? "Responder aqui" : "Reply here"
-        case .openThread: return pt ? "Abrir conversa" : "Open thread"
-        case .openBot: return pt ? "Abrir o \(botName ?? "Bot")" : "Open \(botName ?? "Bot")"
+        case .openThread: return pt ? "Abrir conversa" : "Open conversation"
+        case .openBot: return pt ? "Abrir conversa" : "Open conversation"
         case .openActivity: return pt ? "Ver na Atividade" : "View in Activity"
         case .openAllActivity: return pt ? "Ver tudo na Atividade" : "See all in Activity"
         }

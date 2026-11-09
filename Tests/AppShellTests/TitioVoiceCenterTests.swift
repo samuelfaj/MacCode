@@ -211,6 +211,38 @@ final class TitioVoiceCenterTests: XCTestCase {
         XCTAssertEqual(voice.requests.first?.threadID, f.target.threadID)
     }
 
+    func test_botReplyTellsTheOutcomeAndOffersTheConversationWithoutBecomingADecision() async throws {
+        // WHY: "O Developer respondeu no star" gave no outcome and no way to the conversation. The notice now carries
+        // the writer's result sentence plus "Open conversation / Got it", and is information, not a pending decision.
+        let voice = FakeTitioVoice { request in
+            XCTAssertFalse(request.expectsJSON, "fixed navigation buttons need no JSON wording from the writer")
+            XCTAssertTrue(request.prompt.contains("passed after the fix"), "the writer must see what the Bot said")
+            return "O Developer testou os dois cards no star: falharam na primeira vez e passaram depois da correção."
+        }
+        let f = try makeFixture(voice: voice)
+        var facts = TitioNoticeFacts(workspaceName: "star", botName: "Developer",
+                                     summary: "Both cards failed my first test and passed after the fix.")
+        facts.interruptionSuppressed = false
+        f.center.ingest(TitioNoticeFact(
+            key: TitioNoticeIDs.botReply(runId: "R9"), kind: .botReply,
+            source: TitioNoticeSource(threadId: "T-R9", runId: "R9", botId: "B1", conversationId: "C1"),
+            facts: facts, actions: TitioNoticeAction.defaultActions(kind: .botReply, facts: facts), occurredAt: f.scheduler.now
+        ))
+        await f.scheduler.advance(by: TitioNoticeTiming.infoWindow, center: f.center)
+        await waitForPushes(f, count: 1)
+
+        let message = try XCTUnwrap(transcript(f).first)
+        XCTAssertTrue(TitioNoticeBlock.visibleText(message.content).contains("falharam na primeira vez"))
+        let choices = try XCTUnwrap(BotChoicesBlock.parse(message.content).choices)
+        XCTAssertEqual(choices.options.count, 2)
+        XCTAssertTrue(["Open conversation", "Abrir conversa"].contains(choices.options[0]), "labels follow the Mac language: \(choices.options)")
+        XCTAssertEqual(try f.repo.notice(messageID: message.id.value.uuidString)?.actions?.map(\.action), [.openBot, .ack])
+        XCTAssertNil(choices.question)
+        XCTAssertEqual(try f.repo.openCards().count, 0, "an information notice is not an open decision")
+        XCTAssertEqual(try f.repo.openDecisionCount(), 0)
+        XCTAssertEqual(f.recorder.banners.first?.body, "O Developer testou os dois cards no star: falharam na primeira vez e passaram depois da correção.")
+    }
+
     func test_decisionCardIsAppendedByTheHostAndStaysBoundToTheLedger() async throws {
         // WHY: the writer may translate labels, but a tap must still run the
         // stored action; a card the model wrote itself is never trusted, and

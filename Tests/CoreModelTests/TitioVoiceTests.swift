@@ -57,6 +57,26 @@ final class TitioVoiceTests: XCTestCase {
         XCTAssertTrue(TitioVoiceLanguage.matchUser(examples: [], fallbackTag: "pt-BR").instruction.contains("Portuguese (Brazil)"))
     }
 
+    func test_resultNoticePromptDemandsTheConcreteOutcomeNotJustThatSomethingHappened() {
+        // WHY: "O Developer respondeu no star" left the owner guessing what was answered and whether it worked.
+        let reply = item(.botReply, TitioNoticeFacts(workspaceName: "star", botName: "Developer",
+                                                      summary: "Both cards failed my first test and passed after the fix."))
+        let prompt = TitioVoicePrompt.notice([reply], cardOptions: nil, catchUp: false, language: .fixed(tag: "pt-BR"), timeZone: utc)
+        XCTAssertTrue(prompt.contains("never enough"), "the style rules must forbid a bare \"X replied\"")
+        XCTAssertTrue(prompt.contains("Both cards failed my first test and passed after the fix."), "the writer needs the whole summary")
+        XCTAssertTrue(prompt.contains("Read it and say"), "the event description must tell the writer to judge the outcome")
+        XCTAssertTrue(prompt.contains("Reply with the message text only"), "navigation-only buttons need no JSON wording")
+    }
+
+    func test_onlyRealChoicesAskTheWriterForButtonWording() {
+        let open = TitioNoticeCardOption(label: "Open conversation", action: .openThread)
+        let ack = TitioNoticeCardOption(label: "Got it", action: .ack)
+        XCTAssertFalse(TitioVoicePrompt.needsCardWording([open, ack]))
+        XCTAssertFalse(TitioVoicePrompt.needsCardWording(nil))
+        XCTAssertTrue(TitioVoicePrompt.needsCardWording([TitioNoticeCardOption(label: "Approve", action: .approve), open]))
+        XCTAssertTrue(TitioVoicePrompt.needsCardWording([TitioNoticeCardOption(label: "Run again", action: .rerun), ack]))
+    }
+
     func test_decisionPromptAsksForJSONWithOneLabelPerLedgerOption() {
         // WHY: the host appends the card itself; the writer only proposes
         // labels, in the ledger's order, and a lock-screen line without the

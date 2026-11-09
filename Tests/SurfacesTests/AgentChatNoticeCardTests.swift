@@ -1,4 +1,6 @@
+import AppKit
 import CoreModel
+import SwiftUI
 import XCTest
 @testable import Surfaces
 
@@ -59,5 +61,37 @@ final class AgentChatNoticeCardTests: XCTestCase {
         let status = AgentNoticeStatus.of(block(kind: "approval", state: "future_state"))
         XCTAssertEqual(status.label, "Update")
         XCTAssertEqual(status.tone, .neutral)
+    }
+
+    /// WHY: "Open conversation" must be a real button on a result notice, and a draft in the composer must not block it.
+    @MainActor
+    func test_resultNoticeShowsOpenConversationAsAButtonAndReportsTheTap() throws {
+        let composer = AgentComposerState()
+        composer.prompt = "half-written message"
+        var tapped: [Int] = []
+        let choices = BotChoicesBlock.parse("x\n\n" + TitioNoticeCopy.choicesBlock(question: nil, options: ["Open conversation", "Got it"], notice: "k"))
+        let card = AgentChatNoticeCard(
+            messageID: "m1", block: block(kind: "botReply"), choices: choices.choices, createdAt: Date(),
+            content: AnyView(Text("O Developer testou os dois cards no star: falharam na primeira vez e passaram depois da correção.")),
+            composerState: composer, isBlockedByDraft: { true }, isSending: false,
+            onOption: { tapped.append($0) }, onReply: { _ in true }, onClear: nil
+        )
+        let size = CGSize(width: 640, height: 260)
+        let hosting = NSHostingView(rootView: card.frame(width: size.width, height: size.height).background(Color.black))
+        hosting.frame = NSRect(origin: .zero, size: size)
+        hosting.appearance = NSAppearance(named: .darkAqua)
+        let window = NSWindow(contentRect: hosting.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        let bitmap = try XCTUnwrap(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        if let dir = ProcessInfo.processInfo.environment["REMOTE_CODE_NOTICE_ARTIFACT_DIR"] {
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: dir).appendingPathComponent("result-notice.png"))
+        }
+        XCTAssertEqual(choices.choices?.question, nil)
+        XCTAssertTrue(tapped.isEmpty)
     }
 }

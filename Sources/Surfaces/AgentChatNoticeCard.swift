@@ -154,7 +154,24 @@ public struct AgentChatNoticeCard: View {
                     .foregroundColor(DS.Palette.accent)
                     .accessibilityIdentifier("\(identifier).expand")
             }
-            if block.isOpen, let choices {
+            if block.isOpen, let choices, choices.question == nil {
+                // No question: "Open conversation" and "Got it" decide nothing, so they are plain buttons,
+                // not answer rows, and a draft in the composer never blocks them.
+                HStack(spacing: DS.Space.md) {
+                    ForEach(Array(choices.options.enumerated()), id: \.offset) { index, option in
+                        if index == 0 {
+                            Button(option) { onOption(index) }
+                                .buttonStyle(DSPrimaryButtonStyle())
+                                .accessibilityIdentifier("\(identifier).option.\(index)")
+                        } else {
+                            Button(option) { onOption(index) }
+                                .buttonStyle(DSSecondaryButtonStyle())
+                                .accessibilityIdentifier("\(identifier).option.\(index)")
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+            } else if block.isOpen, let choices {
                 NoticeDraftGate(composerState: composerState, isBlocked: isBlockedByDraft) { blocked in
                 VStack(spacing: DS.Space.sm) {
                     ForEach(Array(choices.options.enumerated()), id: \.offset) { index, option in
