@@ -114,3 +114,17 @@ Every change, however small, must be exercised in the real isolated debug app be
   ps -axo pid,ppid,rss,etime,args | awk '/ClaudeAgentSDKBridge\\.mjs|claude --output-format stream-json|claude --dangerously-skip-permissions/ && !/awk/ {print}'
   ```
 - Useful log events added for this class of issue: `app.heartbeat`, `app.will_terminate`, `terminal.spawned`, `terminal.output_health`, `terminal.pty_eof`, `terminal.dead`, and `terminal.close`. These intentionally log IDs, PIDs, counts, RSS, statuses, and byte totals, not terminal contents or secrets.
+
+## Localization
+
+Six languages are supported and always kept complete: English, Portuguese (pt-BR), Spanish, French, Arabic, and Chinese (zh-Hans/zh-Hant). A language without text falls back to English.
+
+**Every task must translate.** Before any task is considered done:
+
+- Every new or edited user-visible string ships with all six translations. No string may be added in English only, and never leave a language falling back to English on purpose.
+- While working in a file, translate every user-visible string you find that is still English-only, even when it is unrelated to the task. Add the missing languages instead of reporting them.
+- Strings are added through the per-language helpers already in the codebase (e.g. `TitioNoticeCopy.t`, `TitioLanguageSetting.choices`); stay consistent with them rather than inlining one-off dictionaries.
+- The default language is the device language (`auto`); the user can override it in Settings (`titio_language`). A fixed unsupported tag falls back to English.
+- Formatting is localized too: decimal commas for pt/es/fr, 24-hour clocks everywhere except English, and per-language date patterns.
+- Verify with a test or a build that the new strings render in every language, and say which languages you checked.
+
