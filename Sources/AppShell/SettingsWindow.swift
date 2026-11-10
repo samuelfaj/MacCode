@@ -265,45 +265,45 @@ public enum SettingsCategory: String, CaseIterable, Identifiable {
 
     public var title: String {
         switch self {
-        case .general: return "General"
-        case .remoteAccess: return "Remote Access"
-        case .accounts: return "Accounts & Auto"
-        case .fileAccess: return "File Access"
-        case .computerUse: return "Computer Use"
-        case .diff: return "Diff"
-        case .terminal: return "Terminal"
-        case .sidebar: return "Sidebar"
-        case .pet: return "Desktop Pet"
-        case .insomnia: return "Insomnia"
-        case .bots: return "Bots"
-        case .keybindings: return "Keybindings"
-        case .storage: return "Storage"
-        case .customModels: return "Custom Models"
-        case .devices: return "Trusted Devices"
-        case .notifications: return "Notifications"
-        case .diagnostics: return "Diagnostics"
+        case .general: return L("General")
+        case .remoteAccess: return L("Remote Access")
+        case .accounts: return L("Accounts & Auto")
+        case .fileAccess: return L("File Access")
+        case .computerUse: return L("Computer Use")
+        case .diff: return L("Diff")
+        case .terminal: return L("Terminal")
+        case .sidebar: return L("Sidebar")
+        case .pet: return L("Desktop Pet")
+        case .insomnia: return L("Insomnia")
+        case .bots: return L("Bots")
+        case .keybindings: return L("Keybindings")
+        case .storage: return L("Storage")
+        case .customModels: return L("Custom Models")
+        case .devices: return L("Trusted Devices")
+        case .notifications: return L("Notifications")
+        case .diagnostics: return L("Diagnostics")
         }
     }
 
     public var subtitle: String {
         switch self {
-        case .general: return "Choose the language of the app's interface."
-        case .remoteAccess: return "Let paired iPhones and other devices reach this Mac over the network."
-        case .accounts: return "Connect the accounts Distill uses and choose how Auto picks between them."
-        case .fileAccess: return "Choose which folders and disks MacCode agents can read and write."
-        case .computerUse: return "Connect the Chrome extension and manage computer-use access for agents."
-        case .diff: return "Set default word wrap and whitespace handling for the diff viewer."
-        case .terminal: return "Adjust the terminal font size."
-        case .sidebar: return "Choose how workspaces and threads are sorted and shown in the sidebar."
-        case .pet: return "Show or hide the desktop pet, its position, size, and alerts."
-        case .insomnia: return "Keep this Mac awake while agents work, with display and sleep options."
-        case .bots: return "Configure Bots control, memory, effects, autonomy, and channels."
-        case .keybindings: return "Customize keyboard shortcuts through your keybindings file."
-        case .storage: return "See local usage and clean up expired attachments and data."
-        case .customModels: return "Add or remove custom model names for each agent provider."
-        case .devices: return "Review paired devices and revoke access you no longer need."
-        case .notifications: return "Choose how Titio, alerts, and sounds reach this Mac and your paired iPhone."
-        case .diagnostics: return "Check provider CLIs, versions, and server status for troubleshooting."
+        case .general: return L("Choose the language of the app's interface.")
+        case .remoteAccess: return L("Let paired iPhones and other devices reach this Mac over the network.")
+        case .accounts: return L("Connect the accounts Distill uses and choose how Auto picks between them.")
+        case .fileAccess: return L("Choose which folders and disks MacCode agents can read and write.")
+        case .computerUse: return L("Connect the Chrome extension and manage computer-use access for agents.")
+        case .diff: return L("Set default word wrap and whitespace handling for the diff viewer.")
+        case .terminal: return L("Adjust the terminal font size.")
+        case .sidebar: return L("Choose how workspaces and threads are sorted and shown in the sidebar.")
+        case .pet: return L("Show or hide the desktop pet, its position, size, and alerts.")
+        case .insomnia: return L("Keep this Mac awake while agents work, with display and sleep options.")
+        case .bots: return L("Configure Bots control, memory, effects, autonomy, and channels.")
+        case .keybindings: return L("Customize keyboard shortcuts through your keybindings file.")
+        case .storage: return L("See local usage and clean up expired attachments and data.")
+        case .customModels: return L("Add or remove custom model names for each agent provider.")
+        case .devices: return L("Review paired devices and revoke access you no longer need.")
+        case .notifications: return L("Choose how Titio, alerts, and sounds reach this Mac and your paired iPhone.")
+        case .diagnostics: return L("Check provider CLIs, versions, and server status for troubleshooting.")
         }
     }
 

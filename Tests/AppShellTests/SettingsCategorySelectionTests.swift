@@ -12,7 +12,7 @@ final class SettingsGeneralCategoryTests: XCTestCase {
     func testGeneralIsTheFirstSettingsRow() {
         XCTAssertEqual(SettingsCategory.allCases.first, .general)
         XCTAssertEqual(SettingsCategory.groups.first, [.general])
-        XCTAssertEqual(SettingsCategory.general.title, "General")
+        XCTAssertEqual(SettingsCategory.general.title, L("General"))
         XCTAssertEqual(SettingsCategory.general.group, 0)
         XCTAssertEqual(SettingsCategory.general.symbol, "globe")
     }
