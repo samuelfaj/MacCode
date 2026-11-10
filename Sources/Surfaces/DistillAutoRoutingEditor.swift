@@ -51,14 +51,14 @@ public struct DistillAutoRoutingEditor: View {
     private var enableRow: some View {
         HStack(alignment: .center, spacing: DS.Space.md) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Enable Auto for all conversations").font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
-                Text("This global profile affects all Auto conversations and Bots.")
+                Text(L("Enable Auto for all conversations")).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
+                Text(L("This global profile affects all Auto conversations and Bots."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: DS.Space.lg)
-            Toggle("Enable Auto for all conversations", isOn: Binding(get: { draft.enabled }, set: { value in
+            Toggle(L("Enable Auto for all conversations"), isOn: Binding(get: { draft.enabled }, set: { value in
                 var next = draft
                 next.enabled = value
                 draft = next
@@ -69,7 +69,7 @@ public struct DistillAutoRoutingEditor: View {
     }
 
     private var offHint: some View {
-        Text("Auto is off. Existing Auto threads and tasks need the profile enabled on the next turn.")
+        Text(L("Auto is off. Existing Auto threads and tasks need the profile enabled on the next turn."))
             .font(DS.Font.caption)
             .foregroundColor(DS.Palette.textTertiary)
     }
@@ -78,7 +78,7 @@ public struct DistillAutoRoutingEditor: View {
 
     private var strategyRow: some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
-            Text("Pick accounts").font(DS.Font.captionStrong).foregroundColor(DS.Palette.textSecondary)
+            Text(L("Pick accounts")).font(DS.Font.captionStrong).foregroundColor(DS.Palette.textSecondary)
             AgentChoiceSegmented(
                 options: [
                     (value: DistillAutoStrategy.orderedFirst, title: "In order", help: "Try connected accounts in the order below."),
@@ -105,8 +105,8 @@ public struct DistillAutoRoutingEditor: View {
     private var optionsSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             HStack(spacing: DS.Space.sm) {
-                Text("Options").font(DS.Font.captionStrong).foregroundColor(DS.Palette.textSecondary)
-                Text("\(draft.options.count)")
+                Text(L("Options")).font(DS.Font.captionStrong).foregroundColor(DS.Palette.textSecondary)
+                Text(L("%1$@", draft.options.count))
                     .font(DS.Font.caption2.monospacedDigit())
                     .foregroundColor(DS.Palette.textTertiary)
                 Spacer(minLength: 0)
@@ -131,7 +131,7 @@ public struct DistillAutoRoutingEditor: View {
         Button(action: addOption) {
             HStack(spacing: DS.Space.xs) {
                 Image(systemName: "plus.circle.fill").font(.system(size: 13))
-                Text("Add option")
+                Text(L("Add option"))
             }
             .font(DS.Font.caption.weight(.semibold))
             .foregroundColor(statuses.isEmpty ? DS.Palette.textTertiary : DS.Palette.accent)
@@ -152,7 +152,7 @@ public struct DistillAutoRoutingEditor: View {
         let eligible = DistillRoutingValidation.models(for: account, catalog: models)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: DS.Space.md) {
-                Text("\(index + 1)")
+                Text(L("%1$@", index + 1))
                     .font(DS.Font.caption.weight(.bold).monospacedDigit())
                     .foregroundColor(DS.Palette.accent)
                     .frame(width: 22, height: 22)
@@ -160,12 +160,12 @@ public struct DistillAutoRoutingEditor: View {
                     .accessibilityLabel("Option \(index + 1)")
                 accountField(option, account: account)
                 Menu {
-                    Button("Move up") { moveOption(option.id, offset: -1) }
+                    Button(L("Move up")) { moveOption(option.id, offset: -1) }
                         .disabled(index == 0)
-                    Button("Move down") { moveOption(option.id, offset: 1) }
+                    Button(L("Move down")) { moveOption(option.id, offset: 1) }
                         .disabled(index == draft.options.count - 1)
                     Divider()
-                    Button("Remove", role: .destructive) { removeOption(option.id) }
+                    Button(L("Remove"), role: .destructive) { removeOption(option.id) }
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 13, weight: .semibold))
@@ -224,9 +224,9 @@ public struct DistillAutoRoutingEditor: View {
                 editOption(option.id) { $0.workerModel = model.isEmpty ? nil : model }
             })
         ) {
-            Text("Same as Main").tag("")
+            Text(L("Same as Main")).tag("")
             if !worker.isEmpty, !eligible.contains(where: { $0.id == worker }) {
-                Text("Unavailable: \(worker)").tag(worker)
+                Text(L("Unavailable: %1$@", worker)).tag(worker)
             }
             ForEach(eligible, id: \.id) { Text($0.label).tag($0.id) }
         }
@@ -282,15 +282,15 @@ public struct DistillAutoRoutingEditor: View {
         let status: String? = account == nil ? nil
             : (!connected ? "Not connected" : remaining.map { "Connected · \(Int($0.rounded()))% remaining" } ?? "Connected")
         return Menu {
-            Picker("Account", selection: Binding(get: { option.accountID }, set: { id in
+            Picker(L("Account"), selection: Binding(get: { option.accountID }, set: { id in
                 editOption(option.id) {
                     $0.accountID = id
                     $0.mainModel = DistillRoutingValidation.models(for: statuses.first { $0.id == id }, catalog: models).first?.id ?? ""
                     $0.workerModel = nil
                 }
             })) {
-                if account == nil { Text("Choose account").tag(option.accountID) }
-                ForEach(statuses, id: \.id) { Text("\($0.provider.displayName) · \($0.label)").tag($0.id) }
+                if account == nil { Text(L("Choose account")).tag(option.accountID) }
+                ForEach(statuses, id: \.id) { Text(L("%1$@ · %2$@", $0.provider.displayName, $0.label)).tag($0.id) }
             }
             .pickerStyle(.inline)
             .labelsHidden()

@@ -570,7 +570,7 @@ public struct ActiveThreadsRootView: View {
             get: { vm.errorMessage != nil },
             set: { if !$0 { vm.errorMessage = nil } }
         )) {
-            Button("OK") { vm.errorMessage = nil }
+            Button(L("OK")) { vm.errorMessage = nil }
         } message: {
             Text(vm.errorMessage ?? "")
         }
@@ -579,7 +579,7 @@ public struct ActiveThreadsRootView: View {
     private var overviewHeader: some View {
         HStack(alignment: .center, spacing: DS.Space.lg) {
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                Text("Active Threads")
+                Text(L("Active Threads"))
                     .font(DS.Font.title.weight(.semibold))
                     .foregroundColor(DS.Palette.text)
                 Text(vm.subtitle)

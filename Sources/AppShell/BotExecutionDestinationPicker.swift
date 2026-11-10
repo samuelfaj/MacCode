@@ -23,9 +23,9 @@ struct BotExecutionDestinationPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            Picker("Run on", selection: $selection) {
-                Text("This Mac").tag(BotExecutionDestination.mac)
-                Text("Own VM").tag(BotExecutionDestination.ownVM)
+            Picker(L("Run on"), selection: $selection) {
+                Text(L("This Mac")).tag(BotExecutionDestination.mac)
+                Text(L("Own VM")).tag(BotExecutionDestination.ownVM)
                 Section("General VMs") {
                     ForEach(available.filter { $0.workspaceID == nil }) { machine in
                         Text(machine.name).tag(BotExecutionDestination.virtualMachine(machine.id))
@@ -39,7 +39,7 @@ struct BotExecutionDestinationPicker: View {
                     }
                 }
                 if let id = selection.virtualMachineID, !available.contains(where: { $0.id == id }) {
-                    Text("Unavailable VM — choose another").tag(selection)
+                    Text(L("Unavailable VM — choose another")).tag(selection)
                 }
             }
             .accessibilityIdentifier("bots.execution.destination")
@@ -48,7 +48,7 @@ struct BotExecutionDestinationPicker: View {
                 .font(DS.Font.caption)
                 .foregroundStyle(DS.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Manage VMs…") { managing = true }
+            Button(L("Manage VMs…")) { managing = true }
                 .accessibilityIdentifier("bots.execution.manage")
             if let error {
                 Text(error).font(DS.Font.caption).foregroundStyle(DS.Palette.danger)
@@ -92,10 +92,10 @@ struct BotVirtualMachinesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             HStack {
-                Text("Virtual machines").font(DS.Font.title)
+                Text(L("Virtual machines")).font(DS.Font.title)
                 Spacer()
                 if lockedWorkspaceID == nil {
-                    Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+                    Button(L("Done")) { dismiss() }.keyboardShortcut(.cancelAction)
                 }
             }
             Text(lockedWorkspaceID == nil
@@ -111,7 +111,7 @@ struct BotVirtualMachinesView: View {
                         Text(scopeName(machine)).font(DS.Font.caption).foregroundStyle(DS.Palette.textSecondary)
                     }
                     Spacer(minLength: DS.Space.md)
-                    Button("Rename") {
+                    Button(L("Rename")) {
                         editingID = machine.id
                         name = machine.name
                         scope = machine.workspaceID
@@ -127,12 +127,12 @@ struct BotVirtualMachinesView: View {
                 }
             }
             Form {
-                TextField("Name", text: $name)
+                TextField(L("Name"), text: $name)
                     .onSubmit(save)
                     .accessibilityIdentifier("bots.vm.name")
                 if lockedWorkspaceID == nil {
-                    Picker("Available to", selection: $scope) {
-                        Text("All bots (General)").tag(WorkspaceID?.none)
+                    Picker(L("Available to"), selection: $scope) {
+                        Text(L("All bots (General)")).tag(WorkspaceID?.none)
                         ForEach(workspaces) { workspace in
                             Text(workspace.name).tag(Optional(workspace.id))
                         }
@@ -146,11 +146,11 @@ struct BotVirtualMachinesView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
-                Text("Linux · Docker is required when the VM starts")
+                Text(L("Linux · Docker is required when the VM starts"))
                     .font(DS.Font.caption).foregroundStyle(DS.Palette.textSecondary)
                 Spacer()
                 if editingID != nil {
-                    Button("Cancel") { editingID = nil; name = ""; scope = lockedWorkspaceID; error = nil }
+                    Button(L("Cancel")) { editingID = nil; name = ""; scope = lockedWorkspaceID; error = nil }
                 }
                 Button(editingID == nil ? "Create VM" : "Save name", action: save)
                     .buttonStyle(.borderedProminent)

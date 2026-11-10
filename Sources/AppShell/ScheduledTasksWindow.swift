@@ -821,7 +821,7 @@ public struct ScheduledTasksRootView: View {
             get: { vm.errorMessage != nil },
             set: { if !$0 { vm.errorMessage = nil } }
         )) {
-            Button("OK") { vm.errorMessage = nil }
+            Button(L("OK")) { vm.errorMessage = nil }
         } message: {
             Text(vm.errorMessage ?? "")
         }
@@ -829,7 +829,7 @@ public struct ScheduledTasksRootView: View {
             get: { botsVM?.errorMessage != nil },
             set: { if !$0 { botsVM?.errorMessage = nil } }
         )) {
-            Button("OK") { botsVM?.errorMessage = nil }
+            Button(L("OK")) { botsVM?.errorMessage = nil }
         } message: {
             Text(botsVM?.errorMessage ?? "")
         }
@@ -981,7 +981,7 @@ public struct ScheduledTasksRootView: View {
 
     private var overviewTitle: some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
-            Text("Scheduled Tasks")
+            Text(L("Scheduled Tasks"))
                 .font(DS.Font.title.weight(.semibold))
                 .foregroundColor(DS.Palette.text)
                 .lineLimit(1)
@@ -1000,7 +1000,7 @@ public struct ScheduledTasksRootView: View {
             vm.createTask()
             openEditor(returnTo: .overview)
         } label: {
-            Label("New Task", systemImage: "plus").lineLimit(1).fixedSize()
+            Label(L("New Task"), systemImage: "plus").lineLimit(1).fixedSize()
         }
         .buttonStyle(DSPrimaryButtonStyle())
         .accessibilityIdentifier("scheduledTasks.new")
@@ -1077,7 +1077,7 @@ public struct ScheduledTasksRootView: View {
                         vm.edit(task)
                         openEditor(returnTo: .detail)
                     } label: {
-                        Label("Edit Schedule", systemImage: "pencil")
+                        Label(L("Edit Schedule"), systemImage: "pencil")
                     }
                     .buttonStyle(DSSecondaryButtonStyle())
                     .accessibilityIdentifier("scheduledTasks.editSchedule")
@@ -1119,19 +1119,19 @@ public struct ScheduledTasksRootView: View {
             }
             Spacer(minLength: DS.Space.lg)
             HStack(spacing: DS.Space.sm) {
-                Button("Run Now") { vm.runNow(task) }
+                Button(L("Run Now")) { vm.runNow(task) }
                     .buttonStyle(DSPrimaryButtonStyle())
                     .accessibilityIdentifier("scheduledTasks.runNow")
                 Button(task.isEnabled ? "Pause" : "Resume") { vm.toggle(task) }
                     .buttonStyle(DSSecondaryButtonStyle())
                     .accessibilityIdentifier("scheduledTasks.toggle")
                 Menu {
-                    Button("Edit Schedule") {
+                    Button(L("Edit Schedule")) {
                         vm.edit(task)
                         openEditor(returnTo: .detail)
                     }
                     Divider()
-                    Button("Delete", role: .destructive) {
+                    Button(L("Delete"), role: .destructive) {
                         vm.delete(task)
                         if vm.selectedTaskID == nil { screen = .overview }
                     }
@@ -1194,7 +1194,7 @@ public struct ScheduledTasksRootView: View {
                 Image(systemName: "clock")
                     .foregroundColor(DS.Palette.textTertiary)
                     .accessibilityHidden(true)
-                Text("Next run: \(nextRunLabel(task))")
+                Text(L("Next run: %1$@", nextRunLabel(task)))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
             }
@@ -1231,7 +1231,7 @@ public struct ScheduledTasksRootView: View {
 
     private func runHistorySection(_ task: ScheduledTask) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            Text("Run History")
+            Text(L("Run History"))
                 .font(DS.Font.title3.weight(.semibold))
                 .foregroundColor(DS.Palette.text)
             if vm.runsTaskID != task.id {
@@ -1245,7 +1245,7 @@ public struct ScheduledTasksRootView: View {
                             .strokeBorder(DS.Palette.line, lineWidth: DS.Border.hairline)
                     )
             } else if vm.runs.isEmpty {
-                Text("No runs yet. Use Run Now or wait for the next scheduled occurrence.")
+                Text(L("No runs yet. Use Run Now or wait for the next scheduled occurrence."))
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1276,10 +1276,10 @@ public struct ScheduledTasksRootView: View {
 
     private var historyHeaderRow: some View {
         HStack(spacing: DS.Space.lg) {
-            Text("Started").frame(width: 140, alignment: .leading)
-            Text("Duration").frame(width: 80, alignment: .leading)
-            Text("Status").frame(width: 110, alignment: .leading)
-            Text("Agent Task").frame(maxWidth: .infinity, alignment: .leading)
+            Text(L("Started")).frame(width: 140, alignment: .leading)
+            Text(L("Duration")).frame(width: 80, alignment: .leading)
+            Text(L("Status")).frame(width: 110, alignment: .leading)
+            Text(L("Agent Task")).frame(maxWidth: .infinity, alignment: .leading)
             Color.clear.frame(width: 24)
         }
         .font(DS.Font.caption2.weight(.semibold))
@@ -1349,12 +1349,12 @@ public struct ScheduledTasksRootView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                     if canOpenThread {
-                        Button("Open Agent Task") { vm.openThread(run) }
+                        Button(L("Open Agent Task")) { vm.openThread(run) }
                             .buttonStyle(DSSecondaryButtonStyle())
                             .accessibilityIdentifier("scheduledTasks.history.openThreadFromDetails")
                     }
                     if run.status == .failed {
-                        Button("Run Again") { vm.runNow(task) }
+                        Button(L("Run Again")) { vm.runNow(task) }
                             .buttonStyle(DSPrimaryButtonStyle())
                     }
                 }
@@ -1504,7 +1504,7 @@ private struct ScheduledTaskCard: View {
                     Image(systemName: "clock")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(DS.Palette.textTertiary)
-                    Text("\(runCount)")
+                    Text(L("%1$@", runCount))
                         .font(DS.Font.caption.weight(.medium))
                         .foregroundColor(DS.Palette.textSecondary)
                         .monospacedDigit()
@@ -1515,10 +1515,10 @@ private struct ScheduledTaskCard: View {
         } trailing: {
             Menu {
                 Button(task.isEnabled ? "Pause" : "Resume", action: onToggle)
-                Button("Run Now", action: onRunNow)
-                Button("Edit", action: onEdit)
+                Button(L("Run Now"), action: onRunNow)
+                Button(L("Edit"), action: onEdit)
                 Divider()
-                Button("Delete", role: .destructive, action: onDelete)
+                Button(L("Delete"), role: .destructive, action: onDelete)
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 13, weight: .semibold))
@@ -1622,8 +1622,8 @@ private struct ScheduledTaskEditorView: View {
                 let _ = ["Basics", "Agent", "Schedule", "Prompt"] as [String]
                 editorGroup("Details") {
                     formRow("Workspace", showsDivider: false) {
-                        Picker("Workspace", selection: $draft.workspaceID) {
-                            Text("Select a workspace").tag(WorkspaceID?.none)
+                        Picker(L("Workspace"), selection: $draft.workspaceID) {
+                            Text(L("Select a workspace")).tag(WorkspaceID?.none)
                             ForEach(vm.workspaces) { workspace in
                                 Text(workspace.name).tag(Optional(workspace.id))
                             }
@@ -1653,7 +1653,7 @@ private struct ScheduledTaskEditorView: View {
                                         .controlSize(.small)
                                         .accessibilityLabel("Loading providers")
                                 }
-                                Toggle("Auto", isOn: Binding(
+                                Toggle(L("Auto"), isOn: Binding(
                                     get: { draft.routingMode == .auto },
                                     set: { setAutoRoutingEnabled($0) }
                                 ))
@@ -1667,7 +1667,7 @@ private struct ScheduledTaskEditorView: View {
                     // only the model within the selected host at run time.
                     if draft.routingMode == .auto {
                         formRow("Model") {
-                            Text("Auto selects the best model for the selected provider at run time.")
+                            Text(L("Auto selects the best model for the selected provider at run time."))
                                 .font(DS.Font.caption)
                                 .foregroundColor(DS.Palette.textSecondary)
                                 .multilineTextAlignment(.trailing)
@@ -2153,10 +2153,10 @@ struct ScheduleConcurrencyPicker: View {
     @Binding var selection: Int
 
     var body: some View {
-        Picker("Concurrent runs", selection: $selection) {
-            Text("One at a time (skip if running)").tag(1)
+        Picker(L("Concurrent runs"), selection: $selection) {
+            Text(L("One at a time (skip if running)")).tag(1)
             ForEach(2...5, id: \.self) { n in
-                Text("Up to \(n) at once").tag(n)
+                Text(L("Up to %1$@ at once", n)).tag(n)
             }
         }
         .labelsHidden()
@@ -2207,7 +2207,7 @@ struct ScheduledRunOptionsEditor: View {
             }
             if let plan {
                 ScheduleEditorRow("Plan mode", hint: "Propose a plan first; runs supervised", showsDivider: showsExecutionMode) {
-                    Toggle("Plan mode", isOn: plan)
+                    Toggle(L("Plan mode"), isOn: plan)
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .tint(DS.Palette.accent)
@@ -2226,9 +2226,9 @@ struct ScheduledRunOptionsEditor: View {
             }
             if let execution {
                 ScheduleEditorRow("Execution", hint: "Local edits in place; Worktree uses a separate branch") {
-                    Picker("Execution", selection: execution) {
-                        Text("Local").tag(AgentExecutionMode.local)
-                        Text("Worktree").tag(AgentExecutionMode.worktree)
+                    Picker(L("Execution"), selection: execution) {
+                        Text(L("Local")).tag(AgentExecutionMode.local)
+                        Text(L("Worktree")).tag(AgentExecutionMode.worktree)
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)

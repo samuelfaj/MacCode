@@ -299,13 +299,13 @@ public struct AgentDistillMainModelSection<Footer: View>: View {
         return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: DS.Space.xs) {
                 AgentCompactMenuSection("Main model")
-                Text("Leads the conversation: plans, reviews, answers.")
+                Text(L("Leads the conversation: plans, reviews, answers."))
                     .font(DS.Font.caption2)
                     .foregroundColor(DS.Palette.textSecondary)
             }
                 .accessibilityIdentifier("agent.distill.mainModel.section")
             if isMainUnavailable(in: selectable) {
-                Text("Selected Main model unavailable: \(mainModel). Choose a model below or add it as Custom.")
+                Text(L("Selected Main model unavailable: %1$@. Choose a model below or add it as Custom.", mainModel))
                     .font(DS.Font.caption2)
                     .foregroundColor(DS.Palette.warning)
                     .fixedSize(horizontal: false, vertical: true)
@@ -323,7 +323,7 @@ public struct AgentDistillMainModelSection<Footer: View>: View {
                         .disabled(isDisabled)
                 }
                 if isFiltering && matches.isEmpty && customMatches.isEmpty {
-                    Text("No models match \"\(trimmedQuery)\".")
+                    Text(L("No models match \"%1$@\".", trimmedQuery))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textSecondary)
                         .frame(width: rowWidth, alignment: .leading)
@@ -343,7 +343,7 @@ public struct AgentDistillMainModelSection<Footer: View>: View {
                 .accessibilityIdentifier("agent.distill.mainEffort.section")
             AgentEffortChipRow(selection: mainEffortSelection, efforts: mainEfforts, disabled: isDisabled, onSelect: onSelectMainEffort)
             if let effort = mainEffortSelection.effort, !mainEfforts.isEmpty, !mainEfforts.contains(effort) {
-                Text("Selected Main effort \(effort.displayName) is unavailable for this model. Choose Auto or a supported level.")
+                Text(L("Selected Main effort %1$@ is unavailable for this model. Choose Auto or a supported level.", effort.displayName))
                     .font(DS.Font.caption2).foregroundColor(DS.Palette.warning)
             }
         }
@@ -456,13 +456,13 @@ public struct AgentDistillReasoningModelSection: View {
         return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: DS.Space.xs) {
                 AgentCompactMenuSection("Worker model")
-                Text("Runs the tasks Main delegates.")
+                Text(L("Runs the tasks Main delegates."))
                     .font(DS.Font.caption2)
                     .foregroundColor(DS.Palette.textSecondary)
             }
                 .accessibilityIdentifier("agent.distill.reasoningModel.section")
             if mainModel == "auto" {
-                Text("Worker follows the selected Auto profile option. Change its Main and Worker pair in Accounts.")
+                Text(L("Worker follows the selected Auto profile option. Change its Main and Worker pair in Accounts."))
                     .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true).frame(width: rowWidth, alignment: .leading)
             } else if let configWorkerSummary {
@@ -470,7 +470,7 @@ public struct AgentDistillReasoningModelSection: View {
                     Text(configWorkerSummary)
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.text)
-                    Text("Update Distill to choose a Worker per conversation.")
+                    Text(L("Update Distill to choose a Worker per conversation."))
                         .font(DS.Font.caption2)
                         .foregroundColor(DS.Palette.textSecondary)
                 }
@@ -500,7 +500,7 @@ public struct AgentDistillReasoningModelSection: View {
                         .disabled(isDisabled)
                 }
                 if isFiltering && matches.isEmpty {
-                    Text("No models match \"\(trimmedQuery)\".")
+                    Text(L("No models match \"%1$@\".", trimmedQuery))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textSecondary)
                         .frame(width: rowWidth, alignment: .leading)
@@ -516,14 +516,14 @@ public struct AgentDistillReasoningModelSection: View {
                     if let effort = reasoningEffortSelection.effort,
                        !reasoningEfforts.isEmpty,
                        !reasoningEfforts.contains(effort) {
-                        Text("Selected Worker effort \(effort.displayName) is unavailable for this model. Choose Auto or a supported level.")
+                        Text(L("Selected Worker effort %1$@ is unavailable for this model. Choose Auto or a supported level.", effort.displayName))
                             .font(DS.Font.caption2)
                             .foregroundColor(DS.Palette.warning)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(width: rowWidth, alignment: .leading)
                     }
                 } else {
-                    Text("Worker effort follows the model default in this Distill version.")
+                    Text(L("Worker effort follows the model default in this Distill version."))
                         .font(DS.Font.caption2)
                         .foregroundColor(DS.Palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -838,7 +838,7 @@ private func agentDistillEffortOptions(_ efforts: [AgentReasoningEffort], includ
 }
 
 private func agentDistillDoneButton(_ close: @escaping () -> Void) -> some View {
-    Button("Done", action: close)
+    Button(L("Done"), action: close)
         .keyboardShortcut(.defaultAction)
         .buttonStyle(.borderedProminent)
 }
@@ -874,7 +874,7 @@ private struct AgentDistillChoiceGrid: View {
                     .disabled(isDisabled)
             }
             if !trimmed.isEmpty && displayed.isEmpty && customMatches.isEmpty {
-                Text("No models match \"\(trimmed)\".")
+                Text(L("No models match \"%1$@\".", trimmed))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
             }
@@ -970,7 +970,7 @@ private struct AgentDistillEffortTarget: Equatable {
 }
 
 private func agentDistillBackToModels(_ action: @escaping () -> Void) -> some View {
-    Button(action: action) { Label("Back to models", systemImage: "chevron.left") }
+    Button(action: action) { Label(L("Back to models"), systemImage: "chevron.left") }
         .buttonStyle(.borderless)
 }
 
@@ -1087,7 +1087,7 @@ private struct AgentDistillMainModelSheet<StatusHeader: View, MainFooter: View>:
             if mainModel == "auto", AgentAutoGuide.makeGuide != nil {
                 HStack {
                     Spacer()
-                    Button("How Auto is set up →") { showingAutoGuide = true }
+                    Button(L("How Auto is set up →")) { showingAutoGuide = true }
                         .buttonStyle(.plain)
                         .font(DS.Font.caption)
                         .foregroundStyle(DS.Palette.accent)
@@ -1099,7 +1099,7 @@ private struct AgentDistillMainModelSheet<StatusHeader: View, MainFooter: View>:
     @ViewBuilder
     private var modelsSection: some View {
         AgentChoiceSectionHeader("Models") {
-            Text("\(models.count + customMainModels.count)")
+            Text(L("%1$@", models.count + customMainModels.count))
                 .font(DS.Font.caption2)
                 .foregroundStyle(DS.Palette.textSecondary)
         }
@@ -1254,7 +1254,7 @@ private struct AgentDistillWorkerModelSheet<StatusHeader: View>: View {
                         Text(configWorkerSummary)
                             .font(DS.Font.caption)
                             .foregroundColor(DS.Palette.text)
-                        Text("Update Distill to choose a Worker per conversation.")
+                        Text(L("Update Distill to choose a Worker per conversation."))
                             .font(DS.Font.caption2)
                             .foregroundColor(DS.Palette.textSecondary)
                     }
@@ -1282,7 +1282,7 @@ private struct AgentDistillWorkerModelSheet<StatusHeader: View>: View {
             text: "Worker follows your Auto profile. Each Auto option pairs a Main and a Worker model."
         )
         if AgentAutoGuide.makeGuide != nil {
-            Button("Open Auto guide") { showingAutoGuide = true }
+            Button(L("Open Auto guide")) { showingAutoGuide = true }
                 .buttonStyle(.borderedProminent)
         }
     }
@@ -1310,7 +1310,7 @@ private struct AgentDistillWorkerModelSheet<StatusHeader: View>: View {
         }
         .help("Run without a separate reasoning model")
         AgentChoiceSectionHeader("Models") {
-            Text("\(models.count)")
+            Text(L("%1$@", models.count))
                 .font(DS.Font.caption2)
                 .foregroundStyle(DS.Palette.textSecondary)
         }
@@ -1519,11 +1519,11 @@ public struct AgentModelPopoverChrome<ManualContent: View>: View {
 
     private var header: some View {
         HStack(spacing: DS.Space.md) {
-            Text("Model")
+            Text(L("Model"))
                 .font(DS.Font.caption.weight(.medium))
                 .foregroundColor(DS.Palette.text)
             Spacer(minLength: DS.Space.xxl)
-            Text("Auto")
+            Text(L("Auto"))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.text)
             if presentation.showsAutoLoadingIndicator {

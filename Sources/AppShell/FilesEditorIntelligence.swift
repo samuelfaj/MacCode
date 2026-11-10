@@ -1,3 +1,4 @@
+import CoreModel
 import Foundation
 import Darwin
 import AgentRuntime

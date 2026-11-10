@@ -1,3 +1,4 @@
+import CoreModel
 import AppKit
 import SwiftUI
 import DesignSystemKit
@@ -20,12 +21,12 @@ struct OnboardingSetupStep: View {
                 ForEach(required, id: \.self) { tool in
                     OnboardingToolRow(tool: tool, state: setup.state(tool)) { Task { await setup.install(tool) } }
                 }
-                Text("OPTIONAL").font(DS.Font.captionStrong).tracking(1).foregroundColor(DS.Palette.textSecondary)
+                Text(L("OPTIONAL")).font(DS.Font.captionStrong).tracking(1).foregroundColor(DS.Palette.textSecondary)
                     .padding(.top, DS.Space.md)
                 ForEach(optional, id: \.self) { tool in
                     OnboardingToolRow(tool: tool, state: setup.state(tool)) { Task { await setup.install(tool) } }
                 }
-                Button("Check again") {
+                Button(L("Check again")) {
                     Task { for tool in OnboardingTool.allCases { await setup.refresh(tool) } }
                 }.buttonStyle(.link)
             }
@@ -35,15 +36,15 @@ struct OnboardingSetupStep: View {
                     OnboardingTitioImage(size: 140)
                     Text(ready ? "Your Mac is ready." : "Getting this Mac ready.")
                         .font(DS.Font.title2).foregroundColor(DS.Palette.text)
-                    Text("Downloads come from the official releases. MacCode checks checksums or macOS signatures before installing. Existing Chrome, Docker, OrbStack and Node installations are reused when compatible.")
+                    Text(L("Downloads come from the official releases. MacCode checks checksums or macOS signatures before installing. Existing Chrome, Docker, OrbStack and Node installations are reused when compatible."))
                         .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
-                    Text("You need an internet connection and space in your home folder. If a download fails, reconnect and retry. Your existing accounts are preserved.")
+                    Text(L("You need an internet connection and space in your home folder. If a download fails, reconnect and retry. Your existing accounts are preserved."))
                         .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
         } footer: {
             Spacer()
-            Button("Skip for now") { vm.skip(.setup) }.buttonStyle(.link)
+            Button(L("Skip for now")) { vm.skip(.setup) }.buttonStyle(.link)
                 .accessibilityHint("AI conversations need Distill. You can install it later from setup.")
             OnboardingPrimaryButton(title: "Continue", busy: !ready && (setup.state(.distill).isBusy || setup.states.values.contains { $0.isBusy })) {
                 vm.advance(completing: .setup)
@@ -84,8 +85,8 @@ struct OnboardingPermissionsStep: View {
                     openPrivacy("Privacy_ScreenCapture")
                 }
                 VStack(alignment: .leading, spacing: DS.Space.md) {
-                    Text("Project folders & Full Disk Access").font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
-                    Text("Opening a project may ask for Desktop, Documents, Downloads or external volumes. Full Disk Access can reduce repeated prompts. A settings button does not grant access.")
+                    Text(L("Project folders & Full Disk Access")).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
+                    Text(L("Opening a project may ask for Desktop, Documents, Downloads or external volumes. Full Disk Access can reduce repeated prompts. A settings button does not grant access."))
                         .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Button(HostFileAccessCopy.openFullDiskAccessButton) {
@@ -99,7 +100,7 @@ struct OnboardingPermissionsStep: View {
                         }
                     }.buttonStyle(.link).disabled(checkingFolders)
                     ForEach(folderResults, id: \.target) { result in
-                        Text("\(result.target.title): \(result.outcome.rawValue)")
+                        Text(L("%1$@: %2$@", result.target.title, result.outcome.rawValue))
                             .font(DS.Font.caption).foregroundColor(result.outcome == .denied ? DS.Palette.warning : DS.Palette.textSecondary)
                     }
                 }
@@ -108,17 +109,17 @@ struct OnboardingPermissionsStep: View {
             OnboardingPanel {
                 VStack(alignment: .leading, spacing: DS.Space.xl) {
                     Image(systemName: "lock.shield").font(DS.Font.title).foregroundColor(DS.Palette.accent).accessibilityHidden(true)
-                    Text("Approve only what you use.").font(DS.Font.title2).foregroundColor(DS.Palette.text)
-                    Text("Allow Local Network when you connect your iPhone. Camera, microphone and Automation prompts appear only when a feature needs them. If macOS requests a restart, reopen MacCode to continue here.")
+                    Text(L("Approve only what you use.")).font(DS.Font.title2).foregroundColor(DS.Palette.text)
+                    Text(L("Allow Local Network when you connect your iPhone. Camera, microphone and Automation prompts appear only when a feature needs them. If macOS requests a restart, reopen MacCode to continue here."))
                         .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
-                    Text("Denied access can be changed later in System Settings → Privacy & Security.")
+                    Text(L("Denied access can be changed later in System Settings → Privacy & Security."))
                         .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
         } footer: {
             OnboardingBackButton(vm: vm)
             Spacer()
-            Button("Skip for now") { vm.skip(.permissions) }.buttonStyle(.link)
+            Button(L("Skip for now")) { vm.skip(.permissions) }.buttonStyle(.link)
             OnboardingPrimaryButton(title: "Continue") { vm.advance(completing: .permissions) }
                 .accessibilityHint("Continue after reviewing permissions. This does not grant access.")
         }

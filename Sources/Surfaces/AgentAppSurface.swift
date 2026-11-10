@@ -13000,7 +13000,7 @@ private struct AgentTranscriptImageThumb: View {
                                 .font(.system(size: style == .featured ? 22 : 16, weight: .medium))
                                 .foregroundColor(DS.Palette.textTertiary)
                             if style == .featured {
-                                Text("Preview unavailable")
+                                Text(L("Preview unavailable"))
                                     .font(DS.Font.caption2)
                                     .foregroundColor(DS.Palette.textTertiary)
                             }
@@ -15703,8 +15703,8 @@ public struct AgentAppView: View {
             ),
             titleVisibility: .visible
         ) {
-            Button("Delete", role: .destructive) { commitPendingDelete() }
-            Button("Cancel", role: .cancel) { pendingDeleteThreadIds = [] }
+            Button(L("Delete"), role: .destructive) { commitPendingDelete() }
+            Button(L("Cancel"), role: .cancel) { pendingDeleteThreadIds = [] }
         } message: {
             Text(Self.threadDeletionConfirmationDescription)
         }
@@ -15713,10 +15713,10 @@ public struct AgentAppView: View {
             isPresented: $pendingClearAllThreads,
             titleVisibility: .visible
         ) {
-            Button("Clear All") { commitClearAllThreads() }
-            Button("Cancel", role: .cancel) { pendingClearAllThreads = false }
+            Button(L("Clear All")) { commitClearAllThreads() }
+            Button(L("Cancel"), role: .cancel) { pendingClearAllThreads = false }
         } message: {
-            Text("Clears notification indicators. Conversations, messages, and running agents are kept.")
+            Text(L("Clears notification indicators. Conversations, messages, and running agents are kept."))
         }
     }
 
@@ -15844,13 +15844,13 @@ public struct AgentAppView: View {
             .onDrop(of: [.text], delegate: AgentThreadDropDelegate(vm: vm, draggingThreadId: $draggingThreadId, target: t))
             .contextMenu {
                 if running {
-                    Button("Stop", role: .destructive) { vm.stopThread(t.id) }
+                    Button(L("Stop"), role: .destructive) { vm.stopThread(t.id) }
                         .accessibilityIdentifier("agent.thread.contextmenu.stop.\(t.id.value.uuidString)")
                     Divider()
                 }
                 Button(t.pinned ? "Unpin" : "Pin") { vm.setThreadPinned(t.id, !t.pinned) }
                 Divider()
-                Button("Rename…") { renameText = t.title; renamingThreadId = t.id }
+                Button(L("Rename…")) { renameText = t.title; renamingThreadId = t.id }
                 Menu("Color") {
                     Button { vm.setThreadColor(t.id, "") } label: {
                         TabColorMenuLabel.none
@@ -15863,9 +15863,9 @@ public struct AgentAppView: View {
                 }
                 Divider()
                 // IMP-MAC_AGENT-013: export the thread to a shareable markdown file.
-                Button("Export…") { exportThread(t) }
+                Button(L("Export…")) { exportThread(t) }
                 Divider()
-                Button("Delete", role: .destructive) {
+                Button(L("Delete"), role: .destructive) {
                     pendingDeleteThreadIds = selectedThreadIds.isEmpty ? [t.id] : selectedThreadIds
                 }
             }
@@ -15877,7 +15877,7 @@ public struct AgentAppView: View {
             Image(systemName: "pencil")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(DS.Palette.accent)
-            TextField("Thread name", text: $renameText)
+            TextField(L("Thread name"), text: $renameText)
                 .textFieldStyle(.plain)
                 .font(DS.Font.bodyDense)
                 .onSubmit { commitRename(t) }
@@ -16125,7 +16125,7 @@ public struct AgentAppView: View {
     @ViewBuilder
     private var botScreenControls: some View {
         if vm.botScreenBotID != nil {
-            Button("View bot screen") { vm.viewBotScreen() }
+            Button(L("View bot screen")) { vm.viewBotScreen() }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityIdentifier("agent.botScreen.view")
@@ -16146,7 +16146,7 @@ public struct AgentAppView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(DS.Palette.danger)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Full access is on")
+                Text(L("Full access is on"))
                     .font(DS.Font.caption.weight(.semibold))
                     .foregroundColor(DS.Palette.danger)
                 Text(Self.fullAccessScopeDescription)
@@ -16154,7 +16154,7 @@ public struct AgentAppView: View {
                     .foregroundColor(DS.Palette.textSecondary)
             }
             Spacer(minLength: 0)
-            Button("Switch to supervised") { vm.setPermissionMode(.supervised) }
+            Button(L("Switch to supervised")) { vm.setPermissionMode(.supervised) }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
         }
@@ -16177,7 +16177,7 @@ public struct AgentAppView: View {
                 .font(DS.Font.caption.weight(.semibold))
                 .foregroundColor(DS.Palette.text)
             Spacer(minLength: 0)
-            Button("Undo") { vm.undoLastThreadDeletion() }
+            Button(L("Undo")) { vm.undoLastThreadDeletion() }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityIdentifier("agent.thread.delete.undo")
@@ -16206,7 +16206,7 @@ public struct AgentAppView: View {
                 .font(DS.Font.caption.weight(.semibold))
                 .foregroundColor(DS.Palette.text)
             Spacer(minLength: 0)
-            Button("Undo") { vm.undoLastCheckpointRevert() }
+            Button(L("Undo")) { vm.undoLastCheckpointRevert() }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityIdentifier("agent.checkpoint.revert.undo")
@@ -16404,7 +16404,7 @@ public struct AgentAppView: View {
                         VStack(alignment: .leading, spacing: 32) {
                             if vm.messageHistoryIsPartial {
                                 VStack(alignment: .leading, spacing: DS.Space.xs) {
-                                    Text("Showing the recent message window. Earlier messages remain stored locally.")
+                                    Text(L("Showing the recent message window. Earlier messages remain stored locally."))
                                         .font(DS.Font.caption)
                                         .foregroundColor(DS.Palette.textTertiary)
                                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -16416,7 +16416,7 @@ public struct AgentAppView: View {
                                             ProgressView()
                                                 .controlSize(.small)
                                         } else {
-                                            Label("Load older messages", systemImage: "arrow.up.circle")
+                                            Label(L("Load older messages"), systemImage: "arrow.up.circle")
                                                 .font(DS.Font.caption)
                                         }
                                     }
@@ -16616,7 +16616,7 @@ public struct AgentAppView: View {
                         .foregroundColor(DS.Palette.textTertiary)
                 }
                 Spacer(minLength: 0)
-                Button("Continue") {
+                Button(L("Continue")) {
                     Task { await vm.continueAfterBackgroundWait() }
                 }
                 .buttonStyle(.bordered)
@@ -16656,7 +16656,7 @@ public struct AgentAppView: View {
                 ),
                 titleVisibility: .visible
             ) {
-                Button("Allow full access", role: .destructive) {
+                Button(L("Allow full access"), role: .destructive) {
                     if let pendingSessionApproval {
                         vm.respondToPendingRequest(
                             pendingSessionApproval.request,
@@ -16666,11 +16666,11 @@ public struct AgentAppView: View {
                     }
                     pendingSessionApproval = nil
                 }
-                Button("Keep approving each action", role: .cancel) {
+                Button(L("Keep approving each action"), role: .cancel) {
                     pendingSessionApproval = nil
                 }
             } message: {
-                Text("Full access lets the agent run tools and edits without asking. Keeping per-action approval is safer.")
+                Text(L("Full access lets the agent run tools and edits without asking. Keeping per-action approval is safer."))
             }
         }
     }
@@ -16774,10 +16774,10 @@ public struct AgentAppView: View {
                         Image(systemName: "list.bullet.rectangle")
                             .font(.system(size: 11))
                             .foregroundColor(DS.Palette.textTertiary)
-                        Text("Work log")
+                        Text(L("Work log"))
                             .font(DS.Font.caption.weight(.semibold))
                             .foregroundColor(DS.Palette.textSecondary)
-                        Text("\(activities.count)")
+                        Text(L("%1$@", activities.count))
                             .font(DS.Font.caption2.weight(.semibold))
                             .foregroundColor(DS.Palette.textTertiary)
                         Spacer(minLength: 0)
@@ -16871,7 +16871,7 @@ public struct AgentAppView: View {
             // don't approve exec/applyPatch requests blind.
             requestPreview(request)
             if stale {
-                Text("Restart the turn to continue.")
+                Text(L("Restart the turn to continue."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.warning)
             } else {
@@ -16885,11 +16885,11 @@ public struct AgentAppView: View {
                         set: { declineReasonDrafts[request.id] = $0 }
                     )
                     VStack(alignment: .leading, spacing: DS.Space.xs) {
-                        TextField("Reason (optional)", text: reasonBinding)
+                        TextField(L("Reason (optional)"), text: reasonBinding)
                             .textFieldStyle(.roundedBorder)
                             .controlSize(.small)
                         HStack(spacing: DS.Space.sm) {
-                            Button("Send Decline") {
+                            Button(L("Send Decline")) {
                                 let draft = declineReasonDrafts[request.id]
                                 declineReasonDrafts[request.id] = nil
                                 vm.respondToPendingRequest(
@@ -16899,17 +16899,17 @@ public struct AgentAppView: View {
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
-                            Button("Cancel") { declineReasonDrafts[request.id] = nil }
+                            Button(L("Cancel")) { declineReasonDrafts[request.id] = nil }
                                 .buttonStyle(.plain)
                                 .controlSize(.small)
                         }
                     }
                 } else {
                     HStack(spacing: DS.Space.sm) {
-                        Button("Approve") { vm.respondToPendingRequest(request, response: .approve) }
+                        Button(L("Approve")) { vm.respondToPendingRequest(request, response: .approve) }
                             .buttonStyle(.borderedProminent)
                         if request.allowsSessionApproval {
-                            Button("Approve Session") {
+                            Button(L("Approve Session")) {
                                 if let originThreadId = vm.selectedThreadId {
                                     pendingSessionApproval = PendingSessionApprovalConfirmation(
                                         originThreadId: originThreadId,
@@ -16922,7 +16922,7 @@ public struct AgentAppView: View {
                                 .help(Self.sessionApprovalHelp)
                         }
                         Spacer(minLength: DS.Space.md)
-                        Button("Decline") { declineReasonDrafts[request.id] = "" }
+                        Button(L("Decline")) { declineReasonDrafts[request.id] = "" }
                             .buttonStyle(.bordered)
                     }
                     .controlSize(.small)
@@ -17066,7 +17066,7 @@ public struct AgentAppView: View {
                 legacyUserInputContent(request, stale: stale)
             }
             if !stale {
-                Button("Cancel question", role: .cancel) {
+                Button(L("Cancel question"), role: .cancel) {
                     vm.cancelPendingUserInput(request)
                 }
                 .buttonStyle(.bordered)
@@ -17092,7 +17092,7 @@ public struct AgentAppView: View {
                 .font(DS.Font.bodyDense.weight(.semibold))
                 .foregroundColor(DS.Palette.text)
             if stale {
-                Text("Restart the turn to continue.")
+                Text(L("Restart the turn to continue."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.warning)
             } else if request.options.isEmpty {
@@ -17103,13 +17103,13 @@ public struct AgentAppView: View {
                     )
                     Group {
                         if request.isSecret {
-                            SecureField("Answer", text: draft)
+                            SecureField(L("Answer"), text: draft)
                         } else {
-                            TextField("Answer", text: draft)
+                            TextField(L("Answer"), text: draft)
                         }
                     }
                     .textFieldStyle(.roundedBorder)
-                    Button("Answer") {
+                    Button(L("Answer")) {
                         vm.answerPendingUserInput(request, answer: vm.userInputDrafts[vm.userInputStateKey(request)] ?? request.answer ?? "")
                     }
                     .disabled((vm.userInputDrafts[vm.userInputStateKey(request)] ?? request.answer ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -17128,7 +17128,7 @@ public struct AgentAppView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    Button("Submit") {
+                    Button(L("Submit")) {
                         vm.answerPendingUserInput(request, answer: vm.selectedUserInputAnswer(for: request))
                     }
                     .buttonStyle(.borderedProminent)
@@ -17153,7 +17153,7 @@ public struct AgentAppView: View {
     @ViewBuilder
     private func askUserQuestionContent(_ request: AssistantUserInputRequest, stale: Bool) -> some View {
         if stale {
-            Text("Restart the turn to continue.")
+            Text(L("Restart the turn to continue."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.warning)
         } else {
@@ -17178,7 +17178,7 @@ public struct AgentAppView: View {
                         AskUserQuestionOtherField(vm: vm, question: question, request: request)
                     }
                 }
-                Button("Submit") { vm.submitAskUserQuestion(request) }
+                Button(L("Submit")) { vm.submitAskUserQuestion(request) }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .disabled(!vm.askUserQuestionIsComplete(request))
@@ -17243,14 +17243,14 @@ public struct AgentAppView: View {
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 11))
                     .foregroundColor(DS.Palette.warning)
-                Text("This turn stopped before finishing.")
+                Text(L("This turn stopped before finishing."))
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.textSecondary)
             }
             Button {
                 Task { await vm.continueInterruptedThread() }
             } label: {
-                Label("Continue", systemImage: "arrow.clockwise")
+                Label(L("Continue"), systemImage: "arrow.clockwise")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -17421,7 +17421,7 @@ public struct AgentAppView: View {
             Image(systemName: "ellipsis")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(DS.Palette.textTertiary)
-            Text("\(count) earlier live updates hidden while this run is active")
+            Text(L("%1$@ earlier live updates hidden while this run is active", count))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
                 .lineLimit(1)
@@ -17529,10 +17529,10 @@ public struct AgentAppView: View {
                     ),
                     titleVisibility: .visible
                 ) {
-                    Button("Retry without unavailable attachments", role: .destructive) {
+                    Button(L("Retry without unavailable attachments"), role: .destructive) {
                         Task { await vm.confirmRetryWithoutUnavailableAttachments() }
                     }
-                    Button("Cancel", role: .cancel) {
+                    Button(L("Cancel"), role: .cancel) {
                         vm.cancelRetryWithoutUnavailableAttachments()
                     }
                 } message: {
@@ -17665,7 +17665,7 @@ public struct AgentAppView: View {
                 EmptyView()
             } else if IncompleteTurnContinuation.isSyntheticPrompt(msg.content) {
                 AnyView(
-                    Text("Checked on a background task · \(AgentChatTranscriptChrome.relativeTimestamp(msg.createdAt, now: relativeNow ?? Date()))")
+                    Text(L("Checked on a background task · %1$@", AgentChatTranscriptChrome.relativeTimestamp(msg.createdAt, now: relativeNow ?? Date())))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textTertiary)
                         .frame(maxWidth: .infinity)
@@ -17698,7 +17698,7 @@ public struct AgentAppView: View {
             if !hiddenPersistedAssistantMessageIDs.contains(msg.id) {
                 if msg.content.isEmpty {
                     // P2: body was blanked by the 24 MB budget safety valve.
-                    Text("(content omitted — message too large to display)")
+                    Text(L("(content omitted — message too large to display)"))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textTertiary)
                         .italic()
@@ -18033,7 +18033,7 @@ public struct AgentAppView: View {
                             )
                             workDisclosureLayoutEpoch &+= 1
                         } label: {
-                            Text("Show earlier steps (\(slice.hiddenCount) hidden)")
+                            Text(L("Show earlier steps (%1$@ hidden)", slice.hiddenCount))
                                 .font(DS.Font.caption)
                                 .foregroundColor(DS.Palette.accent)
                         }
@@ -18068,7 +18068,7 @@ public struct AgentAppView: View {
             reasoningRow(item)
         case .plan:
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                Text("PLAN").font(DS.Font.caption2.weight(.semibold)).tracking(0.6)
+                Text(L("PLAN")).font(DS.Font.caption2.weight(.semibold)).tracking(0.6)
                     .foregroundColor(DS.Palette.accent)
                 assistantProse(item.body, cacheMarkdown: item.state != .streaming)
             }
@@ -18255,13 +18255,13 @@ public struct AgentAppView: View {
                         .foregroundColor(statusColor)
                         .frame(width: 12)
                         .accessibilityHidden(true)
-                    (Text("\(presentation.verb) ")
+                    (Text(L("%1$@ ", presentation.verb))
                         .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)
                      + Text(displayLabel)
                         .font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text))
                     .lineLimit(1).truncationMode(.tail)
                     if isBackground {
-                        Text("Background")
+                        Text(L("Background"))
                             .font(DS.Font.caption2.weight(.semibold))
                             .foregroundColor(DS.Palette.accent)
                             .padding(.horizontal, 6)
@@ -18285,11 +18285,11 @@ public struct AgentAppView: View {
                                 .foregroundColor(DS.Palette.accent)
                         }
                     } else if item.state == .streaming {
-                        Text("Running")
+                        Text(L("Running"))
                             .font(DS.Font.caption2.weight(.semibold))
                             .foregroundColor(DS.Palette.accent)
                     } else if item.state == .failed {
-                        Text("Failed")
+                        Text(L("Failed"))
                             .font(DS.Font.caption2.weight(.semibold))
                             .foregroundColor(DS.Palette.danger)
                     } else if let duration {
@@ -18470,7 +18470,7 @@ public struct AgentAppView: View {
                     if let liveAnchor {
                         toolGroupLiveElapsedChip(liveAnchor)
                     } else if !expanded {
-                        Text("\(items.count)")
+                        Text(L("%1$@", items.count))
                             .font(DS.Font.caption2.weight(.semibold).monospacedDigit())
                             .foregroundColor(DS.Palette.textTertiary)
                             .padding(.horizontal, 7)
@@ -18537,7 +18537,7 @@ public struct AgentAppView: View {
                                 )
                                 workDisclosureLayoutEpoch &+= 1
                             } label: {
-                                Text("Show earlier items (\(slice.hiddenCount) hidden)")
+                                Text(L("Show earlier items (%1$@ hidden)", slice.hiddenCount))
                                     .font(DS.Font.caption)
                                     .foregroundColor(DS.Palette.accent)
                             }
@@ -18642,13 +18642,13 @@ public struct AgentAppView: View {
                     }
                     queuedMessagePendingCancel = nil
                 }
-                Button("Keep message", role: .cancel) {
+                Button(L("Keep message"), role: .cancel) {
                     queuedMessagePendingCancel = nil
                 }
             } message: {
                 if queuedMessagePendingCancel?.durableState == .prepared {
                     Text(
-                        "The provider may already have received this message. Removing it only abandons the queue record and cannot undo provider-side work."
+                        L("The provider may already have received this message. Removing it only abandons the queue record and cannot undo provider-side work.")
                     )
                 }
             }
@@ -18677,7 +18677,7 @@ public struct AgentAppView: View {
             )
                 .frame(maxWidth: .infinity, alignment: .leading)
             if offersCopy {
-                Button("Copy") {
+                Button(L("Copy")) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(message, forType: .string)
                 }
@@ -18686,7 +18686,7 @@ public struct AgentAppView: View {
                 .accessibilityIdentifier("\(identifier).copy")
             }
             if let retry {
-                Button("Retry", action: retry)
+                Button(L("Retry"), action: retry)
                     .buttonStyle(.plain)
                     .font(DS.Font.caption)
                     .accessibilityIdentifier("\(identifier).retry")
@@ -18778,7 +18778,7 @@ public struct AgentAppView: View {
             text: isEditing ? "" : (message.text.isEmpty ? attachmentSummary(message) : message.text),
             identifier: "agent.queued.row.\(message.id.value.uuidString)",
             leading: AnyView(
-                Text("#\(message.position)")
+                Text(L("#%1$@", message.position))
                     .font(DS.Font.caption.monospacedDigit().weight(.semibold))
                     .foregroundColor(DS.Palette.textSecondary)
                     .frame(width: 28, alignment: .leading)
@@ -18800,7 +18800,7 @@ public struct AgentAppView: View {
                         )
                     }
                     if !message.attachments.isEmpty {
-                        Label("\(message.attachments.count) attachment\(message.attachments.count == 1 ? "" : "s")", systemImage: "paperclip")
+                        Label(L("%1$@ attachment%2$@", message.attachments.count, message.attachments.count == 1 ? "" : "s"), systemImage: "paperclip")
                             .font(DS.Font.caption)
                             .foregroundColor(DS.Palette.textTertiary)
                     }
@@ -18848,7 +18848,7 @@ public struct AgentAppView: View {
                         }
                     } label: {
                         if message.durableState == .prepared {
-                            Text("Remove")
+                            Text(L("Remove"))
                                 .foregroundColor(DS.Palette.danger)
                         } else {
                             Image(systemName: "trash")
@@ -19012,19 +19012,19 @@ public struct AgentAppView: View {
     private func changedFilesStrip(_ s: GitSummary) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: DS.Space.sm) {
-                Text("\(s.files.count) file\(s.files.count == 1 ? "" : "s") changed")
+                Text(L("%1$@ file%2$@ changed", s.files.count, s.files.count == 1 ? "" : "s"))
                     .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                     // IMP-MAC_AGENT-008: per-file +/- breakdown on hover, so users
                     // can preview the changed-files detail without leaving the
                     // composer to open the Git panel.
                     .help(changedFilesBreakdown(s))
-                Text("+\(s.totalAdditions)")
+                Text(L("+%1$@", s.totalAdditions))
                     .font(DS.Font.caption.monospacedDigit()).foregroundColor(DS.Palette.success)
-                Text("−\(s.totalDeletions)")
+                Text(L("−%1$@", s.totalDeletions))
                     .font(DS.Font.caption.monospacedDigit()).foregroundColor(DS.Palette.danger)
                 Spacer(minLength: 0)
                 Button { vm.onReviewRequested?() } label: {
-                    Text("Review here")
+                    Text(L("Review here"))
                         .font(DS.Font.caption.weight(.medium))
                         .foregroundColor(DS.Palette.accent)
                 }
@@ -19069,7 +19069,7 @@ public struct AgentAppView: View {
                     systemStripRow(item)
                 }
                 if collapsed.overflowCount > 0 {
-                    Text("+\(collapsed.overflowCount) more status")
+                    Text(L("+%1$@ more status", collapsed.overflowCount))
                         .font(DS.Font.caption2)
                         .foregroundColor(DS.Palette.textTertiary)
                         .padding(.horizontal, DS.Space.lg)
@@ -19086,12 +19086,12 @@ public struct AgentAppView: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(DS.Palette.textSecondary)
                 .frame(width: 14, height: 14, alignment: .center)
-            Text("This bot has been deleted. This conversation is read-only.")
+            Text(L("This bot has been deleted. This conversation is read-only."))
                 .font(.system(size: 11))
                 .foregroundColor(DS.Palette.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if vm.canContinueWithoutBot {
-                Button("Continue without bot") {
+                Button(L("Continue without bot")) {
                     continueWithoutBot()
                 }
                 .buttonStyle(.bordered)
@@ -19121,7 +19121,7 @@ public struct AgentAppView: View {
                 .font(.system(size: 11))
                 .foregroundColor(DS.Palette.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Button("New Distill conversation") {
+            Button(L("New Distill conversation")) {
                 vm.createThread(title: "New thread")
             }
             .buttonStyle(.bordered)
@@ -19211,7 +19211,7 @@ public struct AgentAppView: View {
                 .accessibilityIdentifier("\(item.id).copy")
             }
             if item.offersRetry {
-                Button("Retry") { retrySystemStripItem(item.id) }
+                Button(L("Retry")) { retrySystemStripItem(item.id) }
                 .buttonStyle(.plain)
                 .font(DS.Font.caption)
                 .accessibilityIdentifier("\(item.id).retry")
@@ -19354,7 +19354,7 @@ public struct AgentAppView: View {
                 if vm.executionMode == .worktree {
                     VStack(alignment: .leading, spacing: DS.Space.md) {
                         AgentChoiceSectionHeader("Base branch")
-                        TextField("Base branch", text: Binding(
+                        TextField(L("Base branch"), text: Binding(
                             get: { vm.baseBranch },
                             set: { vm.setBaseBranch($0) }
                         ))
@@ -19371,7 +19371,7 @@ public struct AgentAppView: View {
                 }
                 VStack(alignment: .leading, spacing: DS.Space.md) {
                     AgentChoiceSectionHeader("Open a pull request")
-                    TextField("PR URL", text: $vm.pullRequestURL)
+                    TextField(L("PR URL"), text: $vm.pullRequestURL)
                         .textFieldStyle(.plain)
                         .font(DS.Font.bodyDense)
                         .padding(.horizontal, DS.Space.md)
@@ -19395,7 +19395,7 @@ public struct AgentAppView: View {
         } footer: {
             HStack {
                 Spacer(minLength: 0)
-                Button("Done") { showExecutionSheet = false }
+                Button(L("Done")) { showExecutionSheet = false }
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -19528,7 +19528,7 @@ public struct AgentAppView: View {
     private var modelListStatusHeader: some View {
         VStack(alignment: .leading, spacing: 0) {
             if vm.modelListLoading {
-                Text("Loading models...")
+                Text(L("Loading models..."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
             }
@@ -19562,7 +19562,7 @@ public struct AgentAppView: View {
             // F33: no provider gate — codex's baked-in list must surface
             // the same fallback notice + refresh affordance as claude.
             if vm.displayedModelListIsFallback {
-                Text("Live model list unavailable. Refresh to check available models.")
+                Text(L("Live model list unavailable. Refresh to check available models."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
                 compactMenuRow("Refresh model list", selected: false) {
@@ -19600,7 +19600,7 @@ public struct AgentAppView: View {
         ) {
             // UX-MAC_AGENT-016: readable while running; mutation rows disable below.
             if running {
-                Text("Read-only while running")
+                Text(L("Read-only while running"))
                     .font(DS.Font.caption2)
                     .foregroundColor(DS.Palette.textTertiary)
                     .fixedSize(horizontal: true, vertical: false)
@@ -19727,18 +19727,18 @@ public struct AgentAppView: View {
     // non-empty (trimmed) before saving; Esc/blur-style Cancel dismisses it.
     private var customModelInlineField: some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
-            TextField("Model ID", text: $customModelDraft)
+            TextField(L("Model ID"), text: $customModelDraft)
                 .textFieldStyle(.roundedBorder)
                 .font(DS.Font.caption)
                 .frame(width: compactModelMenuWidth)
                 .onSubmit { commitCustomModelDraft() }
                 .accessibilityIdentifier("agent.model.custom.input")
             HStack(spacing: DS.Space.xs) {
-                Button("Save") { commitCustomModelDraft() }
+                Button(L("Save")) { commitCustomModelDraft() }
                     .controlSize(.small)
                     .disabled(customModelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("agent.model.custom.save")
-                Button("Cancel") {
+                Button(L("Cancel")) {
                     showCustomModelField = false
                     customModelDraft = ""
                 }
@@ -19899,7 +19899,7 @@ public struct AgentAppView: View {
                 Image(systemName: "checklist")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(DS.Palette.accent)
-                Text("Active plan")
+                Text(L("Active plan"))
                     .font(DS.Font.caption.weight(.semibold))
                     .foregroundColor(DS.Palette.textSecondary)
                 Spacer(minLength: 0)
@@ -19958,32 +19958,32 @@ public struct AgentAppView: View {
                     Button {
                         Task { await vm.implementLatestPlan(newThread: false) }
                     } label: {
-                        Label("Approve", systemImage: "checkmark")
+                        Label(L("Approve"), systemImage: "checkmark")
                     }
                     .buttonStyle(.borderedProminent)
                     Button {
                         Task { await vm.rejectLatestPlan() }
                     } label: {
-                        Label("Reject", systemImage: "xmark")
+                        Label(L("Reject"), systemImage: "xmark")
                     }
                     .buttonStyle(.bordered)
                     Button {
                         Task { await vm.implementLatestPlan(newThread: true) }
                     } label: {
-                        Label("New thread", systemImage: "plus.message")
+                        Label(L("New thread"), systemImage: "plus.message")
                     }
                     .buttonStyle(.bordered)
                 }
                 Button {
                     copyToPasteboard(markdown)
                 } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
+                    Label(L("Copy"), systemImage: "doc.on.doc")
                 }
                 .buttonStyle(.bordered)
                 Button {
                     saveLatestProposedPlan()
                 } label: {
-                    Label("Save", systemImage: "square.and.arrow.down")
+                    Label(L("Save"), systemImage: "square.and.arrow.down")
                 }
                 .buttonStyle(.bordered)
                 if plan.markdown != plan.collapsedPreview {
@@ -20165,7 +20165,7 @@ private struct AskUserQuestionOtherField: View {
             .accessibilityLabel("Other")
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityIdentifier("agent.askOther.\(request.id).\(question.id)")
-            TextField("Other…", text: draft)
+            TextField(L("Other…"), text: draft)
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
                 .focused($focused)

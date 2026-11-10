@@ -1,3 +1,4 @@
+import CoreModel
 import Foundation
 import SwiftUI
 import AppKit
@@ -1624,7 +1625,7 @@ struct AgentFileEditDiffCard: View {
                     Image(systemName: "diamond.fill")
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundColor(DS.Palette.textTertiary)
-                    Text("Edit")
+                    Text(L("Edit"))
                         .font(DS.Font.caption.weight(.semibold))
                         .foregroundColor(DS.Palette.textSecondary)
                     if let path = model.path, !path.isEmpty {
@@ -1657,7 +1658,7 @@ struct AgentFileEditDiffCard: View {
                         Button {
                             showAllLines = true
                         } label: {
-                            Text("Show \(visible.hiddenCount) more lines")
+                            Text(L("Show %1$@ more lines", visible.hiddenCount))
                                 .font(DS.Font.caption2)
                                 .foregroundColor(DS.Palette.accent)
                                 .padding(.horizontal, DS.Space.sm)
@@ -1666,7 +1667,7 @@ struct AgentFileEditDiffCard: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("agent.fileEdit.showMore")
                     } else if model.hiddenLineCount > 0 {
-                        Text("… \(model.hiddenLineCount) more lines truncated")
+                        Text(L("… %1$@ more lines truncated", model.hiddenLineCount))
                             .font(DS.Font.caption2)
                             .foregroundColor(DS.Palette.textSecondary)
                             .padding(.horizontal, DS.Space.sm)

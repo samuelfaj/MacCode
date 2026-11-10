@@ -6,6 +6,18 @@ import Persistence
 /// WHY: Settings lives in the main window now, so the selected category is the
 /// only place that remembers which destination the user left open. It must
 /// survive a reopen of MacCode, or the Settings destination silently resets.
+final class SettingsGeneralCategoryTests: XCTestCase {
+    // WHY: the interface language lives under Settings > General, so that row
+    // must exist, come first, and stay reachable from every other group.
+    func testGeneralIsTheFirstSettingsRow() {
+        XCTAssertEqual(SettingsCategory.allCases.first, .general)
+        XCTAssertEqual(SettingsCategory.groups.first, [.general])
+        XCTAssertEqual(SettingsCategory.general.title, "General")
+        XCTAssertEqual(SettingsCategory.general.group, 0)
+        XCTAssertEqual(SettingsCategory.general.symbol, "globe")
+    }
+}
+
 @MainActor
 final class SettingsCategorySelectionTests: XCTestCase {
     func testNotificationsCategoryPersistsAcrossViewModels() throws {

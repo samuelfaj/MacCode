@@ -1,3 +1,4 @@
+import CoreModel
 import SwiftUI
 import DesignSystemKit
 
@@ -35,7 +36,7 @@ public struct AgentListFilterChip: View {
             HStack(spacing: DS.Space.xs) {
                 Text(title)
                     .font(DS.Font.caption.weight(.semibold))
-                Text("\(count)")
+                Text(L("%1$@", count))
                     .font(DS.Font.caption2.weight(.bold))
                     .opacity(selected ? 0.9 : 0.7)
             }
@@ -181,7 +182,7 @@ public struct AgentKillSwitchControl: View {
                 get: { isActive },
                 set: { onChange($0) }
             )) {
-                Text("Active")
+                Text(L("Active"))
             }
             .labelsHidden()
             .toggleStyle(.switch)

@@ -1,3 +1,4 @@
+import CoreModel
 import Foundation
 import AppKit
 import SwiftUI
@@ -285,7 +286,7 @@ struct KeybindingsSettingsPane: View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             DSSectionHeaderG("Keybindings")
 
-            Text("Parsed from \(KeybindingConfig.defaultPath). Editing the JSON updates this list live; no restart needed. Conflicts shadow a built-in menu shortcut.")
+            Text(L("Parsed from %1$@. Editing the JSON updates this list live; no restart needed. Conflicts shadow a built-in menu shortcut.", KeybindingConfig.defaultPath))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
 
@@ -313,7 +314,7 @@ struct KeybindingsSettingsPane: View {
             }
 
             if config.bindings.isEmpty {
-                Text("No bindings defined. Add rules to keybindings.json to customize shortcuts.")
+                Text(L("No bindings defined. Add rules to keybindings.json to customize shortcuts."))
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.textSecondary)
                     .accessibilityIdentifier("settings.keybindings.empty")
@@ -328,7 +329,7 @@ struct KeybindingsSettingsPane: View {
 
             HStack {
                 Spacer()
-                Button("Reload") { reload() }
+                Button(L("Reload")) { reload() }
                     .buttonStyle(DSSecondaryButtonStyle())
                     .accessibilityIdentifier("settings.keybindings.reload.button")
             }
@@ -364,17 +365,17 @@ struct KeybindingsSettingsPane: View {
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.text)
                 if let when = b.when, !when.isEmpty {
-                    Text("when: \(when)")
+                    Text(L("when: %1$@", when))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textTertiary)
                 }
                 if let conflict {
-                    Text("Shadows built-in: \(conflict.builtInMenuLabel)")
+                    Text(L("Shadows built-in: %1$@", conflict.builtInMenuLabel))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.danger)
                 }
                 if unsupportedKey {
-                    Text("Non-character key: won't work as a menu shortcut via AppDelegate")
+                    Text(L("Non-character key: won't work as a menu shortcut via AppDelegate"))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.warning)
                 }

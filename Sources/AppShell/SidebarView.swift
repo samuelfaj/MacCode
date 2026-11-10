@@ -2895,12 +2895,12 @@ public struct SidebarRootView: View {
 
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 Menu {
-                    Button { vm.newWorkspace() } label: { Label("New Workspace", systemImage: "folder.badge.plus") }
+                    Button { vm.newWorkspace() } label: { Label(L("New Workspace"), systemImage: "folder.badge.plus") }
                         .accessibilityIdentifier("sidebar.newWorkspace")
-                    Button { navigate { vm.addBot() } } label: { Label("New Bot", systemImage: "person.badge.plus") }
+                    Button { navigate { vm.addBot() } } label: { Label(L("New Bot"), systemImage: "person.badge.plus") }
                         .accessibilityIdentifier("sidebar.newBot")
                     Button { virtualMachineRequest = VirtualMachineRequest(workspaceID: nil) } label: {
-                        Label("New VM", systemImage: "desktopcomputer")
+                        Label(L("New VM"), systemImage: "desktopcomputer")
                     }
                     .accessibilityIdentifier("sidebar.newVM")
                 } label: {
@@ -2964,19 +2964,19 @@ public struct SidebarRootView: View {
             generalBotsSection
 
             HStack(spacing: DS.Space.sm) {
-                Text("Workspaces")
+                Text(L("Workspaces"))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
                 Spacer(minLength: 0)
                 if !vm.selectedWorkspaceIDs.isEmpty {
-                    Button("Remove") { vm.removeSelectedWorkspaces() }
+                    Button(L("Remove")) { vm.removeSelectedWorkspaces() }
                         .buttonStyle(.plain)
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.danger)
                         .accessibilityIdentifier("sidebar.removeSelected")
                 }
                 SidebarSectionMoreMenu(help: "Workspace actions", accessibilityIdentifier: "sidebar.workspaces.more") {
-                    Button { vm.newWorkspace() } label: { Label("New Workspace", systemImage: "folder.badge.plus") }
+                    Button { vm.newWorkspace() } label: { Label(L("New Workspace"), systemImage: "folder.badge.plus") }
                         .accessibilityIdentifier("sidebar.workspaces.newWorkspace")
                 }
             }
@@ -2992,13 +2992,13 @@ public struct SidebarRootView: View {
                                                             isPinned: { $0.metadata["pinned"] == "true" })
                     LazyVStack(alignment: .leading, spacing: DS.Space.xxs) {
                         if vm.workspaces.isEmpty {
-                            Text("No workspaces")
+                            Text(L("No workspaces"))
                                 .font(DS.Font.body)
                                 .foregroundColor(DS.Palette.textTertiary)
                                 .padding(.horizontal, DS.Space.md)
                                 .padding(.vertical, DS.Space.sm)
                         } else if rows.isEmpty {
-                            Text("No matches")
+                            Text(L("No matches"))
                                 .font(DS.Font.body)
                                 .foregroundColor(DS.Palette.textTertiary)
                                 .padding(.horizontal, DS.Space.md)
@@ -3289,7 +3289,7 @@ public struct SidebarRootView: View {
             Rectangle()
                 .fill(DS.Palette.line.opacity(0.5))
                 .frame(height: DS.Border.hairline)
-            Text("Pinned")
+            Text(L("Pinned"))
                 .font(DS.Font.caption2)
                 .foregroundColor(DS.Palette.textTertiary)
                 .fixedSize()
@@ -3311,7 +3311,7 @@ public struct SidebarRootView: View {
         HStack(alignment: .center, spacing: DS.Space.sm) {
             insomniaToggle
             VStack(alignment: .leading, spacing: 1) {
-                Text("Insomnia")
+                Text(L("Insomnia"))
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.text)
                     .fixedSize(horizontal: true, vertical: false)
@@ -3390,15 +3390,15 @@ public struct SidebarRootView: View {
 
     private var insomniaOptionsPopover: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
-            Toggle("Allow display sleep", isOn: Binding(
+            Toggle(L("Allow display sleep"), isOn: Binding(
                 get: { vm.insomniaAllowDisplaySleep },
                 set: { vm.setInsomniaAllowDisplaySleep($0) }
             ))
-            Toggle("Allow system sleep when display is closed", isOn: Binding(
+            Toggle(L("Allow system sleep when display is closed"), isOn: Binding(
                 get: { vm.insomniaAllowSystemSleepWhenDisplayClosed },
                 set: { vm.setInsomniaAllowSystemSleepWhenDisplayClosed($0) }
             ))
-            Toggle("Allow screen saver after 45m of inactivity", isOn: Binding(
+            Toggle(L("Allow screen saver after 45m of inactivity"), isOn: Binding(
                 get: { vm.insomniaAllowScreenSaverAfter45MinutesOfInactivity },
                 set: { vm.setInsomniaAllowScreenSaverAfter45MinutesOfInactivity($0) }
             ))
@@ -3572,10 +3572,10 @@ public struct SidebarRootView: View {
             let state = vm.botPinnedAndHidden(row.botID)
             Button(state.pinned ? "Unpin" : "Pin") { vm.setBotPinned(row.botID, !state.pinned) }
             Button(state.hidden ? "Unhide" : "Hide") { vm.setBotHidden(row.botID, !state.hidden) }
-            Button("Edit in Studio") { navigate { vm.editBot(row.botID) } }
-            Button("Duplicate") { navigate { vm.duplicateBot(row.botID) } }
+            Button(L("Edit in Studio")) { navigate { vm.editBot(row.botID) } }
+            Button(L("Duplicate")) { navigate { vm.duplicateBot(row.botID) } }
             Divider()
-            Button("Delete", role: .destructive) { navigate { vm.requestDeleteBot(row.botID) } }
+            Button(L("Delete"), role: .destructive) { navigate { vm.requestDeleteBot(row.botID) } }
         }
     }
 
@@ -3585,20 +3585,20 @@ public struct SidebarRootView: View {
         let bots = SidebarViewModel.pinnedFirst(vm.visibleGeneralBots, isPinned: \.pinned)
         VStack(alignment: .leading, spacing: DS.Space.xxs) {
             HStack(spacing: DS.Space.sm) {
-                Text("Bots")
+                Text(L("Bots"))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
                     .lineLimit(1)
                     .fixedSize()
                 Spacer(minLength: 0)
                 SidebarSectionMoreMenu(help: "Bot actions", accessibilityIdentifier: "sidebar.bots.more") {
-                    Button { navigate { vm.addBot() } } label: { Label("New Bot", systemImage: "person.badge.plus") }
+                    Button { navigate { vm.addBot() } } label: { Label(L("New Bot"), systemImage: "person.badge.plus") }
                         .accessibilityIdentifier("sidebar.bots.newBot")
-                    Button { vm.openTeams() } label: { Label("Teams", systemImage: "person.3") }
+                    Button { vm.openTeams() } label: { Label(L("Teams"), systemImage: "person.3") }
                         .accessibilityIdentifier("sidebar.teams")
                     if let botsVM {
                         Divider()
-                        Toggle("Show hidden", isOn: Binding(
+                        Toggle(L("Show hidden"), isOn: Binding(
                             get: { botsVM.showHidden },
                             set: { botsVM.showHidden = $0; vm.reloadGeneralBots() }
                         ))
@@ -3676,10 +3676,10 @@ public struct SidebarRootView: View {
         .contextMenu {
             Button(row.pinned ? "Unpin" : "Pin") { vm.setBotPinned(row.botID, !row.pinned) }
             Button(row.hidden ? "Unhide" : "Hide") { vm.setBotHidden(row.botID, !row.hidden) }
-            Button("Edit in Studio") { navigate { vm.editBot(row.botID) } }
-            Button("Duplicate") { navigate { vm.duplicateBot(row.botID) } }
+            Button(L("Edit in Studio")) { navigate { vm.editBot(row.botID) } }
+            Button(L("Duplicate")) { navigate { vm.duplicateBot(row.botID) } }
             Divider()
-            Button("Delete", role: .destructive) { navigate { vm.requestDeleteBot(row.botID) } }
+            Button(L("Delete"), role: .destructive) { navigate { vm.requestDeleteBot(row.botID) } }
         }
     }
 
@@ -3695,13 +3695,13 @@ public struct SidebarRootView: View {
     private var generalVirtualMachinesSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.xxs) {
             HStack(spacing: DS.Space.sm) {
-                Text("VMs")
+                Text(L("VMs"))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
                     .accessibilityIdentifier("sidebar.generalVMs")
                 Spacer(minLength: 0)
                 SidebarSectionMoreMenu(help: "VM actions", accessibilityIdentifier: "sidebar.vms.more") {
-                    Button("New VM") { virtualMachineRequest = VirtualMachineRequest(workspaceID: nil) }
+                    Button(L("New VM")) { virtualMachineRequest = VirtualMachineRequest(workspaceID: nil) }
                 }
             }
             .padding(.horizontal, DS.Space.sm)
@@ -3827,7 +3827,7 @@ public struct SidebarRootView: View {
                         .padding(.bottom, 2)
                     let bots = vm.workspaceBotRows(ws.id)
                     if bots.isEmpty {
-                        Text("No bots in this workspace")
+                        Text(L("No bots in this workspace"))
                             .font(DS.Font.caption)
                             .foregroundColor(DS.Palette.textTertiary)
                             .padding(.horizontal, DS.Space.sm)
@@ -3938,7 +3938,7 @@ public struct SidebarRootView: View {
                         .font(.system(size: 11, weight: .regular))
                         .frame(width: 20, height: 20)
                         .foregroundColor(DS.Palette.textTertiary)
-                    Text("New conversation").font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).lineLimit(1)
+                    Text(L("New conversation")).font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).lineLimit(1)
                     Spacer(minLength: 0)
                 }
                 .padding(.leading, Self.workspaceChildIndent)
@@ -3975,7 +3975,7 @@ public struct SidebarRootView: View {
                         .font(.system(size: 11, weight: .regular))
                         .frame(width: 20, height: 20)
                         .foregroundColor(DS.Palette.textTertiary)
-                    Text("New bot").font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).lineLimit(1)
+                    Text(L("New bot")).font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).lineLimit(1)
                     Spacer(minLength: 0)
                 }
                 .padding(.leading, Self.workspaceChildIndent)
@@ -4123,7 +4123,7 @@ public struct SidebarRootView: View {
                 }
                 Text(AgentThreadTitle.display(row.title)).font(selected ? DS.Font.bodyStrong : DS.Font.body).foregroundColor(selected ? DS.Palette.text : DS.Palette.textSecondary).lineLimit(1)
                 if let age {
-                    Text("· \(age)").font(DS.Font.caption2).foregroundColor(DS.Palette.textTertiary).lineLimit(1).fixedSize()
+                    Text(L("· %1$@", age)).font(DS.Font.caption2).foregroundColor(DS.Palette.textTertiary).lineLimit(1).fixedSize()
                 }
                 Spacer(minLength: 0)
                 if let loop = vm.loopLabelsByThread[row.threadID] { loopGlyph(loop) }
@@ -4140,14 +4140,14 @@ public struct SidebarRootView: View {
         .accessibilityValue(running ? "Running" : "")
         .accessibilityIdentifier("sidebar.conversation.\(row.id)")
         .contextMenu {
-            Button("Open") { navigate { vm.openWorkspaceConversation(row) } }
-            Button("Rename…") { vm.renameConversation(row) }
-            Button("Copy title") {
+            Button(L("Open")) { navigate { vm.openWorkspaceConversation(row) } }
+            Button(L("Rename…")) { vm.renameConversation(row) }
+            Button(L("Copy title")) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(row.title, forType: .string)
             }
             Divider()
-            Button("Delete…", role: .destructive) { vm.deleteConversation(row) }
+            Button(L("Delete…"), role: .destructive) { vm.deleteConversation(row) }
         }
     }
 
@@ -4266,13 +4266,13 @@ public struct SidebarRootView: View {
             if mode.isMulti {
                 // Multi-select context menu: batch actions for all selected workspaces.
                 Button { vm.pinSelectedWorkspaces(true) } label: {
-                    Label("Pin \(mode.count) Workspaces", systemImage: "pin")
+                    Label(L("Pin %1$@ Workspaces", mode.count), systemImage: "pin")
                 }
                 Button { vm.pinSelectedWorkspaces(false) } label: {
-                    Label("Unpin \(mode.count) Workspaces", systemImage: "pin.slash")
+                    Label(L("Unpin %1$@ Workspaces", mode.count), systemImage: "pin.slash")
                 }
                 Divider()
-                Button("Remove \(mode.count) Workspaces\u{2026}", role: .destructive) {
+                Button(L("Remove %1$@ Workspaces\u{2026}", mode.count), role: .destructive) {
                     vm.removeSelectedWorkspaces()
                 }
             } else {
@@ -4282,14 +4282,14 @@ public struct SidebarRootView: View {
                 }
                 Divider()
                 Button { vm.openWorkspaceInNewWindow(ws) } label: {
-                    Label("Open in New Window", systemImage: "macwindow")
+                    Label(L("Open in New Window"), systemImage: "macwindow")
                 }
                 Button { vm.openWorkspaceInFinder(ws) } label: {
-                    Label("Open in Finder", systemImage: "folder")
+                    Label(L("Open in Finder"), systemImage: "folder")
                 }
                 Divider()
-                Button("Rename\u{2026}") { vm.renameWorkspace(ws) }
-                Button("Edit description\u{2026}") { vm.editDescription(ws) }
+                Button(L("Rename\u{2026}")) { vm.renameWorkspace(ws) }
+                Button(L("Edit description\u{2026}")) { vm.editDescription(ws) }
                 Menu("Color") {
                     Button { vm.setWorkspaceColor(ws, "") } label: {
                         TabColorMenuLabel.none
@@ -4301,7 +4301,7 @@ public struct SidebarRootView: View {
                     }
                 }
                 Divider()
-                Button("Remove", role: .destructive) { vm.removeWorkspace(ws) }
+                Button(L("Remove"), role: .destructive) { vm.removeWorkspace(ws) }
             }
         }
         }

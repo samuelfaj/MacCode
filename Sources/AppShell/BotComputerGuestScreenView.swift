@@ -197,7 +197,7 @@ struct BotComputerGuestCanvas: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             HStack(spacing: DS.Space.sm) {
-                Text("Linux desktop")
+                Text(L("Linux desktop"))
                     .font(DS.Font.bodyStrong)
                     .foregroundColor(DS.Palette.text)
                 Spacer(minLength: 0)
@@ -215,7 +215,7 @@ struct BotComputerGuestCanvas: View {
                     .disabled(rebuilding)
                     .accessibilityLabel(rebuilding ? "Rebuilding Linux desktop" : "Rebuild Linux desktop")
                     .accessibilityIdentifier(rebuildIdentifier)
-                    Button("Stop", action: onStop)
+                    Button(L("Stop"), action: onStop)
                         .buttonStyle(.bordered)
                         .disabled(rebuilding)
                         .accessibilityIdentifier(stopIdentifier)
@@ -275,7 +275,7 @@ struct BotComputerGuestCanvas: View {
                         .lineLimit(2)
                         .accessibilityIdentifier("\(screenIdentifier).importMessage")
                 } else if onImportFiles != nil {
-                    Text("⌘V pastes text. Drop or paste Mac files to copy them to ~/Downloads.")
+                    Text(L("⌘V pastes text. Drop or paste Mac files to copy them to ~/Downloads."))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textTertiary)
                 }
@@ -290,16 +290,16 @@ struct BotComputerGuestCanvas: View {
         VStack(spacing: DS.Space.sm) {
             switch launchState {
             case .idle:
-                Text("Start the Linux desktop to use this machine.")
+                Text(L("Start the Linux desktop to use this machine."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
             case .starting:
                 ProgressView()
                     .controlSize(.small)
-                Text("Starting Linux desktop…")
+                Text(L("Starting Linux desktop…"))
                     .font(DS.Font.bodyStrong)
                     .foregroundColor(DS.Palette.text)
-                Text("First launch can take a few minutes while Docker prepares the desktop.")
+                Text(L("First launch can take a few minutes while Docker prepares the desktop."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
                     .multilineTextAlignment(.center)

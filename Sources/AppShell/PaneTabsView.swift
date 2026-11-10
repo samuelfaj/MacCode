@@ -1646,14 +1646,14 @@ final class PaneTabButton: NSView {
 
         if onRename != nil {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
-            let r = NSMenuItem(title: "Rename…", action: #selector(renameTab), keyEquivalent: "")
+            let r = NSMenuItem(title: L("Rename…"), action: #selector(renameTab), keyEquivalent: "")
             r.target = self
             menu.addItem(r)
         }
         if onSetColor != nil {
-            let colorItem = NSMenuItem(title: "Color", action: nil, keyEquivalent: "")
+            let colorItem = NSMenuItem(title: L("Color"), action: nil, keyEquivalent: "")
             let sub = NSMenu()
-            let none = NSMenuItem(title: "None", action: #selector(colorTab(_:)), keyEquivalent: "")
+            let none = NSMenuItem(title: L("None"), action: #selector(colorTab(_:)), keyEquivalent: "")
             none.target = self; none.representedObject = ""
             sub.addItem(none)
             for c in TabColor.allCases {

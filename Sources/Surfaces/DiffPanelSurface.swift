@@ -1230,10 +1230,10 @@ public struct DiffPanelView: View {
                 Spacer(minLength: 0)
                 if vm.summary.isGitRepo, vm.summary.totalAdditions + vm.summary.totalDeletions > 0 {
                     HStack(spacing: DS.Space.xs) {
-                        Text("+\(vm.summary.totalAdditions)")
+                        Text(L("+%1$@", vm.summary.totalAdditions))
                             .font(DS.Font.caption2.weight(.semibold).monospacedDigit())
                             .foregroundColor(DS.Palette.success)
-                        Text("−\(vm.summary.totalDeletions)")
+                        Text(L("−%1$@", vm.summary.totalDeletions))
                             .font(DS.Font.caption2.weight(.semibold).monospacedDigit())
                             .foregroundColor(DS.Palette.danger)
                     }
@@ -1262,7 +1262,7 @@ public struct DiffPanelView: View {
     private var branchChip: some View {
         Menu {
             if vm.branches.locals.isEmpty {
-                Text("No branches")
+                Text(L("No branches"))
             }
             ForEach(vm.branches.locals, id: \.self) { b in
                 Button { requestSwitch(to: b) } label: {
@@ -1280,7 +1280,7 @@ public struct DiffPanelView: View {
                 withAnimation(DS.Motion.standard) { showNewBranchField = true }
                 newBranchFocused = true   // UX-013: type immediately.
             } label: {
-                Label("New branch…", systemImage: "plus")
+                Label(L("New branch…"), systemImage: "plus")
             }
             .accessibilityIdentifier("diff.branch.new")
         } label: {
@@ -1325,7 +1325,7 @@ public struct DiffPanelView: View {
                 .onSubmit(confirmNewBranch)
                 .onExitCommand(perform: cancelNewBranch)   // UX-013: Esc cancels.
                 .accessibilityIdentifier("diff.newBranch.field")
-            Button("Create", action: confirmNewBranch)
+            Button(L("Create"), action: confirmNewBranch)
                 .buttonStyle(DSSecondaryButtonStyle())
                 .controlSize(.small)
                 .disabled(newBranchName.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -1360,7 +1360,7 @@ public struct DiffPanelView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(DS.Palette.textTertiary)
-            TextField("Filter by subject...", text: $vm.historyFilter)
+            TextField(L("Filter by subject..."), text: $vm.historyFilter)
                 .textFieldStyle(.plain)
                 .font(DS.Font.monoSmall)
                 .accessibilityIdentifier("diff.history.filter")
@@ -1414,7 +1414,7 @@ public struct DiffPanelView: View {
             HStack(spacing: DS.Space.xs) {
                 Text(title).font(DS.Font.caption.weight(on ? .semibold : .regular))
                 if let c = count, c > 0 {
-                    Text("\(c)")
+                    Text(L("%1$@", c))
                         .font(DS.Font.caption2.weight(.semibold).monospacedDigit())
                         .foregroundColor(on ? DS.Palette.accent : DS.Palette.textSecondary)
                         .padding(.horizontal, 5).padding(.vertical, 1)
@@ -1503,7 +1503,7 @@ public struct DiffPanelView: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(raw, forType: .string)
                 } label: {
-                    Text("Copy details").font(DS.Font.caption2.weight(.medium))
+                    Text(L("Copy details")).font(DS.Font.caption2.weight(.medium))
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(DS.Palette.danger.opacity(0.85))
@@ -1582,10 +1582,10 @@ public struct DiffPanelView: View {
                 .lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: DS.Space.sm)
                 if !f.binary {
-                    Text("+\(f.additions)")
+                    Text(L("+%1$@", f.additions))
                         .font(DS.Font.caption2.monospacedDigit())
                         .foregroundColor(DS.Palette.success)
-                    Text("−\(f.deletions)")
+                    Text(L("−%1$@", f.deletions))
                         .font(DS.Font.caption2.monospacedDigit())
                         .foregroundColor(DS.Palette.danger)
                     // IMP-012: proportional add/del bar for at-a-glance
@@ -1609,26 +1609,26 @@ public struct DiffPanelView: View {
         .contextMenu {
             if f.binary {
                 Button { openFile(f.path) } label: {
-                    Label("Open in default app", systemImage: "arrow.up.forward.app")
+                    Label(L("Open in default app"), systemImage: "arrow.up.forward.app")
                 }
                 Button { revealFile(f.path) } label: {
-                    Label("Reveal in Finder", systemImage: "folder")
+                    Label(L("Reveal in Finder"), systemImage: "folder")
                 }
                 Divider()
             } else {
                 if let action = vm.openInFilesTabAction {
                     Button { action(f.path) } label: {
-                        Label("Open in Files tab", systemImage: "doc.text")
+                        Label(L("Open in Files tab"), systemImage: "doc.text")
                     }
                 }
                 Button { revealFile(f.path) } label: {
-                    Label("Reveal in Finder", systemImage: "folder")
+                    Label(L("Reveal in Finder"), systemImage: "folder")
                 }
                 Divider()
             }
             if f.status != .untracked {
                 Button(role: .destructive) { requestDiscard(f.path) } label: {
-                    Label("Discard changes", systemImage: "arrow.uturn.backward")
+                    Label(L("Discard changes"), systemImage: "arrow.uturn.backward")
                 }
             }
         }
@@ -1689,7 +1689,7 @@ public struct DiffPanelView: View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
             HStack {
-                Text("COMMIT")
+                Text(L("COMMIT"))
                     .font(DS.Font.caption2.weight(.semibold))
                     .tracking(0.6)
                     .foregroundColor(DS.Palette.textTertiary)
@@ -1697,7 +1697,7 @@ public struct DiffPanelView: View {
                 Button(action: vm.suggestMessage) {
                     HStack(spacing: 3) {
                         Image(systemName: "sparkles").font(.system(size: 9))
-                        Text("Suggest").font(DS.Font.caption2.weight(.medium))
+                        Text(L("Suggest")).font(DS.Font.caption2.weight(.medium))
                     }
                 }
                 .buttonStyle(.plain)
@@ -1707,7 +1707,7 @@ public struct DiffPanelView: View {
                 .accessibilityIdentifier("diff.commit.suggest")
             }
             .padding(.top, DS.Space.xs)
-            TextField("Message (summarize the change)", text: $vm.commitMessage, axis: .vertical)
+            TextField(L("Message (summarize the change)"), text: $vm.commitMessage, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(DS.Font.monoSmall)
                 .lineLimit(1...5)
@@ -1724,7 +1724,7 @@ public struct DiffPanelView: View {
             // Resets automatically after each successful amend.
             Toggle(isOn: $vm.amendLastCommit) {
                 HStack(spacing: DS.Space.xs) {
-                    Text("Amend last commit")
+                    Text(L("Amend last commit"))
                         .font(DS.Font.caption2.weight(.medium))
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 9))
@@ -1773,7 +1773,7 @@ public struct DiffPanelView: View {
                 Button(action: vm.fetch) {
                     HStack(spacing: DS.Space.xs) {
                         Image(systemName: "arrow.down.to.line").font(.system(size: 11))
-                        Text("Fetch")
+                        Text(L("Fetch"))
                     }.frame(maxWidth: .infinity)
                 }
                 .buttonStyle(DSSecondaryButtonStyle())
@@ -1783,7 +1783,7 @@ public struct DiffPanelView: View {
                 Button(action: vm.pull) {
                     HStack(spacing: DS.Space.xs) {
                         Image(systemName: "arrow.down.circle").font(.system(size: 11))
-                        Text("Pull")
+                        Text(L("Pull"))
                     }.frame(maxWidth: .infinity)
                 }
                 .buttonStyle(DSSecondaryButtonStyle())
@@ -1795,7 +1795,7 @@ public struct DiffPanelView: View {
                 Button(action: vm.push) {
                     HStack(spacing: DS.Space.xs) {
                         Image(systemName: "arrow.up.circle").font(.system(size: 11))
-                        Text("Push")
+                        Text(L("Push"))
                     }.frame(maxWidth: .infinity)
                 }
                 .buttonStyle(DSSecondaryButtonStyle())
@@ -1805,7 +1805,7 @@ public struct DiffPanelView: View {
                 Button(action: vm.openPullRequest) {
                     HStack(spacing: DS.Space.xs) {
                         Image(systemName: "arrow.triangle.pull").font(.system(size: 11))
-                        Text("Pull Request")
+                        Text(L("Pull Request"))
                     }.frame(maxWidth: .infinity)
                 }
                 .buttonStyle(DSSecondaryButtonStyle())
@@ -1883,7 +1883,7 @@ public struct DiffPanelView: View {
                                 HStack(spacing: DS.Space.xs) {
                                     Image(systemName: "ellipsis.circle")
                                         .font(.system(size: 11))
-                                    Text("Load 100 more")
+                                    Text(L("Load 100 more"))
                                 }
                                 .font(DS.Font.caption.weight(.medium))
                                 .foregroundColor(DS.Palette.textSecondary)
@@ -2003,7 +2003,7 @@ public struct DiffPanelView: View {
                                 .accessibilityIdentifier("diff.body")
                             }
                             if vm.diffTruncated {
-                                Text("Diff truncated -- Find searches only this rendered preview. Use Copy diff for the complete text.")
+                                Text(L("Diff truncated -- Find searches only this rendered preview. Use Copy diff for the complete text."))
                                     .font(DS.Font.caption2)
                                     .foregroundColor(DS.Palette.textTertiary)
                                     .padding(.horizontal, DS.Space.lg)
@@ -2084,7 +2084,7 @@ public struct DiffPanelView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(DS.Palette.textTertiary)
-            TextField("Find in diff...", text: $vm.findQuery)
+            TextField(L("Find in diff..."), text: $vm.findQuery)
                 .textFieldStyle(.plain)
                 .font(DS.Font.monoSmall)
                 .focused($findFieldFocused)
@@ -2168,7 +2168,7 @@ public struct DiffPanelView: View {
                     .font(DS.Font.monoSmall.weight(.medium))
                     .foregroundColor(DS.Palette.text)
             } else {
-                Text("Diff")
+                Text(L("Diff"))
                     .font(DS.Font.monoSmall)
                     .foregroundColor(DS.Palette.textTertiary)
             }

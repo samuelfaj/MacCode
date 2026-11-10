@@ -660,13 +660,13 @@ public struct AgentChatLiveToolRow: View, Equatable {
                         .foregroundColor(statusColor)
                         .frame(width: 12)
                         .accessibilityHidden(true)
-                    (Text("\(presentation.verb) ")
+                    (Text(L("%1$@ ", presentation.verb))
                         .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)
                      + Text(displayLabel)
                         .font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text))
                     .lineLimit(1).truncationMode(.tail)
                     if isBackground {
-                        Text("Background")
+                        Text(L("Background"))
                             .font(DS.Font.caption2.weight(.semibold))
                             .foregroundColor(DS.Palette.accent)
                             .padding(.horizontal, 6)
@@ -680,7 +680,7 @@ public struct AgentChatLiveToolRow: View, Equatable {
                             .font(DS.Font.caption2.weight(.semibold))
                             .foregroundColor(DS.Palette.accent)
                     } else if item.state == .failed {
-                        Text("Failed")
+                        Text(L("Failed"))
                             .font(DS.Font.caption2.weight(.semibold))
                             .foregroundColor(DS.Palette.danger)
                     }
@@ -818,7 +818,7 @@ public struct AgentChatToolGroupRow: View {
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     if !expanded {
-                        Text("\(items.count)")
+                        Text(L("%1$@", items.count))
                             .font(DS.Font.caption2.weight(.semibold).monospacedDigit())
                             .foregroundColor(DS.Palette.textTertiary)
                             .padding(.horizontal, 7)
@@ -986,7 +986,7 @@ public struct AgentChatLiveItemRow: View, Equatable {
             }
         case .plan:
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                Text("PLAN").font(DS.Font.caption2.weight(.semibold)).tracking(0.6)
+                Text(L("PLAN")).font(DS.Font.caption2.weight(.semibold)).tracking(0.6)
                     .foregroundColor(DS.Palette.accent)
                 AgentMessageMarkdownView(text: item.body)
                     .foregroundColor(DS.Palette.text)
@@ -1096,7 +1096,7 @@ public struct AgentChatLiveTurnView: View, Equatable {
                                 hiddenBase: hiddenBase
                             )
                         } label: {
-                            Text("Show earlier steps (\(slice.hiddenCount) hidden)")
+                            Text(L("Show earlier steps (%1$@ hidden)", slice.hiddenCount))
                                 .font(DS.Font.caption)
                                 .foregroundColor(DS.Palette.accent)
                         }
@@ -1195,7 +1195,7 @@ public struct AgentChatLiveThinkingLine: View {
                 .foregroundColor(DS.Palette.textTertiary)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                Text("Thinking…")
+                Text(L("Thinking…"))
                     .font(DS.Font.caption2.weight(.semibold))
                     .foregroundColor(DS.Palette.textTertiary)
                 Text(text)
@@ -1246,7 +1246,7 @@ public struct AgentChatLoadingStatusStrip: View {
                 ProgressView()
                     .controlSize(.small)
                     .accessibilityLabel("Loading")
-                Text("Loading…")
+                Text(L("Loading…"))
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.textSecondary)
                     .accessibilityIdentifier("agent.loading.status")
@@ -1346,7 +1346,7 @@ public struct AgentChatWorkingStatusStrip: View {
                         hold: hold
                     ))
                     if distill != nil, let tokens = contextTokens, tokens > 0 {
-                        Text("↓\(DistillLiveStatus.formatTokens(tokens))")
+                        Text(L("↓%1$@", DistillLiveStatus.formatTokens(tokens)))
                             .font(DS.Font.caption.monospacedDigit())
                             .foregroundColor(DS.Palette.textTertiary)
                             .accessibilityIdentifier("agent.workingStatus.tokens")
@@ -1366,14 +1366,14 @@ public struct AgentChatWorkingStatusStrip: View {
                             VStack(alignment: .leading, spacing: DS.Space.xs) {
                                 TimelineView(.periodic(from: .now, by: 1)) { tick in
                                     let elapsed = max(0, Int(tick.date.timeIntervalSince1970 - Double(item.startedAtMs) / 1_000))
-                                    Text("Running for \(elapsed)s")
+                                    Text(L("Running for %1$@s", elapsed))
                                         .font(DS.Font.caption.monospacedDigit())
                                         .foregroundColor(DS.Palette.textTertiary)
                                 }
                                 AgentChatLiveToolRow(item: item, expandedIDs: $expandedToolIDs)
                                     .equatable()
                                 if let output = AgentChatLiveTurnChrome.recentToolOutput(item) {
-                                    Text("Recent output (up to 2,000 characters)")
+                                    Text(L("Recent output (up to 2,000 characters)"))
                                         .font(DS.Font.caption)
                                         .foregroundColor(DS.Palette.textTertiary)
                                     ScrollView {
@@ -1395,7 +1395,7 @@ public struct AgentChatWorkingStatusStrip: View {
                     }
                     .padding(.top, DS.Space.sm)
                 } label: {
-                    Text("Active tools (\(runningTools.count))")
+                    Text(L("Active tools (%1$@)", runningTools.count))
                         .font(DS.Font.captionStrong)
                         .foregroundColor(DS.Palette.textSecondary)
                 }
@@ -1435,7 +1435,7 @@ public struct AgentChatWorkingStatusStrip: View {
             return secs.map { "\(h) \($0)s" } ?? h
         } ?? distill.goalHeadline ?? base)
         if let meta = distill.modelEffortText {
-            line = line + Text(" · \(meta)").foregroundColor(DS.Palette.success)
+            line = line + Text(L(" · %1$@", meta)).foregroundColor(DS.Palette.success)
         }
         return line
     }

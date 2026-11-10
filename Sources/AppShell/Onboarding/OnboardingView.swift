@@ -23,7 +23,7 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             HStack(spacing: DS.Space.xl) {
                 OnboardingStepper(current: vm.state.step, done: vm.state.completedSteps, reachable: vm.isLocked ? vm.state.step : vm.furthestReachable) { vm.jump(to: $0) }
-                Button("Skip setup") { vm.skipSetup() }.buttonStyle(.link)
+                Button(L("Skip setup")) { vm.skipSetup() }.buttonStyle(.link)
                     .accessibilityHint("Stop showing setup automatically. Reopen it from the MacCode menu.")
             }
                 .padding(.horizontal, 40)
@@ -152,7 +152,7 @@ struct OnboardingBackButton: View {
     let vm: OnboardingViewModel
     var body: some View {
         if vm.state.step.previous != nil {
-            Button { vm.goBack() } label: { Label("Back", systemImage: "chevron.left") }
+            Button { vm.goBack() } label: { Label(L("Back"), systemImage: "chevron.left") }
                 .buttonStyle(.plain)
                 .foregroundColor(DS.Palette.textSecondary)
                 .keyboardShortcut("[", modifiers: .command)
@@ -205,7 +205,7 @@ struct OnboardingStepper: View {
                             if isDone && !isCurrent {
                                 Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
                             } else {
-                                Text("\(step.index + 1)").font(.system(size: 10, weight: .semibold))
+                                Text(L("%1$@", step.index + 1)).font(.system(size: 10, weight: .semibold))
                             }
                         }
                         .foregroundColor(isCurrent || isDone ? DS.Palette.onAccent : DS.Palette.textSecondary)
@@ -266,17 +266,17 @@ struct OnboardingProviderRow: View {
             Spacer(minLength: DS.Space.md)
             switch state {
             case .connected:
-                Label("Connected", systemImage: "checkmark.circle.fill")
+                Label(L("Connected"), systemImage: "checkmark.circle.fill")
                     .font(DS.Font.captionStrong)
                     .foregroundColor(DS.Palette.success)
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
             case .waiting:
                 HStack(spacing: DS.Space.sm) {
                     ProgressView().controlSize(.small)
-                    Text("Waiting for browser").font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
+                    Text(L("Waiting for browser")).font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                 }
             case .available(let enabled):
-                Button("Connect", action: connect)
+                Button(L("Connect"), action: connect)
                     .buttonStyle(DSSecondaryButtonStyle())
                     .disabled(!enabled)
                     .accessibilityLabel("Connect \(provider.displayName)")
@@ -336,24 +336,24 @@ struct OnboardingConnectionStatus: View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             switch accounts.installState {
             case .installing:
-                Label("Installing Distill, the engine that runs your AI accounts…", systemImage: "arrow.down.circle")
+                Label(L("Installing Distill, the engine that runs your AI accounts…"), systemImage: "arrow.down.circle")
                     .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
             case .failed(let message):
                 VStack(alignment: .leading, spacing: DS.Space.sm) {
                     Text(message).font(DS.Font.caption).foregroundColor(DS.Palette.danger).textSelection(.enabled)
-                    Button("Try again") { accounts.retryDistillInstall() }.buttonStyle(DSSecondaryButtonStyle())
+                    Button(L("Try again")) { accounts.retryDistillInstall() }.buttonStyle(DSSecondaryButtonStyle())
                 }
             default: EmptyView()
             }
             if accounts.isBusy, accounts.busyAccountID != nil {
                 HStack(spacing: DS.Space.md) {
-                    Text("Finish signing in in your browser, then come back.")
+                    Text(L("Finish signing in in your browser, then come back."))
                         .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                     Spacer()
                     if let url = accounts.signInURL {
-                        Button("Open again") { NSWorkspace.shared.open(url) }.buttonStyle(.link)
+                        Button(L("Open again")) { NSWorkspace.shared.open(url) }.buttonStyle(.link)
                     }
-                    Button("Cancel") { accounts.cancel() }.buttonStyle(.link)
+                    Button(L("Cancel")) { accounts.cancel() }.buttonStyle(.link)
                 }
             }
             if let error = accounts.lastError {
@@ -361,7 +361,7 @@ struct OnboardingConnectionStatus: View {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundColor(DS.Palette.warning)
                     Text(error).font(DS.Font.caption).foregroundColor(DS.Palette.text).fixedSize(horizontal: false, vertical: true)
                     Spacer()
-                    Button("Dismiss") { accounts.dismissError() }.buttonStyle(.link)
+                    Button(L("Dismiss")) { accounts.dismissError() }.buttonStyle(.link)
                 }
                 .accessibilityElement(children: .combine)
             }

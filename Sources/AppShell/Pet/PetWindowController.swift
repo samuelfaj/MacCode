@@ -1,3 +1,4 @@
+import CoreModel
 import AppKit
 import CoreGraphics
 import CryptoKit
@@ -405,7 +406,7 @@ private struct PetAttentionPopoverView: View {
             .accessibilityIdentifier("pet.avatar")
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Titio")
+                Text(L("Titio"))
                     .font(.title3.weight(.semibold))
                 statusChips
             }
@@ -428,11 +429,11 @@ private struct PetAttentionPopoverView: View {
     private var statusChips: some View {
         let counts = model.activityCounts
         if !counts.isAvailable {
-            Text("Activity status unavailable")
+            Text(L("Activity status unavailable"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         } else if counts.running == 0, counts.needsYou == 0 {
-            Text("All quiet. Ask me anything.")
+            Text(L("All quiet. Ask me anything."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("pet.status.quiet")
@@ -481,7 +482,7 @@ private struct PetAttentionPopoverView: View {
         HStack(spacing: 4) {
             if showsQuickChatShortcut {
                 HStack(spacing: 5) {
-                    Text("\u{2325}Space")
+                    Text(L("\u{2325}Space"))
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1.5)
@@ -489,7 +490,7 @@ private struct PetAttentionPopoverView: View {
                             RoundedRectangle(cornerRadius: 4, style: .continuous)
                                 .stroke(Color.secondary.opacity(0.5), lineWidth: 1)
                         )
-                    Text("from anywhere")
+                    Text(L("from anywhere"))
                         .font(.caption2)
                 }
                 .foregroundStyle(.secondary)
@@ -1363,7 +1364,7 @@ public final class PetWindowController: NSObject {
         menu.addItem(menuItem("Open MacCode", #selector(contextOpenRemoteCode)))
         menu.addItem(menuItem("Open ready items", #selector(contextOpenReadyItems)))
         menu.addItem(.separator())
-        let careItem = NSMenuItem(title: "Care", action: nil, keyEquivalent: "")
+        let careItem = NSMenuItem(title: L("Care"), action: nil, keyEquivalent: "")
         let careMenu = NSMenu(title: "Care")
         for action in PetCareAction.allCases {
             let item = menuItem(action.title, #selector(contextCareAction(_:)))

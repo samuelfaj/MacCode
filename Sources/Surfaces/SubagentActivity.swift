@@ -815,7 +815,7 @@ public struct SubagentActivityBadge: View {
             }
             .accessibilityHidden(true)
             if !compact {
-                Text("Subagents")
+                Text(L("Subagents"))
                     .font(DS.Font.captionStrong)
                     .foregroundStyle(DS.Palette.text)
             }
@@ -865,10 +865,10 @@ struct SubagentActivityPopoverPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: DS.Space.md) {
                 VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                    Text("Subagents")
+                    Text(L("Subagents"))
                         .font(DS.Font.title3)
                         .foregroundStyle(DS.Palette.text)
-                    Text("Titio’s little helpers")
+                    Text(L("Titio’s little helpers"))
                         .font(DS.Font.caption)
                         .foregroundStyle(DS.Palette.textSecondary)
                 }
@@ -946,7 +946,7 @@ struct SubagentActivityPopoverPanel: View {
                 Text(title.uppercased())
                     .tracking(0.6)
                 Spacer()
-                Text("\(count)").monospacedDigit()
+                Text(L("%1$@", count)).monospacedDigit()
             }
             .font(DS.Font.caption2.weight(.semibold))
             .foregroundStyle(DS.Palette.textSecondary)

@@ -43,7 +43,10 @@ let package = Package(
         .target(
             name: "CoreModel",
             path: "Sources/CoreModel",
-            resources: [.copy("Resources/ChromeComputerUse")],
+            resources: [
+                .copy("Resources/ChromeComputerUse"),
+                .copy("Resources/Localization"),
+            ],
             linkerSettings: [
                 .linkedFramework("Security"),
                 .linkedFramework("AppKit"),

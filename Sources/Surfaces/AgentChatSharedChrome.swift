@@ -1020,7 +1020,7 @@ public struct AgentChatCopyWordLabel: View {
     }
 
     public var body: some View {
-        Text("Copy")
+        Text(L("Copy"))
             .opacity(copied ? 0 : 1)
             .overlay {
                 if copied {
@@ -1081,7 +1081,7 @@ public struct AgentChatErrorStrip: View {
                 .accessibilityIdentifier("\(identifier).copy")
             }
             if let onRetry {
-                Button("Retry", action: onRetry)
+                Button(L("Retry"), action: onRetry)
                     .buttonStyle(.plain)
                     .font(DS.Font.caption)
                     .accessibilityIdentifier("\(identifier).retry")
@@ -1381,15 +1381,15 @@ struct AgentQueuedMessageEditor: View {
                 .accessibilityLabel("Edit queued message \(position)")
                 .accessibilityIdentifier("agent.queued.editor.\(identifier)")
             HStack(spacing: DS.Space.sm) {
-                Text("Esc to cancel · ⌘↩ to save")
+                Text(L("Esc to cancel · ⌘↩ to save"))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
                 Spacer(minLength: DS.Space.sm)
-                Button("Cancel", action: onCancel)
+                Button(L("Cancel"), action: onCancel)
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .accessibilityIdentifier("agent.queued.editCancel.\(identifier)")
-                Button("Save", action: onSave)
+                Button(L("Save"), action: onSave)
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .keyboardShortcut(.return, modifiers: .command)

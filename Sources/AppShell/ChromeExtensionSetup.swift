@@ -120,7 +120,7 @@ struct ChromeExtensionSettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             DSSectionHeaderG("Computer Use")
-            Text("Use Chrome in background tabs without taking over your mouse or keyboard. Selecting an automated tab gives control back to you.")
+            Text(L("Use Chrome in background tabs without taking over your mouse or keyboard. Selecting an automated tab gives control back to you."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -138,7 +138,7 @@ struct ChromeExtensionSettingsSection: View {
                     .lineLimit(3).truncationMode(.middle).textSelection(.enabled)
                     .help(folder.path)
                     .accessibilityIdentifier("onboarding.chrome.extensionFolder")
-                Button("Show Extension Folder") { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
+                Button(L("Show Extension Folder")) { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
                     .buttonStyle(.link)
                     .accessibilityIdentifier("onboarding.chrome.showFolder")
             }
@@ -153,7 +153,7 @@ struct ChromeExtensionSettingsSection: View {
                 .accessibilityIdentifier("onboarding.chrome.guide")
             }
             if !showGuide && setup.extensionDirectory != nil && setup.state != .connected {
-                Text("One-time Chrome setup: enable Developer mode, choose Load unpacked, and select the extension folder shown in Finder. Return here to check the connection.")
+                Text(L("One-time Chrome setup: enable Developer mode, choose Load unpacked, and select the extension folder shown in Finder. Return here to check the connection."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

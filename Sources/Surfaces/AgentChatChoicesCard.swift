@@ -120,7 +120,7 @@ public struct AgentChatChoicesCard: View {
 
     private var ownAnswerField: some View {
         HStack(spacing: DS.Space.md) {
-            TextField("Type your own answer", text: $ownAnswer)
+            TextField(L("Type your own answer"), text: $ownAnswer)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
                 .foregroundColor(DS.Palette.text)
@@ -128,7 +128,7 @@ public struct AgentChatChoicesCard: View {
                 .onSubmit(sendOwnAnswer)
                 .accessibilityIdentifier("\(identifier).own")
             if choices.multiple && ownAnswer.isEmpty {
-                Button("Send") {
+                Button(L("Send")) {
                     if let answer = choices.answer(selecting: selected) { onAnswer(answer) }
                 }
                 .buttonStyle(DSSecondaryButtonStyle())

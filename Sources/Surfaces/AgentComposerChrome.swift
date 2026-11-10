@@ -225,7 +225,7 @@ public struct AgentModelSearchField: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(DS.Palette.textTertiary)
                 .accessibilityHidden(true)
-            TextField("Filter models", text: $query)
+            TextField(L("Filter models"), text: $query)
                 .textFieldStyle(.plain)
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.text)
@@ -349,7 +349,7 @@ public struct AgentSourceCapsule: View {
             }
             AgentCompactMenuSection("Account")
             if entries.isEmpty {
-                Text("No accounts loaded")
+                Text(L("No accounts loaded"))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
             } else {
@@ -848,7 +848,7 @@ public struct AgentRunAsUserCapsule: View {
         let shown = searchable ? matchingBots(list) : list
         VStack(alignment: .leading, spacing: DS.Space.md) {
             AgentChoiceSectionHeader(title) {
-                Text("\(list.count)")
+                Text(L("%1$@", list.count))
                     .font(DS.Font.caption.monospacedDigit())
                     .foregroundColor(DS.Palette.textTertiary)
             }
@@ -862,7 +862,7 @@ public struct AgentRunAsUserCapsule: View {
             if list.isEmpty {
                 AgentChoiceCallout(icon: "info.circle", tint: DS.Palette.textSecondary, text: emptyText)
             } else if shown.isEmpty {
-                Text("No bots match “\(botQuery.trimmingCharacters(in: .whitespacesAndNewlines))”.")
+                Text(L("No bots match “%1$@”.", botQuery.trimmingCharacters(in: .whitespacesAndNewlines)))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
             } else {
@@ -1058,10 +1058,10 @@ public struct AgentQueuedHeader: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(DS.Palette.accent)
                 .accessibilityHidden(true)
-            Text("Queued")
+            Text(L("Queued"))
                 .font(DS.Font.caption.weight(.semibold))
                 .foregroundColor(DS.Palette.accent)
-            Text("\(count)")
+            Text(L("%1$@", count))
                 .font(DS.Font.caption.monospacedDigit())
                 .foregroundColor(DS.Palette.textTertiary)
             Spacer(minLength: 0)

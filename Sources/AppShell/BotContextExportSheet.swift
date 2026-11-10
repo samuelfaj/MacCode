@@ -1,3 +1,4 @@
+import CoreModel
 import SwiftUI
 import DesignSystemKit
 import SocketServer
@@ -295,7 +296,7 @@ struct BotContextExportSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            Text("Export selected excerpts")
+            Text(L("Export selected excerpts"))
                 .font(DS.Font.title2)
             metadata("Host", model.origin.hostLabel)
             metadata("Bot", model.origin.botLabel)
@@ -303,7 +304,7 @@ struct BotContextExportSheet: View {
             if let unavailable = model.unavailableMessage {
                 Text(unavailable).foregroundStyle(.secondary)
             } else if !model.sourceIsCurrent {
-                Text("Source access is unavailable or has changed.").foregroundStyle(.secondary)
+                Text(L("Source access is unavailable or has changed.")).foregroundStyle(.secondary)
             } else if let review = model.review {
                 metadata("Destination", review.targetLabel)
                 ScrollView {
@@ -314,16 +315,16 @@ struct BotContextExportSheet: View {
                 }
                 .accessibilityLabel("Export preview")
                 HStack {
-                    Button("Back") { model.back() }
+                    Button(L("Back")) { model.back() }
                     Spacer()
-                    Button("Confirm and Copy") { model.confirmAndCopy() }
+                    Button(L("Confirm and Copy")) { model.confirmAndCopy() }
                         .accessibilityIdentifier("bots.desk.export.confirmCopy")
                         .keyboardShortcut(.defaultAction)
                         .disabled(model.isBusy || model.copied || !model.sourceIsCurrent)
                 }
             } else {
-                Picker("Destination", selection: Binding(get: { model.targetKey ?? "" }, set: { model.chooseTarget($0.isEmpty ? nil : $0) })) {
-                    Text("Choose a destination").tag("")
+                Picker(L("Destination"), selection: Binding(get: { model.targetKey ?? "" }, set: { model.chooseTarget($0.isEmpty ? nil : $0) })) {
+                    Text(L("Choose a destination")).tag("")
                     ForEach(model.targets) { target in Text(target.label).tag(target.key) }
                 }
                 .accessibilityIdentifier("bots.desk.export.target")
@@ -347,12 +348,12 @@ struct BotContextExportSheet: View {
                     }
                 }
                 .disabled(model.isBusy)
-                Text("\(model.selectionCount) of 32 excerpts selected")
+                Text(L("%1$@ of 32 excerpts selected", model.selectionCount))
                     .font(DS.Font.caption)
                     .foregroundStyle(.secondary)
                 HStack {
                     Spacer()
-                    Button("Preview") { model.preview() }
+                    Button(L("Preview")) { model.preview() }
                         .accessibilityIdentifier("bots.desk.export.preview")
                         .keyboardShortcut(.defaultAction)
                         .disabled(model.isBusy || model.selectionCount == 0 || model.selectedTarget == nil || !model.sourceIsCurrent)
@@ -360,21 +361,21 @@ struct BotContextExportSheet: View {
             }
             if model.isBusy { ProgressView("Preparing export…") }
             if let error = model.errorMessage { Text(error).foregroundStyle(DS.Palette.danger).accessibilityIdentifier("bots.desk.export.error") }
-            if model.copied { Text("Copied.").foregroundStyle(.secondary) }
+            if model.copied { Text(L("Copied.")).foregroundStyle(.secondary) }
             if model.copied, model.review != nil {
                 if model.continuedConversationID != nil {
-                    Text("Summary held in the destination. Review and send it there.")
+                    Text(L("Summary held in the destination. Review and send it there."))
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("bots.desk.export.continued")
                 } else {
-                    Button("Continue in Destination") { model.continueInDestination() }
+                    Button(L("Continue in Destination")) { model.continueInDestination() }
                         .accessibilityIdentifier("bots.desk.export.continue")
                         .disabled(model.isBusy || !model.sourceIsCurrent)
                 }
             }
             HStack {
                 Spacer()
-                Button("Close") { model.cancel(); dismiss() }
+                Button(L("Close")) { model.cancel(); dismiss() }
                     .accessibilityIdentifier("bots.desk.export.close")
                     .keyboardShortcut(.cancelAction)
             }

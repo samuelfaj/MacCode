@@ -409,7 +409,7 @@ public struct AgentChatReplyQuoteStrip: View {
                 .font(.system(size: 12, weight: .regular))
                 .foregroundColor(DS.Palette.textSecondary)
                 .accessibilityHidden(true)
-            Text("“\(excerpt)”")
+            Text(L("“%1$@”", excerpt))
                 .font(onCancel == nil ? DS.Font.caption : DS.Font.body)
                 .foregroundColor(DS.Palette.textSecondary)
                 .lineLimit(1)

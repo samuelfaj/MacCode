@@ -251,7 +251,7 @@ public struct AgentChatNoticeCard: View {
     private func replyField(blocked: Bool) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(spacing: DS.Space.md) {
-                TextField("Reply to Titio about this…", text: $replyText)
+                TextField(L("Reply to Titio about this…"), text: $replyText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14))
                     .foregroundColor(DS.Palette.text)

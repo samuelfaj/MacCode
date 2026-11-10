@@ -89,7 +89,7 @@ struct BotBlobatarEditor: View {
                 HStack(spacing: DS.Space.sm) {
                     let automatic = BotBlobatar.figure(name: seed, spec: previewing { $0.hue = .auto }, handle: handle)
                     Circle().fill(Color(hex: automatic.palette.head)).frame(width: 18, height: 18)
-                    Text("Auto").font(DS.Font.caption.weight(.semibold))
+                    Text(L("Auto")).font(DS.Font.caption.weight(.semibold))
                     Spacer(minLength: 0)
                     if autoSelected { Image(systemName: "checkmark").font(DS.Font.caption) }
                 }

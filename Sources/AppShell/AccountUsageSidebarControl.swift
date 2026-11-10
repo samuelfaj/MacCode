@@ -128,7 +128,7 @@ struct AccountUsageSidebarControl: View {
     private var details: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             HStack(spacing: DS.Space.xs) {
-                Text("Account usage")
+                Text(L("Account usage"))
                     .font(DS.Font.bodyStrong)
                     .foregroundColor(DS.Palette.text)
                 Spacer(minLength: 0)
@@ -154,7 +154,7 @@ struct AccountUsageSidebarControl: View {
                 VStack(alignment: .center, spacing: DS.Space.md) {
                     AccountUsageRings(rings: vm.accountUsageEntries.map(AccountUsageDisplay.ring))
                         .frame(width: 128, height: 128)
-                    Text("One ring per subscription account, outer to inner in list order. Each ring shows the most-used limit. A faded ring shows the last known usage.")
+                    Text(L("One ring per subscription account, outer to inner in list order. Each ring shows the most-used limit. A faded ring shows the last known usage."))
                         .font(DS.Font.caption2)
                         .foregroundColor(DS.Palette.textTertiary)
                         .multilineTextAlignment(.center)
@@ -187,7 +187,7 @@ struct AccountUsageSidebarControl: View {
                 HStack(spacing: DS.Space.sm) {
                     Image(systemName: "person.2.badge.gearshape")
                         .accessibilityHidden(true)
-                    Text("Accounts & Auto routing")
+                    Text(L("Accounts & Auto routing"))
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.right")
                         .font(DS.Font.caption2.weight(.semibold))

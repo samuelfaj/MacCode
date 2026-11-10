@@ -539,7 +539,7 @@ public struct AgentExecutionModeCapsule: View {
                 Image(systemName: selected.capsuleIcon)
                     .font(.system(size: 10))
                     .foregroundColor(selected == .normal ? DS.Palette.textSecondary : selected.capsuleTint)
-                Text("Mode")
+                Text(L("Mode"))
                     .font(DS.Font.caption2.weight(.semibold))
                     .foregroundColor(DS.Palette.textTertiary)
                 Text(selected.displayName)

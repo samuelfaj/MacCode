@@ -244,7 +244,7 @@ public struct AgentNowStrip: View {
         }
       }
     case .needsYou:
-      Text("Review")
+      Text(L("Review"))
         .font(DS.Font.captionStrong)
         .foregroundStyle(DS.Palette.warning)
         .padding(.horizontal, DS.Space.sm)

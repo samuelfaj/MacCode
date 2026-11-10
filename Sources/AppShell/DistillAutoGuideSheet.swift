@@ -25,7 +25,7 @@ struct DistillAutoGuideSheet: View {
             } else if let stateError = controller.stateError, !controller.isRefreshing {
                 VStack(alignment: .leading, spacing: DS.Space.md) {
                     Text(stateError).font(DS.Font.caption).foregroundColor(DS.Palette.warning)
-                    Button("Retry") { controller.refresh() }
+                    Button(L("Retry")) { controller.refresh() }
                         .buttonStyle(DSPrimaryButtonStyle())
                         .accessibilityIdentifier("agent.autoGuide.retry")
                 }
@@ -59,7 +59,7 @@ struct DistillAutoGuideSheet: View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             HStack(spacing: DS.Space.md) {
                 ProgressView().controlSize(.small)
-                Text("Loading Auto profile…")
+                Text(L("Loading Auto profile…"))
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.textSecondary)
             }
@@ -75,12 +75,12 @@ struct DistillAutoGuideSheet: View {
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.warning)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("Retry") { controller.refresh() }
+                Button(L("Retry")) { controller.refresh() }
                     .buttonStyle(DSSecondaryButtonStyle())
                     .accessibilityIdentifier("agent.autoGuide.retry")
             }
             if controller.isRefreshing {
-                Text("Refreshing Auto profile…")
+                Text(L("Refreshing Auto profile…"))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
             }
@@ -103,11 +103,11 @@ struct DistillAutoGuideSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: DS.Space.md)
                 if hasChanges {
-                    Button("Cancel") { draft = nil }
+                    Button(L("Cancel")) { draft = nil }
                         .buttonStyle(DSSecondaryButtonStyle())
                         .disabled(controller.isBusy)
                         .accessibilityIdentifier("agent.autoGuide.cancel")
-                    Button("Save") { controller.saveRouting(current) }
+                    Button(L("Save")) { controller.saveRouting(current) }
                         .buttonStyle(DSPrimaryButtonStyle())
                         .disabled(controller.isBusy || validationError != nil)
                         .accessibilityIdentifier("agent.autoGuide.save")

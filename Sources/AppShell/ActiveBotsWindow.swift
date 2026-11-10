@@ -115,7 +115,7 @@ public struct ActiveBotsRootView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: DS.Space.lg) {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
-                    Text("Active Bots")
+                    Text(L("Active Bots"))
                         .font(DS.Font.title.weight(.semibold))
                         .foregroundColor(DS.Palette.text)
                     Text(vm.activeBotsSubtitle)
@@ -272,7 +272,7 @@ struct ActiveBotCard: View {
             }
         } trailing: {
             Menu {
-                Button("Open Desk", action: onOpen)
+                Button(L("Open Desk"), action: onOpen)
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 13, weight: .semibold))
@@ -307,7 +307,7 @@ private struct FinishedBotCard: View {
             }
         } trailing: {
             Menu {
-                Button("Open Desk", action: onOpen)
+                Button(L("Open Desk"), action: onOpen)
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 13, weight: .semibold))

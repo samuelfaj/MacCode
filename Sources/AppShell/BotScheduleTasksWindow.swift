@@ -237,7 +237,7 @@ public struct BotScheduleTasksRootView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: DS.Space.lg) {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
-                    Text("Scheduled Tasks")
+                    Text(L("Scheduled Tasks"))
                         .font(DS.Font.title.weight(.semibold))
                         .foregroundColor(DS.Palette.text)
                     Text(subtitle)
@@ -253,7 +253,7 @@ public struct BotScheduleTasksRootView: View {
                             vm.createScheduleTask()
                         }
                     } label: {
-                        Label("New Task", systemImage: "plus")
+                        Label(L("New Task"), systemImage: "plus")
                     }
                     .buttonStyle(DSPrimaryButtonStyle())
                     .accessibilityIdentifier("bots.scheduleTasks.new")
@@ -286,7 +286,7 @@ public struct BotScheduleTasksRootView: View {
                                 vm.scheduleTaskDraft = BotScheduleTaskDraft(botID: scopeBotID)
                             }
                         } label: {
-                            Label("New Task", systemImage: "plus")
+                            Label(L("New Task"), systemImage: "plus")
                         }
                         .buttonStyle(DSPrimaryButtonStyle())
                     }
@@ -435,7 +435,7 @@ struct BotScheduleTaskCard: View {
                 HStack(spacing: DS.Space.xs) {
                     ProgressView().controlSize(.small)
                     if isStarting {
-                        Text("Starting Bot computer…")
+                        Text(L("Starting Bot computer…"))
                             .font(DS.Font.caption.weight(.medium))
                             .foregroundColor(DS.Palette.textSecondary)
                             .accessibilityIdentifier("bots.scheduleTasks.starting")
@@ -470,7 +470,7 @@ struct BotScheduleTaskCard: View {
                     Image(systemName: "clock")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(DS.Palette.textTertiary)
-                    Text("\(runCount)")
+                    Text(L("%1$@", runCount))
                         .font(DS.Font.caption.weight(.medium))
                         .foregroundColor(DS.Palette.textSecondary)
                         .monospacedDigit()
@@ -481,10 +481,10 @@ struct BotScheduleTaskCard: View {
         } trailing: {
             Menu {
                 Button(item.isEnabled ? "Pause" : "Resume", action: onToggle)
-                Button("Run Now", action: onRunNow).disabled(isRunning)
-                Button("Edit", action: onEdit)
+                Button(L("Run Now"), action: onRunNow).disabled(isRunning)
+                Button(L("Edit"), action: onEdit)
                 Divider()
-                Button("Delete", role: .destructive, action: onDelete)
+                Button(L("Delete"), role: .destructive, action: onDelete)
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 13, weight: .semibold))
@@ -589,7 +589,7 @@ struct BotScheduleTaskEditorView: View {
                         .accessibilityIdentifier("bots.scheduleTasks.editor.concurrency")
                     }
                     ScheduleEditorRow("Use Bot default location", hint: "Where the run executes: Mac, a VM or a workspace") {
-                        Toggle("Use bot default", isOn: Binding(
+                        Toggle(L("Use bot default"), isOn: Binding(
                             get: { draft.spec.executionDestination == nil },
                             set: { draft.spec.executionDestination = $0 ? nil : ((try? destinationStore.executionDestination(botID: draft.botID)) ?? .mac) }
                         ))
@@ -609,7 +609,7 @@ struct BotScheduleTaskEditorView: View {
                 }
                 ScheduleEditorSection("Status", identifier: "bots.scheduleTasks.editorSection.Status") {
                     ScheduleEditorRow("Active", hint: "Paused tasks keep their schedule but do not run", showsDivider: false) {
-                        Toggle("Active", isOn: $draft.isEnabled)
+                        Toggle(L("Active"), isOn: $draft.isEnabled)
                             .labelsHidden()
                             .toggleStyle(.switch)
                             .tint(DS.Palette.success)
@@ -652,7 +652,7 @@ struct BotScheduleSpecEditor: View {
                                     .controlSize(.small)
                                     .accessibilityLabel("Loading providers")
                             }
-                            Toggle("Auto", isOn: Binding(
+                            Toggle(L("Auto"), isOn: Binding(
                                 get: { spec.routingMode == .auto },
                                 set: { enabled in
                                     spec.routingMode = spec.provider == .distill ? .manual : (enabled ? .auto : .manual)
@@ -666,7 +666,7 @@ struct BotScheduleSpecEditor: View {
                 }
                 if spec.provider != .distill && spec.routingMode == .auto {
                     formRow("Model") {
-                        Text("Auto selects the best model for the selected provider at run time.")
+                        Text(L("Auto selects the best model for the selected provider at run time."))
                             .font(DS.Font.caption)
                             .foregroundColor(DS.Palette.textSecondary)
                             .multilineTextAlignment(.trailing)
@@ -1001,7 +1001,7 @@ struct BotScheduleTaskDetailScreen: View {
                 Button {
                     vm.editScheduleTask(item)
                 } label: {
-                    Label("Edit Schedule", systemImage: "pencil")
+                    Label(L("Edit Schedule"), systemImage: "pencil")
                 }
                 .buttonStyle(DSSecondaryButtonStyle())
                 .accessibilityIdentifier("bots.scheduleTasks.detail.edit")
@@ -1042,7 +1042,7 @@ struct BotScheduleTaskDetailScreen: View {
             }
             Spacer(minLength: DS.Space.lg)
             HStack(spacing: DS.Space.sm) {
-                Button("Run Now") { vm.runRoutineNow(id: item.id) }
+                Button(L("Run Now")) { vm.runRoutineNow(id: item.id) }
                     .buttonStyle(DSPrimaryButtonStyle())
                     .disabled(vm.isRoutineRunning(id: item.id))
                     .accessibilityIdentifier("bots.scheduleTasks.detail.runNow")
@@ -1052,9 +1052,9 @@ struct BotScheduleTaskDetailScreen: View {
                 .buttonStyle(DSSecondaryButtonStyle())
                 .accessibilityIdentifier("bots.scheduleTasks.detail.toggle")
                 Menu {
-                    Button("Edit Schedule") { vm.editScheduleTask(item) }
+                    Button(L("Edit Schedule")) { vm.editScheduleTask(item) }
                     Divider()
-                    Button("Delete", role: .destructive) { vm.deleteScheduleTask(item) }
+                    Button(L("Delete"), role: .destructive) { vm.deleteScheduleTask(item) }
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 14, weight: .semibold))
@@ -1112,7 +1112,7 @@ struct BotScheduleTaskDetailScreen: View {
                 Image(systemName: "clock")
                     .foregroundColor(DS.Palette.textTertiary)
                     .accessibilityHidden(true)
-                Text("Next run: \(item.nextRunLabel(isAutonomyActive: vm.isAutonomyActive))")
+                Text(L("Next run: %1$@", item.nextRunLabel(isAutonomyActive: vm.isAutonomyActive)))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
             }
@@ -1143,11 +1143,11 @@ struct BotScheduleTaskDetailScreen: View {
 
     private var historySection: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            Text("Run History")
+            Text(L("Run History"))
                 .font(DS.Font.title3.weight(.semibold))
                 .foregroundColor(DS.Palette.text)
             if vm.scheduleDetailRuns.isEmpty {
-                Text("No runs yet. Use Run Now or wait for the next scheduled occurrence.")
+                Text(L("No runs yet. Use Run Now or wait for the next scheduled occurrence."))
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1173,10 +1173,10 @@ struct BotScheduleTaskDetailScreen: View {
 
     private var historyHeader: some View {
         HStack(spacing: DS.Space.lg) {
-            Text("Started").frame(width: 140, alignment: .leading)
-            Text("Duration").frame(width: 80, alignment: .leading)
-            Text("Status").frame(width: 110, alignment: .leading)
-            Text("Agent Task").frame(maxWidth: .infinity, alignment: .leading)
+            Text(L("Started")).frame(width: 140, alignment: .leading)
+            Text(L("Duration")).frame(width: 80, alignment: .leading)
+            Text(L("Status")).frame(width: 110, alignment: .leading)
+            Text(L("Agent Task")).frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(DS.Font.caption2.weight(.semibold))
         .foregroundColor(DS.Palette.textTertiary)

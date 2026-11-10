@@ -246,11 +246,12 @@ public enum RemoteAccessStatus: Equatable {
 
 /// Left-column destinations of the in-app Settings layout.
 public enum SettingsCategory: String, CaseIterable, Identifiable {
-    case remoteAccess, accounts, fileAccess, computerUse, diff, terminal, sidebar, pet, insomnia,
+    case general, remoteAccess, accounts, fileAccess, computerUse, diff, terminal, sidebar, pet, insomnia,
          bots, keybindings, storage, customModels, devices, notifications, diagnostics
 
     /// Rows rendered as separate groups, in order.
     public static let groups: [[SettingsCategory]] = [
+        [.general],
         [.remoteAccess, .accounts, .devices, .notifications],
         [.fileAccess, .computerUse, .bots, .customModels],
         [.terminal, .diff, .sidebar, .keybindings],
@@ -264,6 +265,7 @@ public enum SettingsCategory: String, CaseIterable, Identifiable {
 
     public var title: String {
         switch self {
+        case .general: return "General"
         case .remoteAccess: return "Remote Access"
         case .accounts: return "Accounts & Auto"
         case .fileAccess: return "File Access"
@@ -285,6 +287,7 @@ public enum SettingsCategory: String, CaseIterable, Identifiable {
 
     public var subtitle: String {
         switch self {
+        case .general: return "Choose the language of the app's interface."
         case .remoteAccess: return "Let paired iPhones and other devices reach this Mac over the network."
         case .accounts: return "Connect the accounts Distill uses and choose how Auto picks between them."
         case .fileAccess: return "Choose which folders and disks MacCode agents can read and write."
@@ -306,6 +309,7 @@ public enum SettingsCategory: String, CaseIterable, Identifiable {
 
     public var symbol: String {
         switch self {
+        case .general: return "globe"
         case .remoteAccess: return "antenna.radiowaves.left.and.right"
         case .accounts: return "person.crop.circle.badge.checkmark"
         case .fileAccess: return "folder.badge.gearshape"
@@ -327,7 +331,7 @@ public enum SettingsCategory: String, CaseIterable, Identifiable {
 
     public var tint: Color {
         switch self {
-        case .remoteAccess, .fileAccess, .sidebar, .storage, .devices, .notifications: return DS.Palette.accent
+        case .general, .remoteAccess, .fileAccess, .sidebar, .storage, .devices, .notifications: return DS.Palette.accent
         case .accounts, .insomnia, .customModels: return DS.Palette.ultracode
         case .computerUse, .bots: return DS.Palette.success
         case .diff, .pet: return DS.Palette.warning
@@ -833,6 +837,21 @@ public final class SettingsViewModel: ObservableObject {
         guard let value = TitioLanguageSetting.normalized(tag) else { return }
         appSettings.titioLanguage = value
         settingsStore.update { $0.titioLanguage = value }
+    }
+
+    public func setAppLanguage(_ tag: String) {
+        AppLocalization.setting = tag
+    }
+
+    /// Open a fresh instance and quit this one, so every window picks up the
+    /// new interface language.
+    public func relaunch() {
+        let url = Bundle.main.bundleURL
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
     }
 
     public func setNotificationWorkspaceMuted(_ workspaceID: String, muted: Bool) {
@@ -1577,7 +1596,7 @@ public struct SettingsView: View {
                 if onClose != nil {
                     HStack {
                         Spacer()
-                        Button("Done") { onClose?() }
+                        Button(L("Done")) { onClose?() }
                             .buttonStyle(DSSecondaryButtonStyle())
                             .keyboardShortcut(.cancelAction)
                             .accessibilityIdentifier("settings.done")
@@ -1617,7 +1636,7 @@ public struct SettingsView: View {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
                     ForEach(Array(vm.serverStartupFailures.enumerated()), id: \.offset) { _, failure in
                         HStack(spacing: DS.Space.sm) {
-                            Text("\(failure.server) failed to start: \(failure.reason)")
+                            Text(L("%1$@ failed to start: %2$@", failure.server, failure.reason))
                                 .font(DS.Font.caption)
                                 .foregroundColor(DS.Palette.danger)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1627,7 +1646,7 @@ public struct SettingsView: View {
                     Button {
                         vm.serverStartupFailures = []
                     } label: {
-                        Text("Dismiss")
+                        Text(L("Dismiss"))
                             .font(DS.Font.caption)
                     }
                     .buttonStyle(.link)
@@ -1682,7 +1701,7 @@ public struct SettingsView: View {
                         }
                     }
                     if filteredCategoryGroups.isEmpty {
-                        Text("No settings match “\(categoryQuery)”.")
+                        Text(L("No settings match “%1$@”.", categoryQuery))
                             .font(DS.Font.caption)
                             .foregroundColor(DS.Palette.textSecondary)
                             .accessibilityIdentifier("settings.search.empty")
@@ -1744,6 +1763,7 @@ public struct SettingsView: View {
         case .storage: storageSection
         case .customModels: customModelsSection
         case .devices: trustedDevicesSection
+        case .general: generalRow
         case .notifications: notificationsRow
         case .diagnostics:
             diagnosticsSection
@@ -1810,7 +1830,7 @@ public struct SettingsView: View {
             if !vm.hostFileAccessProbeResults.isEmpty {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
                     ForEach(vm.hostFileAccessProbeResults, id: \.target) { result in
-                        Text("\(result.target.title): \(result.outcome.rawValue)")
+                        Text(L("%1$@: %2$@", result.target.title, result.outcome.rawValue))
                             .font(DS.Font.caption)
                             .foregroundColor(DS.Palette.textSecondary)
                             .accessibilityIdentifier("settings.hostFileAccess.result.\(result.target.rawValue)")
@@ -1834,12 +1854,12 @@ public struct SettingsView: View {
                 .accessibilityIdentifier("settings.remoteAccess.toggle")
             }
             if let reason = vm.remoteAccessBindFailedReason {
-                Text("Remote access could not start: \(reason). The toggle has been turned off.")
+                Text(L("Remote access could not start: %1$@. The toggle has been turned off.", reason))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.danger)
                     .accessibilityIdentifier("settings.remoteAccess.bindFailedNote")
             } else {
-                Text("Off binds the host API to 127.0.0.1. On binds to 0.0.0.0:\(DirectAccessConfiguration.port()) and publishes Bonjour; paired-device tokens are still required.")
+                Text(L("Off binds the host API to 127.0.0.1. On binds to 0.0.0.0:%1$@ and publishes Bonjour; paired-device tokens are still required.", DirectAccessConfiguration.port()))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
             }
@@ -1866,7 +1886,7 @@ public struct SettingsView: View {
                 .labelsHidden()
                 .accessibilityIdentifier("settings.diff.ignoreWhitespace.toggle")
             }
-            Text("These defaults seed new Git diff surfaces and match the toolbar toggles in the diff panel.")
+            Text(L("These defaults seed new Git diff surfaces and match the toolbar toggles in the diff panel."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
         }
@@ -1881,9 +1901,9 @@ public struct SettingsView: View {
                     get: { vm.appSettings.sidebarSort },
                     set: { vm.setSidebarSort($0) }
                 )) {
-                    Text("Last updated").tag("updated")
-                    Text("Date created").tag("created")
-                    Text("Manual").tag("manual")
+                    Text(L("Last updated")).tag("updated")
+                    Text(L("Date created")).tag("created")
+                    Text(L("Manual")).tag("manual")
                 }
                 .labelsHidden()
                 .frame(width: 140)
@@ -1901,7 +1921,7 @@ public struct SettingsView: View {
                     get: { TerminalFontSizeSetting.normalized(vm.appSettings.terminalFontSize) },
                     set: { vm.setTerminalFontSize($0) }
                 )) {
-                    Text("Ghostty default").tag(TerminalFontSizeSetting.defaultSize)
+                    Text(L("Ghostty default")).tag(TerminalFontSizeSetting.defaultSize)
                     ForEach(Array(Int(TerminalFontSizeSetting.minSize)...Int(TerminalFontSizeSetting.maxSize)), id: \.self) { size in
                         let value = Double(size)
                         Text(TerminalFontSizeSetting.displayLabel(value)).tag(value)
@@ -1911,7 +1931,7 @@ public struct SettingsView: View {
                 .frame(width: 160)
                 .accessibilityIdentifier("settings.terminal.fontSize.picker")
             }
-            Text("New terminals use this base size; workspace zoom remains separate.")
+            Text(L("New terminals use this base size; workspace zoom remains separate."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
         }
@@ -1974,9 +1994,9 @@ public struct SettingsView: View {
                         get: { vm.appSettings.petPosition },
                         set: { vm.setPetPosition($0) }
                     )) {
-                        Text("Bottom right").tag("bottomRight")
-                        Text("Bottom left").tag("bottomLeft")
-                        Text("Free").tag("free")
+                        Text(L("Bottom right")).tag("bottomRight")
+                        Text(L("Bottom left")).tag("bottomLeft")
+                        Text(L("Free")).tag("free")
                     }
                     .labelsHidden()
                     .frame(width: 150)
@@ -1988,10 +2008,10 @@ public struct SettingsView: View {
                         get: { vm.appSettings.petSize },
                         set: { vm.setPetSize($0) }
                     )) {
-                        Text("75%").tag(0.75)
-                        Text("100%").tag(1.0)
-                        Text("125%").tag(1.25)
-                        Text("150%").tag(1.5)
+                        Text(L("75%")).tag(0.75)
+                        Text(L("100%")).tag(1.0)
+                        Text(L("125%")).tag(1.25)
+                        Text(L("150%")).tag(1.5)
                     }
                     .labelsHidden()
                     .frame(width: 120)
@@ -2003,9 +2023,9 @@ public struct SettingsView: View {
                         get: { vm.appSettings.petAttentionFilter },
                         set: { vm.setPetAttentionFilter($0) }
                     )) {
-                        Text("All").tag("all")
-                        Text("Completed only").tag("completed")
-                        Text("Needs you").tag("needsYou")
+                        Text(L("All")).tag("all")
+                        Text(L("Completed only")).tag("completed")
+                        Text(L("Needs you")).tag("needsYou")
                     }
                     .labelsHidden()
                     .frame(width: 160)
@@ -2014,7 +2034,7 @@ public struct SettingsView: View {
 
                 HStack {
                     Spacer()
-                    Button("Reset position") {
+                    Button(L("Reset position")) {
                         NotificationCenter.default.post(name: .petResetPositionRequested, object: nil)
                     }
                     .buttonStyle(DSSecondaryButtonStyle())
@@ -2022,7 +2042,7 @@ public struct SettingsView: View {
                 }
             }
 
-            Text("The pet starts and stops with MacCode. Rows use fixed summaries and never expose prompts, commands, file contents, tokens, or secret answers.")
+            Text(L("The pet starts and stops with MacCode. Rows use fixed summaries and never expose prompts, commands, file contents, tokens, or secret answers."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -2067,7 +2087,7 @@ public struct SettingsView: View {
                     .accessibilityIdentifier("settings.insomnia.allowScreenSaverAfter45MinutesOfInactivity.toggle")
                 }
             }
-            Text("Insomnia is also controllable from the sidebar. Changes here are reflected there immediately.")
+            Text(L("Insomnia is also controllable from the sidebar. Changes here are reflected there immediately."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
         }
@@ -2085,7 +2105,7 @@ public struct SettingsView: View {
                 .labelsHidden()
                 .accessibilityIdentifier("settings.bots.controlPlane.toggle")
             }
-            Text("Create and message durable named teammates. A Bot is not an Agent thread.")
+            Text(L("Create and message durable named teammates. A Bot is not an Agent thread."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
             settingRow("Memory") {
@@ -2097,7 +2117,7 @@ public struct SettingsView: View {
                 .disabled(!vm.appSettings.botsControlPlaneEnabled)
                 .accessibilityIdentifier("settings.bots.memory.toggle")
             }
-            Text("Remember facts and corrections. Corrections write a new revision; they do not rewrite the old one.")
+            Text(L("Remember facts and corrections. Corrections write a new revision; they do not rewrite the old one."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
             settingRow("Effects (host-brokered writes)") {
@@ -2109,7 +2129,7 @@ public struct SettingsView: View {
                 .disabled(!vm.appSettings.botsControlPlaneEnabled)
                 .accessibilityIdentifier("settings.bots.effects.toggle")
             }
-            Text("P1b. Host-brokered writes stay off until that phase ships.")
+            Text(L("P1b. Host-brokered writes stay off until that phase ships."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
             settingRow("Autonomy / unattended routines") {
@@ -2133,7 +2153,7 @@ public struct SettingsView: View {
                 .disabled(!vm.appSettings.botsControlPlaneEnabled)
                 .accessibilityIdentifier("settings.bots.channels.toggle")
             }
-            Text("Not shipped. External channels stay off until that phase.")
+            Text(L("Not shipped. External channels stay off until that phase."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
         }
@@ -2165,18 +2185,18 @@ public struct SettingsView: View {
                                 .font(DS.Font.body)
                                 .foregroundColor(DS.Palette.text)
                             Spacer()
-                            Text("\(Self.storageByteLabel(usage.payloadBytes)) of \(Self.storageByteLabel(usage.payloadQuotaBytes)) payload budget")
+                            Text(L("%1$@ of %2$@ payload budget", Self.storageByteLabel(usage.payloadBytes), Self.storageByteLabel(usage.payloadQuotaBytes)))
                                 .font(DS.Font.caption)
                                 .foregroundColor(usage.payloadBytes > usage.payloadQuotaBytes ? DS.Palette.danger : DS.Palette.textSecondary)
                         }
-                        Text("\(usage.rowCount) items · \(usage.retentionDays)-day retention")
+                        Text(L("%1$@ items · %2$@-day retention", usage.rowCount, usage.retentionDays))
                             .font(DS.Font.caption)
                             .foregroundColor(DS.Palette.textTertiary)
                     }
                     .accessibilityIdentifier("settings.storage.class.\(usage.storageClass.rawValue)")
                 }
                 if snapshot.reclaimableBytes > 0 {
-                    Text("\(Self.storageByteLabel(snapshot.reclaimableBytes)) can be reclaimed by database compaction.")
+                    Text(L("%1$@ can be reclaimed by database compaction.", Self.storageByteLabel(snapshot.reclaimableBytes)))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textTertiary)
                 }
@@ -2187,14 +2207,14 @@ public struct SettingsView: View {
             }
 
             HStack(spacing: DS.Space.sm) {
-                Button("Refresh") {
+                Button(L("Refresh")) {
                     Task { await vm.refreshStorageUsage() }
                 }
                 .buttonStyle(DSSecondaryButtonStyle())
                 .disabled(vm.storageOperationInProgress)
                 .accessibilityIdentifier("settings.storage.refresh")
 
-                Button("Clean Up Expired Data") {
+                Button(L("Clean Up Expired Data")) {
                     Task { await vm.cleanUpExpiredStorage() }
                 }
                 .buttonStyle(DSSecondaryButtonStyle())
@@ -2207,7 +2227,7 @@ public struct SettingsView: View {
                         .accessibilityLabel("Storage operation in progress")
                 }
             }
-            Text("Cleanup removes only diagnostics and unreferenced local payloads older than 30 days. Referenced attachments and recoverable [[rc:handle]] originals are preserved.")
+            Text(L("Cleanup removes only diagnostics and unreferenced local payloads older than 30 days. Referenced attachments and recoverable [[rc:handle]] originals are preserved."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -2231,7 +2251,7 @@ public struct SettingsView: View {
             DSSectionHeaderG("Custom Models")
             let hasModels = AgentProvider.selectable.contains { !(vm.customModelsByProvider[$0] ?? []).isEmpty }
             if !hasModels {
-                Text("No custom models saved. Add one from the Agent model menu.")
+                Text(L("No custom models saved. Add one from the Agent model menu."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
             }
@@ -2244,7 +2264,7 @@ public struct SettingsView: View {
                             .foregroundColor(DS.Palette.textTertiary)
                         ForEach(Array(models.enumerated()), id: \.offset) { index, _ in
                             HStack(spacing: DS.Space.sm) {
-                                TextField("Model ID", text: Binding(
+                                TextField(L("Model ID"), text: Binding(
                                     get: {
                                         let values = vm.customModelsByProvider[provider] ?? []
                                         return values.indices.contains(index) ? values[index] : ""
@@ -2277,7 +2297,7 @@ public struct SettingsView: View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             DSSectionHeaderG("Trusted Devices")
             if !vm.remoteAccessEnabled {
-                Text("Turn on Remote Access for paired devices to reach this Mac. A pairing code generated while it's off won't be reachable from another device.")
+                Text(L("Turn on Remote Access for paired devices to reach this Mac. A pairing code generated while it's off won't be reachable from another device."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.warning)
                     .accessibilityIdentifier("settings.pairing.remoteAccessOffNote")
@@ -2323,7 +2343,7 @@ public struct SettingsView: View {
                     }
                 }
             } else {
-                Button("Generate pairing code") { vm.createPairingCode() }
+                Button(L("Generate pairing code")) { vm.createPairingCode() }
                     .buttonStyle(DSSecondaryButtonStyle())
                     .accessibilityIdentifier("settings.pairing.generate")
             }
@@ -2346,7 +2366,7 @@ public struct SettingsView: View {
             if hasRevoked {
                 HStack {
                     Spacer()
-                    Button("Delete Revoked") { vm.deleteRevoked() }
+                    Button(L("Delete Revoked")) { vm.deleteRevoked() }
                         .buttonStyle(DSSecondaryButtonStyle())
                         .accessibilityIdentifier("settings.devices.deleteRevoked")
                 }
@@ -2354,7 +2374,7 @@ public struct SettingsView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: DS.Space.sm) {
                     if vm.devices.isEmpty {
-                        Text("No paired devices.")
+                        Text(L("No paired devices."))
                             .font(DS.Font.caption).foregroundColor(DS.Palette.textTertiary)
                             .padding(DS.Space.md)
                     }
@@ -2371,19 +2391,19 @@ public struct SettingsView: View {
                             } else {
                                 if d.alwaysAllowPairing {
                                     DSPill("always allow", tone: .success)
-                                    Button("Disable Always Allow") {
+                                    Button(L("Disable Always Allow")) {
                                         vm.setAlwaysAllowPairing(deviceID: d.id, enabled: false)
                                     }
                                     .buttonStyle(DSSecondaryButtonStyle())
                                     .accessibilityIdentifier("settings.device.\(d.id).alwaysAllow")
                                 } else if d.clientDeviceID != nil {
-                                    Button("Always Allow") {
+                                    Button(L("Always Allow")) {
                                         vm.setAlwaysAllowPairing(deviceID: d.id, enabled: true)
                                     }
                                     .buttonStyle(DSSecondaryButtonStyle())
                                     .accessibilityIdentifier("settings.device.\(d.id).alwaysAllow")
                                 }
-                                Button("Revoke") { deviceToRevoke = d }
+                                Button(L("Revoke")) { deviceToRevoke = d }
                                     .buttonStyle(DSSecondaryButtonStyle())
                                     .accessibilityIdentifier("settings.device.\(d.id).revoke")
                             }
@@ -2395,7 +2415,7 @@ public struct SettingsView: View {
 
             if !vm.auditLogEntries.isEmpty {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
-                    Text("Audit Log")
+                    Text(L("Audit Log"))
                         .font(DS.Font.caption2.weight(.semibold))
                         .foregroundColor(DS.Palette.textTertiary)
                     ScrollView {
@@ -2418,10 +2438,10 @@ public struct SettingsView: View {
         .alert("Revoke device?",
                isPresented: Binding(get: { deviceToRevoke != nil }, set: { if !$0 { deviceToRevoke = nil } }),
                presenting: deviceToRevoke) { device in
-            Button("Revoke", role: .destructive) { vm.revoke(device.id) }
-            Button("Cancel", role: .cancel) {}
+            Button(L("Revoke"), role: .destructive) { vm.revoke(device.id) }
+            Button(L("Cancel"), role: .cancel) {}
         } message: { device in
-            Text("\(device.displayName) will need to pair again to access this Mac.")
+            Text(L("%1$@ will need to pair again to access this Mac.", device.displayName))
         }
     }
 
@@ -2452,27 +2472,27 @@ public struct SettingsView: View {
             if vm.showsAppUpdates {
                 appUpdatesRow
             }
-            Text("State directory")
+            Text(L("State directory"))
                 .font(DS.Font.caption2.weight(.semibold)).foregroundColor(DS.Palette.textTertiary)
             HStack(spacing: DS.Space.md) {
                 Text(vm.context.bootstrapReport.path)
                     .font(DS.Font.monoSmall).foregroundColor(DS.Palette.textSecondary)
                     .textSelection(.enabled)
                 Spacer(minLength: 0)
-                Button("Reveal in Finder") {
+                Button(L("Reveal in Finder")) {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: vm.context.bootstrapReport.path)])
                 }
                 .buttonStyle(DSSecondaryButtonStyle())
                 .accessibilityIdentifier("settings.stateDirectory.reveal")
             }
-            Text("Keybindings config")
+            Text(L("Keybindings config"))
                 .font(DS.Font.caption2.weight(.semibold)).foregroundColor(DS.Palette.textTertiary)
             HStack(spacing: DS.Space.md) {
                 Text(KeybindingConfigReveal.configPath)
                     .font(DS.Font.monoSmall).foregroundColor(DS.Palette.textSecondary)
                     .textSelection(.enabled)
                 Spacer(minLength: 0)
-                Button("Reveal config") {
+                Button(L("Reveal config")) {
                     KeybindingConfigReveal.revealCreatingIfAbsent()
                 }
                 .buttonStyle(DSSecondaryButtonStyle())
@@ -2497,7 +2517,7 @@ private struct CapacityStatusSettingsRow: View {
 
     var body: some View {
         Group {
-            Text("Capacity")
+            Text(L("Capacity"))
                 .font(DS.Font.caption2.weight(.semibold)).foregroundColor(DS.Palette.textTertiary)
             Text(capacity.accessibleSummary)
                 .font(DS.Font.monoSmall)
@@ -2505,7 +2525,7 @@ private struct CapacityStatusSettingsRow: View {
                 .accessibilityIdentifier("settings.capacity.status")
                 .textSelection(.enabled)
             HStack(spacing: DS.Space.md) {
-                Button("Export capacity diagnostics", action: exportAction)
+                Button(L("Export capacity diagnostics"), action: exportAction)
                     .buttonStyle(DSSecondaryButtonStyle())
                     .disabled(!capacity.canExportDiagnostics)
                     .accessibilityIdentifier("settings.capacity.export")
@@ -2589,17 +2609,17 @@ extension SettingsView {
     private var appUpdatesRow: some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(spacing: DS.Space.md) {
-                Text("App Updates")
+                Text(L("App Updates"))
                     .font(DS.Font.caption2.weight(.semibold))
                     .foregroundColor(DS.Palette.textTertiary)
-                Text("Version \(vm.appVersionString)")
+                Text(L("Version %1$@", vm.appVersionString))
                     .font(DS.Font.monoSmall)
                     .foregroundColor(DS.Palette.textSecondary)
                 if vm.updateAvailability == .checking {
                     ProgressView().controlSize(.small).scaleEffect(0.6)
                 }
                 Spacer()
-                Button("Check Now") { vm.checkForAppUpdates() }
+                Button(L("Check Now")) { vm.checkForAppUpdates() }
                     .buttonStyle(DSSecondaryButtonStyle())
                     .disabled(vm.updateAvailability == .checking)
                     .accessibilityIdentifier("settings.appUpdates.checkNow")
@@ -2612,21 +2632,50 @@ extension SettingsView {
         }
     }
 
+    private var generalRow: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            HStack(spacing: DS.Space.md) {
+                Text(L("Language"))
+                    .font(DS.Font.caption2.weight(.semibold))
+                    .foregroundColor(DS.Palette.textTertiary)
+                Spacer()
+                Picker(L("Language"), selection: Binding(
+                    get: { AppLocalization.setting },
+                    set: { vm.setAppLanguage($0) }
+                )) {
+                    Text(L("Automatic (system)")).tag(AppLocalization.automatic)
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.label).tag(language.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 220)
+                .accessibilityIdentifier("settings.general.language")
+            }
+            Text(L("Changes the language of MacCode's interface and of Titio's notices and replies. Relaunch to apply it to every open window."))
+                .font(DS.Font.caption)
+                .foregroundColor(DS.Palette.textSecondary)
+                .accessibilityIdentifier("settings.general.language.subtitle")
+            Button(L("Relaunch MacCode")) { vm.relaunch() }
+                .accessibilityIdentifier("settings.general.language.relaunch")
+        }
+    }
+
     private var notificationsRow: some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(spacing: DS.Space.md) {
-                Text("Notifications")
+                Text(L("Notifications"))
                     .font(DS.Font.caption2.weight(.semibold))
                     .foregroundColor(DS.Palette.textTertiary)
                 Spacer()
                 if notificationStatus == .denied {
-                    Button("Open Notification Settings") {
+                    Button(L("Open Notification Settings")) {
                         SystemNotifier.shared.openSystemNotificationSettings()
                     }
                     .buttonStyle(DSSecondaryButtonStyle())
                     .accessibilityIdentifier("settings.notifications.openSettings")
                 } else {
-                    Button("Test notification") {
+                    Button(L("Test notification")) {
                         SystemNotifier.shared.postTestNotification(settings: vm.appSettings)
                         Task { await vm.refreshNotificationStatus() }
                     }
@@ -2635,22 +2684,22 @@ extension SettingsView {
                 }
             }
             if notificationStatus == .denied {
-                Text("Notifications are off on this Mac. Enable them in System Settings to receive banners here.")
+                Text(L("Notifications are off on this Mac. Enable them in System Settings to receive banners here."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.danger)
                     .accessibilityIdentifier("settings.notifications.deniedNote")
             }
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                Toggle("Titio delivers notifications", isOn: Binding(
+                Toggle(L("Titio delivers notifications"), isOn: Binding(
                     get: { vm.appSettings.titioNotificationsEnabled },
                     set: { vm.setTitioNotificationsEnabled($0) }
                 )).accessibilityIdentifier("settings.notifications.titio")
-                Text("Off restores the standard alerts.")
+                Text(L("Off restores the standard alerts."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
                     .accessibilityIdentifier("settings.notifications.titio.subtitle")
             }
-            Picker("Titio's language", selection: Binding(
+            Picker(L("Titio's language"), selection: Binding(
                 get: { vm.appSettings.titioLanguage },
                 set: { vm.setTitioLanguage($0) }
             )) {
@@ -2659,21 +2708,21 @@ extension SettingsView {
                 }
             }
             .accessibilityIdentifier("settings.notifications.titioLanguage")
-            Toggle("Action and failure alerts", isOn: Binding(
+            Toggle(L("Action and failure alerts"), isOn: Binding(
                 get: { vm.appSettings.notificationActionAlertsEnabled },
                 set: { vm.setNotificationActionAlertsEnabled($0) }
             )).accessibilityIdentifier("settings.notifications.actionAlerts")
-            Toggle("Completion alerts", isOn: Binding(
+            Toggle(L("Completion alerts"), isOn: Binding(
                 get: { vm.appSettings.notificationCompletionAlertsEnabled },
                 set: { vm.setNotificationCompletionAlertsEnabled($0) }
             )).accessibilityIdentifier("settings.notifications.completionAlerts")
-            Toggle("Play notification sound", isOn: Binding(
+            Toggle(L("Play notification sound"), isOn: Binding(
                 get: { vm.appSettings.notificationSoundEnabled },
                 set: { vm.setNotificationSoundEnabled($0) }
             )).accessibilityIdentifier("settings.notifications.sound")
             let workspaces = vm.context.state.workspaces.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             if !workspaces.isEmpty {
-                Text("Muted workspaces").font(DS.Font.caption2.weight(.semibold)).foregroundColor(DS.Palette.textSecondary)
+                Text(L("Muted workspaces")).font(DS.Font.caption2.weight(.semibold)).foregroundColor(DS.Palette.textSecondary)
                 ForEach(workspaces) { workspace in
                     Toggle(workspace.name, isOn: Binding(
                         get: { vm.appSettings.notificationMutedWorkspaceIDs.contains(workspace.id.description) },
@@ -2737,7 +2786,7 @@ extension SettingsView {
                     .foregroundColor(DS.Palette.text)
                     .onChange(of: draft.wrappedValue, perform: onDraftChange)
                     .accessibilityIdentifier("settings.cli.\(provider.rawValue).field")
-                Button("Browse...") { browseForBinary(into: draft, onCommit: onCommit) }
+                Button(L("Browse...")) { browseForBinary(into: draft, onCommit: onCommit) }
                     .buttonStyle(DSSecondaryButtonStyle())
                     .accessibilityIdentifier("settings.cli.\(provider.rawValue).browse")
             }
@@ -2817,7 +2866,7 @@ public struct AccountView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
-                Button("Done") { onClose?() }
+                Button(L("Done")) { onClose?() }
                     .buttonStyle(DSSecondaryButtonStyle())
                     .keyboardShortcut(.cancelAction)
                     .accessibilityIdentifier("account.done")
@@ -2837,7 +2886,7 @@ public struct AccountView: View {
     private var signedOutForm: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             HStack {
-                Text("Status")
+                Text(L("Status"))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
                 Spacer()
@@ -2846,10 +2895,10 @@ public struct AccountView: View {
             }
 
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                Text("Email")
+                Text(L("Email"))
                     .font(DS.Font.captionStrong)
                     .foregroundColor(DS.Palette.textSecondary)
-                TextField("you@example.com", text: Binding(get: { vm.privateAccountEmail }, set: { vm.privateAccountEmail = $0 }))
+                TextField(L("you@example.com"), text: Binding(get: { vm.privateAccountEmail }, set: { vm.privateAccountEmail = $0 }))
                     .textFieldStyle(.roundedBorder)
                     .font(DS.Font.body)
                     .focused($focusedField, equals: .email)
@@ -2859,15 +2908,15 @@ public struct AccountView: View {
             }
 
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                Text("Password")
+                Text(L("Password"))
                     .font(DS.Font.captionStrong)
                     .foregroundColor(DS.Palette.textSecondary)
                 HStack(spacing: DS.Space.sm) {
                     Group {
                         if revealPassword {
-                            TextField("Password", text: Binding(get: { vm.privateAccountPassword }, set: { vm.privateAccountPassword = $0 }))
+                            TextField(L("Password"), text: Binding(get: { vm.privateAccountPassword }, set: { vm.privateAccountPassword = $0 }))
                         } else {
-                            SecureField("Password", text: Binding(get: { vm.privateAccountPassword }, set: { vm.privateAccountPassword = $0 }))
+                            SecureField(L("Password"), text: Binding(get: { vm.privateAccountPassword }, set: { vm.privateAccountPassword = $0 }))
                         }
                     }
                     .textFieldStyle(.roundedBorder)
@@ -2971,7 +3020,7 @@ public struct AccountView: View {
                         if vm.privateAccountBusy {
                             ProgressView().controlSize(.small).scaleEffect(0.65)
                         }
-                        Text("Start subscription")
+                        Text(L("Start subscription"))
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -2981,7 +3030,7 @@ public struct AccountView: View {
             }
 
             HStack(spacing: DS.Space.md) {
-                Button("Refresh") { Task { await vm.refreshPrivateAccount() } }
+                Button(L("Refresh")) { Task { await vm.refreshPrivateAccount() } }
                     .buttonStyle(DSSecondaryButtonStyle())
                     .disabled(vm.privateAccountBusy)
                     .accessibilityIdentifier("account.refresh")
@@ -2992,14 +3041,14 @@ public struct AccountView: View {
                         if vm.privateAccountBusy {
                             ProgressView().controlSize(.small).scaleEffect(0.55)
                         }
-                        Text("Billing")
+                        Text(L("Billing"))
                     }
                 }
                 .buttonStyle(DSSecondaryButtonStyle())
                 .disabled(vm.privateAccountBusy)
                 .accessibilityIdentifier("account.billing")
                 Spacer()
-                Button("Disconnect") { Task { await vm.disconnectPrivateAccount() } }
+                Button(L("Disconnect")) { Task { await vm.disconnectPrivateAccount() } }
                     .buttonStyle(DSSecondaryButtonStyle())
                     .disabled(vm.privateAccountBusy)
                     .accessibilityIdentifier("account.disconnect")

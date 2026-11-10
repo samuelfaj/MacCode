@@ -20,7 +20,7 @@ struct ScheduledFrequencyEditor: View {
         }
         addRow
         formRow("Time zone") {
-            Picker("Time zone", selection: $timeZoneIdentifier) {
+            Picker(L("Time zone"), selection: $timeZoneIdentifier) {
                 ForEach(Self.commonTimeZones, id: \.self) {
                     Text($0.replacingOccurrences(of: "_", with: " ")).tag($0)
                 }
@@ -56,7 +56,7 @@ struct ScheduledFrequencyEditor: View {
         VStack(spacing: 0) {
             Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
             HStack {
-                Text("Frequency \(index + 1)")
+                Text(L("Frequency %1$@", index + 1))
                     .font(DS.Font.caption.weight(.semibold))
                     .foregroundColor(DS.Palette.textSecondary)
                 Spacer(minLength: DS.Space.lg)
@@ -87,7 +87,7 @@ struct ScheduledFrequencyEditor: View {
                 Button {
                     animated { rules.append(rules.last?.suggestedNext() ?? ScheduledFrequencyRule()) }
                 } label: {
-                    Label("Add frequency", systemImage: "plus.circle")
+                    Label(L("Add frequency"), systemImage: "plus.circle")
                 }
                 .buttonStyle(.borderless)
                 .foregroundColor(DS.Palette.accent)
@@ -105,7 +105,7 @@ struct ScheduledFrequencyEditor: View {
     private func ruleRows(_ index: Int) -> some View {
         let rule = ruleBinding(index)
         formRow("Repeat") {
-            Picker("Frequency", selection: rule.frequency) {
+            Picker(L("Frequency"), selection: rule.frequency) {
                 ForEach(ScheduledTaskFrequency.allCases) { Text($0.displayName).tag($0) }
             }
             .labelsHidden()

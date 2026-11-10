@@ -1485,49 +1485,49 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         let appMenuItem = NSMenuItem()
         mainMenu.addItem(appMenuItem)
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "About MacCode", action: #selector(showAbout), keyEquivalent: ""))
-        let settingsItem = NSMenuItem(title: "Settings\u{2026}", action: #selector(showSettings), keyEquivalent: ",")
+        appMenu.addItem(NSMenuItem(title: L("About MacCode"), action: #selector(showAbout), keyEquivalent: ""))
+        let settingsItem = NSMenuItem(title: L("Settings\u{2026}"), action: #selector(showSettings), keyEquivalent: ",")
         settingsItem.target = self
         appMenu.addItem(settingsItem)
-        let setupItem = NSMenuItem(title: "Set Up MacCode\u{2026}", action: #selector(showOnboarding), keyEquivalent: "")
+        let setupItem = NSMenuItem(title: L("Set Up MacCode\u{2026}"), action: #selector(showOnboarding), keyEquivalent: "")
         setupItem.target = self
         appMenu.addItem(setupItem)
         appMenu.addItem(.separator())
-        let checkUpdatesItem = NSMenuItem(title: "Check for Updates\u{2026}", action: #selector(checkForUpdatesAction), keyEquivalent: "")
+        let checkUpdatesItem = NSMenuItem(title: L("Check for Updates\u{2026}"), action: #selector(checkForUpdatesAction), keyEquivalent: "")
         checkUpdatesItem.target = self
         appMenu.addItem(checkUpdatesItem)
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Hide MacCode", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
-        appMenu.addItem(NSMenuItem(title: "Quit MacCode", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(title: L("Hide MacCode"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
+        appMenu.addItem(NSMenuItem(title: L("Quit MacCode"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
 
         // File menu
         let fileMenuItem = NSMenuItem()
         mainMenu.addItem(fileMenuItem)
         let fileMenu = NSMenu(title: "File")
-        let newWS = NSMenuItem(title: "New Workspace…", action: #selector(newWorkspace), keyEquivalent: "n")
+        let newWS = NSMenuItem(title: L("New Workspace…"), action: #selector(newWorkspace), keyEquivalent: "n")
         newWS.target = self
         fileMenu.addItem(newWS)
         // UX-MAC_SHELL_WINDOW-005: standard Open Recent submenu, populated
         // by AppKit from noteNewRecentDocumentURL; selections route through
         // application(_:open:) which opens the folder as a workspace.
-        let openRecent = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
+        let openRecent = NSMenuItem(title: L("Open Recent"), action: nil, keyEquivalent: "")
         let openRecentMenu = NSMenu(title: "Open Recent")
-        let clearRecent = NSMenuItem(title: "Clear Menu", action: Selector(("clearRecentDocuments:")), keyEquivalent: "")
+        let clearRecent = NSMenuItem(title: L("Clear Menu"), action: Selector(("clearRecentDocuments:")), keyEquivalent: "")
         openRecentMenu.addItem(clearRecent)
         openRecent.submenu = openRecentMenu
         fileMenu.addItem(openRecent)
         fileMenu.addItem(.separator())
         // UX-MAC_SHELL_WINDOW-003: ⌘W closes the focused tab when one
         // exists; it only closes the window when the workspace has none.
-        let closeTab = NSMenuItem(title: "Close Tab", action: #selector(closeActiveTabOrWindow), keyEquivalent: "w")
+        let closeTab = NSMenuItem(title: L("Close Tab"), action: #selector(closeActiveTabOrWindow), keyEquivalent: "w")
         closeTab.target = self
         fileMenu.addItem(closeTab)
-        let reopenTab = NSMenuItem(title: "Reopen Closed Tab", action: #selector(reopenClosedTab), keyEquivalent: "t")
+        let reopenTab = NSMenuItem(title: L("Reopen Closed Tab"), action: #selector(reopenClosedTab), keyEquivalent: "t")
         reopenTab.keyEquivalentModifierMask = [.command, .shift]
         reopenTab.target = self
         fileMenu.addItem(reopenTab)
-        let closeWin = NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        let closeWin = NSMenuItem(title: L("Close Window"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         closeWin.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(closeWin)
         fileMenuItem.submenu = fileMenu
@@ -1539,22 +1539,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // UX-MAC_SHELL_WINDOW-008: Undo/Redo route through the responder chain
         // to the first-responder's NSUndoManager (rename fields, description
         // editors, prompt composer). Without these items ⌘Z produces no result.
-        editMenu.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
-        let redoItem = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        editMenu.addItem(NSMenuItem(title: L("Undo"), action: Selector(("undo:")), keyEquivalent: "z"))
+        let redoItem = NSMenuItem(title: L("Redo"), action: Selector(("redo:")), keyEquivalent: "z")
         redoItem.keyEquivalentModifierMask = [.command, .shift]
         editMenu.addItem(redoItem)
         editMenu.addItem(.separator())
-        editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
-        editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
-        editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
-        editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+        editMenu.addItem(NSMenuItem(title: L("Cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+        editMenu.addItem(NSMenuItem(title: L("Copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: L("Paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: L("Select All"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
         editMenuItem.submenu = editMenu
 
         // View
         let viewItem = NSMenuItem()
         mainMenu.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")
-        let paletteItem = NSMenuItem(title: "Show Command Palette", action: #selector(togglePalette), keyEquivalent: "k")
+        let paletteItem = NSMenuItem(title: L("Show Command Palette"), action: #selector(togglePalette), keyEquivalent: "k")
         paletteItem.keyEquivalentModifierMask = [.command]
         paletteItem.target = self
         // C5: ~/.remotecode/keybindings.json may rebind the palette.
@@ -1570,7 +1570,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         petItem.target = self
         viewMenu.addItem(petItem)
         viewMenu.addItem(.separator())
-        let revealDiagnostics = NSMenuItem(title: "Reveal Diagnostics in Finder", action: #selector(revealDiagnosticsInFinder), keyEquivalent: "")
+        let revealDiagnostics = NSMenuItem(title: L("Reveal Diagnostics in Finder"), action: #selector(revealDiagnosticsInFinder), keyEquivalent: "")
         revealDiagnostics.target = self
         viewMenu.addItem(revealDiagnostics)
         viewItem.submenu = viewMenu
@@ -1579,21 +1579,21 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         let surfaceItem = NSMenuItem()
         mainMenu.addItem(surfaceItem)
         let surfaceMenu = NSMenu(title: "Surface")
-        let term = NSMenuItem(title: "New Terminal Surface", action: #selector(newTerminal), keyEquivalent: "t")
+        let term = NSMenuItem(title: L("New Terminal Surface"), action: #selector(newTerminal), keyEquivalent: "t")
         term.target = self
-        let browser = NSMenuItem(title: "New Browser Surface", action: #selector(newBrowser), keyEquivalent: "b")
+        let browser = NSMenuItem(title: L("New Browser Surface"), action: #selector(newBrowser), keyEquivalent: "b")
         browser.target = self
-        let agent = NSMenuItem(title: "New Agent App Surface", action: #selector(newAgentApp), keyEquivalent: "g")
+        let agent = NSMenuItem(title: L("New Agent App Surface"), action: #selector(newAgentApp), keyEquivalent: "g")
         agent.target = self
         surfaceMenu.addItem(term)
         surfaceMenu.addItem(browser)
         surfaceMenu.addItem(agent)
         surfaceMenu.addItem(.separator())
         // UX-MAC_SHELL_WINDOW-004: keyboard splits, defaulting to Terminal.
-        let splitRight = NSMenuItem(title: "Split Right", action: #selector(splitFocusedPaneRight), keyEquivalent: "d")
+        let splitRight = NSMenuItem(title: L("Split Right"), action: #selector(splitFocusedPaneRight), keyEquivalent: "d")
         splitRight.keyEquivalentModifierMask = [.command]
         splitRight.target = self
-        let splitDown = NSMenuItem(title: "Split Down", action: #selector(splitFocusedPaneDown), keyEquivalent: "d")
+        let splitDown = NSMenuItem(title: L("Split Down"), action: #selector(splitFocusedPaneDown), keyEquivalent: "d")
         splitDown.keyEquivalentModifierMask = [.command, .shift]
         splitDown.target = self
         surfaceMenu.addItem(splitRight)
@@ -1605,24 +1605,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         let tabItem = NSMenuItem()
         mainMenu.addItem(tabItem)
         let tabMenu = NSMenu(title: "Tab")
-        let nextTab = NSMenuItem(title: "Next Tab", action: #selector(selectNextTab), keyEquivalent: "]")
+        let nextTab = NSMenuItem(title: L("Next Tab"), action: #selector(selectNextTab), keyEquivalent: "]")
         nextTab.keyEquivalentModifierMask = [.command, .shift]
         nextTab.target = self
-        let prevTab = NSMenuItem(title: "Previous Tab", action: #selector(selectPreviousTab), keyEquivalent: "[")
+        let prevTab = NSMenuItem(title: L("Previous Tab"), action: #selector(selectPreviousTab), keyEquivalent: "[")
         prevTab.keyEquivalentModifierMask = [.command, .shift]
         prevTab.target = self
         tabMenu.addItem(nextTab)
         tabMenu.addItem(prevTab)
         tabMenu.addItem(.separator())
         for n in 1...9 {
-            let item = NSMenuItem(title: "Select Tab \(n)", action: #selector(selectTabByNumber(_:)), keyEquivalent: "\(n)")
+            let item = NSMenuItem(title: L("Select Tab %1$@", n), action: #selector(selectTabByNumber(_:)), keyEquivalent: "\(n)")
             item.keyEquivalentModifierMask = [.command]
             item.tag = n
             item.target = self
             tabMenu.addItem(item)
         }
         tabMenu.addItem(.separator())
-        let nextPane = NSMenuItem(title: "Focus Next Pane", action: #selector(focusNextPane), keyEquivalent: "\t")
+        let nextPane = NSMenuItem(title: L("Focus Next Pane"), action: #selector(focusNextPane), keyEquivalent: "\t")
         nextPane.keyEquivalentModifierMask = [.control]
         nextPane.target = self
         tabMenu.addItem(nextPane)
@@ -1632,7 +1632,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         let windowItem = NSMenuItem()
         mainMenu.addItem(windowItem)
         let windowMenu = NSMenu(title: "Window")
-        windowMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
+        windowMenu.addItem(NSMenuItem(title: L("Minimize"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
         windowItem.submenu = windowMenu
         NSApp.windowsMenu = windowMenu
 

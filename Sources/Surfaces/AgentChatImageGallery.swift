@@ -266,7 +266,7 @@ public struct AgentChatImageGallery: View, Equatable {
                 }
             }
             if expanded, refs.count > AgentChatImageGalleryLayout.maxVisibleTiles {
-                Button("Show fewer images") { expanded = false }
+                Button(L("Show fewer images")) { expanded = false }
                     .buttonStyle(.plain)
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.accent)
@@ -327,7 +327,7 @@ struct AgentChatImageGalleryTile: View {
                     if overflowCount > 0 {
                         ZStack {
                             Color.black.opacity(0.55)
-                            Text("+\(overflowCount)")
+                            Text(L("+%1$@", overflowCount))
                                 .font(.system(size: 34, weight: .semibold, design: .rounded))
                                 .foregroundColor(.white)
                         }
@@ -358,7 +358,7 @@ struct AgentChatImageGalleryTile: View {
             VStack(spacing: DS.Space.xs) {
                 Image(systemName: "photo")
                     .font(.system(size: 20, weight: .regular))
-                Text("Image unavailable")
+                Text(L("Image unavailable"))
                     .font(DS.Font.caption)
             }
             .foregroundColor(DS.Palette.textTertiary)

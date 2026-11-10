@@ -13815,7 +13815,7 @@ func botManagementButtons(
     }
     .disabled(locked)
     .accessibilityIdentifier("bots.menu.hide")
-    Button("Duplicate") {
+    Button(L("Duplicate")) {
         if fromRoster {
             vm.duplicateFromRoster(bot)
         } else {
@@ -13824,13 +13824,13 @@ func botManagementButtons(
     }
     .disabled(locked)
     .accessibilityIdentifier("bots.menu.duplicate")
-    Button("Edit") {
+    Button(L("Edit")) {
         vm.beginEdit(bot)
     }
     .disabled(locked)
     .accessibilityIdentifier("bots.menu.edit")
     Divider()
-    Button("Delete", role: .destructive) {
+    Button(L("Delete"), role: .destructive) {
         vm.pendingDeleteID = bot.id
     }
     .disabled(locked)
@@ -13861,7 +13861,7 @@ private struct BotsUnsavedNewBotConfirmation: ViewModifier {
                 vm.discardUnsavedNewBotAndLeave()
             }
             .accessibilityIdentifier("bots.studio.unsaved.discard")
-            Button("Cancel", role: .cancel) {
+            Button(L("Cancel"), role: .cancel) {
                 vm.cancelUnsavedNewBotLeave()
             }
             .accessibilityIdentifier("bots.studio.unsaved.cancel")
@@ -13897,9 +13897,9 @@ private struct BotsDockerConfirmation: ViewModifier {
                 }
                 vm.pendingDockerConfirm = nil
             }
-            Button("Cancel", role: .cancel) { vm.pendingDockerConfirm = nil }
+            Button(L("Cancel"), role: .cancel) { vm.pendingDockerConfirm = nil }
         } message: {
-            Text("The Linux desktop is restarted from its base image. Unsaved work inside it is lost.")
+            Text(L("The Linux desktop is restarted from its base image. Unsaved work inside it is lost."))
         }
     }
 
@@ -13940,16 +13940,16 @@ private struct BotsDeleteConfirmation: ViewModifier {
                 ),
                 titleVisibility: .visible
             ) {
-                Button("Delete", role: .destructive) {
+                Button(L("Delete"), role: .destructive) {
                     if let id = vm.pendingDeleteID {
                         vm.delete(id: id)
                     }
                     vm.pendingDeleteID = nil
                 }
                 .accessibilityIdentifier("bots.menu.delete.confirm")
-                Button("Cancel", role: .cancel) { vm.pendingDeleteID = nil }
+                Button(L("Cancel"), role: .cancel) { vm.pendingDeleteID = nil }
             } message: {
-                Text("This teammate is removed from the fleet. Conversations and routines are deleted.")
+                Text(L("This teammate is removed from the fleet. Conversations and routines are deleted."))
             }
         } else {
             content
@@ -14044,17 +14044,17 @@ public struct BotsRootView: View {
             ),
             titleVisibility: .visible
         ) {
-            Button("Remove secret", role: .destructive) {
+            Button(L("Remove secret"), role: .destructive) {
                 if let name = vm.pendingSecretDeleteName {
                     vm.removeBotSecret(name)
                 }
             }
             .accessibilityIdentifier("bots.studio.secrets.remove.confirm")
-            Button("Cancel", role: .cancel) {
+            Button(L("Cancel"), role: .cancel) {
                 vm.pendingSecretDeleteName = nil
             }
         } message: {
-            Text("This deletes the protected value from this Bot's storage.")
+            Text(L("This deletes the protected value from this Bot's storage."))
         }
         .modifier(BotsDeleteConfirmation(vm: vm, enabled: !vm.presentsAsDetachedWindow))
         .modifier(BotsDockerConfirmation(vm: vm))
@@ -14239,7 +14239,7 @@ public struct BotsRootView: View {
             )
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: DS.Space.sm) {
-                    Text("Bot Studio")
+                    Text(L("Bot Studio"))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textTertiary)
                     if vm.studioHasUnpublishedChanges {
@@ -14292,7 +14292,7 @@ public struct BotsRootView: View {
                     )
                     .frame(width: 14)
                     .accessibilityHidden(true)
-                Text("Notify")
+                Text(L("Notify"))
                     .font(DS.Font.caption.weight(.medium))
                     .foregroundColor(DS.Palette.textSecondary)
             }
@@ -14414,12 +14414,12 @@ public struct BotsRootView: View {
                     ? "Writes like a person explaining to someone who isn't technical. The chat hides commands and tool steps and shows only what the Bot is thinking right now."
                     : "Can include files, commands and code, and the chat shows every step it runs."
             ) {
-                Picker("Reply style", selection: Binding(
+                Picker(L("Reply style"), selection: Binding(
                     get: { style.verbosity },
                     set: { vm.studioDraft.verbosity = $0 }
                 )) {
-                    Text("Simple").tag(BotReplyVerbosity.human)
-                    Text("Technical").tag(BotReplyVerbosity.verbose)
+                    Text(L("Simple")).tag(BotReplyVerbosity.human)
+                    Text(L("Technical")).tag(BotReplyVerbosity.verbose)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -14439,7 +14439,7 @@ public struct BotsRootView: View {
                 caption: "Put Titio's name, role, description and instructions back to the built-in defaults. Conversations, files and scheduled tasks stay."
             )
             .frame(maxWidth: .infinity, alignment: .leading)
-            Button("Restore Factory Settings…") {
+            Button(L("Restore Factory Settings…")) {
                 isConfirmingTitioFactoryReset = true
             }
             .buttonStyle(DSSecondaryButtonStyle())
@@ -14451,7 +14451,7 @@ public struct BotsRootView: View {
             isPresented: $isConfirmingTitioFactoryReset,
             titleVisibility: .visible
         ) {
-            Button("Restore Factory Settings", role: .destructive) {
+            Button(L("Restore Factory Settings"), role: .destructive) {
                 vm.errorMessage = nil
                 do {
                     _ = try vm.restoreTitioFactorySettings()
@@ -14460,9 +14460,9 @@ public struct BotsRootView: View {
                 }
             }
             .accessibilityIdentifier("bots.studio.titio.factoryReset.confirm")
-            Button("Cancel", role: .cancel) {}
+            Button(L("Cancel"), role: .cancel) {}
         } message: {
-            Text("Your changes to Titio's profile and instructions are replaced. Conversations, files and scheduled tasks are kept.")
+            Text(L("Your changes to Titio's profile and instructions are replaced. Conversations, files and scheduled tasks are kept."))
         }
         .accessibilityIdentifier("bots.studio.titio.factorySettings")
     }
@@ -14620,7 +14620,7 @@ public struct BotsRootView: View {
                         title: "Use a separate browser for this bot",
                         caption: "Gives this bot its own browser instead of the shared logical space."
                     ) {
-                        Toggle("Use a separate browser for this bot", isOn: Binding(
+                        Toggle(L("Use a separate browser for this bot"), isOn: Binding(
                             get: { vm.studioDraft.desktopKind == .botOwnedBrowser },
                             set: { vm.studioDraft.desktopKind = $0 ? .botOwnedBrowser : .logicalExecutionSpace }
                         ))
@@ -14629,12 +14629,12 @@ public struct BotsRootView: View {
                     }
                 }
             }
-            Text("Logical space is not a security boundary.")
+            Text(L("Logical space is not a security boundary."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
                 .accessibilityIdentifier("bots.studio.desktop.honesty")
             if !vm.studioDestinationIsSaved {
-                Text("Save the bot to apply this destination.")
+                Text(L("Save the bot to apply this destination."))
                     .font(DS.Font.caption).foregroundStyle(DS.Palette.textSecondary)
             }
             if vm.displayedDesktopKind == .dockerDesktop, vm.studioDestinationIsSaved {
@@ -14667,10 +14667,10 @@ public struct BotsRootView: View {
 
     private var secretsHeaderText: some View {
         VStack(alignment: .leading, spacing: DS.Space.xxs) {
-            Text("Secrets")
+            Text(L("Secrets"))
                 .font(DS.Font.body)
                 .foregroundColor(DS.Palette.text)
-            Text("Encrypted values this bot can use. Values are never shown again.")
+            Text(L("Encrypted values this bot can use. Values are never shown again."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -14679,7 +14679,7 @@ public struct BotsRootView: View {
 
     private var studioSecrets: some View {
         let formVisible = addingSecret || vm.studioState.editingSecretName != nil
-        let addButton = Button("Add secret") {
+        let addButton = Button(L("Add secret")) {
             vm.cancelBotSecretEdit()
             addingSecret = true
         }
@@ -14714,7 +14714,7 @@ public struct BotsRootView: View {
                         .accessibilityIdentifier("bots.studio.secrets.loading")
                 } else if vm.botSecretsLoadFailed {
                     studioRule
-                    Text("Protected secret storage is unavailable.")
+                    Text(L("Protected secret storage is unavailable."))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.warning)
                         .fixedSize(horizontal: false, vertical: true)
@@ -14722,7 +14722,7 @@ public struct BotsRootView: View {
                         .accessibilityIdentifier("bots.studio.secrets.error")
                 } else if vm.botSecrets.isEmpty, !formVisible {
                     studioRule
-                    Text("No secrets yet")
+                    Text(L("No secrets yet"))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textTertiary)
                         .padding(.vertical, DS.Space.md)
@@ -14737,18 +14737,18 @@ public struct BotsRootView: View {
                         Text(secret.name)
                             .font(DS.Font.mono)
                             .foregroundColor(DS.Palette.text)
-                        Text("••••••••")
+                        Text(L("••••••••"))
                             .font(DS.Font.mono)
                             .foregroundColor(DS.Palette.textTertiary)
                             .accessibilityHidden(true)
                         Spacer(minLength: 0)
                         Menu {
-                            Button("Update") {
+                            Button(L("Update")) {
                                 addingSecret = false
                                 vm.editBotSecret(secret.name)
                             }
                             .accessibilityIdentifier("bots.studio.secrets.update.\(secret.name)")
-                            Button("Remove…", role: .destructive) {
+                            Button(L("Remove…"), role: .destructive) {
                                 vm.requestDeleteBotSecret(secret.name)
                             }
                             .accessibilityIdentifier("bots.studio.secrets.remove.\(secret.name)")
@@ -14785,7 +14785,7 @@ public struct BotsRootView: View {
                                 : "Enter the replacement value."
                         ) {
                             SecureField(
-                                "Enter secret value",
+                                L("Enter secret value"),
                                 text: Binding(
                                     get: { vm.studioState.secretValueDraft },
                                     set: { vm.studioState.secretValueDraft = $0 }
@@ -14807,7 +14807,7 @@ public struct BotsRootView: View {
                         }
                         HStack(spacing: DS.Space.md) {
                             Spacer(minLength: 0)
-                            Button("Cancel") {
+                            Button(L("Cancel")) {
                                 addingSecret = false
                                 vm.cancelBotSecretEdit()
                             }
@@ -14958,7 +14958,7 @@ public struct BotsRootView: View {
                                 .font(DS.Font.caption2)
                                 .foregroundColor(DS.Palette.textSecondary)
                                 .accessibilityIdentifier("bots.desk.job")
-                            Text("@\(bot.handle)")
+                            Text(L("@%1$@", bot.handle))
                                 .font(DS.Font.caption2)
                                 .foregroundColor(DS.Palette.textSecondary)
                                 .accessibilityIdentifier("bots.desk.handle")
@@ -15072,9 +15072,9 @@ public struct BotsRootView: View {
             Button(AgentChatThreadRailCopy.clearAllTitle, role: .destructive) {
                 vm.clearAllDeskThreads()
             }
-            Button("Cancel", role: .cancel) { pendingClearAllDeskThreads = false }
+            Button(L("Cancel"), role: .cancel) { pendingClearAllDeskThreads = false }
         } message: {
-            Text("Deletes every thread for this teammate. A live run will be stopped first. This cannot be undone.")
+            Text(L("Deletes every thread for this teammate. A live run will be stopped first. This cannot be undone."))
         }
     }
 
@@ -15225,7 +15225,7 @@ public struct BotsRootView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(DS.Palette.textSecondary)
                     .accessibilityHidden(true)
-                Text("\(bot.name) Desktop")
+                Text(L("%1$@ Desktop", bot.name))
                     .font(DS.Font.bodyStrong)
                     .foregroundColor(DS.Palette.text)
                     .lineLimit(1)
@@ -15330,7 +15330,7 @@ public struct BotsRootView: View {
         let receipt = vm.inspectedBrain
         return VStack(alignment: .leading, spacing: DS.Space.md) {
             HStack(spacing: DS.Space.sm) {
-                Text("What this Bot sees")
+                Text(L("What this Bot sees"))
                     .font(DS.Font.bodyStrong)
                     .foregroundColor(DS.Palette.text)
                 Spacer(minLength: 0)
@@ -15378,7 +15378,7 @@ public struct BotsRootView: View {
                 brainWhyMemory(receipt)
                 brainCapabilities(receipt)
             } else {
-                Text("Save or select a Bot to compile Source and Effective Brain.")
+                Text(L("Save or select a Bot to compile Source and Effective Brain."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
             }
@@ -15387,7 +15387,7 @@ public struct BotsRootView: View {
 
     private func brainReceiptMeta(_ receipt: ContextAssemblyReceipt, compact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Revision \(receipt.revisionNumber) · \(vm.providerChipTitle(receipt.provider)) · \(receipt.model.isEmpty ? "model unset" : receipt.model) · \(receipt.permissionMode.rawValue)")
+            Text(L("Revision %1$@ · %2$@ · %3$@ · %4$@", receipt.revisionNumber, vm.providerChipTitle(receipt.provider), receipt.model.isEmpty ? "model unset" : receipt.model, receipt.permissionMode.rawValue))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textSecondary)
             AgentSelectablePlainText(
@@ -15398,7 +15398,7 @@ public struct BotsRootView: View {
             )
             .accessibilityIdentifier("bots.brain.digest")
             if !compact {
-                Text("compiler \(receipt.compilerVersion) · no opaque MacCode layer")
+                Text(L("compiler %1$@ · no opaque MacCode layer", receipt.compilerVersion))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
             }
@@ -15451,11 +15451,11 @@ public struct BotsRootView: View {
 
     private func brainWhyMemory(_ receipt: ContextAssemblyReceipt) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
-            Text("Why this memory?")
+            Text(L("Why this memory?"))
                 .font(DS.Font.bodyStrong)
                 .foregroundColor(DS.Palette.text)
             if receipt.memoryLayers.isEmpty {
-                Text("No memory items were considered.")
+                Text(L("No memory items were considered."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
             } else {
@@ -15478,7 +15478,7 @@ public struct BotsRootView: View {
 
     private func brainCapabilities(_ receipt: ContextAssemblyReceipt) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
-            Text("What this Bot can do")
+            Text(L("What this Bot can do"))
                 .font(DS.Font.bodyStrong)
                 .foregroundColor(DS.Palette.text)
             Text(BotPermission.honestyLabel)
@@ -15530,7 +15530,7 @@ public struct BotsRootView: View {
                     Image(systemName: "plus")
                         .font(.system(size: 11, weight: .semibold))
                         .accessibilityHidden(true)
-                    Text("Add scheduled task")
+                    Text(L("Add scheduled task"))
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -15558,7 +15558,7 @@ public struct BotsRootView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Toggle("Active", isOn: Binding(
+            Toggle(L("Active"), isOn: Binding(
                 get: { routine.activation.isEnabled },
                 set: { vm.setRoutineEnabled(id: routine.definition.id, enabled: $0) }
             ))
@@ -15654,7 +15654,7 @@ public struct BotsRootView: View {
         VStack(spacing: 0) {
             if let bot = vm.selectedBot, vm.supportsDockerHomeFiles(for: bot) {
                 VStack(alignment: .leading, spacing: DS.Space.sm) {
-                    Picker("Files location", selection: Binding(
+                    Picker(L("Files location"), selection: Binding(
                         get: { vm.studioFilesLocation },
                         set: { vm.setStudioFilesLocation($0, for: bot) }
                     )) {
@@ -15668,11 +15668,11 @@ public struct BotsRootView: View {
                     .accessibilityIdentifier("bots.studio.files.location")
                     if vm.studioFilesLocation == .dockerHome {
                         HStack(alignment: .firstTextBaseline, spacing: DS.Space.lg) {
-                            Text("Persisted on this Mac and mounted in Docker at /home/remotecode.")
+                            Text(L("Persisted on this Mac and mounted in Docker at /home/remotecode."))
                                 .font(DS.Font.caption)
                                 .foregroundColor(DS.Palette.textSecondary)
                             Spacer(minLength: 0)
-                            Button("Clear Docker data…", role: .destructive) {
+                            Button(L("Clear Docker data…"), role: .destructive) {
                                 pendingDockerDataClear = bot.id
                             }
                             .buttonStyle(.plain)
@@ -15721,7 +15721,7 @@ public struct BotsRootView: View {
             ),
             titleVisibility: .visible
         ) {
-            Button("Clear Docker data", role: .destructive) {
+            Button(L("Clear Docker data"), role: .destructive) {
                 let botID = pendingDockerDataClear
                 pendingDockerDataClear = nil
                 if let botID,
@@ -15729,9 +15729,9 @@ public struct BotsRootView: View {
                     vm.confirmClearDockerData(for: bot)
                 }
             }
-            Button("Cancel", role: .cancel) { pendingDockerDataClear = nil }
+            Button(L("Cancel"), role: .cancel) { pendingDockerDataClear = nil }
         } message: {
-            Text("Deletes this teammate’s Docker container and every file in /home/remotecode. This cannot be undone.")
+            Text(L("Deletes this teammate’s Docker container and every file in /home/remotecode. This cannot be undone."))
         }
     }
 
@@ -15973,7 +15973,7 @@ private struct BotGuestDesktopRoot: View {
                     )
                     .padding(DS.Space.lg)
                 } else {
-                    Text("Start the Linux desktop to use this machine.")
+                    Text(L("Start the Linux desktop to use this machine."))
                         .font(DS.Font.body)
                         .foregroundColor(DS.Palette.textSecondary)
                 }

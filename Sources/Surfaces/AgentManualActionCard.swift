@@ -188,7 +188,7 @@ struct AgentManualActionCard: View {
                 Image(systemName: Self.symbol(request.kind))
                     .font(.system(size: 12))
                     .foregroundColor(DS.Palette.warning)
-                Text("\(vm.botNameProvider(request.botID) ?? "Bot") is waiting for you")
+                Text(L("%1$@ is waiting for you", vm.botNameProvider(request.botID) ?? "Bot"))
                     .font(DS.Font.caption.weight(.semibold))
                     .foregroundColor(DS.Palette.textSecondary)
                 Spacer(minLength: 0)
@@ -207,7 +207,7 @@ struct AgentManualActionCard: View {
                     .frame(maxHeight: 120)
                     .cornerRadius(6)
             }
-            TextField("Note for the bot (optional)", text: $note)
+            TextField(L("Note for the bot (optional)"), text: $note)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityLabel("Note for the bot")
                 .accessibilityIdentifier("agent.manualAction.note")
@@ -222,24 +222,24 @@ struct AgentManualActionCard: View {
                 }
                 if request.kind == .file, vm.importFilesToBotComputer != nil,
                    let named = MacPathReferences.requestedFile(in: request.reason, home: NSHomeDirectory()) {
-                    Button("Send \(named.lastPathComponent)") { sendFiles([named], for: request) }
+                    Button(L("Send %1$@", named.lastPathComponent)) { sendFiles([named], for: request) }
                         .buttonStyle(.borderedProminent)
                         .help("Copy \(named.path) into the bot's Linux desktop and resume the bot")
                         .accessibilityIdentifier("agent.manualAction.sendNamedFile")
                 }
                 if request.kind == .file, vm.importFilesToBotComputer != nil {
-                    Button("Choose file…") { chooseFiles(for: request) }
+                    Button(L("Choose file…")) { chooseFiles(for: request) }
                         .help("Copy files from this Mac into the bot's Linux desktop and resume the bot")
                         .accessibilityIdentifier("agent.manualAction.chooseFile")
                 }
-                Button("Ready, continue") {
+                Button(L("Ready, continue")) {
                     let text = note
                     note = ""
                     Task { await vm.continueManualAction(note: text) }
                 }
                 .help("Resume the bot with your note")
                 .accessibilityIdentifier("agent.manualAction.continue")
-                Button("Decline") {
+                Button(L("Decline")) {
                     Task { await vm.declineManualAction() }
                 }
                 .help("Tell the bot to continue without this step, or stop")
@@ -281,7 +281,7 @@ struct AgentManualActionCard: View {
             Image(systemName: Self.symbol(request.kind))
                 .font(.system(size: 10))
                 .foregroundColor(DS.Palette.textTertiary)
-            Text("You took over for \(minutes) min · \(outcome)")
+            Text(L("You took over for %1$@ min · %2$@", minutes, outcome))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
         }

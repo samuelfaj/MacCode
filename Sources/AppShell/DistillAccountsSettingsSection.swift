@@ -76,7 +76,7 @@ struct DistillAccountsInlineDisclosure: View {
             HStack(spacing: DS.Space.lg) {
                 AgentChoiceIconTile(systemName: "person.2.badge.gearshape", tint: DS.Palette.accent, size: 28)
                 VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                    Text("Accounts & Auto routing")
+                    Text(L("Accounts & Auto routing"))
                         .font(DS.Font.bodyStrong)
                         .foregroundColor(DS.Palette.text)
                         .lineLimit(1)

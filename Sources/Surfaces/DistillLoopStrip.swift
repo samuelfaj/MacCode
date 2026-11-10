@@ -120,7 +120,7 @@ public struct DistillLoopStrip: View {
                     DistillLoopRow(loop: loop, onStop: onStop, onDismissExpired: onDismissExpired, onResume: onResume)
                 }
                 if shown.hidden > 0 {
-                    Text("+\(shown.hidden) more")
+                    Text(L("+%1$@ more", shown.hidden))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textTertiary)
                         .padding(.leading, DS.Space.lg)
@@ -184,14 +184,14 @@ struct DistillLoopRow: View {
             .accessibilityLabel(label)
             .accessibilityActions {
                 if loop.state == .expired {
-                    Button("Dismiss") { onDismissExpired(loop.taskID) }
+                    Button(L("Dismiss")) { onDismissExpired(loop.taskID) }
                 } else if !stopping {
                     if loop.state == .paused, onResume != nil, !resuming {
-                        Button("Resume") { resume() }
+                        Button(L("Resume")) { resume() }
                     }
-                    Button("Stop") { stop() }
+                    Button(L("Stop")) { stop() }
                 }
-                Button("Details") { showDetails = true }
+                Button(L("Details")) { showDetails = true }
             }
         }
     }
@@ -229,7 +229,7 @@ struct DistillLoopRow: View {
                 }
             }
             if let runs = DistillLoopPresentation.runsText(loop) {
-                Text("· \(runs)")
+                Text(L("· %1$@", runs))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
                     .lineLimit(1)
@@ -251,7 +251,7 @@ struct DistillLoopRow: View {
             .accessibilityIdentifier("agent.loop.details")
             .popover(isPresented: $showDetails, arrowEdge: .top) { details }
             if loop.state == .expired {
-                Button("Dismiss") { onDismissExpired(loop.taskID) }
+                Button(L("Dismiss")) { onDismissExpired(loop.taskID) }
                     .buttonStyle(.plain)
                     .font(DS.Font.caption.weight(.semibold))
                     .foregroundColor(DS.Palette.textSecondary)
@@ -290,7 +290,7 @@ struct DistillLoopRow: View {
                 .textSelection(.enabled)
             if let last = loop.lastIteration {
                 Divider()
-                Text("Last iteration · \(DistillLoopPresentation.iterationSummary(last))")
+                Text(L("Last iteration · %1$@", DistillLoopPresentation.iterationSummary(last)))
                     .font(DS.Font.caption.weight(.semibold))
                     .foregroundColor(DS.Palette.text)
                 if let preview = last.outputPreview, !preview.isEmpty {

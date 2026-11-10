@@ -1095,7 +1095,7 @@ struct ActivityRootView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             HStack(alignment: .center, spacing: DS.Space.md) {
-                Text("Activity").font(DS.Font.title.weight(.semibold)).foregroundColor(DS.Palette.text).lineLimit(1)
+                Text(L("Activity")).font(DS.Font.title.weight(.semibold)).foregroundColor(DS.Palette.text).lineLimit(1)
                 Spacer(minLength: DS.Space.md)
                 // Fixed slot: the spinner must not move the header when it appears.
                 ZStack {
@@ -1187,13 +1187,13 @@ struct ActivityRootView: View {
     private var bulkActions: some View {
         // One bulk action per tab: reading never empties Needs you, so offering it there only misleads.
         if model.tab == .finished || model.tab == .justFinished {
-            Button("Mark all as read") { model.markCurrentResultsSeen() }
+            Button(L("Mark all as read")) { model.markCurrentResultsSeen() }
                 .buttonStyle(DSSecondaryButtonStyle()).disabled(model.batchRunning || !model.hasUnreadResults).fixedSize()
                 .help(model.hasUnreadResults ? "Marks every result in this filter as read. Nothing is removed." : "Every result in this filter is already read.")
                 .accessibilityIdentifier("activity.markAllRead")
         }
         if model.tab == .needsYou {
-            Button("Dismiss all") { model.clearCurrentNeedsYou() }
+            Button(L("Dismiss all")) { model.clearCurrentNeedsYou() }
                 .buttonStyle(DSSecondaryButtonStyle()).disabled(model.batchRunning || model.page.counts.needs_you == 0).fixedSize()
                 .help("Dismisses alerts in this filter and marks results read. Pending approvals and questions still wait in their conversations.")
                 .accessibilityIdentifier("activity.clearAll")
@@ -1206,7 +1206,7 @@ struct ActivityRootView: View {
             Text(model.showingCachedResults ? "Showing saved results. Update failed: \(error)" : "Update failed: \(error)")
                 .font(DS.Font.bodyDense).foregroundColor(DS.Palette.text).lineLimit(3)
             Spacer(minLength: DS.Space.md)
-            Button("Retry") { model.refreshAfterFrame() }.buttonStyle(DSSecondaryButtonStyle())
+            Button(L("Retry")) { model.refreshAfterFrame() }.buttonStyle(DSSecondaryButtonStyle())
             DSIconButton("xmark", help: "Dismiss error") { model.dismissError() }.packed()
         }
         .padding(.horizontal, DS.Space.xl).padding(.vertical, DS.Space.md)
@@ -1219,7 +1219,7 @@ struct ActivityRootView: View {
             Text(status).font(DS.Font.bodyDense).foregroundColor(DS.Palette.text).lineLimit(2)
             Spacer(minLength: DS.Space.md)
             if model.undoCount != nil {
-                Button("Undo") { Task { await model.undoLastAction() } }
+                Button(L("Undo")) { Task { await model.undoLastAction() } }
                     .buttonStyle(DSSecondaryButtonStyle()).disabled(model.batchRunning)
                     .accessibilityIdentifier("activity.undo")
             }
@@ -1247,7 +1247,7 @@ struct ActivityRootView: View {
                 DS.Palette.bg.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if model.hasActiveFilters {
                 DSEmptyState(icon: "magnifyingglass", title: "No matches", subtitle: "Nothing in \(model.tab.title) matches this search and these filters.") {
-                    Button("Clear filters") { model.clearFilters() }.buttonStyle(DSSecondaryButtonStyle())
+                    Button(L("Clear filters")) { model.clearFilters() }.buttonStyle(DSSecondaryButtonStyle())
                 }
             } else {
                 emptyState
@@ -1292,7 +1292,7 @@ struct ActivityRootView: View {
 
     private var loadMoreRow: some View {
         HStack(spacing: DS.Space.md) {
-            Text("Showing \(model.page.items.count) of \(count(for: model.tab))")
+            Text(L("Showing %1$@ of %2$@", model.page.items.count, count(for: model.tab)))
                 .font(DS.Font.caption).monospacedDigit().foregroundColor(DS.Palette.textSecondary)
             Spacer()
             Button(model.loading ? "Loading…" : "Load more") { model.loadMore() }
@@ -1320,7 +1320,7 @@ struct ActivityRootView: View {
     private func compactDetail(_ item: ActivityWireItem) -> some View {
         VStack(spacing: 0) {
             HStack {
-                Button { narrowDetail = false; model.closeDetail() } label: { Label("Activity", systemImage: "chevron.left") }
+                Button { narrowDetail = false; model.closeDetail() } label: { Label(L("Activity"), systemImage: "chevron.left") }
                     .buttonStyle(DSSecondaryButtonStyle()).keyboardShortcut(.cancelAction)
                 Spacer()
             }.padding(.horizontal, DS.Space.xl).padding(.vertical, DS.Space.md)
@@ -1382,14 +1382,14 @@ struct ActivityRootView: View {
                     Button(openLabel(item)) { openThread(item) }.buttonStyle(DSSecondaryButtonStyle())
                 }
                 if canOpen(item), canViewChanges(item) {
-                    Button("View changes") { openEvidence(item, nil) }.buttonStyle(DSSecondaryButtonStyle())
+                    Button(L("View changes")) { openEvidence(item, nil) }.buttonStyle(DSSecondaryButtonStyle())
                 }
                 if item.isClearable {
-                    Button("Dismiss") { model.acknowledge(item) }.buttonStyle(DSSecondaryButtonStyle())
+                    Button(L("Dismiss")) { model.acknowledge(item) }.buttonStyle(DSSecondaryButtonStyle())
                         .help("Dismisses this alert without answering requests or deleting results.")
                 }
                 if item.isMarkable, !item.isNew {
-                    Button("Mark as unread") { model.markUnread(item) }.buttonStyle(DSSecondaryButtonStyle())
+                    Button(L("Mark as unread")) { model.markUnread(item) }.buttonStyle(DSSecondaryButtonStyle())
                         .keyboardShortcut("u", modifiers: [.command, .shift])
                 }
             }
@@ -1410,7 +1410,7 @@ struct ActivityRootView: View {
                             Text(ActivityTimeLabel.full(date)).font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                         }
                         if let duration = item.durationLabel {
-                            Text("Duration \(duration)").font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
+                            Text(L("Duration %1$@", duration)).font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                         }
                     }
                 }
@@ -1444,7 +1444,7 @@ struct ActivityRootView: View {
                             }
                         }
                         if let total = item.changed_files_total, total > item.changed_files.count {
-                            Text("\(total - item.changed_files.count) more files not listed")
+                            Text(L("%1$@ more files not listed", total - item.changed_files.count))
                                 .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                         }
                     }
@@ -1465,19 +1465,19 @@ struct ActivityRootView: View {
                     Button(openLabel(item)) { openThread(item) }.buttonStyle(DSPrimaryButtonStyle())
                 }
                 if canOpen(item), canViewChanges(item) {
-                    Button("View changes") { openEvidence(item, nil) }.buttonStyle(DSSecondaryButtonStyle())
+                    Button(L("View changes")) { openEvidence(item, nil) }.buttonStyle(DSSecondaryButtonStyle())
                 }
                 if item.isClearable {
-                    Button("Dismiss") { model.acknowledge(item) }.buttonStyle(DSSecondaryButtonStyle())
+                    Button(L("Dismiss")) { model.acknowledge(item) }.buttonStyle(DSSecondaryButtonStyle())
                         .help(item.isKeptFinished ? "Removes this finished row from the list." : item.kind == "request" ? "Removes this from Needs you. The request stays in the bot's conversation." : "Removes this from Needs you. The result stays in Results.")
                 }
                 if item.isMarkable, !item.isNew {
-                    Button("Mark as unread") { model.markUnread(item) }.buttonStyle(DSSecondaryButtonStyle())
+                    Button(L("Mark as unread")) { model.markUnread(item) }.buttonStyle(DSSecondaryButtonStyle())
                         .keyboardShortcut("u", modifiers: [.command, .shift])
                 }
             }
             if item.thread_id != nil, !canOpen(item) {
-                Text("This conversation can't be opened: its workspace is closed or no longer exists.")
+                Text(L("This conversation can't be opened: its workspace is closed or no longer exists."))
                     .font(DS.Font.bodyDense).foregroundColor(DS.Palette.textSecondary)
             }
             attentionGuidance(item)
@@ -1666,7 +1666,7 @@ private struct ActivityRow: View {
         .contextMenu {
             if let open { Button(openLabel, action: open) }
             if item.isMarkable { Button(item.isUnread ? "Mark as Read" : "Mark as Unread", action: toggleRead) }
-            if item.isClearable { Button("Dismiss alert", action: clear) }
+            if item.isClearable { Button(L("Dismiss alert"), action: clear) }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel([item.displayTitle, item.statusLabel, factsLine(workspace: true), item.listSummary ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
@@ -1674,7 +1674,7 @@ private struct ActivityRow: View {
         .accessibilityActions {
             if let open { Button(openLabel, action: open) }
             if item.isMarkable { Button(item.isUnread ? "Mark as read" : "Mark as unread", action: toggleRead) }
-            if item.isClearable { Button("Dismiss alert", action: clear) }
+            if item.isClearable { Button(L("Dismiss alert"), action: clear) }
         }
     }
 
@@ -1773,7 +1773,7 @@ struct WorkspaceSectionHeader: View {
                 .frame(width: 16)
                 .accessibilityHidden(true)
             Text(title)
-            if let count { Text("\(count)").monospacedDigit().foregroundColor(DS.Palette.textTertiary) }
+            if let count { Text(L("%1$@", count)).monospacedDigit().foregroundColor(DS.Palette.textTertiary) }
             Spacer(minLength: 0)
         }
         .font(DS.Font.caption.weight(.semibold)).foregroundColor(DS.Palette.textSecondary)

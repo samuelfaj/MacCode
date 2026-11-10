@@ -185,12 +185,12 @@ public struct FeedPanelView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: DS.Space.md) {
-                Text("FEED").font(DS.Font.caption2.weight(.semibold))
+                Text(L("FEED")).font(DS.Font.caption2.weight(.semibold))
                     .tracking(0.6).foregroundColor(DS.Palette.textTertiary)
                 // UX-009: subtle "N of M" so an empty list reads as
                 // "filter excludes everything" vs "no events".
                 if !vm.filter.isEmpty {
-                    Text("\(vm.filtered.count) of \(vm.items.count)")
+                    Text(L("%1$@ of %2$@", vm.filtered.count, vm.items.count))
                         .font(DS.Font.caption2.monospacedDigit())
                         .foregroundColor(DS.Palette.textTertiary)
                         .accessibilityIdentifier("feed.resultCount")
@@ -221,10 +221,10 @@ public struct FeedPanelView: View {
                     .accessibilityIdentifier("feed.clear")
                     .disabled(vm.items.isEmpty)
                     .confirmationDialog("Clear all feed events?", isPresented: $showClearConfirm) {
-                        Button("Clear Feed", role: .destructive) { vm.clear() }
-                        Button("Cancel", role: .cancel) {}
+                        Button(L("Clear Feed"), role: .destructive) { vm.clear() }
+                        Button(L("Cancel"), role: .cancel) {}
                     } message: {
-                        Text("This removes all events and cannot be undone.")
+                        Text(L("This removes all events and cannot be undone."))
                     }
                 HStack(spacing: DS.Space.xs) {
                     TextField("filter", text: $vm.filter)
@@ -262,7 +262,7 @@ public struct FeedPanelView: View {
                         ForEach(vm.filtered) { item in
                             VStack(alignment: .leading, spacing: DS.Space.xxs) {
                                 HStack(spacing: DS.Space.sm) {
-                                    Text("#\(item.id)")
+                                    Text(L("#%1$@", item.id))
                                         .font(DS.Font.caption2.monospacedDigit())
                                         .foregroundColor(DS.Palette.textTertiary)
                                     DSPill(item.kind, tone: kindTone(item.kind))
@@ -289,7 +289,7 @@ public struct FeedPanelView: View {
                                     NSPasteboard.general.clearContents()
                                     NSPasteboard.general.setString(vm.json(for: item), forType: .string)
                                 } label: {
-                                    Label("Copy JSON", systemImage: "curlybraces")
+                                    Label(L("Copy JSON"), systemImage: "curlybraces")
                                 }
                                 .accessibilityIdentifier("feed.item.\(item.id).copyJSON")
                             }
