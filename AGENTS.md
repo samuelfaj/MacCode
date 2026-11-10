@@ -114,3 +114,7 @@ Every change, however small, must be exercised in the real isolated debug app be
   ps -axo pid,ppid,rss,etime,args | awk '/ClaudeAgentSDKBridge\\.mjs|claude --output-format stream-json|claude --dangerously-skip-permissions/ && !/awk/ {print}'
   ```
 - Useful log events added for this class of issue: `app.heartbeat`, `app.will_terminate`, `terminal.spawned`, `terminal.output_health`, `terminal.pty_eof`, `terminal.dead`, and `terminal.close`. These intentionally log IDs, PIDs, counts, RSS, statuses, and byte totals, not terminal contents or secrets.
+
+## Localization
+
+Every new user-visible string ships in all six supported languages (en, pt, es, fr, zh-Hans/zh-Hant, ar) via the existing per-language lookup (e.g. `TitioNoticeCopy.t`, Settings picker labels); unknown or unsupported languages fall back to English. The default is the device language (`auto`); a user can override it in Settings (`titio_language` on the Mac).
