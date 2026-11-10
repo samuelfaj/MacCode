@@ -117,4 +117,14 @@ Every change, however small, must be exercised in the real isolated debug app be
 
 ## Localization
 
-Every new user-visible string ships in all six supported languages (en, pt, es, fr, zh-Hans/zh-Hant, ar) via the existing per-language lookup (e.g. `TitioNoticeCopy.t`, Settings picker labels); unknown or unsupported languages fall back to English. The default is the device language (`auto`); a user can override it in Settings (`titio_language` on the Mac).
+Six languages are supported and always kept complete: English, Portuguese (pt-BR), Spanish, French, Arabic, and Chinese (zh-Hans/zh-Hant). A language without text falls back to English.
+
+**Every task must translate.** Before any task is considered done:
+
+- Every new or edited user-visible string ships with all six translations. No string may be added in English only, and never leave a language falling back to English on purpose.
+- While working in a file, translate every user-visible string you find that is still English-only, even when it is unrelated to the task. Add the missing languages instead of reporting them.
+- Strings are added through the per-language helpers already in the codebase (e.g. `TitioNoticeCopy.t`, `TitioLanguageSetting.choices`); stay consistent with them rather than inlining one-off dictionaries.
+- The default language is the device language (`auto`); the user can override it in Settings (`titio_language`). A fixed unsupported tag falls back to English.
+- Formatting is localized too: decimal commas for pt/es/fr, 24-hour clocks everywhere except English, and per-language date patterns.
+- Verify with a test or a build that the new strings render in every language, and say which languages you checked.
+
