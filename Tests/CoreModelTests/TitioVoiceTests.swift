@@ -193,18 +193,22 @@ final class TitioVoiceTests: XCTestCase {
         XCTAssertNil(TitioLanguageSetting.normalized("english please"))
         XCTAssertNil(TitioLanguageSetting.normalized("en_US"))
         XCTAssertNil(TitioLanguageSetting.normalized("x"))
-        XCTAssertEqual(TitioLanguageSetting.choices.map(\.tag), ["auto", "pt-BR", "en", "es", "fr", "de", "it"])
+        XCTAssertEqual(TitioLanguageSetting.choices.map(\.tag), ["auto", "en", "pt-BR", "es", "ar", "fr", "zh-Hans", "zh-Hant"])
         XCTAssertEqual(TitioLanguageSetting.choices(including: "ja").last?.tag, "ja", "a tag set from iOS still shows")
-        XCTAssertEqual(TitioLanguageSetting.choices(including: "pt-BR").count, 7)
+        XCTAssertEqual(TitioLanguageSetting.choices(including: "pt-BR").count, 8)
     }
 
     func test_fallbackLanguageFollowsTheSettingThenTheUser() {
         XCTAssertEqual(TitioLanguageSetting.fallbackLanguage(setting: "pt-BR", recentUserTexts: ["please run the tests again"],
-                                                             cardLabels: [], preferredLanguages: ["en"]), .ptBR)
+                                                             cardLabels: [], preferredLanguages: ["en"]), .pt)
+        // A fixed supported setting decides even against other preferences; an
+        // unsupported fixed tag (Italian was removed) falls back to English.
         XCTAssertEqual(TitioLanguageSetting.fallbackLanguage(setting: "es", recentUserTexts: [], cardLabels: [],
+                                                             preferredLanguages: ["pt-BR"]), .es)
+        XCTAssertEqual(TitioLanguageSetting.fallbackLanguage(setting: "it", recentUserTexts: [], cardLabels: [],
                                                              preferredLanguages: ["pt-BR"]), .en)
         XCTAssertEqual(TitioLanguageSetting.fallbackLanguage(setting: "auto", recentUserTexts: ["roda os testes de novo por favor"],
-                                                             cardLabels: [], preferredLanguages: ["en-US"]), .ptBR)
+                                                             cardLabels: [], preferredLanguages: ["en-US"]), .pt)
     }
 
     // MARK: Retry loop

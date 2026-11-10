@@ -2477,7 +2477,7 @@ public actor TitioNoticeCenter {
     }
 
     private func missingSourceReason(_ language: TitioNoticeLanguage) -> String {
-        language == .ptBR ? "não sei mais para onde enviar" : "I no longer know where to send it"
+        language == .pt ? "não sei mais para onde enviar" : "I no longer know where to send it"
     }
 
     static func reason(_ error: Error) -> String {

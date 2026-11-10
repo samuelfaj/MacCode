@@ -51,7 +51,7 @@ final class TitioInboxThreadTests: XCTestCase {
         let (context, router, vm) = try makeFixture()
         defer { withExtendedLifetime(vm) {} } // router.botsViewModel is weak
         let first = try XCTUnwrap(router.resolveTitioInbox(language: .en))
-        let second = try XCTUnwrap(router.resolveTitioInbox(language: .ptBR))
+        let second = try XCTUnwrap(router.resolveTitioInbox(language: .pt))
         XCTAssertEqual(first, second, "same conversation and same thread on the next resolution")
 
         let conversation = try XCTUnwrap(context.botStore.conversation(id: first.conversationID))
@@ -75,7 +75,7 @@ final class TitioInboxThreadTests: XCTestCase {
         defer { withExtendedLifetime(vm) {} } // router.botsViewModel is weak
         let first = try XCTUnwrap(router.resolveTitioInbox(language: .en))
         try context.botStore.deleteConversations(botID: first.botID)
-        let recreated = try XCTUnwrap(router.resolveTitioInbox(language: .ptBR))
+        let recreated = try XCTUnwrap(router.resolveTitioInbox(language: .pt))
         XCTAssertNotEqual(recreated.conversationID, first.conversationID)
         XCTAssertEqual(try context.botStore.conversation(id: recreated.conversationID)?.title, "Notificações")
     }

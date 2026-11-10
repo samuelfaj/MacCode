@@ -20,15 +20,18 @@ public enum TitioLanguageSetting {
         public var id: String { tag }
     }
 
-    /// The options of the Settings picker (Mac and iOS).
+    /// The options of the Settings picker (Mac and iOS). Every supported
+    /// language ships a label in its own language, so the picker is readable
+    /// no matter which language the app itself runs in.
     public static let choices: [Choice] = [
         Choice(tag: automatic, label: "Automatic (your language)"),
-        Choice(tag: "pt-BR", label: "Português (Brasil)"),
         Choice(tag: "en", label: "English"),
+        Choice(tag: "pt-BR", label: "Português (Brasil)"),
         Choice(tag: "es", label: "Español"),
+        Choice(tag: "ar", label: "العربية"),
         Choice(tag: "fr", label: "Français"),
-        Choice(tag: "de", label: "Deutsch"),
-        Choice(tag: "it", label: "Italiano"),
+        Choice(tag: "zh-Hans", label: "简体中文"),
+        Choice(tag: "zh-Hant", label: "繁體中文"),
     ]
 
     /// The picker options, plus `current` when it is a tag set elsewhere
@@ -59,9 +62,10 @@ public enum TitioLanguageSetting {
         }.joined(separator: "-")
     }
 
-    /// pt-BR or en for the rare factual fallback (no LLM ran): a fixed `pt*`
-    /// setting is pt-BR, any other fixed tag en; `auto` follows the user's
-    /// recent Titio messages, then the Mac's preferred language.
+    /// A supported language for the rare factual fallback (no LLM ran): a
+    /// fixed `pt*` setting is Portuguese, any other fixed tag its language
+    /// when supported and English otherwise; `auto` follows the user's
+    /// recent Titio messages, then the device's preferred languages.
     public static func fallbackLanguage(
         setting: String,
         recentUserTexts: [String],
@@ -69,7 +73,7 @@ public enum TitioLanguageSetting {
         preferredLanguages: [String]
     ) -> TitioNoticeLanguage {
         let tag = normalized(setting) ?? automatic
-        guard tag == automatic else { return tag.lowercased().hasPrefix("pt") ? .ptBR : .en }
+        guard tag == automatic else { return TitioNoticeLanguage(fixedTag: tag) }
         return TitioNoticeCopy.language(
             recentUserTexts: recentUserTexts, excluding: cardLabels, preferredLanguages: preferredLanguages
         )

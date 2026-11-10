@@ -114,7 +114,7 @@ final class TitioNoticeCopyTests: XCTestCase {
              "The agent on **Deploy** in **api** needs a few answers, which can only be answered in the thread."),
         ]
         for (kind, facts, pt, en) in cases {
-            XCTAssertEqual(TitioNoticeCopy.body(for: item(kind, facts), language: .ptBR, timeZone: utc), pt, "pt-BR \(kind)")
+            XCTAssertEqual(TitioNoticeCopy.body(for: item(kind, facts), language: .pt, timeZone: utc), pt, "pt \(kind)")
             XCTAssertEqual(TitioNoticeCopy.body(for: item(kind, facts), language: .en, timeZone: utc), en, "en \(kind)")
         }
     }
@@ -142,13 +142,13 @@ final class TitioNoticeCopyTests: XCTestCase {
     func test_missingFactsDropTheirSegmentInsteadOfInventingText() {
         // WHY (§0.3): a missing name falls back to a plain noun; nothing is made up.
         let bare = TitioNoticeFacts(title: "Deploy", workspaceName: "api")
-        XCTAssertEqual(TitioNoticeCopy.body(for: item(.runCompleted, bare), language: .ptBR, timeZone: utc),
+        XCTAssertEqual(TitioNoticeCopy.body(for: item(.runCompleted, bare), language: .pt, timeZone: utc),
                        "A tarefa **Deploy** do **api** foi concluída.")
         XCTAssertEqual(TitioNoticeCopy.body(for: item(.botReply, TitioNoticeFacts(botName: "Scout")), language: .en, timeZone: utc),
                        "**Scout** replied.")
         XCTAssertEqual(TitioNoticeCopy.body(for: item(.gitFailed, TitioNoticeFacts(workspaceName: "api")), language: .en, timeZone: utc),
                        "`git push` in **api** failed.")
-        XCTAssertEqual(TitioNoticeCopy.body(for: item(.runFailed, TitioNoticeFacts()), language: .ptBR, timeZone: utc),
+        XCTAssertEqual(TitioNoticeCopy.body(for: item(.runFailed, TitioNoticeFacts()), language: .pt, timeZone: utc),
                        "Uma tarefa falhou.")
     }
 
@@ -159,7 +159,7 @@ final class TitioNoticeCopyTests: XCTestCase {
         let summary = "Implemented DEV-5277. **[Draft PR #3109](https://github.com/o/r/pull/3109)** is up."
         for kind in [TitioNoticeKind.runCompleted, .runFailed, .botReply] {
             let body = TitioNoticeCopy.body(for: item(kind, TitioNoticeFacts(title: "T", botName: "B", summary: summary)),
-                                            language: .ptBR, timeZone: utc)
+                                            language: .pt, timeZone: utc)
             XCTAssertTrue(body.hasSuffix(": Implemented DEV-5277."), body)
             XCTAssertFalse(body.contains("Resumo"), body)
             XCTAssertFalse(body.contains("https"), body)
@@ -205,7 +205,7 @@ final class TitioNoticeCopyTests: XCTestCase {
         let approval = item(.approval, TitioNoticeFacts(title: "Deploy", workspaceName: "api", detail: "make ship"),
                             key: "thread.T.attention.R",
                             actions: TitioNoticeAction.defaultActions(kind: .approval, facts: TitioNoticeFacts()))
-        let composed = TitioNoticeCopy.compose(approval, language: .ptBR, timeZone: utc)
+        let composed = TitioNoticeCopy.compose(approval, language: .pt, timeZone: utc)
         let parsed = BotChoicesBlock.parse(composed.text)
         XCTAssertEqual(parsed.text, "O agente de **Deploy** no **api** quer executar uma ação (`make ship`).")
         XCTAssertEqual(parsed.choices?.notice, "thread.T.attention.R")
@@ -232,8 +232,8 @@ final class TitioNoticeCopyTests: XCTestCase {
                                                      requestKind: "commandExecution"), key: "a", actions: actions)
         let second = item(.approval, TitioNoticeFacts(title: "Release", workspaceName: "api", detail: "git push --force",
                                                       requestKind: "commandExecution"), key: "b", actions: actions)
-        let q1 = BotChoicesBlock.parse(TitioNoticeCopy.compose(first, language: .ptBR, timeZone: utc).text).choices?.question
-        let q2 = BotChoicesBlock.parse(TitioNoticeCopy.compose(second, language: .ptBR, timeZone: utc).text).choices?.question
+        let q1 = BotChoicesBlock.parse(TitioNoticeCopy.compose(first, language: .pt, timeZone: utc).text).choices?.question
+        let q2 = BotChoicesBlock.parse(TitioNoticeCopy.compose(second, language: .pt, timeZone: utc).text).choices?.question
         XCTAssertEqual(q1, "elephant · Fix login: rodar um comando (rm -rf build)?")
         XCTAssertEqual(q2, "api · Release: rodar um comando (git push --force)?")
         XCTAssertNotEqual(q1, q2)
@@ -246,7 +246,7 @@ final class TitioNoticeCopyTests: XCTestCase {
         // approval (`{"command":…`)": broken copy on every approval.
         let codex = item(.approval, TitioNoticeFacts(title: "Fix", workspaceName: "api", detail: "npm install",
                                                      requestTitle: "File change approval", requestKind: "fileChange"))
-        XCTAssertEqual(TitioNoticeCopy.body(for: codex, language: .ptBR, timeZone: utc),
+        XCTAssertEqual(TitioNoticeCopy.body(for: codex, language: .pt, timeZone: utc),
                        "O agente de **Fix** no **api** quer alterar arquivos (`npm install`).")
         let claude = item(.approval, TitioNoticeFacts(title: "Fix", workspaceName: "api",
                                                       detail: #"{"command":"rm -rf build","description":"clean"}"#,
@@ -262,7 +262,7 @@ final class TitioNoticeCopyTests: XCTestCase {
         let facts = TitioNoticeFacts(prompt: "Pick", options: ["Abrir conversa", "Yes", "Yes "])
         let actions = TitioNoticeAction.defaultActions(kind: .userInput, facts: facts)
         XCTAssertEqual(actions, [.providerOption(index: 0, text: "Abrir conversa"), .providerOption(index: 1, text: "Yes"), .openThread])
-        let composed = TitioNoticeCopy.compose(item(.userInput, facts, actions: actions), language: .ptBR, timeZone: utc)
+        let composed = TitioNoticeCopy.compose(item(.userInput, facts, actions: actions), language: .pt, timeZone: utc)
         let parsed = try? XCTUnwrap(BotChoicesBlock.parse(composed.text).choices)
         XCTAssertEqual(parsed?.options, ["Abrir conversa", "Yes"])
         XCTAssertEqual(composed.cardOptions?.map(\.action), [.providerOption(index: 0, text: "Abrir conversa"), .providerOption(index: 1, text: "Yes")])
@@ -292,7 +292,7 @@ final class TitioNoticeCopyTests: XCTestCase {
                        "a finished task must lead to its conversation")
         XCTAssertEqual(TitioNoticeAction.defaultActions(kind: .botReply, facts: none), [.openBot, .ack],
                        "a Bot reply must lead to the Bot conversation")
-        XCTAssertEqual(TitioNoticeCopy.label(for: .openBot, language: .ptBR, botName: "Scout"), "Abrir conversa")
+        XCTAssertEqual(TitioNoticeCopy.label(for: .openBot, language: .pt, botName: "Scout"), "Abrir conversa")
         XCTAssertEqual(TitioNoticeCopy.label(for: .openBot, language: .en, botName: "Scout"), "Open conversation")
     }
 
@@ -327,7 +327,7 @@ final class TitioNoticeCopyTests: XCTestCase {
             run("run.a.completed", .runCompleted, "Build", "api", minute: 0, durationMs: 120_000),
             run("run.b.failed", .runFailed, "Deploy", "web", minute: 1),
         ]
-        let pt = TitioNoticeCopy.composeBatch(items, language: .ptBR, timeZone: utc)
+        let pt = TitioNoticeCopy.composeBatch(items, language: .pt, timeZone: utc)
         XCTAssertEqual(pt?.text, """
             • **web** · Deploy: falhou
             • **api** · Build: concluída (2 min)
@@ -371,7 +371,7 @@ final class TitioNoticeCopyTests: XCTestCase {
         var items = (0..<9).map { run("run.\($0).completed", .runCompleted, "T\($0)", "api", minute: Double($0)) }
         items.append(run("run.f1.failed", .runFailed, "F1", "web", minute: 20))
         items.append(run("run.f2.interrupted", .runInterrupted, "F2", "web", minute: 21))
-        let pt = TitioNoticeCopy.composeBatch(items.shuffled(), language: .ptBR, catchUp: true, timeZone: utc)
+        let pt = TitioNoticeCopy.composeBatch(items.shuffled(), language: .pt, catchUp: true, timeZone: utc)
         let lines = pt?.text.components(separatedBy: "\n") ?? []
         XCTAssertEqual(lines.first, "• **web** · F1: falhou", "no catch-up opener in the fallback")
         let bullets = lines.filter { $0.hasPrefix("• ") }
@@ -384,11 +384,11 @@ final class TitioNoticeCopyTests: XCTestCase {
     }
 
     func test_durationFormatsPerLanguage() {
-        XCTAssertEqual(TitioNoticeCopy.duration(ms: 10_400, language: .ptBR), "10,4 s")
+        XCTAssertEqual(TitioNoticeCopy.duration(ms: 10_400, language: .pt), "10,4 s")
         XCTAssertEqual(TitioNoticeCopy.duration(ms: 10_400, language: .en), "10.4s")
         XCTAssertEqual(TitioNoticeCopy.duration(ms: 3_000, language: .en), "3s")
         XCTAssertEqual(TitioNoticeCopy.duration(ms: 59_970, language: .en), "1 min", "59.97 s rounds up to a minute, never \"60s\"")
-        XCTAssertEqual(TitioNoticeCopy.duration(ms: 120_000, language: .ptBR), "2 min")
+        XCTAssertEqual(TitioNoticeCopy.duration(ms: 120_000, language: .pt), "2 min")
         XCTAssertEqual(TitioNoticeCopy.duration(ms: 65 * 60_000, language: .en), "1 h 5 min")
     }
 
@@ -418,14 +418,14 @@ final class TitioNoticeCopyTests: XCTestCase {
             language: .en, timeZone: utc
         )
         XCTAssertNotNil(BotChoicesBlock.parse(composed.text).choices)
-        let status = TitioNoticeCopy.statusLine(.elsewhere, language: .ptBR, at: at, timeZone: utc)
+        let status = TitioNoticeCopy.statusLine(.elsewhere, language: .pt, at: at, timeZone: utc)
         XCTAssertEqual(status, "_Resolvido em outro lugar._")
         let rewritten = TitioNoticeCopy.resolvedText(original: composed.text, statusLine: status)
         XCTAssertNil(BotChoicesBlock.parse(rewritten).choices)
         XCTAssertFalse(rewritten.contains("```"))
         XCTAssertTrue(rewritten.hasSuffix("\n\n_Resolvido em outro lugar._"))
         XCTAssertEqual(TitioNoticeCopy.resolvedText(original: rewritten, statusLine: status), rewritten, "rewriting twice must not stack lines")
-        XCTAssertEqual(TitioNoticeCopy.statusLine(.approved, language: .ptBR, at: at, timeZone: utc), "_Aprovado por você às 20:01._")
+        XCTAssertEqual(TitioNoticeCopy.statusLine(.approved, language: .pt, at: at, timeZone: utc), "_Aprovado por você às 20:01._")
         XCTAssertEqual(TitioNoticeCopy.statusLine(.approved, language: .en, at: at, timeZone: utc), "_Approved by you at 8:01 PM._")
         XCTAssertEqual(TitioNoticeStatus(resolution: .approvedSession), .approved)
         XCTAssertEqual(TitioNoticeStatus(resolution: .forwarded), .answered)
@@ -438,18 +438,18 @@ final class TitioNoticeCopyTests: XCTestCase {
     func test_resultLinesReportWhatTheHostDid() {
         // WHY: the fallback result line is the honest outcome, without the
         // "Feito," / "Ok," / "Pode mandar." interjections.
-        XCTAssertEqual(TitioNoticeCopy.resultLine(.approved(workspace: "api"), language: .ptBR), "Aprovei no **api**.")
+        XCTAssertEqual(TitioNoticeCopy.resultLine(.approved(workspace: "api"), language: .pt), "Aprovei no **api**.")
         XCTAssertEqual(TitioNoticeCopy.resultLine(.approvedSession(workspace: "api"), language: .en), "Approved for this session in **api**.")
-        XCTAssertEqual(TitioNoticeCopy.resultLine(.declined(workspace: "api"), language: .ptBR), "Recusei e o agente do **api** foi avisado.")
-        XCTAssertEqual(TitioNoticeCopy.resultLine(.answered(answer: "Postgres", target: .agent(workspace: "api")), language: .ptBR),
+        XCTAssertEqual(TitioNoticeCopy.resultLine(.declined(workspace: "api"), language: .pt), "Recusei e o agente do **api** foi avisado.")
+        XCTAssertEqual(TitioNoticeCopy.resultLine(.answered(answer: "Postgres", target: .agent(workspace: "api")), language: .pt),
                        "Repassei “Postgres” para o agente do **api**.")
         XCTAssertEqual(TitioNoticeCopy.resultLine(.answered(answer: "Yes", target: .bot(name: "Scout")), language: .en), "Passed “Yes” to **Scout**.")
-        XCTAssertEqual(TitioNoticeCopy.resultLine(.armed(target: .bot(name: "Scout")), language: .ptBR),
+        XCTAssertEqual(TitioNoticeCopy.resultLine(.armed(target: .bot(name: "Scout")), language: .pt),
                        "Eu repasso sua próxima mensagem para o **Scout**.")
         XCTAssertEqual(TitioNoticeCopy.resultLine(.continued(title: "Deploy"), language: .en), "Asked **Deploy** to continue.")
-        XCTAssertEqual(TitioNoticeCopy.resultLine(.rerun(task: "Nightly"), language: .ptBR), "Rodando **Nightly** de novo.")
+        XCTAssertEqual(TitioNoticeCopy.resultLine(.rerun(task: "Nightly"), language: .pt), "Rodando **Nightly** de novo.")
         XCTAssertEqual(TitioNoticeCopy.resultLine(.alreadyResolved, language: .en), "That was already handled or expired; I sent nothing.")
-        XCTAssertEqual(TitioNoticeCopy.resultLine(.failed(error: "request expired"), language: .ptBR),
+        XCTAssertEqual(TitioNoticeCopy.resultLine(.failed(error: "request expired"), language: .pt),
                        "Não consegui enviar: request expired. Abra a conversa para decidir por lá.")
     }
 
@@ -458,7 +458,7 @@ final class TitioNoticeCopyTests: XCTestCase {
         XCTAssertEqual(TitioNoticeCopy.preview("**Scout** needs you: *Ship it?*\nmore"), "Scout needs you: Ship it?")
         XCTAssertEqual(TitioNoticeCopy.preview(String(repeating: "a", count: 400)).count, 178)
         XCTAssertEqual(TitioNoticeCopy.directReplyBanner(replyText: "Pronto, abri o **Deploy**.\nDetalhes…").body, "Pronto, abri o Deploy.")
-        XCTAssertEqual(TitioNoticeCopy.inboxTitle(language: .ptBR), "Notificações")
+        XCTAssertEqual(TitioNoticeCopy.inboxTitle(language: .pt), "Notificações")
     }
 
     // MARK: Language rule (§16)
@@ -466,21 +466,21 @@ final class TitioNoticeCopyTests: XCTestCase {
     func test_languageFollowsTheUsersLastTitioMessageNotTheMacLocale() {
         // WHY (§16): the owner writes in Portuguese on an English macOS, so the
         // user's own words win over the system language.
-        XCTAssertEqual(TitioNoticeCopy.language(lastUserText: "roda os testes de novo por favor", preferredLanguages: ["en-US"]), .ptBR)
-        XCTAssertEqual(TitioNoticeCopy.language(lastUserText: "obrigado pelo aviso", preferredLanguages: ["en-GB", "pt-BR"]), .ptBR)
+        XCTAssertEqual(TitioNoticeCopy.language(lastUserText: "roda os testes de novo por favor", preferredLanguages: ["en-US"]), .pt)
+        XCTAssertEqual(TitioNoticeCopy.language(lastUserText: "obrigado pelo aviso", preferredLanguages: ["en-GB", "pt-BR"]), .pt)
         XCTAssertEqual(TitioNoticeCopy.language(lastUserText: "can you check the build?", preferredLanguages: ["pt-BR"]), .en)
     }
 
     func test_languageFallsBackToThePreferredSystemLanguage() {
         // WHY: with no Titio message yet (or one too short to tell), the Mac's
         // first preferred language decides: pt* → pt-BR, anything else → en.
-        XCTAssertEqual(TitioNoticeCopy.language(lastUserText: nil, preferredLanguages: ["pt-BR", "en"]), .ptBR)
-        XCTAssertEqual(TitioNoticeCopy.language(lastUserText: nil, preferredLanguages: ["pt-PT"]), .ptBR)
+        XCTAssertEqual(TitioNoticeCopy.language(lastUserText: nil, preferredLanguages: ["pt-BR", "en"]), .pt)
+        XCTAssertEqual(TitioNoticeCopy.language(lastUserText: nil, preferredLanguages: ["pt-PT"]), .pt)
         XCTAssertEqual(TitioNoticeCopy.language(lastUserText: "   ", preferredLanguages: ["en-US"]), .en)
         XCTAssertEqual(TitioNoticeCopy.language(lastUserText: nil, preferredLanguages: ["de-DE"]), .en)
         XCTAssertEqual(TitioNoticeCopy.language(lastUserText: nil, preferredLanguages: []), .en)
-        XCTAssertEqual(TitioNoticeCopy.language(lastUserText: "123", preferredLanguages: ["pt-BR"]), .ptBR)
-        XCTAssertEqual(TitioNoticeCopy.language(lastUserText: "ok", preferredLanguages: ["pt-BR"]), .ptBR, "\"ok\" is ambiguous")
+        XCTAssertEqual(TitioNoticeCopy.language(lastUserText: "123", preferredLanguages: ["pt-BR"]), .pt)
+        XCTAssertEqual(TitioNoticeCopy.language(lastUserText: "ok", preferredLanguages: ["pt-BR"]), .pt, "\"ok\" is ambiguous")
         XCTAssertEqual(TitioNoticeCopy.language(lastUserText: "ok", preferredLanguages: ["en-US"]), .en, "\"ok\" is ambiguous")
     }
 
@@ -491,7 +491,7 @@ final class TitioNoticeCopyTests: XCTestCase {
         // notice to English. The newest confident message decides.
         let recent = ["Got it", "PostgreSQL", "ok", "roda os testes de novo por favor, valeu"]
         XCTAssertEqual(TitioNoticeCopy.language(recentUserTexts: recent, excluding: ["Got it", "PostgreSQL"],
-                                                preferredLanguages: ["en-US"]), .ptBR)
+                                                preferredLanguages: ["en-US"]), .pt)
         XCTAssertEqual(TitioNoticeCopy.language(recentUserTexts: ["ok"], excluding: [], preferredLanguages: ["en-US"]), .en,
                        "no confident message: the system language")
         XCTAssertEqual(TitioNoticeCopy.language(recentUserTexts: ["can you check the build again please?", "roda os testes"],
@@ -512,12 +512,12 @@ final class TitioNoticeCopyTests: XCTestCase {
         let failed = item(.runFailed, TitioNoticeFacts(title: "Deploy", workspaceName: "api", summary: "token sk-live-123 rejected"))
         let question = item(.userInput, TitioNoticeFacts(title: "Deploy", workspaceName: "api", prompt: "Paste the sk-live-123 key?"))
         let bot = item(.botQuestion, TitioNoticeFacts(botName: "Scout", detail: "Use key sk-live-123?"))
-        for (notice, language) in [(approval, TitioNoticeLanguage.ptBR), (failed, .en), (question, .ptBR), (bot, .en)] {
+        for (notice, language) in [(approval, TitioNoticeLanguage.pt), (failed, .en), (question, .pt), (bot, .en)] {
             let body = TitioNoticeCopy.bannerBody([notice], language: language, timeZone: utc)
             XCTAssertFalse(body.contains("sk-live-123"), "\(notice.kind) leaked into the push: \(body)")
             XCTAssertFalse(body.isEmpty)
         }
-        XCTAssertEqual(TitioNoticeCopy.bannerBody([approval], language: .ptBR, timeZone: utc),
+        XCTAssertEqual(TitioNoticeCopy.bannerBody([approval], language: .pt, timeZone: utc),
                        "O agente de Deploy no api quer rodar um comando.")
     }
 
@@ -526,7 +526,7 @@ final class TitioNoticeCopyTests: XCTestCase {
         // the body in today's banner; the template puts it on line 2, so a
         // first-line preview alone would drop it.
         let external = item(.external, TitioNoticeFacts(title: "Build", body: "All 300 tests passed"))
-        XCTAssertEqual(TitioNoticeCopy.compose(external, language: .ptBR, timeZone: utc).preview, "Build: All 300 tests passed")
+        XCTAssertEqual(TitioNoticeCopy.compose(external, language: .pt, timeZone: utc).preview, "Build: All 300 tests passed")
         XCTAssertEqual(TitioNoticeCopy.bannerBody([external], language: .en, timeZone: utc), "Build: All 300 tests passed")
     }
 
@@ -535,7 +535,7 @@ final class TitioNoticeCopyTests: XCTestCase {
         // external notice carries the caller's own words.
         let reply = item(.botReply, TitioNoticeFacts(botName: "Muse", summary: "Sent it."), key: "bot.reply.r")
         let external = item(.external, TitioNoticeFacts(title: "Build", body: "All green"), key: "notification.n")
-        XCTAssertEqual(TitioNoticeCopy.digestLine(reply, language: .ptBR), "Muse: respondeu")
+        XCTAssertEqual(TitioNoticeCopy.digestLine(reply, language: .pt), "Muse: respondeu")
         XCTAssertEqual(TitioNoticeCopy.digestLine(external, language: .en), "Build: “All green”")
         XCTAssertEqual(TitioNoticeCopy.bannerBody([reply, external], language: .en, timeZone: utc),
                        "2 updates — Muse: replied · Build: notice")
