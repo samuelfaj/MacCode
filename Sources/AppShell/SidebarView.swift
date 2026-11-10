@@ -135,8 +135,8 @@ public final class SidebarViewModel: ObservableObject {
         ) {
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "Remove \"\(name)\"?"
-            alert.informativeText = "This removes the workspace and its tabs from MacCode. Files on disk are not touched."
+            alert.messageText = L("Remove \"%1$@\"?", name)
+            alert.informativeText = L("This removes the workspace and its tabs from MacCode. Files on disk are not touched.")
             alert.addButton(withTitle: "Remove")
             alert.addButton(withTitle: "Cancel")
             let handler: (NSApplication.ModalResponse) -> Void = { response in
@@ -156,8 +156,8 @@ public final class SidebarViewModel: ObservableObject {
         ) {
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "Remove \(count) workspaces?"
-            alert.informativeText = "This removes the selected workspaces and their tabs from MacCode. Files on disk are not touched.\n\n" + names.joined(separator: "\n")
+            alert.messageText = L("Remove %1$@ workspaces?", count)
+            alert.informativeText = L("This removes the selected workspaces and their tabs from MacCode. Files on disk are not touched.\n\n") + names.joined(separator: "\n")
             alert.addButton(withTitle: "Remove")
             alert.addButton(withTitle: "Cancel")
             let handler: (NSApplication.ModalResponse) -> Void = { response in
@@ -1460,8 +1460,8 @@ public final class SidebarViewModel: ObservableObject {
 
     public func deleteConversation(_ row: WorkspaceConversationRow) {
         let alert = NSAlert()
-        alert.messageText = "Delete conversation?"
-        alert.informativeText = "This permanently deletes “\(row.title)” and its messages. Any active run will stop."
+        alert.messageText = L("Delete conversation?")
+        alert.informativeText = L("This permanently deletes “%1$@” and its messages. Any active run will stop.", row.title)
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         let complete: (NSApplication.ModalResponse) -> Void = { [weak self] response in
@@ -1810,8 +1810,8 @@ public final class SidebarViewModel: ObservableObject {
     ) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Insomnia is on while your MacBook is on battery"
-        alert.informativeText = "Insomnia can drain the battery because it keeps this Mac awake. Do you want to keep Insomnia on or disable it now?"
+        alert.messageText = L("Insomnia is on while your MacBook is on battery")
+        alert.informativeText = L("Insomnia can drain the battery because it keeps this Mac awake. Do you want to keep Insomnia on or disable it now?")
         alert.addButton(withTitle: "Disable Insomnia")
         alert.addButton(withTitle: "Keep Insomnia On")
         let finish: (NSApplication.ModalResponse) -> Void = { response in

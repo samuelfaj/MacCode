@@ -730,8 +730,8 @@ public final class PaneTabsView: NSObject {
         let title = pane.surfaces.first(where: { $0.id == id })?.title ?? "this tab"
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Close “\(title)” with unsaved changes?"
-        alert.informativeText = "Unsaved file edits in this tab will be discarded if you close it."
+        alert.messageText = L("Close “%1$@” with unsaved changes?", title)
+        alert.informativeText = L("Unsaved file edits in this tab will be discarded if you close it.")
         alert.addButton(withTitle: "Close Without Saving")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn

@@ -201,7 +201,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             // so the user can recover by deleting remotecode.sqlite and relaunching.
             let supportDir = AppPaths.appSupportDirectory(for: channel, override: appSupportOverride).path
             let alert = NSAlert()
-            alert.messageText = "MacCode could not open its database"
+            alert.messageText = L("MacCode could not open its database")
             alert.informativeText = Self.dbOpenFailureInformativeText(
                 supportDir: supportDir,
                 errorDescription: error.localizedDescription
@@ -228,7 +228,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             RunLoop.main.perform { MainActor.assumeIsolated {
                 let alert = NSAlert()
                 alert.alertStyle = .warning
-                alert.messageText = "Previous database was corrupt"
+                alert.messageText = L("Previous database was corrupt")
                 alert.informativeText = """
                     MacCode found and quarantined a corrupt database, then started \
                     fresh. Your previous data is preserved as a backup file (suffix \
@@ -2306,7 +2306,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // Deferred so the notification delegate callback returns before the modal runs.
         Task { @MainActor in
             let alert = NSAlert()
-            alert.messageText = "Could not open notification"
+            alert.messageText = L("Could not open notification")
             alert.informativeText = message
             alert.alertStyle = .informational
             alert.addButton(withTitle: "OK")

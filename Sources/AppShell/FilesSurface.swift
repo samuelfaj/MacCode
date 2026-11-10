@@ -2266,13 +2266,13 @@ struct FilesSurfaceRoot: View {
         }
         .background(VSCodeTheme.editorBackground)
         .foregroundStyle(DS.Palette.text)
-        .alert("Discard unsaved changes?", isPresented: $confirmDiscard) {
+        .alert(L("Discard unsaved changes?"), isPresented: $confirmDiscard) {
             Button(L("Discard Changes"), role: .destructive) { model.discard() }
             Button(L("Cancel"), role: .cancel) {}
         } message: {
             Text(L("This reverts the current draft to the last saved version."))
         }
-        .alert("Save Changes Before Closing?", isPresented: $confirmCloseFile) {
+        .alert(L("Save Changes Before Closing?"), isPresented: $confirmCloseFile) {
             Button(L("Save")) {
                 model.save()
                 if !model.isDirty, let closingFile { model.closeTab(closingFile) }
@@ -2285,7 +2285,7 @@ struct FilesSurfaceRoot: View {
         } message: {
             Text(L("Save your changes to %1$@ before closing it.", closingFile?.name ?? "this file"))
         }
-        .alert("New File", isPresented: $showNewFileDialog) {
+        .alert(L("New File"), isPresented: $showNewFileDialog) {
             TextField(L("File name"), text: $newFileName)
                 .focused($newFileFieldFocused)
                 .onSubmit { createNewFile() }
@@ -2301,7 +2301,7 @@ struct FilesSurfaceRoot: View {
         .onChange(of: showNewFileDialog) { presented in
             if presented { newFileFieldFocused = true }
         }
-        .alert("New Folder", isPresented: $showNewFolderDialog) {
+        .alert(L("New Folder"), isPresented: $showNewFolderDialog) {
             TextField(L("Folder name"), text: $newFolderName)
                 .focused($newFolderFieldFocused)
                 .onSubmit { createNewFolder() }
@@ -4492,8 +4492,8 @@ final class CodeEditorTextView: NSTextView {
     /// Ctrl+G — small prompt for a line number.
     func promptGoToLine() {
         let alert = NSAlert()
-        alert.messageText = "Go to Line"
-        alert.informativeText = "Enter a line number."
+        alert.messageText = L("Go to Line")
+        alert.informativeText = L("Enter a line number.")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         field.placeholderString = "Line"
         alert.accessoryView = field

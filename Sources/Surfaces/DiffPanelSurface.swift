@@ -1455,8 +1455,8 @@ public struct DiffPanelView: View {
         guard branch != vm.branches.current else { return }
         guard vm.summary.dirty else { vm.switchBranch(branch); return }
         let alert = NSAlert()
-        alert.messageText = "You have uncommitted changes"
-        alert.informativeText = "Switching to \"\(branch)\" with a dirty working tree may fail or overwrite changes. Stash your changes first?"
+        alert.messageText = L("You have uncommitted changes")
+        alert.informativeText = L("Switching to \"%1$@\" with a dirty working tree may fail or overwrite changes. Stash your changes first?", branch)
         alert.addButton(withTitle: "Stash & Switch")
         alert.addButton(withTitle: "Switch Anyway")
         alert.addButton(withTitle: "Cancel")
@@ -1646,8 +1646,8 @@ public struct DiffPanelView: View {
     /// HEAD is irreversible for unsaved working-tree changes.
     private func requestDiscard(_ path: String) {
         let alert = NSAlert()
-        alert.messageText = "Discard changes in this file?"
-        alert.informativeText = "“\(path)” will be reverted to the last committed version. This cannot be undone."
+        alert.messageText = L("Discard changes in this file?")
+        alert.informativeText = L("“%1$@” will be reverted to the last committed version. This cannot be undone.", path)
         alert.addButton(withTitle: "Discard")
         alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn { vm.discardFile(path) }

@@ -2435,7 +2435,7 @@ public struct SettingsView: View {
             }
         }
         .dsPanel(padding: DS.Space.lg)
-        .alert("Revoke device?",
+        .alert(L("Revoke device?"),
                isPresented: Binding(get: { deviceToRevoke != nil }, set: { if !$0 { deviceToRevoke = nil } }),
                presenting: deviceToRevoke) { device in
             Button(L("Revoke"), role: .destructive) { vm.revoke(device.id) }
@@ -2598,7 +2598,7 @@ private struct CapacityStatusSettingsRow: View {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Capacity export failed"
+            alert.messageText = L("Capacity export failed")
             alert.informativeText = error.localizedDescription
             alert.runModal()
         }

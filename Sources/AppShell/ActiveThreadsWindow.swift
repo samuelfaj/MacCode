@@ -566,7 +566,7 @@ public struct ActiveThreadsRootView: View {
         }
         .onAppear { botsVM.reloadActiveBotItems() }
         .onChange(of: botsVM.activeBotCount) { _ in botsVM.reloadActiveBotItems() }
-        .alert("Could not open conversation", isPresented: Binding(
+        .alert(L("Could not open conversation"), isPresented: Binding(
             get: { vm.errorMessage != nil },
             set: { if !$0 { vm.errorMessage = nil } }
         )) {

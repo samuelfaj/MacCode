@@ -465,8 +465,8 @@ public final class ScheduledTasksViewModel: ObservableObject {
     public func delete(_ task: ScheduledTask) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Delete \"\(task.title)\"?"
-        alert.informativeText = "The schedule and its run history will be deleted. Agent threads created by prior runs are preserved."
+        alert.messageText = L("Delete \"%1$@\"?", task.title)
+        alert.informativeText = L("The schedule and its run history will be deleted. Agent threads created by prior runs are preserved.")
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
@@ -817,7 +817,7 @@ public struct ScheduledTasksRootView: View {
         .onChange(of: vm.statusFilter) { _ in syncBotSchedules() }
         .frame(minWidth: 360, minHeight: 480)
         .background(DS.Palette.bg)
-        .alert("Scheduled Tasks", isPresented: Binding(
+        .alert(L("Scheduled Tasks"), isPresented: Binding(
             get: { vm.errorMessage != nil },
             set: { if !$0 { vm.errorMessage = nil } }
         )) {
@@ -825,7 +825,7 @@ public struct ScheduledTasksRootView: View {
         } message: {
             Text(vm.errorMessage ?? "")
         }
-        .alert("Bot schedules", isPresented: Binding(
+        .alert(L("Bot schedules"), isPresented: Binding(
             get: { botsVM?.errorMessage != nil },
             set: { if !$0 { botsVM?.errorMessage = nil } }
         )) {
@@ -2002,8 +2002,8 @@ private struct ScheduledTaskEditorView: View {
         guard permission == .fullAccess else { onSave(draft); return }
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Allow this task to run with Full Access?"
-        alert.informativeText = "Each occurrence starts a fresh Agent thread as \(draft.runAsUser) in the selected workspace. It may execute commands without further approval."
+        alert.messageText = L("Allow this task to run with Full Access?")
+        alert.informativeText = L("Each occurrence starts a fresh Agent thread as %1$@ in the selected workspace. It may execute commands without further approval.", draft.runAsUser)
         alert.addButton(withTitle: "Save Full-Access Task")
         alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn { onSave(draft) }

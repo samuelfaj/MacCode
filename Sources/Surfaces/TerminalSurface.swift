@@ -4428,8 +4428,8 @@ public final class TerminalSurface: NSObject, Surface, TerminalHistoryCoordinato
         let lineCount = PasteGuard.confirmationLineCount(for: text)
         let lineLabel = lineCount == 1 ? "1 line" : "\(lineCount) lines"
         let alert = NSAlert()
-        alert.messageText = "Paste \(lineLabel) into the terminal?"
-        alert.informativeText = "The pasted text spans multiple lines or contains control characters and will run immediately."
+        alert.messageText = L("Paste %1$@ into the terminal?", lineLabel)
+        alert.informativeText = L("The pasted text spans multiple lines or contains control characters and will run immediately.")
         alert.addButton(withTitle: "Paste")
         alert.addButton(withTitle: "Cancel")
         let onResponse: (NSApplication.ModalResponse) -> Void = { [weak self] resp in

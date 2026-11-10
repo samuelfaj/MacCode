@@ -2251,7 +2251,7 @@ private final class OrphanWindowAttachHandler: NSObject {
             updateToAttachedState(workspaceName: wsName)
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Could not attach workspace"
+            alert.messageText = L("Could not attach workspace")
             alert.informativeText = error.localizedDescription
             alert.runModal()
         }
