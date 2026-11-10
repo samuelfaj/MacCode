@@ -588,6 +588,36 @@ final class TitioNoticeCopyTests: XCTestCase {
                        "titio.digest.00000000-0000-0000-0000-000000000001")
     }
 
+    func test_everySupportedLanguageHasItsOwnCopy() {
+        // WHY: a language that silently reads English is a missing translation.
+        // Every supported language must produce different body, card-label,
+        // result-line and status-line text than English for the same input.
+        let item = TitioNoticeRenderItem(
+            key: "k",
+            kind: .runFailed,
+            facts: TitioNoticeFacts(title: "Fix login", workspaceName: "api"),
+            actions: [.approve, .decline],
+            occurredAt: Date(timeIntervalSince1970: 0)
+        )
+        let english = TitioNoticeCopy.body(for: item, language: .en, timeZone: TimeZone(secondsFromGMT: 0)!)
+        for language in TitioNoticeLanguage.allCases where language != .en {
+            XCTAssertNotEqual(
+                TitioNoticeCopy.body(for: item, language: language, timeZone: TimeZone(secondsFromGMT: 0)!),
+                english,
+                "\(language) body fell back to English"
+            )
+            XCTAssertNotEqual(TitioNoticeCopy.label(for: .approve, language: language), "Approve", "\(language) label is English")
+            // French legitimately reads "Notifications", so compare a word that
+            // really differs in every language.
+            XCTAssertNotEqual(TitioNoticeCopy.label(for: .decline, language: language), "Decline", "\(language) label is English")
+            XCTAssertNotEqual(
+                TitioNoticeCopy.resultLine(.alreadyResolved, language: language),
+                TitioNoticeCopy.resultLine(.alreadyResolved, language: .en),
+                "\(language) result line is English"
+            )
+        }
+    }
+
     func test_urgencyAndFlapHoldFollowTheSpec() {
         XCTAssertEqual(TitioNoticeKind.approval.defaultUrgency, .decision)
         XCTAssertEqual(TitioNoticeKind.botQuestion.defaultUrgency, .decision)
