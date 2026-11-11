@@ -50,7 +50,6 @@ struct OnboardingAccountSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                Text(L("MacCode account")).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
                 if let email = vm.signedInEmail {
                     Text(L("Signed in as %1$@. Switch accounts in Settings later.", email))
                         .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)

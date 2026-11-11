@@ -24,7 +24,14 @@ struct OnboardingChromeGuideAnimation: View {
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var scene: Scene = .openExtensions
+    @State private var scene: Scene
+    private let loops: Bool
+
+    /// `still` renders one scene without playing (snapshots).
+    init(still: Scene? = nil) {
+        _scene = State(initialValue: still ?? .openExtensions)
+        loops = still == nil
+    }
 
     var body: some View {
         OnboardingPanel {
@@ -50,6 +57,7 @@ struct OnboardingChromeGuideAnimation: View {
 
     /// Loops the scenes while visible; Reduce Motion holds the final frame.
     private func play() async {
+        guard loops else { return }
         guard !reduceMotion else { scene = .enabled; return }
         while !Task.isCancelled {
             for next in Scene.allCases {
