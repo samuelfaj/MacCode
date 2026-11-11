@@ -734,9 +734,10 @@ final class BotGuestPrepareCallCountTests: XCTestCase {
         let vm: GatedGuestVM
         let leases: DistillGuestLeases
         let refreshes: Recorder<DistillAccountProvider?>
-        let versionProbes: Recorder<String?>
-        /// While true, the version read does not return (a distill binary that hangs).
-        let versionProbeHeld: OSAllocatedUnfairLock<Bool>
+        /// One entry per time the latest Distill release was asked for.
+        let releaseLookups: Recorder<String>
+        /// While true, that lookup does not return (GitHub does not answer).
+        let releaseLookupHeld: OSAllocatedUnfairLock<Bool>
         let binaries: Recorder<String>
         let resolver: BotGuestRunResolver
     }
@@ -786,8 +787,8 @@ final class BotGuestPrepareCallCountTests: XCTestCase {
         let barrier = DistillGuestLaunchBarrier()
         await barrier.open()
         let refreshes = Recorder<DistillAccountProvider?>()
-        let versionProbes = Recorder<String?>()
-        let versionProbeHeld = OSAllocatedUnfairLock(initialState: false)
+        let releaseLookups = Recorder<String>()
+        let releaseLookupHeld = OSAllocatedUnfairLock(initialState: false)
         let binaries = Recorder<String>()
         let gateway = BotGuestMCPGateway()
         gateways.append(gateway)
@@ -801,17 +802,18 @@ final class BotGuestPrepareCallCountTests: XCTestCase {
             barrier: barrier,
             gateway: gateway,
             vm: vm,
-            binaryGuestPath: { hostBinary, arch in
-                binaries.append("\(hostBinary ?? "none") \(arch)")
+            binaryGuestPath: { latest, arch in
+                binaries.append("\(latest?.description ?? "unknown") \(arch)")
                 return "/opt/remotecode-agent/distill/2.0.31/distill-linux-aarch64"
             },
             refresh: { _, provider in refreshes.append(provider) },
             dockerExecutable: { "/usr/bin/true" },
             workspaces: { workspaces },
             hostBinary: { _ in hostDistill },
-            probeHostVersion: { hostBinary in
-                versionProbes.append(hostBinary)
-                while versionProbeHeld.withLock({ $0 }) { try? await Task.sleep(nanoseconds: 5_000_000) }
+            latestGuestVersion: {
+                releaseLookups.append("latest")
+                while releaseLookupHeld.withLock({ $0 }) { try? await Task.sleep(nanoseconds: 5_000_000) }
+                return DistillVersion(2, 0, 31)
             },
             gitIdentity: { GitIdentity(name: "Ada", email: "ada@example.com") },
             processEnvironment: ["DISTILL_HOME": hostHome.path],
@@ -819,7 +821,7 @@ final class BotGuestPrepareCallCountTests: XCTestCase {
         ))
         return ResolverFixture(
             ctx: ctx, router: router, bot: bot, thread: thread, vm: vm, leases: leases,
-            refreshes: refreshes, versionProbes: versionProbes, versionProbeHeld: versionProbeHeld,
+            refreshes: refreshes, releaseLookups: releaseLookups, releaseLookupHeld: releaseLookupHeld,
             binaries: binaries, resolver: resolver
         )
     }
@@ -834,21 +836,18 @@ final class BotGuestPrepareCallCountTests: XCTestCase {
         )
     }
 
-    /// The VM is still held at its gate and the Mac distill's version has
+    /// The VM is still held at its gate and the latest Distill release has
     /// already been asked for: the two run together.
-    private func waitUntilBothAreInFlight(_ f: ResolverFixture, line: UInt = #line) async throws {
-        try await waitUntil { f.vm.calls == 1 && f.versionProbes.values.count == 1 }
-        XCTAssertEqual(
-            f.versionProbes.values, [hostDistill],
-            "the Mac distill's version is read while the VM comes up, not after it", line: line
-        )
+    private func waitUntilBothAreInFlight(_ f: ResolverFixture) async throws {
+        try await waitUntil { f.vm.calls == 1 && f.releaseLookups.values.count == 1 }
     }
 
-    func test_theMacDistillVersionIsReadWhileTheVMComesUp_andTheGuestBinaryStillWaitsForTheVM() async throws {
-        // WHY (P1-13): reading the Mac distill's version spawns a process and
-        // needs nothing from the VM, yet it waited for the VM to be up. The
-        // guest binary itself still needs the VM's architecture, and every
-        // later step keeps its order.
+    func test_theLatestReleaseIsAskedWhileTheVMComesUp_andTheGuestBinaryStillWaitsForTheVM() async throws {
+        // WHY (P1-13): asking which Distill release is the latest is a network
+        // request that needs nothing from the VM, so it must not wait for the
+        // VM to be up. The guest binary itself still needs the VM's
+        // architecture, and every later step keeps its order. The guest runs
+        // the release that was answered, not the Mac's own Distill version.
         let f = try await makeResolverFixture()
         let stages = Recorder<DistillGuestStage>()
         let req = request(f)
@@ -859,14 +858,14 @@ final class BotGuestPrepareCallCountTests: XCTestCase {
 
         let prepared = try await run.value
         let plan = try XCTUnwrap(prepared, "expected a guest launch plan")
-        XCTAssertEqual(f.binaries.values, ["\(hostDistill) aarch64"])
-        XCTAssertEqual(f.versionProbes.values.count, 1, "the resolver asks for the version once")
+        XCTAssertEqual(f.binaries.values, ["2.0.31 aarch64"])
+        XCTAssertEqual(f.releaseLookups.values.count, 1, "the resolver asks for the latest release once")
         XCTAssertEqual(stages.values, [.startingVM, .preparingAgent, .signingIn, .launching])
         XCTAssertEqual(f.refreshes.values, [.claude])
         await plan.finish(.completed).value
     }
 
-    func test_stopWhileTheVMStartsAndTheVersionIsRead_stillLeavesNothingBehind() async throws {
+    func test_stopWhileTheVMStartsAndTheLatestReleaseIsAsked_stillLeavesNothingBehind() async throws {
         // WHY: two steps are now in flight when Stop arrives. The stopped send
         // must end as before: no launch plan, no sign-in renewal, no guest
         // binary resolved, and the bot's lease free for the next send.
@@ -890,7 +889,7 @@ final class BotGuestPrepareCallCountTests: XCTestCase {
         XCTAssertFalse(leaseHeld, "a stopped start must not keep the bot")
     }
 
-    func test_aVMThatFailsWhileTheVersionIsRead_failsTheSendWithTheSameError() async throws {
+    func test_aVMThatFailsWhileTheLatestReleaseIsAsked_failsTheSendWithTheSameError() async throws {
         // WHY: running the two together must not change what a failed VM
         // start tells the user, nor leave the bot's lease held.
         let f = try await makeResolverFixture()
@@ -914,14 +913,13 @@ final class BotGuestPrepareCallCountTests: XCTestCase {
         XCTAssertFalse(leaseHeld, "a failed start must not keep the bot")
     }
 
-    func test_aVMThatFails_isReportedAndFreesTheBot_withoutWaitingForAVersionReadThatHangs() async throws {
-        // WHY: the version read is a process with a 5 s limit and nothing can
-        // stop it early. A send whose VM start failed already has its answer:
-        // the error and the bot's lease must not wait behind a distill binary
-        // that hangs.
+    func test_aVMThatFails_isReportedAndFreesTheBot_withoutWaitingForAReleaseLookupThatHangs() async throws {
+        // WHY: the release lookup is a request with a 5 s limit. A send whose
+        // VM start failed already has its answer: the error and the bot's
+        // lease must not wait behind a GitHub that does not answer.
         let f = try await makeResolverFixture()
-        f.versionProbeHeld.withLock { $0 = true }
-        defer { f.versionProbeHeld.withLock { $0 = false } }
+        f.releaseLookupHeld.withLock { $0 = true }
+        defer { f.releaseLookupHeld.withLock { $0 = false } }
         f.vm.error = BotComputerGuestError.dockerUnavailable
         let req = request(f)
         let failures = Recorder<DistillGuestLaunchError?>()
@@ -938,11 +936,11 @@ final class BotGuestPrepareCallCountTests: XCTestCase {
 
         try await waitUntil { !failures.values.isEmpty }
 
-        XCTAssertTrue(f.versionProbeHeld.withLock { $0 }, "the version read is still held")
+        XCTAssertTrue(f.releaseLookupHeld.withLock { $0 }, "the release lookup is still held")
         XCTAssertEqual(failures.values, [.unavailable(BotComputerGuestError.dockerUnavailable.description)])
         let leaseHeld = await f.leases.isHeld(f.bot.id.value.uuidString.lowercased())
         XCTAssertFalse(leaseHeld, "a failed start must not keep the bot")
-        f.versionProbeHeld.withLock { $0 = false }
+        f.releaseLookupHeld.withLock { $0 = false }
         await run.value
     }
 

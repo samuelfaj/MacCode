@@ -16,6 +16,10 @@ private let distillUpdateLog = Logger(subsystem: "io.remotecode.agent", category
 /// an install asks a leader-mode Distill the user runs outside RemoteCode to
 /// relaunch onto the new release after a 5 s grace, even mid-turn;
 /// RemoteCode's own runs are `--no-leader` and keep the binary they started.
+///
+/// Whatever a pass found, the schedule then starts the bot VMs' download of
+/// the latest release: they run it even when the Mac's Distill is a build
+/// this updater never replaces.
 actor DistillAutoUpdater {
     /// What `distill update --check --json` reports. Unknown keys are ignored.
     struct Check: Decodable, Equatable, Sendable {
@@ -59,7 +63,7 @@ actor DistillAutoUpdater {
         /// did not start or timed out.
         var check: @Sendable () async -> (status: Int32, stdout: String)?
         var install: @Sendable () async -> Install
-        /// Starts the bot VMs' download of the version just installed.
+        /// Starts the bot VMs' download of the latest release.
         var prefetchGuest: @Sendable () async -> Void
         var sleep: @Sendable (TimeInterval) async throws -> Void = { seconds in
             try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
@@ -83,13 +87,16 @@ actor DistillAutoUpdater {
     }
 
     /// One pass after `launchDelay`, then one every `interval`, until the
-    /// calling task is cancelled.
+    /// calling task is cancelled. Each is followed by the bot VMs' prefetch.
     func runSchedule() async {
         var delay = deps.launchDelay
         while true {
             do { try await deps.sleep(delay) } catch { return }
             if Task.isCancelled { return }
             _ = await runPass()
+            // Quit during the pass: do not start a download.
+            if Task.isCancelled { return }
+            await deps.prefetchGuest()
             delay = deps.interval
         }
     }
@@ -143,7 +150,6 @@ actor DistillAutoUpdater {
             if let latest = check.latestVersion, await checkedBinaryUnchanged(since: check) {
                 return .installedBinaryNotInUse(latest: latest)
             }
-            await deps.prefetchGuest()
             return .installed(latest: check.latestVersion)
         case .alreadyRunning:
             return .updateAlreadyRunning
@@ -244,8 +250,8 @@ extension AppContext {
                 await self?.router?.installDistillUpdate() ?? .failed("the app is closing")
             },
             prefetchGuest: { [weak self] in
-                guard let follow = await self?.router?.guestDistillFollowHostUpdate() else { return }
-                await follow()
+                guard let prefetch = await self?.router?.guestDistillPrefetchLatest() else { return }
+                await prefetch()
             }
         )
     }
