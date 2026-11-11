@@ -179,9 +179,6 @@ public final class AppContext {
     /// The Distill update schedule (`startDistillAutoUpdates`); nil in a
     /// process that must not touch the user's Distill.
     var distillAutoUpdates: Task<Void, Never>?
-    /// Watches the Mac distill's bin directory so an update made outside
-    /// MacCode starts the bot VMs' guest download at once.
-    var distillHostWatch: DispatchSourceFileSystemObject?
     /// One per app so every bot shares the guest distill cache and its downloads.
     public lazy var distillGuestBinaries = DistillGuestBinaryProvisioner(
         guestToolsRoot: BotComputerGuestSpec.guestToolsURL(appSupport: appSupportDirectory)

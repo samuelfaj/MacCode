@@ -83,13 +83,12 @@ final class DistillAutoUpdaterTests: XCTestCase {
 
     // MARK: One pass
 
-    /// The owner's rule: an available update is installed, once, and the bot
-    /// VMs follow at once instead of at their next start.
-    func test_updateAvailable_installsOnceThenPrefetchesTheGuestBinary() async {
+    /// The owner's rule: an available update is installed, once.
+    func test_updateAvailable_installsOnce() async {
         let fakes = Fakes(stdout: Self.updateAvailable)
         let result = await outcome(fakes)
         XCTAssertEqual(result, .installed(latest: "2.0.41"))
-        XCTAssertEqual(fakes.events, ["check", "install", "check", "prefetch"])
+        XCTAssertEqual(fakes.events, ["check", "install", "check"])
     }
 
     func test_upToDate_installsNothing() async {
@@ -153,8 +152,8 @@ final class DistillAutoUpdaterTests: XCTestCase {
 
     /// `cli.distill.path` pinned to one release file: `distill update` exits
     /// 0 and the app keeps launching the old file. The app must not claim an
-    /// install RemoteCode does not use (not to the log, not to the bot VMs),
-    /// and must not run the installer again for that release.
+    /// install RemoteCode does not use, and must not run the installer again
+    /// for that release.
     func test_updateInstalledButCheckedBinaryUnchanged_isNotInstalledAgain() async {
         let fakes = Fakes(stdout: Self.updateAvailable)
         fakes.afterInstall(stdout: Self.updateAvailable)
@@ -166,21 +165,20 @@ final class DistillAutoUpdaterTests: XCTestCase {
         XCTAssertEqual(fakes.events, ["check", "install", "check", "check"])
     }
 
-    /// A network blip right after a real install must not hide it from the
-    /// bot VMs: only a check that answers can say the binary is unchanged.
-    func test_checkFailingAfterTheInstall_stillReportsItAndPrefetches() async {
+    /// A network blip right after a real install must not hide it: only a
+    /// check that answers can say the binary is unchanged.
+    func test_checkFailingAfterTheInstall_stillReportsIt() async {
         for after in [nil, Self.offline] {
             let fakes = Fakes(stdout: Self.updateAvailable)
             fakes.afterInstall(stdout: after)
             let result = await outcome(fakes)
             XCTAssertEqual(result, .installed(latest: "2.0.41"))
-            XCTAssertEqual(fakes.events, ["check", "install", "check", "prefetch"])
+            XCTAssertEqual(fakes.events, ["check", "install", "check"])
         }
     }
 
     /// The user pressed Update at the same moment: their update is the one
-    /// running, which is not a failure, and the VMs are not told about a
-    /// version that is not installed yet.
+    /// running, which is not a failure.
     func test_manualUpdateAlreadyRunning_isNotAnError() async {
         let fakes = Fakes(stdout: Self.updateAvailable)
         fakes.installs(.alreadyRunning)
@@ -199,7 +197,7 @@ final class DistillAutoUpdaterTests: XCTestCase {
         fakes.installs(.installed)
         let second = await updater.runPass()
         XCTAssertEqual(second, .installed(latest: "2.0.41"))
-        XCTAssertEqual(fakes.events, ["check", "install", "check", "install", "check", "prefetch"])
+        XCTAssertEqual(fakes.events, ["check", "install", "check", "install", "check"])
     }
 
     /// A release that cannot install (a bad checksum, a full disk, a line too
@@ -236,10 +234,29 @@ final class DistillAutoUpdaterTests: XCTestCase {
         fakes.releaseCheck()
         let finished = await first.value
         XCTAssertEqual(finished, .installed(latest: "2.0.41"))
-        XCTAssertEqual(fakes.events, ["check", "install", "check", "prefetch"])
+        XCTAssertEqual(fakes.events, ["check", "install", "check"])
     }
 
     // MARK: Schedule
+
+    /// WHY: bot VMs run the latest Distill release whatever the Mac's Distill
+    /// is. A Mac on a local build is never updated by a pass, and its bots
+    /// were once left on an old guest build with no Auto routing: every pass,
+    /// whatever it found, is followed by the bot VMs' prefetch.
+    func test_schedule_prefetchesTheLatestGuestReleaseAfterEveryPass() async throws {
+        for stdout in [Self.unmanagedBinary, Self.upToDate, Self.offline] {
+            let fakes = Fakes(stdout: stdout)
+            let updater = DistillAutoUpdater(fakes.dependencies(sleep: { seconds in
+                // The second wait is the one quit interrupts.
+                if fakes.recordSleep(seconds) == 2 { try await Task.sleep(nanoseconds: 30_000_000_000) }
+            }))
+            let schedule = Task { await updater.runSchedule() }
+            try await waitUntil { fakes.delays.count == 2 }
+            XCTAssertEqual(fakes.events, ["check", "prefetch"], stdout)
+            schedule.cancel()
+            await schedule.value
+        }
+    }
 
     /// The first check waits for launch to settle, then repeats hourly, and
     /// quit (task cancellation) ends the schedule without another pass.
@@ -252,10 +269,10 @@ final class DistillAutoUpdaterTests: XCTestCase {
         let schedule = Task { await updater.runSchedule() }
         try await waitUntil { fakes.delays.count == 3 }
         XCTAssertEqual(fakes.delays, [30, 3600, 3600])
-        XCTAssertEqual(fakes.events, ["check", "check"])
+        XCTAssertEqual(fakes.events, ["check", "prefetch", "check", "prefetch"])
         schedule.cancel()
         await schedule.value
-        XCTAssertEqual(fakes.events, ["check", "check"])
+        XCTAssertEqual(fakes.events, ["check", "prefetch", "check", "prefetch"])
     }
 
     /// Quit while the check is running must not start a download.
@@ -452,10 +469,10 @@ final class DistillAutoUpdaterTests: XCTestCase {
         XCTAssertEqual(f.recorded, ["update|distill"])
     }
 
-    /// The check, the install and the VM follow-up are joined only by the
-    /// updater's production dependencies. Mis-wired, the app would check or
-    /// install nothing, or the bot VMs would not follow the install, and
-    /// nothing would tell the user.
+    /// The check, the install and the bot VMs' prefetch are joined only by
+    /// the updater's production dependencies. Mis-wired, the app would check
+    /// or install nothing, or the bot VMs would not get the latest release,
+    /// and nothing would tell the user.
     @MainActor
     func test_productionDependencies_checkInstallAndPrefetchTheGuestBuild() async throws {
         let f = try fakeDistill()
@@ -470,15 +487,18 @@ final class DistillAutoUpdaterTests: XCTestCase {
                 requested.append(url)
                 throw DistillGuestBinaryError.downloadFailed(url: url.absoluteString, status: 404)
             },
-            versionProbe: { _ in "distill 2.0.41 (test)" }
+            latestRelease: { DistillVersion(2, 0, 42) }
         )
-        let pass = await DistillAutoUpdater(f.ctx.distillAutoUpdaterDependencies()).runPass()
+        let dependencies = f.ctx.distillAutoUpdaterDependencies()
+        let pass = await DistillAutoUpdater(dependencies).runPass()
         XCTAssertEqual(pass, .installed(latest: "2.0.41"))
         XCTAssertEqual(f.recorded, ["update --check --json|distill", "update|distill", "update --check --json|distill"])
+        // The latest release, not the version the Mac's Distill just installed.
+        await dependencies.prefetchGuest()
         try await waitUntil { !requested.values.isEmpty }
         XCTAssertEqual(
             requested.values.first?.absoluteString,
-            "https://github.com/samuelfaj/distill/releases/download/v2.0.41/SHA256SUMS"
+            "https://github.com/samuelfaj/distill/releases/download/v2.0.42/SHA256SUMS"
         )
     }
 

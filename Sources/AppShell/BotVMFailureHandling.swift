@@ -277,32 +277,30 @@ extension AppCommandRouter {
         )
     }
 
-    /// Starts the guest distill download in the background when Docker is up
-    /// and distill is installed on the Mac, so a bot's first in-guest run, or
-    /// its first run after a host distill update, does not wait for it.
+    /// Starts the download of the latest guest distill in the background
+    /// when Docker is up and distill is installed on the Mac, so a bot's
+    /// first in-guest run, or its first run after a release, does not wait
+    /// for it.
     func guestDistillPrefetch() -> @Sendable (_ dockerInfo: String) -> Void {
         guard let ctx = context else { return { _ in } }
         let provisioner = ctx.distillGuestBinaries
         let override = (try? ctx.settingsRepo.get("cli.distill.path")) ?? nil
         return { info in
             guard let arch = DistillGuestBinaryProvisioner.dockerArchitecture(fromInfo: info),
-                  let host = DistillProvisioner.resolveInstalledBinary(override: override) else { return }
-            provisioner.prefetch(hostBinary: host, dockerArch: arch)
+                  DistillProvisioner.resolveInstalledBinary(override: override) != nil else { return }
+            provisioner.prefetch(dockerArch: arch)
         }
     }
 
-    /// After a host update: starts the guest download for every architecture
-    /// this Mac's bot VMs already run, whether or not Docker is up. A Mac that
-    /// never ran a bot VM downloads nothing; its first VM is covered by
-    /// `guestDistillPrefetch` when Docker comes up.
-    func guestDistillFollowHostUpdate() -> @Sendable () async -> Void {
-        guard let ctx = context else { return {} }
-        let provisioner = ctx.distillGuestBinaries
-        let override = (try? ctx.settingsRepo.get("cli.distill.path")) ?? nil
+    /// Starts the download of the latest guest distill for every
+    /// architecture this Mac's bot VMs already run, whether or not Docker is
+    /// up. A Mac that never ran a bot VM downloads nothing; its first VM is
+    /// covered by `guestDistillPrefetch` when Docker comes up.
+    func guestDistillPrefetchLatest() -> @Sendable () async -> Void {
+        guard let provisioner = context?.distillGuestBinaries else { return {} }
         return {
-            guard let host = DistillProvisioner.resolveInstalledBinary(override: override) else { return }
             for arch in await provisioner.cachedArchitectures() {
-                provisioner.prefetch(hostBinary: host, dockerArch: arch)
+                provisioner.prefetch(dockerArch: arch)
             }
         }
     }

@@ -66,15 +66,23 @@ final class DistillGuestBinaryTests: XCTestCase {
         }
     }
 
-    private final class ProbeCounter: @unchecked Sendable {
+    /// What GitHub names as the latest release. Nil is a lookup that fails
+    /// (offline, rate limited).
+    private final class Latest: @unchecked Sendable {
         private let lock = NSLock()
-        private var output: String
+        private var version: DistillVersion?
         private var count = 0
-        init(_ output: String) { self.output = output }
+        init(_ version: DistillVersion?) { self.version = version }
         var calls: Int { lock.withLock { count } }
-        func set(_ value: String) { lock.withLock { output = value } }
-        var probe: DistillGuestBinaryProvisioner.VersionProbe {
-            { _ in self.lock.withLock { self.count += 1; return self.output } }
+        func set(_ value: DistillVersion?) { lock.withLock { version = value } }
+        var lookup: DistillGuestBinaryProvisioner.LatestRelease {
+            {
+                try self.lock.withLock {
+                    self.count += 1
+                    guard let version = self.version else { throw URLError(.notConnectedToInternet) }
+                    return version
+                }
+            }
         }
     }
 
@@ -104,34 +112,41 @@ final class DistillGuestBinaryTests: XCTestCase {
         "\(DistillGuestBinaryProvisioner.releaseBaseURL)/v\(version)/\(file)"
     }
 
-    /// A real file stands in for the host binary: the version cache keys on its path and mtime.
-    private func hostBinary() throws -> String {
-        let path = root.appendingPathComponent("host-distill").path
-        if !FileManager.default.fileExists(atPath: path) {
-            try Data("host".utf8).write(to: URL(fileURLWithPath: path))
-        }
-        return path
-    }
-
+    /// The latest release is asked again by every run unless a test sets `ttl`.
     private func provisioner(
         _ release: FakeRelease,
-        probe: ProbeCounter = ProbeCounter("distill 2.0.31 (abc)")
+        latest: Latest? = nil,
+        ttl: TimeInterval = 0
     ) -> DistillGuestBinaryProvisioner {
-        DistillGuestBinaryProvisioner(guestToolsRoot: root, fetch: release.fetch, versionProbe: probe.probe)
+        DistillGuestBinaryProvisioner(
+            guestToolsRoot: root, fetch: release.fetch,
+            latestRelease: (latest ?? Latest(v31)).lookup, latestReleaseTTL: ttl
+        )
     }
 
-    /// A provisioner with 2.0.31 cached whose host distill was then updated to 2.0.32.
-    private func provisionerAfterHostUpdate(
-        _ release: FakeRelease
-    ) async throws -> (subject: DistillGuestBinaryProvisioner, host: String) {
+    /// What a bot run does: asks for the latest release, then for its binary.
+    private func run(_ subject: DistillGuestBinaryProvisioner) async throws -> DistillGuestBinary {
+        try await subject.resolve(latest: await subject.latestVersion(), dockerArch: "arm64")
+    }
+
+    /// A provisioner with 2.0.31 cached, after which 2.0.32 became the latest release.
+    private func provisionerAfterNewRelease(_ release: FakeRelease) async throws -> DistillGuestBinaryProvisioner {
         release.publish("2.0.31", assets: [asset: Data("v31".utf8)])
-        let probe = ProbeCounter("distill 2.0.31 (a)")
-        let subject = provisioner(release, probe: probe)
-        let host = try hostBinary()
-        _ = try await subject.resolve(hostBinary: host, dockerArch: "arm64")
-        probe.set("distill 2.0.32 (b)")
-        try Data("updated host".utf8).write(to: URL(fileURLWithPath: host))
-        return (subject, host)
+        let latest = Latest(v31)
+        let subject = provisioner(release, latest: latest)
+        _ = try await run(subject)
+        latest.set(v32)
+        return subject
+    }
+
+    /// A verified cached build, as an earlier download left it.
+    private func cache(_ version: String) throws {
+        let directory = root.appendingPathComponent("distill/\(version)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let binary = Data("v\(version)".utf8)
+        try binary.write(to: directory.appendingPathComponent(asset))
+        try Data("\(FakeRelease.hex(binary))  \(asset)\n".utf8)
+            .write(to: directory.appendingPathComponent("\(asset).sha256"))
     }
 
     private func assetFetches(_ release: FakeRelease, _ version: String) -> Int {
@@ -144,22 +159,74 @@ final class DistillGuestBinaryTests: XCTestCase {
 
     // MARK: Policy
 
-    func test_versionParsing_readsTheReleaseFromTheBinaryBanner() {
-        XCTAssertEqual(DistillVersion.parseVersionOutput("distill 2.0.30 (d8b69029122f)\n"), DistillVersion(2, 0, 30))
-        XCTAssertNil(DistillVersion.parseVersionOutput("grok 2.0.30"), "another CLI's banner is not a distill version")
-        XCTAssertNil(DistillVersion.parseVersionOutput("distill dev"))
+    func test_versionParsing_readsOnlyStableReleases() {
+        XCTAssertEqual(DistillVersion("2.0.30"), DistillVersion(2, 0, 30))
         XCTAssertNil(DistillVersion("2.0"))
+        XCTAssertNil(DistillVersion("2.0.67+local.tickets.1"), "a local build is not a published release")
         // Lexical order would keep 2.0.9 over 2.0.10 and run a stale guest build.
         XCTAssertGreaterThan(DistillVersion(2, 0, 10), DistillVersion(2, 0, 9))
     }
 
-    /// 2.0.30 linux-aarch64 SIGILLs on Apple Silicon, so an older or unknown
-    /// host never selects it; a newer host is followed so guest features match.
-    func test_guestVersion_isHostVersionRaisedToTheMinimum() {
-        XCTAssertEqual(DistillGuestBinaryProvisioner.minimumVersion, v31)
-        XCTAssertEqual(DistillGuestBinaryProvisioner.guestVersion(host: DistillVersion(2, 0, 30)), v31)
-        XCTAssertEqual(DistillGuestBinaryProvisioner.guestVersion(host: nil), v31)
-        XCTAssertEqual(DistillGuestBinaryProvisioner.guestVersion(host: v32), v32)
+    func test_latestRelease_isReadFromTheGitHubReleaseTag() {
+        let json = { (tag: String) in Data(#"{"tag_name":"\#(tag)","assets":[]}"#.utf8) }
+        XCTAssertEqual(DistillGuestBinaryProvisioner.latestVersion(fromReleaseJSON: json("v2.0.67")), DistillVersion(2, 0, 67))
+        XCTAssertNil(DistillGuestBinaryProvisioner.latestVersion(fromReleaseJSON: json("nightly")))
+        XCTAssertNil(DistillGuestBinaryProvisioner.latestVersion(fromReleaseJSON: Data("rate limit exceeded".utf8)))
+    }
+
+    /// WHY: bots must run the latest release whatever the Mac's Distill is. A
+    /// Mac on a local build (`2.0.67+local.tickets.1`) once made its version
+    /// unreadable, and the guest was downgraded to the 2.0.31 minimum, which
+    /// has no Auto routing: every Auto bot run failed.
+    func test_run_usesTheLatestRelease_notAnOlderCachedBuild() async throws {
+        let release = FakeRelease()
+        try cache("2.0.31")
+        try cache("2.0.66")
+        try cache("2.0.67")
+        let binary = try await run(provisioner(release, latest: Latest(DistillVersion(2, 0, 67))))
+        XCTAssertEqual(binary.version, DistillVersion(2, 0, 67))
+        XCTAssertEqual(release.requests, [], "the latest release is cached: nothing is downloaded")
+    }
+
+    /// WHY: not knowing the latest release (offline, GitHub rate limit) must
+    /// never pick an old build: the bot keeps the newest one it has.
+    func test_unknownLatestRelease_runsTheNewestCachedBuild() async throws {
+        let release = FakeRelease()
+        try cache("2.0.31")
+        try cache("2.0.67")
+        let binary = try await run(provisioner(release, latest: Latest(nil)))
+        XCTAssertEqual(binary.version, DistillVersion(2, 0, 67))
+        XCTAssertEqual(binary.requestedVersion, DistillVersion(2, 0, 67))
+        XCTAssertEqual(release.requests, [], "an unknown release is never guessed and downloaded")
+    }
+
+    /// With nothing cached there is no build to keep and no release to
+    /// download: the run fails and says why instead of guessing a version.
+    func test_unknownLatestReleaseWithNothingCached_failsWithoutDownloading() async throws {
+        let release = FakeRelease()
+        do {
+            let binary = try await run(provisioner(release, latest: Latest(nil)))
+            XCTFail("no release is known and \(binary.version) must not be guessed")
+        } catch {
+            XCTAssertEqual(error as? DistillGuestBinaryError, .latestReleaseUnknown)
+        }
+        XCTAssertEqual(release.requests, [])
+    }
+
+    /// GitHub allows 60 unauthenticated requests an hour per address: runs
+    /// inside the TTL share one answer. A failed lookup is not remembered, or
+    /// one offline moment would hide a release for the whole TTL.
+    func test_latestRelease_isAskedOncePerTTL_andAFailedLookupIsAskedAgain() async {
+        let latest = Latest(nil)
+        let subject = provisioner(FakeRelease(), latest: latest, ttl: 600)
+        let offline = await subject.latestVersion()
+        XCTAssertNil(offline)
+        latest.set(v32)
+        let first = await subject.latestVersion()
+        let second = await subject.latestVersion()
+        XCTAssertEqual(first, v32)
+        XCTAssertEqual(second, v32)
+        XCTAssertEqual(latest.calls, 2, "one failed lookup, one answer reused")
     }
 
     func test_assetName_mapsDockerArchitecturesAndRejectsOthers() throws {
@@ -186,7 +253,7 @@ final class DistillGuestBinaryTests: XCTestCase {
         let release = FakeRelease()
         let payload = Data("linux binary".utf8)
         release.publish("2.0.31", assets: [asset: payload])
-        let binary = try await provisioner(release).resolve(hostBinary: try hostBinary(), dockerArch: "arm64")
+        let binary = try await run(provisioner(release))
 
         XCTAssertEqual(release.requests, [url("2.0.31", "SHA256SUMS"), url("2.0.31", asset)])
         XCTAssertEqual(binary.version, v31)
@@ -206,9 +273,9 @@ final class DistillGuestBinaryTests: XCTestCase {
     func test_cacheHit_makesZeroFetches() async throws {
         let release = FakeRelease()
         release.publish("2.0.31", assets: [asset: Data("bin".utf8)])
-        _ = try await provisioner(release).resolve(hostBinary: try hostBinary(), dockerArch: "arm64")
+        _ = try await run(provisioner(release))
         let restarted = FakeRelease()
-        let binary = try await provisioner(restarted).resolve(hostBinary: try hostBinary(), dockerArch: "arm64")
+        let binary = try await run(provisioner(restarted))
         XCTAssertEqual(binary.version, v31)
         XCTAssertEqual(restarted.requests, [])
     }
@@ -217,12 +284,12 @@ final class DistillGuestBinaryTests: XCTestCase {
     func test_cachedFileNotMatchingItsSidecar_isDownloadedAgain() async throws {
         let release = FakeRelease()
         release.publish("2.0.31", assets: [asset: Data("bin".utf8)])
-        _ = try await provisioner(release).resolve(hostBinary: try hostBinary(), dockerArch: "arm64")
+        _ = try await run(provisioner(release))
         try Data("tampered".utf8).write(to: URL(fileURLWithPath: installedPath("2.0.31")))
 
         let again = FakeRelease()
         again.publish("2.0.31", assets: [asset: Data("bin".utf8)])
-        let binary = try await provisioner(again).resolve(hostBinary: try hostBinary(), dockerArch: "arm64")
+        let binary = try await run(provisioner(again))
         XCTAssertEqual(again.requests.count, 2)
         XCTAssertEqual(try Data(contentsOf: binary.hostURL), Data("bin".utf8))
     }
@@ -232,7 +299,7 @@ final class DistillGuestBinaryTests: XCTestCase {
         let release = FakeRelease()
         release.publish("2.0.31", assets: [asset: Data("evil".utf8)], sums: "\(FakeRelease.hex(Data("good".utf8)))  \(asset)\n")
         do {
-            _ = try await provisioner(release).resolve(hostBinary: try hostBinary(), dockerArch: "arm64")
+            _ = try await run(provisioner(release))
             XCTFail("a checksum mismatch must fail")
         } catch DistillGuestBinaryError.checksumMismatch(let name, _, _) {
             XCTAssertEqual(name, asset)
@@ -246,7 +313,7 @@ final class DistillGuestBinaryTests: XCTestCase {
         let release = FakeRelease()
         release.publish("2.0.31", assets: ["distill-linux-x86_64": Data("x".utf8)])
         do {
-            _ = try await provisioner(release).resolve(hostBinary: try hostBinary(), dockerArch: "arm64")
+            _ = try await run(provisioner(release))
             XCTFail("a missing asset must fail")
         } catch {
             XCTAssertEqual(error as? DistillGuestBinaryError, .assetNotInChecksums(asset: asset, version: v31))
@@ -259,11 +326,11 @@ final class DistillGuestBinaryTests: XCTestCase {
         let release = FakeRelease()
         let subject = provisioner(release)
         do {
-            _ = try await subject.resolve(hostBinary: try hostBinary(), dockerArch: "arm64")
+            _ = try await run(subject)
             XCTFail("nothing published yet")
         } catch {}
         release.publish("2.0.31", assets: [asset: Data("bin".utf8)])
-        let binary = try await subject.resolve(hostBinary: try hostBinary(), dockerArch: "arm64")
+        let binary = try await run(subject)
         XCTAssertEqual(binary.version, v31)
     }
 
@@ -273,9 +340,8 @@ final class DistillGuestBinaryTests: XCTestCase {
         release.publish("2.0.31", assets: [asset: Data("bin".utf8)])
         release.hold(url("2.0.31", asset))
         let subject = provisioner(release)
-        let host = try hostBinary()
-        async let first = subject.resolve(hostBinary: host, dockerArch: "arm64")
-        async let second = subject.resolve(hostBinary: host, dockerArch: "arm64")
+        async let first = run(subject)
+        async let second = run(subject)
         try await waitUntil { release.requests.contains(self.url("2.0.31", self.asset)) }
         release.release(url("2.0.31", asset))
         let (a, b) = try await (first, second)
@@ -283,24 +349,24 @@ final class DistillGuestBinaryTests: XCTestCase {
         XCTAssertEqual(release.requests.filter { $0.hasSuffix(asset) }.count, 1)
     }
 
-    // MARK: Host version changes
+    // MARK: New releases
 
-    /// A host update must not make the next bot message wait minutes for
+    /// A new release must not make the next bot message wait minutes for
     /// ~224 MB: the cached previous build runs at once while the new one
     /// downloads, and the run after the download gets the new build.
-    func test_hostUpdate_runsTheCachedPreviousVersionAtOnceWhileTheNewOneDownloads() async throws {
+    func test_newRelease_runsTheCachedPreviousVersionAtOnceWhileTheNewOneDownloads() async throws {
         let release = FakeRelease()
         release.publish("2.0.32", assets: [asset: Data("v32".utf8)])
-        let (subject, host) = try await provisionerAfterHostUpdate(release)
+        let subject = try await provisionerAfterNewRelease(release)
         release.hold(url("2.0.32", asset))
-        let during = try await subject.resolve(hostBinary: host, dockerArch: "arm64")
+        let during = try await run(subject)
         XCTAssertEqual(during.version, v31)
         XCTAssertEqual(during.requestedVersion, v32)
         XCTAssertFalse(FileManager.default.fileExists(atPath: installedPath("2.0.32")))
 
         release.release(url("2.0.32", asset))
         try await waitUntil { FileManager.default.fileExists(atPath: self.installedPath("2.0.32") + ".sha256") }
-        let after = try await subject.resolve(hostBinary: host, dockerArch: "arm64")
+        let after = try await run(subject)
         XCTAssertEqual(after.version, v32)
         XCTAssertEqual(try Data(contentsOf: after.hostURL), Data("v32".utf8))
         XCTAssertEqual(assetFetches(release, "2.0.32"), 1, "the run that fell back must not cancel or restart the download")
@@ -308,10 +374,10 @@ final class DistillGuestBinaryTests: XCTestCase {
 
     /// Offline, or a release without the asset: the bot still runs, on the
     /// newest build it has, and the result says it is not the wanted one.
-    func test_hostUpdate_fallsBackToTheCachedPreviousVersionWhenTheNewDownloadFails() async throws {
+    func test_newRelease_fallsBackToTheCachedPreviousVersionWhenItsDownloadFails() async throws {
         let release = FakeRelease()
-        let (subject, host) = try await provisionerAfterHostUpdate(release)
-        let binary = try await subject.resolve(hostBinary: host, dockerArch: "arm64")
+        let subject = try await provisionerAfterNewRelease(release)
+        let binary = try await run(subject)
         XCTAssertEqual(binary.version, v31)
         XCTAssertEqual(binary.requestedVersion, v32)
         try await waitUntil { release.requests.last == self.url("2.0.32", "SHA256SUMS") }
@@ -324,8 +390,7 @@ final class DistillGuestBinaryTests: XCTestCase {
         release.publish("2.0.31", assets: [asset: Data("v31".utf8)])
         release.hold(url("2.0.31", asset))
         let subject = provisioner(release)
-        let host = try hostBinary()
-        let pending = Task { try await subject.resolve(hostBinary: host, dockerArch: "arm64") }
+        let pending = Task { try await self.run(subject) }
         try await waitUntil { self.assetFetches(release, "2.0.31") == 1 }
         try await Task.sleep(nanoseconds: 200_000_000)
         release.release(url("2.0.31", asset))
@@ -341,12 +406,11 @@ final class DistillGuestBinaryTests: XCTestCase {
         release.publish("2.0.31", assets: [asset: Data("v31".utf8)])
         release.hold(url("2.0.31", asset))
         let subject = provisioner(release)
-        let host = try hostBinary()
         let ended = Flag()
         let stopped = Task { () -> Result<DistillGuestBinary, Error> in
             defer { ended.set() }
             do {
-                return .success(try await subject.resolve(hostBinary: host, dockerArch: "arm64"))
+                return .success(try await self.run(subject))
             } catch {
                 return .failure(error)
             }
@@ -363,60 +427,62 @@ final class DistillGuestBinaryTests: XCTestCase {
         case .failure(let error): XCTAssertTrue(error is CancellationError, "\(error)")
         }
 
-        let next = try await subject.resolve(hostBinary: host, dockerArch: "arm64")
+        let next = try await run(subject)
         XCTAssertEqual(next.version, v31)
         XCTAssertEqual(assetFetches(release, "2.0.31"), 1, "the stopped run's download finished and was reused")
     }
 
     /// Cached 2.0.30 must never be the fallback: it crashes in the guest. A
-    /// failed download of the minimum therefore fails the run.
+    /// failed download of the latest release therefore fails the run, and so
+    /// does an unknown latest release.
     func test_fallback_ignoresCachedVersionsBelowTheMinimum() async throws {
-        let old = root.appendingPathComponent("distill/2.0.30", isDirectory: true)
-        try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
-        let bin = Data("v30".utf8)
-        try bin.write(to: old.appendingPathComponent(asset))
-        try Data("\(FakeRelease.hex(bin))  \(asset)\n".utf8).write(to: old.appendingPathComponent("\(asset).sha256"))
+        try cache("2.0.30")
         do {
-            let binary = try await provisioner(FakeRelease()).resolve(hostBinary: try hostBinary(), dockerArch: "arm64")
+            let binary = try await run(provisioner(FakeRelease()))
             XCTFail("2.0.31 cannot be downloaded and \(binary.version) must not run instead")
         } catch {
             XCTAssertEqual(error as? DistillGuestBinaryError, .downloadFailed(url: url("2.0.31", "SHA256SUMS"), status: 404))
         }
+        do {
+            let binary = try await run(provisioner(FakeRelease(), latest: Latest(nil)))
+            XCTFail("\(binary.version) must not run")
+        } catch {
+            XCTAssertEqual(error as? DistillGuestBinaryError, .latestReleaseUnknown)
+        }
     }
 
-    /// The host version is probed once per binary file, and probed again when
-    /// an update replaces the file; prefetch then downloads the new guest build.
-    func test_prefetch_downloadsTheNewGuestBuildWhenTheHostBinaryChanges() async throws {
+    /// The hourly pass and Docker coming up prefetch: a cached release is not
+    /// downloaded again, and each new release is downloaded once, before a
+    /// bot run needs it.
+    func test_prefetch_downloadsEachNewReleaseOnce() async throws {
         let release = FakeRelease()
         release.publish("2.0.31", assets: [asset: Data("v31".utf8)])
         release.publish("2.0.32", assets: [asset: Data("v32".utf8)])
-        let probe = ProbeCounter("distill 2.0.31 (a)")
-        let subject = provisioner(release, probe: probe)
-        let host = try hostBinary()
+        let latest = Latest(v31)
+        let subject = provisioner(release, latest: latest)
 
-        subject.prefetch(hostBinary: host, dockerArch: "aarch64")
+        subject.prefetch(dockerArch: "aarch64")
         try await waitUntil { FileManager.default.fileExists(atPath: self.installedPath("2.0.31") + ".sha256") }
-        subject.prefetch(hostBinary: host, dockerArch: "aarch64")
+        subject.prefetch(dockerArch: "aarch64")
+        try await waitUntil { latest.calls == 2 }
         try await Task.sleep(nanoseconds: 100_000_000)
-        XCTAssertEqual(probe.calls, 1, "an unchanged host binary is not re-probed")
         XCTAssertEqual(release.requests.filter { $0.hasSuffix(asset) }.count, 1, "a cached build is not refetched")
 
-        probe.set("distill 2.0.32 (b)")
-        try Data("updated host binary".utf8).write(to: URL(fileURLWithPath: host))
-        subject.prefetch(hostBinary: host, dockerArch: "aarch64")
+        latest.set(v32)
+        subject.prefetch(dockerArch: "aarch64")
         try await waitUntil { FileManager.default.fileExists(atPath: self.installedPath("2.0.32") + ".sha256") }
-        XCTAssertEqual(probe.calls, 2)
+        XCTAssertEqual(assetFetches(release, "2.0.32"), 1)
     }
 
-    /// After a host update the app prefetches for the architectures its bot
-    /// VMs already run, without asking Docker (which may be stopped).
+    /// The app prefetches for the architectures its bot VMs already run,
+    /// without asking Docker (which may be stopped).
     func test_cachedArchitectures_listsTheArchitecturesWithACachedBuild() async throws {
         let release = FakeRelease()
         release.publish("2.0.31", assets: [asset: Data("v31".utf8)])
         let subject = provisioner(release)
         let none = await subject.cachedArchitectures()
         XCTAssertEqual(none, [], "a Mac that never ran a bot VM prefetches nothing")
-        _ = try await subject.resolve(hostBinary: try hostBinary(), dockerArch: "arm64")
+        _ = try await run(subject)
         let cached = await subject.cachedArchitectures()
         XCTAssertEqual(cached, ["aarch64"])
         XCTAssertEqual(try DistillGuestBinaryProvisioner.assetName(dockerArch: "aarch64"), asset)
@@ -424,7 +490,10 @@ final class DistillGuestBinaryTests: XCTestCase {
 
     // MARK: Garbage collection
 
-    func test_collectGarbage_keepsCurrentAndPreviousVersionsOnly() async throws {
+    /// Every release adds a ~224 MB guest build, so without the launch trim
+    /// the cache only grows. It keeps the build bots run and its fallback,
+    /// and needs neither the network nor the Mac's Distill to decide.
+    func test_collectGarbage_keepsTheTwoNewestVersionsOnly() async throws {
         for version in ["2.0.31", "2.0.32", "2.0.33", "2.0.34"] {
             try FileManager.default.createDirectory(
                 at: root.appendingPathComponent("distill/\(version)"), withIntermediateDirectories: true
@@ -433,31 +502,10 @@ final class DistillGuestBinaryTests: XCTestCase {
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent(".partial"), withIntermediateDirectories: true
         )
-        await provisioner(FakeRelease()).collectGarbage(current: DistillVersion(2, 0, 33))
+        await provisioner(FakeRelease()).collectGarbage()
         let left = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("distill").path).sorted()
-        XCTAssertEqual(left, ["2.0.32", "2.0.33"])
+        XCTAssertEqual(left, ["2.0.33", "2.0.34"])
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(".partial").path))
-    }
-
-    /// The launch trim follows the host's version: every automatic host
-    /// update adds a ~224 MB guest build, so without it the cache only grows.
-    /// A host whose version cannot be read (Distill missing, a slow probe at
-    /// launch) must remove nothing, or an offline bot loses its fallbacks.
-    func test_collectGarbageForTheHost_trimsToItsVersionAndRemovesNothingWhenItIsUnreadable() async throws {
-        let versions = ["2.0.31", "2.0.32", "2.0.33", "2.0.34"]
-        for version in versions {
-            try FileManager.default.createDirectory(
-                at: root.appendingPathComponent("distill/\(version)"), withIntermediateDirectories: true
-            )
-        }
-        let cached = { try FileManager.default.contentsOfDirectory(atPath: self.root.appendingPathComponent("distill").path).sorted() }
-        let host = try hostBinary()
-
-        await provisioner(FakeRelease(), probe: ProbeCounter("not a version")).collectGarbage(hostBinary: host)
-        XCTAssertEqual(try cached(), versions)
-
-        await provisioner(FakeRelease(), probe: ProbeCounter("distill 2.0.33 (a)")).collectGarbage(hostBinary: host)
-        XCTAssertEqual(try cached(), ["2.0.32", "2.0.33"])
     }
 
     private final class AttemptLog: @unchecked Sendable {

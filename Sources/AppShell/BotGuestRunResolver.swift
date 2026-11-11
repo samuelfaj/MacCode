@@ -62,8 +62,9 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
         var barrier: DistillGuestLaunchBarrier
         var gateway: BotGuestMCPGateway
         var vm: any BotGuestVMPreparing
-        /// In-guest path of the verified Distill binary for a Docker architecture.
-        var binaryGuestPath: @Sendable (_ hostBinary: String?, _ dockerArch: String) async throws -> String
+        /// In-guest path of the verified Distill binary for a Docker
+        /// architecture, given what `latestGuestVersion` answered.
+        var binaryGuestPath: @Sendable (_ latest: DistillVersion?, _ dockerArch: String) async throws -> String
         /// Renews the Mac sign-in a run's model uses when it expires soon.
         var refresh: @Sendable (_ hostHome: URL, _ provider: DistillAccountProvider?) async throws -> Void
         var dockerExecutable: @Sendable () throws -> String
@@ -72,17 +73,16 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
         var prepareContextRuntime: (@Sendable (AgentRunRequest, AgentRunID?, String, Bool) async throws -> BotContextGuestResources)? = nil
         var contextualAdmissions: BotContextRunAdmissions? = nil
         var contextDockerArchitecture: (@Sendable () throws -> String)? = nil
-        /// The Mac distill binary, for its version (nil: not installed).
+        /// The Mac distill binary, for account renewals (nil: not installed).
         var hostBinary: @Sendable (_ request: AgentRunRequest) -> String?
-        /// Reads the Mac distill binary's version ahead of `binaryGuestPath`,
-        /// which reuses a version that was read (one that could not be read
-        /// is asked for again). It does not depend on the VM, so it runs
+        /// The latest Distill release, which the guest runs (nil: GitHub
+        /// cannot say now). It does not depend on the VM, so it is asked
         /// while the VM comes up.
-        var probeHostVersion: @Sendable (_ hostBinary: String?) async -> Void = { _ in }
+        var latestGuestVersion: @Sendable () async -> DistillVersion? = { nil }
         /// The Codex client version the Mac's Distill would name to ChatGPT
         /// for a run with this host environment (`DistillCodexClientVersion`);
         /// nil when it would use its built-in default. Runs while the VM
-        /// comes up, like `probeHostVersion`.
+        /// comes up, like `latestGuestVersion`.
         var codexClientVersion: @Sendable (_ hostEnvironment: [String: String]) async -> String? = { _ in nil }
         var gitIdentity: @Sendable () -> GitIdentity?
         /// The app's own environment, under the run's (DISTILL_HOME, model keys).
@@ -239,11 +239,10 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
                   !admission.model.isEmpty, request.model == admission.model,
                   let architecture = deps.contextDockerArchitecture else { throw unavailable }
             progress(.preparingAgent)
-            let hostBinary = deps.hostBinary(request)
-            await deps.probeHostVersion(hostBinary)
+            let latestGuestVersion = await deps.latestGuestVersion()
             try validate()
             let dockerArch = try architecture()
-            let binaryPath = try await deps.binaryGuestPath(hostBinary, dockerArch)
+            let binaryPath = try await deps.binaryGuestPath(latestGuestVersion, dockerArch)
             try validate()
             let dockerExecutable = try deps.dockerExecutable()
             progress(.startingVM)
@@ -361,11 +360,10 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
             let vmPreparer = deps.vm
             // Runs while the VM comes up: it needs nothing from the VM. Not
             // awaited when the VM fails or the send is stopped, so neither
-            // waits on a distill binary that hangs. The sign-in renewal
-            // stays after the VM: a stopped or failed start renews nothing.
+            // waits on a request that hangs. The sign-in renewal stays
+            // after the VM: a stopped or failed start renews nothing.
             let hostBinary = deps.hostBinary(request)
-            let probeHostVersion = deps.probeHostVersion
-            let hostVersionProbe = Task { await probeHostVersion(hostBinary) }
+            let latestGuestVersion = Task { [ask = deps.latestGuestVersion] in await ask() }
             // The same holds for the Codex version the guest asks ChatGPT as.
             let hostEnvironment = deps.processEnvironment.merging(request.environment) { _, run in run }
             let resolveCodexClientVersion = deps.codexClientVersion
@@ -390,8 +388,7 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
             )
 
             progress(.preparingAgent)
-            await hostVersionProbe.value
-            let binaryPath = try await deps.binaryGuestPath(hostBinary, vm.dockerArch)
+            let binaryPath = try await deps.binaryGuestPath(await latestGuestVersion.value, vm.dockerArch)
             let dockerExecutable = try deps.dockerExecutable()
             try Task.checkCancellation()
 
@@ -973,10 +970,9 @@ extension AppContext {
             // Unit tests never reach the user's Docker daemon.
             let sweepDocker: (any BotComputerDockerClienting)? = AppContext.isRunningUnitTests ? nil : docker
             let store = botStore
-            // Unit tests never run the user's Distill.
+            // Unit tests keep whatever their fixtures cached.
             let trimGuestCache: @Sendable () async -> Void = AppContext.isRunningUnitTests ? {} : {
-                guard let host = DistillProvisioner.resolveInstalledBinary(override: distillOverride) else { return }
-                await binaries.collectGarbage(hostBinary: host)
+                await binaries.collectGarbage()
             }
             DispatchQueue.global(qos: .utility).async {
                 var botIDs: [BotID] = []
@@ -999,9 +995,6 @@ extension AppContext {
                 if let sweepDocker {
                     BotGuestLaunchSweep.startStoppedDesktops(docker: sweepDocker, store: store)
                 }
-            }
-            if !AppContext.isRunningUnitTests, distillHostWatch == nil {
-                distillHostWatch = Self.watchHostDistill(binaries: binaries, override: distillOverride)
             }
         }
         let contextStore = botStore
@@ -1030,8 +1023,8 @@ extension AppContext {
                 service: guestService,
                 resolveExecutable: { try BotComputerDockerResolver.shared.resolveHealthyExecutable() }
             ),
-            binaryGuestPath: { hostBinary, arch in
-                try await binaries.resolve(hostBinary: hostBinary, dockerArch: arch).guestPath
+            binaryGuestPath: { latest, arch in
+                try await binaries.resolve(latest: latest, dockerArch: arch).guestPath
             },
             refresh: { hostHome, provider in
                 try await DistillHostCredentialRefresher(hostHome: hostHome).prepare(provider: provider)
@@ -1089,9 +1082,7 @@ extension AppContext {
             hostBinary: { request in
                 DistillProvisioner.resolveInstalledBinary(override: request.providerBinary ?? distillOverride)
             },
-            probeHostVersion: { hostBinary in
-                if let hostBinary { _ = await binaries.hostVersion(binary: hostBinary) }
-            },
+            latestGuestVersion: { await binaries.latestVersion() },
             codexClientVersion: { hostEnvironment in
                 // What the Mac's Distill is started with (ProviderSubprocessLauncher):
                 // the login-shell PATH is where `codex` usually is, a GUI app's has none.
@@ -1102,33 +1093,6 @@ extension AppContext {
             gitIdentity: { BotComputerGuestService.gitIdentity() },
             hostsGuestRuns: hostsGuestRuns
         ))
-    }
-}
-
-extension AppContext {
-    /// Distill (its own updater or `distill update`) swaps the bin symlink
-    /// when it installs a release. Each change starts the guest download for
-    /// every architecture already cached; repeats share one download.
-    static func watchHostDistill(
-        binaries: DistillGuestBinaryProvisioner, override: String?
-    ) -> DispatchSourceFileSystemObject? {
-        guard let host = DistillProvisioner.resolveInstalledBinary(override: override) else { return nil }
-        let directory = URL(fileURLWithPath: host).deletingLastPathComponent().path
-        let descriptor = open(directory, O_EVTONLY | O_DIRECTORY | O_CLOEXEC)
-        guard descriptor >= 0 else { return nil }
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: descriptor, eventMask: [.write, .rename], queue: .global(qos: .utility)
-        )
-        source.setEventHandler {
-            Task {
-                for arch in await binaries.cachedArchitectures() {
-                    binaries.prefetch(hostBinary: host, dockerArch: arch)
-                }
-            }
-        }
-        source.setCancelHandler { close(descriptor) }
-        source.resume()
-        return source
     }
 }
 

@@ -26,14 +26,6 @@ public struct DistillVersion: Comparable, Hashable, Sendable, CustomStringConver
         self.init(numbers[0], numbers[1], numbers[2])
     }
 
-    /// `distill 2.0.30 (d8b69029122f)` → 2.0.30.
-    public static func parseVersionOutput(_ output: String) -> DistillVersion? {
-        guard let line = output.split(whereSeparator: \.isNewline).first else { return nil }
-        let fields = line.split(separator: " ")
-        guard fields.count >= 2, fields[0] == "distill" else { return nil }
-        return DistillVersion(String(fields[1]))
-    }
-
     public var description: String { "\(major).\(minor).\(patch)" }
 
     public static func < (lhs: DistillVersion, rhs: DistillVersion) -> Bool {
@@ -46,6 +38,7 @@ public enum DistillGuestBinaryError: LocalizedError, Equatable {
     case assetNotInChecksums(asset: String, version: DistillVersion)
     case checksumMismatch(asset: String, expected: String, actual: String)
     case downloadFailed(url: String, status: Int)
+    case latestReleaseUnknown
 
     public var errorDescription: String? {
         switch self {
@@ -57,6 +50,8 @@ public enum DistillGuestBinaryError: LocalizedError, Equatable {
             return "Downloaded \(asset) failed SHA-256 verification (expected \(expected), got \(actual))."
         case .downloadFailed(let url, let status):
             return "Downloading \(url) failed with HTTP \(status)."
+        case .latestReleaseUnknown:
+            return "GitHub did not say which Distill release is the latest and this Mac has no Linux build of Distill cached. Check the connection, then send again."
         }
     }
 }
@@ -64,8 +59,8 @@ public enum DistillGuestBinaryError: LocalizedError, Equatable {
 /// A verified Linux distill binary cached on the host, and where the guest sees it.
 public struct DistillGuestBinary: Equatable, Sendable {
     public let version: DistillVersion
-    /// The version this run wanted. Differs from `version` only when that one
-    /// could not be downloaded in time.
+    /// The latest release when the run started. Differs from `version` only
+    /// when that one could not be downloaded in time.
     public let requestedVersion: DistillVersion
     public let assetName: String
     public let hostURL: URL
@@ -78,17 +73,23 @@ public struct DistillGuestBinary: Equatable, Sendable {
 /// Cache layout: `<guest-tools>/distill/<ver>/distill-linux-<arch>` plus a
 /// `.sha256` sidecar holding the release checksum. `<guest-tools>` is bound
 /// read-only into every bot container at `BotComputerGuestSpec.agentKitMountPoint`.
-/// The guest version is `max(host, minimumVersion)`: host and guest keep
-/// separate homes, so they need not match.
+/// The guest runs the latest published release, whatever the Mac's Distill
+/// is: host and guest keep separate homes, so they need not match, and a Mac
+/// on a local or pinned build must not hold the bots on an old release.
 public actor DistillGuestBinaryProvisioner {
     /// 2.0.30 linux-aarch64 SIGILLs on Apple Silicon (built for neoverse-v2).
     public static let minimumVersion = DistillVersion(2, 0, 31)
     public static let releaseBaseURL = "https://github.com/samuelfaj/distill/releases/download"
-    public static let versionProbeTimeout: TimeInterval = 5
+    public static let latestReleaseURL = URL(string: "https://api.github.com/repos/samuelfaj/distill/releases/latest")!
+    public static let latestReleaseTimeout: TimeInterval = 5
+    /// How long an answer about the latest release is reused: Distill
+    /// releases a few times a day and GitHub allows 60 unauthenticated
+    /// requests an hour per address.
+    public static let latestReleaseTTL: TimeInterval = 10 * 60
     /// Writes the body of `url` to `destination`; throws on a non-2xx response.
     public typealias Fetch = @Sendable (_ url: URL, _ destination: URL) async throws -> Void
-    /// Runs `<binary> --version` and returns its output, nil on failure or timeout.
-    public typealias VersionProbe = @Sendable (_ binaryPath: String) async -> String?
+    /// The latest published release; throws when GitHub cannot say.
+    public typealias LatestRelease = @Sendable () async throws -> DistillVersion
 
     private struct FileStamp: Hashable {
         let path: String
@@ -98,19 +99,22 @@ public actor DistillGuestBinaryProvisioner {
 
     private let root: URL
     private let fetch: Fetch
-    private let versionProbe: VersionProbe
-    private var hostVersions: [FileStamp: DistillVersion] = [:]
+    private let latestRelease: LatestRelease
+    private let latestReleaseTTL: TimeInterval
+    private var latestAnswer: (version: DistillVersion, askedAt: Date)?
     private var verified: [FileStamp: String] = [:]
     private var inflight: [String: Task<DistillGuestBinary, Error>] = [:]
 
     public init(
         guestToolsRoot: URL,
         fetch: @escaping Fetch = DistillGuestBinaryProvisioner.urlSessionFetch,
-        versionProbe: @escaping VersionProbe = DistillGuestBinaryProvisioner.processVersionProbe
+        latestRelease: @escaping LatestRelease = DistillGuestBinaryProvisioner.githubLatestRelease,
+        latestReleaseTTL: TimeInterval = DistillGuestBinaryProvisioner.latestReleaseTTL
     ) {
         self.root = guestToolsRoot
         self.fetch = fetch
-        self.versionProbe = versionProbe
+        self.latestRelease = latestRelease
+        self.latestReleaseTTL = latestReleaseTTL
     }
 
     // MARK: Pure policy
@@ -135,9 +139,11 @@ public actor DistillGuestBinaryProvisioner {
         return nil
     }
 
-    /// An unknown or older host version still gets the minimum guest build.
-    public static func guestVersion(host: DistillVersion?) -> DistillVersion {
-        max(host ?? minimumVersion, minimumVersion)
+    /// `{"tag_name": "v2.0.67", …}` → 2.0.67.
+    static func latestVersion(fromReleaseJSON data: Data) -> DistillVersion? {
+        guard let release = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tag = release["tag_name"] as? String else { return nil }
+        return DistillVersion(tag.hasPrefix("v") ? String(tag.dropFirst()) : tag)
     }
 
     static func releaseURL(version: DistillVersion, file: String) -> URL {
@@ -159,38 +165,45 @@ public actor DistillGuestBinaryProvisioner {
 
     // MARK: Resolution
 
-    /// The host binary's version, probed once per resolved file and mtime.
-    public func hostVersion(binary: String) async -> DistillVersion? {
-        let resolved = URL(fileURLWithPath: binary).resolvingSymlinksInPath().path
-        guard let stamp = Self.stamp(path: resolved) else { return nil }
-        if let cached = hostVersions[stamp] { return cached }
-        guard let output = await versionProbe(resolved),
-              let version = DistillVersion.parseVersionOutput(output) else {
-            NSLog("distill guest binary: could not read the host distill version from \(resolved)")
+    /// The latest published release, asked at most once per `latestReleaseTTL`.
+    /// Nil when GitHub cannot say now (offline, rate limited): never a guess,
+    /// and asked again by the next caller.
+    public func latestVersion() async -> DistillVersion? {
+        if let latestAnswer, Date().timeIntervalSince(latestAnswer.askedAt) < latestReleaseTTL {
+            return latestAnswer.version
+        }
+        do {
+            let version = try await latestRelease()
+            latestAnswer = (version, Date())
+            return version
+        } catch {
+            NSLog("distill guest binary: could not ask for the latest distill release: \(error.localizedDescription)")
             return nil
         }
-        hostVersions[stamp] = version
-        return version
     }
 
-    /// The binary a guest run launches: the wanted version when it is
-    /// cached, otherwise the newest cached version at or above the minimum
-    /// while the wanted one downloads in the background, so a host update
-    /// never makes a run wait (the next run gets the new build). With
-    /// nothing usable cached the run waits for the download; only Stop ends
-    /// that wait early. The download is shared and a stopped run never
-    /// cancels it.
-    public func resolve(hostBinary: String?, dockerArch: String) async throws -> DistillGuestBinary {
+    /// The binary a guest run launches: `latest` when it is cached,
+    /// otherwise the newest cached version at or above the minimum while
+    /// `latest` downloads in the background, so a new release never makes a
+    /// run wait (the next run gets it). An unknown `latest` also runs the
+    /// newest cached version. With nothing usable cached the run waits for
+    /// the download; only Stop ends that wait early. The download is shared
+    /// and a stopped run never cancels it.
+    public func resolve(latest: DistillVersion?, dockerArch: String) async throws -> DistillGuestBinary {
         let asset = try Self.assetName(dockerArch: dockerArch)
-        var host: DistillVersion?
-        if let hostBinary { host = await hostVersion(binary: hostBinary) }
-        let wanted = Self.guestVersion(host: host)
-        if let cached = await cachedBinary(version: wanted, asset: asset, requested: wanted) {
+        guard let latest else {
+            guard let newest = await newestCachedBinary(asset: asset) else {
+                throw DistillGuestBinaryError.latestReleaseUnknown
+            }
+            NSLog("distill guest binary: the bot runs the cached distill \(newest.version); the latest release is unknown")
+            return newest
+        }
+        if let cached = await cachedBinary(version: latest, asset: asset, requested: latest) {
             return cached
         }
-        let download = startDownload(version: wanted, asset: asset)
-        if let fallback = await newestCachedBinary(asset: asset, excluding: wanted, requested: wanted) {
-            NSLog("distill guest binary: the bot runs the cached distill \(fallback.version) while \(wanted) downloads")
+        let download = startDownload(version: latest, asset: asset)
+        if let fallback = await newestCachedBinary(asset: asset, requested: latest) {
+            NSLog("distill guest binary: the bot runs the cached distill \(fallback.version) while \(latest) downloads")
             return fallback
         }
         guard let outcome = await Self.outcome(of: download, within: nil) else { throw CancellationError() }
@@ -229,13 +242,13 @@ public actor DistillGuestBinaryProvisioner {
         return try await startDownload(version: version, asset: asset).value
     }
 
-    /// Starts the guest download for the host's current version in the
-    /// background so a host update does not make the next run wait on it.
-    public nonisolated func prefetch(hostBinary: String, dockerArch: String) {
+    /// Starts the download of the latest release in the background so a new
+    /// release does not make the next run wait on it.
+    public nonisolated func prefetch(dockerArch: String) {
         Task {
             do {
-                let host = await self.hostVersion(binary: hostBinary)
-                _ = try await self.ensure(version: Self.guestVersion(host: host), dockerArch: dockerArch)
+                guard let latest = await self.latestVersion() else { return }
+                _ = try await self.ensure(version: latest, dockerArch: dockerArch)
             } catch {
                 NSLog("distill guest binary prefetch failed: \(error.localizedDescription)")
             }
@@ -257,27 +270,18 @@ public actor DistillGuestBinaryProvisioner {
         return found.sorted()
     }
 
-    /// Keeps `current` and the newest older version; removes other cached
-    /// versions and abandoned partial downloads. Must not run while a guest
-    /// may be executing a removed version.
-    public func collectGarbage(current: DistillVersion) {
+    /// Keeps the two newest cached versions (the one bots run and its
+    /// fallback); removes older ones and abandoned partial downloads. Must
+    /// not run while a guest may be executing a removed version.
+    public func collectGarbage() {
         let fm = FileManager.default
         let versions = cachedVersionDirectories()
-        let previous = versions.keys.filter { $0 < current }.max()
-        for (version, dir) in versions where version != current && version != previous {
-            try? fm.removeItem(at: dir)
+        for version in versions.keys.sorted(by: >).dropFirst(2) {
+            try? fm.removeItem(at: versions[version]!)
         }
         if inflight.isEmpty {
             try? fm.removeItem(at: partialDirectory)
         }
-    }
-
-    /// The launch trim for the host's current version. An unreadable host
-    /// version removes nothing: `guestVersion(host: nil)` is the minimum, and
-    /// collecting for it would delete every newer build, the fallbacks included.
-    public func collectGarbage(hostBinary: String) async {
-        guard let host = await hostVersion(binary: hostBinary) else { return }
-        collectGarbage(current: Self.guestVersion(host: host))
     }
 
     // MARK: Cache
@@ -322,12 +326,13 @@ public actor DistillGuestBinaryProvisioner {
         return actual == expected ? binary(version: version, asset: asset, requested: requested, url: url) : nil
     }
 
-    private func newestCachedBinary(asset: String, excluding: DistillVersion, requested: DistillVersion) async -> DistillGuestBinary? {
+    /// `requested` nil: the latest release is unknown, so the newest cached version is what was wanted.
+    private func newestCachedBinary(asset: String, requested: DistillVersion? = nil) async -> DistillGuestBinary? {
         let candidates = cachedVersionDirectories().keys
-            .filter { $0 != excluding && $0 >= Self.minimumVersion }
+            .filter { $0 >= Self.minimumVersion }
             .sorted(by: >)
         for version in candidates {
-            if let hit = await cachedBinary(version: version, asset: asset, requested: requested) { return hit }
+            if let hit = await cachedBinary(version: version, asset: asset, requested: requested ?? version) { return hit }
         }
         return nil
     }
@@ -495,9 +500,14 @@ public actor DistillGuestBinaryProvisioner {
         try FileManager.default.moveItem(at: temp, to: destination)
     }
 
-    public static let processVersionProbe: VersionProbe = { path in
-        await ProviderCLIProbe.runOffCooperativePool {
-            ProviderCLIProbe.version(binaryPath: path, timeoutSeconds: versionProbeTimeout)
+    public static let githubLatestRelease: LatestRelease = {
+        var request = URLRequest(url: latestReleaseURL, timeoutInterval: latestReleaseTimeout)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200, let version = latestVersion(fromReleaseJSON: data) else {
+            throw DistillGuestBinaryError.downloadFailed(url: latestReleaseURL.absoluteString, status: status)
         }
+        return version
     }
 }

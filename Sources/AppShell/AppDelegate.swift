@@ -687,7 +687,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         removeScheduledTaskStoreObserver()
         LanguageServerPool.terminateAllProcessesNow()
         context?.stopDistillAutoUpdates()
-        context?.distillHostWatch?.cancel()
         disableInsomniaForAppClose()
         // Token Saver was removed, so quit only purges what older builds
         // installed (and reinstalls the always-on routing); it never installs
