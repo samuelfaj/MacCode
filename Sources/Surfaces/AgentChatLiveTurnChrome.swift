@@ -120,18 +120,18 @@ public enum AgentChatLiveTurnChrome {
     ) -> String {
         if live {
             if workBlockCount > 1 {
-                return "Work so far · \(workBlockCount) steps in this turn"
+                return L("Work so far · %1$@ steps in this turn", workBlockCount)
             }
-            return "Work so far"
+            return L("Work so far")
         }
         if let duration = turnDurationLabel(turn) {
-            return "Worked for \(duration)"
+            return L("Worked for %1$@", duration)
         }
-        return "Worked"
+        return L("Worked")
     }
 
     public static func reasoningTitle(isStreaming: Bool) -> String {
-        isStreaming ? "Thinking…" : "Thought"
+        isStreaming ? L("Thinking…") : L("Thought")
     }
 
     public static func reasoningText(_ item: AssistantItem) -> String {
@@ -181,11 +181,11 @@ public enum AgentChatLiveTurnChrome {
         else { return nil }
         let item = turn.items[index]
         switch item.type {
-        case .commandExecution: return "Command activity"
-        case .webSearch: return "Web search activity"
-        case .fileChange: return "File activity"
-        case .imageView: return "Image activity"
-        case .tool, .mcpToolCall, .dynamicToolCall, .collabToolCall: return "Tool activity"
+        case .commandExecution: return L("Command activity")
+        case .webSearch: return L("Web search activity")
+        case .fileChange: return L("File activity")
+        case .imageView: return L("Image activity")
+        case .tool, .mcpToolCall, .dynamicToolCall, .collabToolCall: return L("Tool activity")
         case .reasoning, .plan, .assistantMessage, .review, .contextCompaction, .error:
             return nil
         }
@@ -516,11 +516,11 @@ public enum AgentChatLiveTurnChrome {
         let value: String
         if items.contains(where: { AgentTimelineItemPresentation.showsLiveToolElapsed(for: $0)
             && AgentTimelineItemPresentation.isTaskWaitTool(for: $0) }) {
-            value = "Waiting \(items.count) \(noun)…"
+            value = L("Waiting %1$@ %2$@…", items.count, noun)
         } else if streamingCount > 0 {
-            value = "Running \(items.count) \(noun)…"
+            value = L("Running %1$@ %2$@…", items.count, noun)
         } else {
-            let verb = verbs.count == 1 ? (verbs.first ?? "Ran") : "Ran"
+            let verb = verbs.count == 1 ? (verbs.first ?? L("Ran")) : L("Ran")
             value = "\(verb) \(items.count) \(noun)"
         }
         toolGroupSummaryLock.lock()
@@ -581,7 +581,7 @@ public struct AgentChatReasoningRow: View, Equatable {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(streaming ? "" : (text.isEmpty ? "" : (expanded ? "Hide reasoning" : "Show reasoning")))
+            .help(streaming ? "" : (text.isEmpty ? "" : (expanded ? L("Hide reasoning") : L("Show reasoning"))))
             if expanded, !text.isEmpty {
                 AgentSelectablePlainText(
                     text: text,
@@ -660,13 +660,13 @@ public struct AgentChatLiveToolRow: View, Equatable {
                         .foregroundColor(statusColor)
                         .frame(width: 12)
                         .accessibilityHidden(true)
-                    (Text("\(presentation.verb) ")
+                    (Text(L("%1$@ ", presentation.verb))
                         .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)
                      + Text(displayLabel)
                         .font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text))
                     .lineLimit(1).truncationMode(.tail)
                     if isBackground {
-                        Text("Background")
+                        Text(L("Background"))
                             .font(DS.Font.caption2.weight(.semibold))
                             .foregroundColor(DS.Palette.accent)
                             .padding(.horizontal, 6)
@@ -680,7 +680,7 @@ public struct AgentChatLiveToolRow: View, Equatable {
                             .font(DS.Font.caption2.weight(.semibold))
                             .foregroundColor(DS.Palette.accent)
                     } else if item.state == .failed {
-                        Text("Failed")
+                        Text(L("Failed"))
                             .font(DS.Font.caption2.weight(.semibold))
                             .foregroundColor(DS.Palette.danger)
                     }
@@ -713,7 +713,7 @@ public struct AgentChatLiveToolRow: View, Equatable {
                                 .frame(width: 22, height: 22)
                                 .contentShape(Rectangle())
                         }
-                        .help("Copy full command")
+                        .help(L("Copy full command"))
                         .accessibilityIdentifier("agent.tool.copyCommand.\(item.id)")
                     }
                 }
@@ -818,7 +818,7 @@ public struct AgentChatToolGroupRow: View {
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     if !expanded {
-                        Text("\(items.count)")
+                        Text(L("%1$@", items.count))
                             .font(DS.Font.caption2.weight(.semibold).monospacedDigit())
                             .foregroundColor(DS.Palette.textTertiary)
                             .padding(.horizontal, 7)
@@ -907,8 +907,8 @@ public struct AgentChatWorkSoFarDisclosure: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(isExpanded ? "Hide work details" : "Show work details")
-            .accessibilityLabel(isExpanded ? "Hide work details" : "Show work details")
+            .help(isExpanded ? L("Hide work details") : L("Show work details"))
+            .accessibilityLabel(isExpanded ? L("Hide work details") : L("Show work details"))
             .accessibilityIdentifier(live ? "agent.liveWork.\(turn.turnId)" : "agent.completedWork.\(turn.turnId)")
 
             if isExpanded {
@@ -986,7 +986,7 @@ public struct AgentChatLiveItemRow: View, Equatable {
             }
         case .plan:
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                Text("PLAN").font(DS.Font.caption2.weight(.semibold)).tracking(0.6)
+                Text(L("PLAN")).font(DS.Font.caption2.weight(.semibold)).tracking(0.6)
                     .foregroundColor(DS.Palette.accent)
                 AgentMessageMarkdownView(text: item.body)
                     .foregroundColor(DS.Palette.text)
@@ -1096,7 +1096,7 @@ public struct AgentChatLiveTurnView: View, Equatable {
                                 hiddenBase: hiddenBase
                             )
                         } label: {
-                            Text("Show earlier steps (\(slice.hiddenCount) hidden)")
+                            Text(L("Show earlier steps (%1$@ hidden)", slice.hiddenCount))
                                 .font(DS.Font.caption)
                                 .foregroundColor(DS.Palette.accent)
                         }
@@ -1195,7 +1195,7 @@ public struct AgentChatLiveThinkingLine: View {
                 .foregroundColor(DS.Palette.textTertiary)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                Text("Thinking…")
+                Text(L("Thinking…"))
                     .font(DS.Font.caption2.weight(.semibold))
                     .foregroundColor(DS.Palette.textTertiary)
                 Text(text)
@@ -1216,7 +1216,7 @@ public struct AgentChatLiveThinkingLine: View {
 /// with no command, edit or tool detail.
 struct AgentChatHiddenWorkStatus: View {
     let turn: AssistantTurnSnapshot
-    var label = "Working…"
+    var label = L("Working…")
 
     var body: some View {
         HStack(spacing: DS.Space.sm) {
@@ -1245,8 +1245,8 @@ public struct AgentChatLoadingStatusStrip: View {
             HStack(spacing: DS.Space.sm) {
                 ProgressView()
                     .controlSize(.small)
-                    .accessibilityLabel("Loading")
-                Text("Loading…")
+                    .accessibilityLabel(L("Loading"))
+                Text(L("Loading…"))
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.textSecondary)
                     .accessibilityIdentifier("agent.loading.status")
@@ -1308,7 +1308,7 @@ public struct AgentChatWorkingStatusStrip: View {
                 HStack(alignment: .center, spacing: DS.Space.sm) {
                     ProgressView()
                         .controlSize(.small)
-                        .accessibilityLabel(showingHold ? "Holding on background work" : "Running")
+                        .accessibilityLabel(showingHold ? L("Holding on background work") : L("Running"))
                     VStack(alignment: .leading, spacing: DS.Space.xs) {
                         statusLine(seconds: seconds, seed: seed, now: timeline.date)
                         .font(DS.Font.body)
@@ -1346,12 +1346,12 @@ public struct AgentChatWorkingStatusStrip: View {
                         hold: hold
                     ))
                     if distill != nil, let tokens = contextTokens, tokens > 0 {
-                        Text("↓\(DistillLiveStatus.formatTokens(tokens))")
+                        Text(L("↓%1$@", DistillLiveStatus.formatTokens(tokens)))
                             .font(DS.Font.caption.monospacedDigit())
                             .foregroundColor(DS.Palette.textTertiary)
                             .accessibilityIdentifier("agent.workingStatus.tokens")
                     }
-                    Button(isStopping ? "Stopping… (click to force)" : "Stop", action: onStop)
+                    Button(isStopping ? L("Stopping… (click to force)") : L("Stop"), action: onStop)
                         .buttonStyle(.plain)
                         .font(DS.Font.body.weight(.medium))
                         .foregroundColor(DS.Palette.danger)
@@ -1366,14 +1366,14 @@ public struct AgentChatWorkingStatusStrip: View {
                             VStack(alignment: .leading, spacing: DS.Space.xs) {
                                 TimelineView(.periodic(from: .now, by: 1)) { tick in
                                     let elapsed = max(0, Int(tick.date.timeIntervalSince1970 - Double(item.startedAtMs) / 1_000))
-                                    Text("Running for \(elapsed)s")
+                                    Text(L("Running for %1$@s", elapsed))
                                         .font(DS.Font.caption.monospacedDigit())
                                         .foregroundColor(DS.Palette.textTertiary)
                                 }
                                 AgentChatLiveToolRow(item: item, expandedIDs: $expandedToolIDs)
                                     .equatable()
                                 if let output = AgentChatLiveTurnChrome.recentToolOutput(item) {
-                                    Text("Recent output (up to 2,000 characters)")
+                                    Text(L("Recent output (up to 2,000 characters)"))
                                         .font(DS.Font.caption)
                                         .foregroundColor(DS.Palette.textTertiary)
                                     ScrollView {
@@ -1385,8 +1385,8 @@ public struct AgentChatWorkingStatusStrip: View {
                                     .accessibilityIdentifier("agent.workingStatus.output.\(item.id)")
                                 }
                                 Text(item.output?.isEmpty == false
-                                     ? "Expand tool for command and output details."
-                                     : "No output received. A quiet command may still be running.")
+                                     ? L("Expand tool for command and output details.")
+                                     : L("No output received. A quiet command may still be running."))
                                     .font(DS.Font.caption)
                                     .foregroundColor(DS.Palette.textTertiary)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -1395,7 +1395,7 @@ public struct AgentChatWorkingStatusStrip: View {
                     }
                     .padding(.top, DS.Space.sm)
                 } label: {
-                    Text("Active tools (\(runningTools.count))")
+                    Text(L("Active tools (%1$@)", runningTools.count))
                         .font(DS.Font.captionStrong)
                         .foregroundColor(DS.Palette.textSecondary)
                 }
@@ -1414,7 +1414,7 @@ public struct AgentChatWorkingStatusStrip: View {
         guard let newest = activeSubagents.max(by: { $0.admittedAt < $1.admittedAt }) else { return nil }
         var parts = [newest.displayName]
         if let tool = newest.runId.flatMap({ subagentActivity[$0] }) { parts.append(tool) }
-        if activeSubagents.count > 1 { parts.append("+\(activeSubagents.count - 1) more") }
+        if activeSubagents.count > 1 { parts.append(L("+%1$@ more", activeSubagents.count - 1)) }
         return parts.joined(separator: " · ")
     }
 
@@ -1435,7 +1435,7 @@ public struct AgentChatWorkingStatusStrip: View {
             return secs.map { "\(h) \($0)s" } ?? h
         } ?? distill.goalHeadline ?? base)
         if let meta = distill.modelEffortText {
-            line = line + Text(" · \(meta)").foregroundColor(DS.Palette.success)
+            line = line + Text(L(" · %1$@", meta)).foregroundColor(DS.Palette.success)
         }
         return line
     }
@@ -1443,10 +1443,10 @@ public struct AgentChatWorkingStatusStrip: View {
     private func goalLoopLine(_ distill: DistillLiveStatus) -> some View {
         var parts: [String] = []
         if let goal = distill.goal {
-            parts.append("Goal \(goal.status.replacingOccurrences(of: "_", with: " ")) · \(goal.tokensText) tokens")
+            parts.append(L("Goal %1$@ · %2$@ tokens", goal.status.replacingOccurrences(of: "_", with: " "), goal.tokensText))
         }
         if !distill.scheduledTasks.isEmpty {
-            parts.append("Loops \(distill.scheduledTasks.count)")
+            parts.append(L("Loops %1$@", distill.scheduledTasks.count))
         }
         return Text(parts.joined(separator: " · "))
             .font(DS.Font.caption)
@@ -1458,12 +1458,12 @@ public struct AgentChatWorkingStatusStrip: View {
 
     private func stopHelp(showingHold: Bool) -> String {
         if isStopping {
-            return "Still stopping — click again to force-stop the provider"
+            return L("Still stopping — click again to force-stop the provider")
         }
         if showingHold {
-            return "Stop the agent and any background shells or agents holding this run (Esc)"
+            return L("Stop the agent and any background shells or agents holding this run (Esc)")
         }
-        return "Stop running agent (press Esc to interrupt)"
+        return L("Stop running agent (press Esc to interrupt)")
     }
 }
 

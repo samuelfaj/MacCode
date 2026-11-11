@@ -2000,7 +2000,7 @@ public final class TerminalSurface: NSObject, Surface, TerminalHistoryCoordinato
         replayPersistedHistoryIfNeeded()
 
         if case .sshPlaceholder = launch {
-            appendString("[ssh disconnected]\nSelect a saved SSH host or add a new one to connect.\n")
+            appendString(L("[ssh disconnected]\nSelect a saved SSH host or add a new one to connect.\n"))
             terminalDeadReason = "ssh_disconnected"
             publishRuntimeHealth()
             return
@@ -2041,7 +2041,7 @@ public final class TerminalSurface: NSObject, Surface, TerminalHistoryCoordinato
             pid = spawn.pid
             amaster = spawn.masterFD
             if pid < 0 {
-                appendString("[forkpty failed: \(String(cString: strerror(spawnErrno)))]\n")
+                appendString(L("[forkpty failed: %1$@]\n", String(cString: strerror(spawnErrno))))
                 terminalDeadReason = "fork_failed"
                 terminalLog.error("terminal.spawn_failed surface=\(self.descriptor.id.value.uuidString, privacy: .public) errno=\(spawnErrno, privacy: .public)")
                 publishRuntimeHealth()
@@ -2115,7 +2115,7 @@ public final class TerminalSurface: NSObject, Surface, TerminalHistoryCoordinato
                     self.publishRuntimeHealth()
                 }
             }
-            appendString("[PTY descriptor setup failed; shell stopped]\r\n")
+            appendString(L("[PTY descriptor setup failed; shell stopped]\r\n"))
             publishRuntimeHealth()
             return
         }
@@ -2126,7 +2126,7 @@ public final class TerminalSurface: NSObject, Surface, TerminalHistoryCoordinato
         if case .ssh(let profile, _) = launch {
             awaitingSSHFirstOutput = true
             let host = profile.label.isEmpty ? profile.destination : profile.label
-            appendString("[connecting to \(host)…]\r\n")
+            appendString(L("[connecting to %1$@…]\r\n", host))
         }
         publishRuntimeHealth()
     }
@@ -3018,9 +3018,9 @@ public final class TerminalSurface: NSObject, Surface, TerminalHistoryCoordinato
     nonisolated static func autoSubmitNotice(promptCount: Int) -> String? {
         switch promptCount {
         case 1:
-            return "[submitted your saved password automatically -- the app answered this prompt, not you]"
+            return L("[submitted your saved password automatically -- the app answered this prompt, not you]")
         case 2:
-            return "[server is asking for the password again -- your saved password was rejected; type it manually]"
+            return L("[server is asking for the password again -- your saved password was rejected; type it manually]")
         default:
             return nil
         }
@@ -3543,9 +3543,9 @@ public final class TerminalSurface: NSObject, Surface, TerminalHistoryCoordinato
         guard let since, now.timeIntervalSince(since) >= Self.minimumFinishedBusyDuration else { return }
         let looking = isVisible && view.window?.isKeyWindow == true
         if !looking { descriptor.hasUnreadActivity = true }
-        var body = foregroundJobAlive ? "Terminal is waiting for input" : "Process exited"
-        if let code = lastCommandExitCode, code != 0 { body += " (exit \(code))" }
-        onBusyFinished?("\(descriptor.title) finished", body, looking)
+        var body = foregroundJobAlive ? L("Terminal is waiting for input") : L("Process exited")
+        if let code = lastCommandExitCode, code != 0 { body += L(" (exit %1$@)", code) }
+        onBusyFinished?(L("%1$@ finished", descriptor.title), body, looking)
     }
 
     private func handleProgressReport(active: Bool) {
@@ -3630,11 +3630,11 @@ public final class TerminalSurface: NSObject, Surface, TerminalHistoryCoordinato
     }
 
     private static func processExitedBanner(rawStatus: Int32?) -> String {
-        guard let rawStatus else { return "[process exited]" }
+        guard let rawStatus else { return L("[process exited]") }
         if (rawStatus & 0x7F) != 0 {
-            return "[process terminated (signal \(rawStatus & 0x7F))]"
+            return L("[process terminated (signal %1$@)]", rawStatus & 0x7F)
         }
-        return "[process exited (code \((rawStatus >> 8) & 0xFF))]"
+        return L("[process exited (code %1$@)]", (rawStatus >> 8) & 0xFF)
     }
 
     // MARK: - Restart shell banner button
@@ -3648,13 +3648,13 @@ public final class TerminalSurface: NSObject, Surface, TerminalHistoryCoordinato
               restartBannerButton == nil else { return }
 
         let btn = NSButton()
-        btn.title = "Restart shell"
+        btn.title = L("Restart shell")
         btn.bezelStyle = .rounded
         btn.isBordered = true
         btn.target = self
         btn.action = #selector(restartBannerTapped)
         btn.setAccessibilityIdentifier("terminal.restart-shell-button")
-        btn.setAccessibilityLabel("Restart shell")
+        btn.setAccessibilityLabel(L("Restart shell"))
         btn.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(btn)
         NSLayoutConstraint.activate([
@@ -4426,12 +4426,12 @@ public final class TerminalSurface: NSObject, Surface, TerminalHistoryCoordinato
 
     private func confirmUnsafeTerminalInput(_ text: String) {
         let lineCount = PasteGuard.confirmationLineCount(for: text)
-        let lineLabel = lineCount == 1 ? "1 line" : "\(lineCount) lines"
+        let lineLabel = lineCount == 1 ? L("1 line") : L("%1$@ lines", lineCount)
         let alert = NSAlert()
-        alert.messageText = "Paste \(lineLabel) into the terminal?"
-        alert.informativeText = "The pasted text spans multiple lines or contains control characters and will run immediately."
-        alert.addButton(withTitle: "Paste")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = L("Paste %1$@ into the terminal?", lineLabel)
+        alert.informativeText = L("The pasted text spans multiple lines or contains control characters and will run immediately.")
+        alert.addButton(withTitle: L("Paste"))
+        alert.addButton(withTitle: L("Cancel"))
         let onResponse: (NSApplication.ModalResponse) -> Void = { [weak self] resp in
             guard resp == .alertFirstButtonReturn, let data = text.data(using: .utf8) else { return }
             _ = self?.writeToPTY(data)

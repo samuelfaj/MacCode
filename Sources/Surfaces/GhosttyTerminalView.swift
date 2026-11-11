@@ -331,7 +331,7 @@ public enum TerminalFontSizeSetting {
 
     public nonisolated static func displayLabel(_ size: Double) -> String {
         let normalized = normalized(size)
-        guard normalized != defaultSize else { return "Ghostty default" }
+        guard normalized != defaultSize else { return L("Ghostty default") }
         return "\(Int(normalized)) pt"
     }
 }
@@ -353,14 +353,14 @@ enum ScrollbackPositionLabel {
     nonisolated static func label(offset: Int, total: Int) -> String {
         let safeOffset = max(0, offset)
         let safeTotal  = max(0, total)
-        if safeOffset == 0 { return "Bottom" }
-        if safeTotal > 0, safeOffset >= safeTotal { return "Top" }
+        if safeOffset == 0 { return L("Bottom") }
+        if safeTotal > 0, safeOffset >= safeTotal { return L("Top") }
         if safeTotal > 0 {
             let pct = Int(Double(safeOffset) / Double(safeTotal) * 100.0)
             let clamped = min(100, max(1, pct))
-            return "\(clamped)% from bottom"
+            return L("%1$@% from bottom", clamped)
         }
-        return "\(safeOffset) lines from bottom"
+        return L("%1$@ lines from bottom", safeOffset)
     }
 }
 
@@ -1026,7 +1026,7 @@ final class GhosttyTerminalView: NSView {
     /// "Terminal — <title>" when an OSC title is set, otherwise "Terminal".
     /// VoiceOver reads this on focus so users know which tab they landed on.
     override func accessibilityLabel() -> String? {
-        currentTitle.isEmpty ? "Terminal" : "Terminal \u{2014} \(currentTitle)"
+        currentTitle.isEmpty ? L("Terminal") : L("Terminal — %1$@", currentTitle)
     }
 
     override func makeBackingLayer() -> CALayer {
@@ -2158,31 +2158,31 @@ final class GhosttyTerminalView: NSView {
         let hasSelection = surfaceSlot.liveSurface().map { ghostty_surface_has_selection($0) } ?? false
         let hasClipboardText = (NSPasteboard.general.string(forType: .string)?.isEmpty == false)
 
-        let copy = menu.addItem(withTitle: "Copy", action: #selector(contextCopy(_:)), keyEquivalent: "")
+        let copy = menu.addItem(withTitle: L("Copy"), action: #selector(contextCopy(_:)), keyEquivalent: "")
         copy.target = self
         copy.isEnabled = hasSelection
         copy.setAccessibilityIdentifier("surface.terminal.menu.copy")
 
-        let copyAll = menu.addItem(withTitle: "Copy All", action: #selector(contextCopyAll(_:)), keyEquivalent: "")
+        let copyAll = menu.addItem(withTitle: L("Copy All"), action: #selector(contextCopyAll(_:)), keyEquivalent: "")
         copyAll.target = self
         copyAll.setAccessibilityIdentifier("surface.terminal.menu.copyAll")
 
-        let paste = menu.addItem(withTitle: "Paste", action: #selector(contextPaste(_:)), keyEquivalent: "")
+        let paste = menu.addItem(withTitle: L("Paste"), action: #selector(contextPaste(_:)), keyEquivalent: "")
         paste.target = self
         paste.isEnabled = hasClipboardText
         paste.setAccessibilityIdentifier("surface.terminal.menu.paste")
 
         menu.addItem(.separator())
 
-        let selectAll = menu.addItem(withTitle: "Select All", action: #selector(contextSelectAll(_:)), keyEquivalent: "")
+        let selectAll = menu.addItem(withTitle: L("Select All"), action: #selector(contextSelectAll(_:)), keyEquivalent: "")
         selectAll.target = self
         selectAll.setAccessibilityIdentifier("surface.terminal.menu.selectAll")
 
-        let jumpToBottom = menu.addItem(withTitle: "Jump to Bottom", action: #selector(contextJumpToBottom(_:)), keyEquivalent: "")
+        let jumpToBottom = menu.addItem(withTitle: L("Jump to Bottom"), action: #selector(contextJumpToBottom(_:)), keyEquivalent: "")
         jumpToBottom.target = self
         jumpToBottom.setAccessibilityIdentifier("surface.terminal.menu.jumpToBottom")
 
-        let clear = menu.addItem(withTitle: "Clear", action: #selector(contextClear(_:)), keyEquivalent: "")
+        let clear = menu.addItem(withTitle: L("Clear"), action: #selector(contextClear(_:)), keyEquivalent: "")
         clear.target = self
         clear.setAccessibilityIdentifier("surface.terminal.menu.clear")
 
@@ -2257,7 +2257,7 @@ final class GhosttyTerminalView: NSView {
         label.layer?.cornerRadius = 4
         label.translatesAutoresizingMaskIntoConstraints = false
         label.setAccessibilityIdentifier("terminal.scrollback-indicator")
-        label.setAccessibilityLabel("Scrollback position")
+        label.setAccessibilityLabel(L("Scrollback position"))
         addSubview(label)
         return label
     }
@@ -2369,13 +2369,13 @@ final class GhosttyTerminalView: NSView {
         bar.translatesAutoresizingMaskIntoConstraints = false
 
         let field = NSTextField()
-        field.placeholderString = "Find in terminal"
+        field.placeholderString = L("Find in terminal")
         field.bezelStyle = .roundedBezel
         field.focusRingType = .none
         field.target = self
         field.action = #selector(findFieldChanged(_:))
         field.setAccessibilityIdentifier("terminal.find-field")
-        field.setAccessibilityLabel("Find in terminal")
+        field.setAccessibilityLabel(L("Find in terminal"))
         field.translatesAutoresizingMaskIntoConstraints = false
         findField = field
 
@@ -2386,11 +2386,11 @@ final class GhosttyTerminalView: NSView {
         count.translatesAutoresizingMaskIntoConstraints = false
         findCountLabel = count
 
-        let prev = makeFindButton("chevron.up", help: "Previous match",
+        let prev = makeFindButton("chevron.up", help: L("Previous match"),
                                   axID: "terminal.find-prev", action: #selector(findPrev(_:)))
-        let next = makeFindButton("chevron.down", help: "Next match",
+        let next = makeFindButton("chevron.down", help: L("Next match"),
                                   axID: "terminal.find-next", action: #selector(findNext(_:)))
-        let close = makeFindButton("xmark", help: "Close find",
+        let close = makeFindButton("xmark", help: L("Close find"),
                                    axID: "terminal.find-close", action: #selector(findClose(_:)))
 
         let stack = NSStackView(views: [field, count, prev, next, close])
@@ -2509,8 +2509,8 @@ final class GhosttyTerminalView: NSView {
 
     /// Human-readable HUD text for a zoom delta. Pure, nonisolated for tests.
     nonisolated static func fontZoomHUDText(for delta: Int) -> String {
-        if delta == 0 { return "Font: Base" }
-        return delta > 0 ? "Font: +\(delta)pt" : "Font: \(delta)pt"
+        if delta == 0 { return L("Font: Base") }
+        return delta > 0 ? L("Font: +%1$@pt", delta) : L("Font: %1$@pt", delta)
     }
 
     private func makeFontZoomHUD() -> NSTextField {
@@ -2524,7 +2524,7 @@ final class GhosttyTerminalView: NSView {
         label.layer?.cornerRadius = 4
         label.translatesAutoresizingMaskIntoConstraints = false
         label.setAccessibilityIdentifier("terminal.font-zoom-hud")
-        label.setAccessibilityLabel("Font zoom level")
+        label.setAccessibilityLabel(L("Font zoom level"))
         addSubview(label)
         return label
     }

@@ -88,7 +88,7 @@ enum ManagedToolInstaller {
     }
 
     static func installMacUse(distillBinary: String?, environment: [String: String]) async throws {
-        guard let distillBinary else { throw Failure("Install Distill before registering computer automation.") }
+        guard let distillBinary else { throw Failure(L("Install Distill before registering computer automation.")) }
         let home = DistillProvisioner.homeURL(environment: environment)
         try await ManagedToolInstalls.shared.perform("mac-use:\(home.path)") {
             try await installMacUseRelease(distillBinary: distillBinary, environment: environment)
@@ -118,7 +118,7 @@ enum ManagedToolInstaller {
         }
         if let distillBinary {
             let status = try run(distillBinary, ["mcp", "add", "mac-use", "--", binary.path], environment: environment)
-            guard status == 0 else { throw Failure("distill mcp add mac-use exited \(status)") }
+            guard status == 0 else { throw Failure(L("distill mcp add mac-use exited %1$@", status)) }
         }
         managedToolLog.info("managed.tools.mac_use_ready version=\(version, privacy: .public)")
     }
@@ -149,7 +149,7 @@ enum ManagedToolInstaller {
         let extracted = try await downloadVerifiedTarball(release, asset: "linux-use-server-v\(version).tar.gz")
         defer { try? FileManager.default.removeItem(at: extracted) }
         guard FileManager.default.fileExists(atPath: extracted.appendingPathComponent("server.py").path) else {
-            throw Failure("linux-use release has no server.py")
+            throw Failure(L("linux-use release has no server.py"))
         }
         try Data("\(release.tag)\n".utf8).write(to: extracted.appendingPathComponent(linuxUseVersionFile))
         try replace(extracted, with: target)
@@ -173,7 +173,7 @@ enum ManagedToolInstaller {
                 (result.1 as? HTTPURLResponse).map { isRetryableHTTPStatus($0.statusCode) } ?? false
             }
         ) { try await URLSession.shared.data(for: request) }
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw Failure("\(repo) releases/latest failed") }
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw Failure(L("%1$@ releases/latest failed", repo)) }
         return try parseRelease(data)
     }
 
@@ -181,7 +181,7 @@ enum ManagedToolInstaller {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tag = object["tag_name"] as? String,
               tag.range(of: #"^v?[0-9A-Za-z.+-]+$"#, options: .regularExpression) != nil
-        else { throw Failure("release JSON has no valid tag_name") }
+        else { throw Failure(L("release JSON has no valid tag_name")) }
         var assets: [String: URL] = [:]
         for asset in object["assets"] as? [[String: Any]] ?? [] {
             if let name = asset["name"] as? String, let link = asset["browser_download_url"] as? String,
@@ -206,7 +206,7 @@ enum ManagedToolInstaller {
     /// Downloads `asset` and SHA256SUMS, verifies, and extracts into a temporary directory.
     static func downloadVerifiedTarball(_ release: Release, asset: String) async throws -> URL {
         guard let assetURL = release.assets[asset], let sumsURL = release.assets["SHA256SUMS"] else {
-            throw Failure("release \(release.tag) lacks \(asset) or SHA256SUMS")
+            throw Failure(L("release %1$@ lacks %2$@ or SHA256SUMS", release.tag, asset))
         }
         let (sumsData, _) = try await retryingTransientFailures(
             delays: [2, 5],
@@ -215,7 +215,7 @@ enum ManagedToolInstaller {
             }
         ) { try await URLSession.shared.data(from: sumsURL) }
         guard let expected = expectedDigest(sums: String(decoding: sumsData, as: UTF8.self), asset: asset) else {
-            throw Failure("SHA256SUMS has no entry for \(asset)")
+            throw Failure(L("SHA256SUMS has no entry for %1$@", asset))
         }
         let (file, _) = try await retryingTransientFailures(
             delays: [2, 5],
@@ -225,13 +225,13 @@ enum ManagedToolInstaller {
         ) { try await URLSession.shared.download(from: assetURL) }
         defer { try? FileManager.default.removeItem(at: file) }
         let actual = SHA256.hash(data: try Data(contentsOf: file)).map { String(format: "%02x", $0) }.joined()
-        guard actual == expected else { throw Failure("checksum mismatch for \(asset)") }
+        guard actual == expected else { throw Failure(L("checksum mismatch for %1$@", asset)) }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("rc-tool-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let status = try run("/usr/bin/tar", ["-xzf", file.path, "-C", directory.path], environment: [:])
         guard status == 0 else {
             try? FileManager.default.removeItem(at: directory)
-            throw Failure("tar exited \(status) for \(asset)")
+            throw Failure(L("tar exited %1$@ for %2$@", status, asset))
         }
         return directory
     }

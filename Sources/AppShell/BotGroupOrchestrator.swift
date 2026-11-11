@@ -33,8 +33,8 @@ final class BotGroupOrchestrator: AgentRunObserver {
 
         var errorDescription: String? {
             switch self {
-            case .emptyMessage: return "Write a message first."
-            case .attachmentsUnsupported: return "Attachments are not supported in group conversations yet."
+            case .emptyMessage: return L("Write a message first.")
+            case .attachmentsUnsupported: return L("Attachments are not supported in group conversations yet.")
             case .rejected(let message): return message
             }
         }
@@ -105,7 +105,7 @@ final class BotGroupOrchestrator: AgentRunObserver {
         maxAutoHops: Int = BotGroupConversation.defaultMaxAutoHops,
         participantBotIDs: [BotID]
     ) async throws -> BotGroupConversation {
-        guard let router else { throw BotStoreError.invalidRow("Bot runtime is unavailable") }
+        guard let router else { throw BotStoreError.invalidRow(L("Bot runtime is unavailable")) }
         let provider = AgentProvider.defaultProvider
         let room = try router.createAgentThread(
             workspace: nil,
@@ -323,16 +323,16 @@ final class BotGroupOrchestrator: AgentRunObserver {
         guard let turn = try botStore.groupTurn(id: turnID), turn.groupID == groupID,
               let group = try botStore.group(id: groupID) else { throw BotStoreError.notFound }
         guard turn.state == .failed || turn.state == .interrupted else {
-            throw SendError.rejected("Only a failed or interrupted turn can be retried.")
+            throw SendError.rejected(L("Only a failed or interrupted turn can be retried."))
         }
         guard try activeParticipantBots(groupID: groupID).contains(where: { $0.id == turn.botID }) else {
-            throw SendError.rejected("That bot is no longer in this group.")
+            throw SendError.rejected(L("That bot is no longer in this group."))
         }
         // The turn keeps its place, so it would run ahead of a newer
         // message's turns and answer out of order.
         let unsettled = try botStore.listGroupTurns(groupID: groupID, states: BotGroupTurn.State.pending + [.running])
         guard !unsettled.contains(where: { $0.roundID != turn.roundID && $0.ordinal > turn.ordinal }) else {
-            throw SendError.rejected("Bots are still answering a newer message. Retry when they finish.")
+            throw SendError.rejected(L("Bots are still answering a newer message. Retry when they finish."))
         }
         guard let moved = move(
             turn,
@@ -343,7 +343,7 @@ final class BotGroupOrchestrator: AgentRunObserver {
             roomThreadID: group.roomThreadID,
             outcome: .waiting
         ) else {
-            throw SendError.rejected("This turn changed on the Mac. Refresh and try again.")
+            throw SendError.rejected(L("This turn changed on the Mac. Refresh and try again."))
         }
         schedulePump(groupID)
         return moved
@@ -444,7 +444,7 @@ final class BotGroupOrchestrator: AgentRunObserver {
         guard let bot = try? botStore.get(id: turn.botID), bot.deletedAt == nil,
               let revisionID = bot.currentRevisionID,
               let revision = try? botStore.getRevision(id: revisionID) else {
-            return fail("This bot is no longer available.", runID: nil)
+            return fail(L("This bot is no longer available."), runID: nil)
         }
         let member: (conversation: BotConversation, thread: AgentThread)
         do {
@@ -466,7 +466,7 @@ final class BotGroupOrchestrator: AgentRunObserver {
         if coordinator.activeRunId(threadId: threadID) != nil
             || coordinator.hasPendingProviderStart(threadId: threadID)
             || coordinator.hasProviderSession(threadId: threadID) {
-            return fail("\(bot.name) is busy in its private thread. Retry when it finishes.", runID: nil)
+            return fail(L("%1$@ is busy in its private thread. Retry when it finishes.", bot.name), runID: nil)
         }
 
         let runID = AgentRunID()
@@ -564,10 +564,10 @@ final class BotGroupOrchestrator: AgentRunObserver {
                 // never run later as if the user had typed it. Cancelled the way
                 // the user cancels one, so iOS drops the queued row it was sent.
                 if let queued = result.queuedMessage { _ = try? router.cancelAgentQueuedMessage(id: queued.id) }
-                return fail("\(bot.name) is busy in its private thread. Retry when it finishes.", runID: runID)
+                return fail(L("%1$@ is busy in its private thread. Retry when it finishes.", bot.name), runID: runID)
             }
             guard result.runId == runID else {
-                return fail("\(bot.name) could not start its turn.", runID: runID)
+                return fail(L("%1$@ could not start its turn.", bot.name), runID: runID)
             }
         } catch let busy as BotVMBusyError {
             // The VM was taken between the check and the start.
@@ -624,7 +624,7 @@ final class BotGroupOrchestrator: AgentRunObserver {
                 .first(where: { $0.botID == bot.id }),
               var conversation = try botStore.conversation(id: participant.memberConversationID),
               conversation.groupID == group.id else {
-            throw BotStoreError.invalidInput("\(bot.name) is not in this group.")
+            throw BotStoreError.invalidInput(L("%1$@ is not in this group.", bot.name))
         }
         if let linked = conversation.linkedAgentThreadID, let thread = try threadRepo.get(id: linked) {
             let updated = try threadRepo.reconcileBotExecutionTarget(thread)
@@ -725,7 +725,7 @@ final class BotGroupOrchestrator: AgentRunObserver {
                 : status == .interrupted ? .interrupted : .failed
             let error = state == .cancelled ? nil
                 : ((try? runRepo.errorMessage(of: runID)) ?? nil)
-                    ?? (status == .completed ? "The bot finished without a reply." : "The bot's run ended with \(status.rawValue).")
+                    ?? (status == .completed ? L("The bot finished without a reply.") : L("The bot's run ended with %1$@.", status.rawValue))
             move(
                 turn,
                 from: [.running],
@@ -827,10 +827,10 @@ final class BotGroupOrchestrator: AgentRunObserver {
         case waiting
     }
 
-    static let stoppedNote = "stopped before answering."
-    static let supersededNote = "did not answer: a newer message took over."
-    static let removedNote = "was removed before answering."
-    static let interruptedError = "MacCode closed while this turn was running."
+    static let stoppedNote = L("stopped before answering.")
+    static let supersededNote = L("did not answer: a newer message took over.")
+    static let removedNote = L("was removed before answering.")
+    static let interruptedError = L("MacCode closed while this turn was running.")
 
     /// Moves the turn and, with `outcome`, rewrites or removes its room row in
     /// the same transaction, then publishes the row change and turn once each. Nil when
@@ -977,7 +977,7 @@ final class BotGroupOrchestrator: AgentRunObserver {
         return BotDefinition(
             id: turn.botID,
             handle: snapshot?.handle ?? "bot",
-            name: snapshot?.name ?? "Bot",
+            name: snapshot?.name ?? L("Bot"),
             title: snapshot?.title ?? "",
             description: ""
         )

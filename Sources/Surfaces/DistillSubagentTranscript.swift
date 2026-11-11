@@ -142,7 +142,7 @@ struct DistillSubagentTranscriptPane: View {
                         AgentChatLiveTurnView(turn: turn, live: !turn.finished)
                     }
                     if model.loaded, !model.found {
-                        Text("This subagent's session file is not on this Mac yet.")
+                        Text(L("This subagent's session file is not on this Mac yet."))
                             .font(DS.Font.caption)
                             .foregroundColor(DS.Palette.textTertiary)
                             .accessibilityIdentifier("agent.subagentPane.missing")
@@ -154,7 +154,7 @@ struct DistillSubagentTranscriptPane: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .defaultScrollAnchor(.bottom)
-            Text("Read-only view of the subagent. The main agent collects its result.")
+            Text(L("Read-only view of the subagent. The main agent collects its result."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textSecondary)
                 .padding(DS.Space.md)
@@ -195,8 +195,8 @@ struct DistillSubagentTranscriptPane: View {
                     .contentShape(Rectangle())
             }
                 .buttonStyle(.plain)
-                .help("Close subagent view")
-                .accessibilityLabel("Close subagent view")
+                .help(L("Close subagent view"))
+                .accessibilityLabel(L("Close subagent view"))
                 .accessibilityIdentifier("agent.subagentPane.close")
         }
         .padding(DS.Space.md)
@@ -205,7 +205,7 @@ struct DistillSubagentTranscriptPane: View {
 
     private var promptBlock: some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
-            Text("Task")
+            Text(L("Task"))
                 .font(DS.Font.caption2.weight(.semibold))
                 .foregroundColor(DS.Palette.textTertiary)
             Text(model.prompt)
@@ -213,7 +213,7 @@ struct DistillSubagentTranscriptPane: View {
                 .foregroundColor(DS.Palette.textSecondary)
                 .lineLimit(promptExpanded ? nil : 4)
                 .textSelection(.enabled)
-            Button(promptExpanded ? "Show less" : "Show full task") { promptExpanded.toggle() }
+            Button(promptExpanded ? L("Show less") : L("Show full task")) { promptExpanded.toggle() }
                 .buttonStyle(.plain)
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.accent)

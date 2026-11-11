@@ -5,9 +5,43 @@ import CoreModel
 import DesignSystemKit
 import Surfaces
 
-// MARK: 4 · AI accounts
+// MARK: 1 · Sign in
 
-/// The optional MacCode account: links this Mac, the iPhone and settings.
+/// MacCode requires an account; this step cannot be skipped.
+struct OnboardingSignInStep: View {
+    @ObservedObject var vm: OnboardingViewModel
+
+    var body: some View {
+        OnboardingStepLayout(
+            eyebrow: OnboardingStep.signIn.eyebrow,
+            title: L("Sign in to MacCode."),
+            subtitle: L("A MacCode account links this Mac, your iPhone and your settings. You need one to use MacCode.")
+        ) {
+            OnboardingAccountSection(vm: vm)
+        } illustration: {
+            OnboardingPanel {
+                VStack(alignment: .leading, spacing: DS.Space.xl) {
+                    OnboardingTitioImage(size: 140)
+                    Text(L("One account, every device.")).font(DS.Font.title2).foregroundColor(DS.Palette.text)
+                    Text(L("Your account keeps this Mac, your iPhone and your settings together, and lets you reach your projects remotely."))
+                        .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } footer: {
+            Spacer()
+            if vm.isSignedIn {
+                OnboardingPrimaryButton(title: L("Continue")) { vm.advance(completing: .signIn) }
+            } else {
+                Text(L("Sign in or create an account to continue."))
+                    .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
+            }
+        }
+    }
+}
+
+// MARK: 5 · AI accounts
+
+/// The MacCode account form: links this Mac, the iPhone and settings.
 struct OnboardingAccountSection: View {
     @ObservedObject var vm: OnboardingViewModel
     @FocusState private var focused: Field?
@@ -16,11 +50,11 @@ struct OnboardingAccountSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                Text("MacCode account · optional").font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
-                Text(vm.signedInEmail.map { "Signed in as \($0). Switch accounts in Settings later." }
-                     ?? "Links this Mac, your iPhone and your settings. Remote access needs one later.")
-                    .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let email = vm.signedInEmail {
+                    Text(L("Signed in as %1$@. Switch accounts in Settings later.", email))
+                        .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             if vm.signedInEmail == nil { form }
         }
@@ -28,14 +62,14 @@ struct OnboardingAccountSection: View {
 
     private var form: some View {
         VStack(alignment: .leading, spacing: DS.Space.xl) {
-            labeledField("Email") {
-                TextField("you@example.com", text: $vm.email)
+            labeledField(L("Email")) {
+                TextField(L("you@example.com"), text: $vm.email)
                     .textContentType(.username)
                     .focused($focused, equals: .email)
                     .onSubmit { focused = .password }
             }
-            labeledField("Password") {
-                SecureField(vm.creatingAccount ? "At least 8 characters" : "Password", text: $vm.password)
+            labeledField(L("Password")) {
+                SecureField(vm.creatingAccount ? L("At least 8 characters") : L("Password"), text: $vm.password)
                     .textContentType(vm.creatingAccount ? .newPassword : .password)
                     .focused($focused, equals: .password)
                     .onSubmit { Task { await vm.submitAccount() } }
@@ -52,13 +86,13 @@ struct OnboardingAccountSection: View {
             } label: {
                 HStack(spacing: DS.Space.md) {
                     if vm.accountBusy { ProgressView().controlSize(.small) }
-                    Text(vm.creatingAccount ? "Create account" : "Sign in")
+                    Text(vm.creatingAccount ? L("Create account") : L("Sign in"))
                 }
                 .frame(maxWidth: .infinity, minHeight: 24)
             }
             .buttonStyle(DSPrimaryButtonStyle())
             .disabled(!vm.accountFormValid || vm.accountBusy)
-            Button(vm.creatingAccount ? "I already have an account" : "Create an account") {
+            Button(vm.creatingAccount ? L("I already have an account") : L("Create an account")) {
                 vm.creatingAccount.toggle()
             }
             .buttonStyle(.link)
@@ -88,9 +122,9 @@ struct OnboardingAccountsStep: View {
     @State private var saving = false
 
     private let providers: [(DistillAccountProvider, String)] = [
-        (.chatgpt, "ChatGPT Plus, Pro or Team"),
-        (.claude, "Claude Pro or Max"),
-        (.grok, "SuperGrok or X Premium"),
+        (.chatgpt, L("ChatGPT Plus, Pro or Team")),
+        (.claude, L("Claude Pro or Max")),
+        (.grok, L("SuperGrok or X Premium")),
     ]
 
     private var anyConnected: Bool {
@@ -100,8 +134,8 @@ struct OnboardingAccountsStep: View {
     var body: some View {
         OnboardingStepLayout(
             eyebrow: OnboardingStep.accounts.eyebrow,
-            title: "Your AI subscriptions. One place.",
-            subtitle: "Connect the plans you already pay for. MacCode sets up Auto to pick a model from them; nothing is billed by MacCode."
+            title: L("Your AI subscriptions. One place."),
+            subtitle: L("Connect the plans you already pay for. MacCode sets up Auto to pick a model from them; nothing is billed by MacCode.")
         ) {
             VStack(alignment: .leading, spacing: DS.Space.xxl) {
                 VStack(alignment: .leading, spacing: DS.Space.lg) {
@@ -111,10 +145,9 @@ struct OnboardingAccountsStep: View {
                         }
                     }
                     OnboardingConnectionStatus(accounts: accounts)
-                    Text("Sign-in happens in your browser. Fine-tune Auto or disconnect in Settings ▸ Accounts & Auto.")
+                    Text(L("Sign-in happens in your browser. Fine-tune Auto or disconnect in Settings ▸ Accounts & Auto."))
                         .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                 }
-                OnboardingAccountSection(vm: vm)
             }
         } illustration: {
             OnboardingHubIllustration(connected: providers.map(\.0).filter { accounts.onboardingRowState($0) == .connected })
@@ -124,15 +157,15 @@ struct OnboardingAccountsStep: View {
             if let note = vm.routingNote {
                 Text(note).font(DS.Font.caption).foregroundColor(DS.Palette.warning).lineLimit(2)
             }
-            if anyConnected || vm.signedInEmail != nil {
-                OnboardingPrimaryButton(title: "Continue", busy: saving) {
+            if anyConnected {
+                OnboardingPrimaryButton(title: L("Continue"), busy: saving) {
                     saving = true
                     Task { await vm.finishAccounts(); saving = false }
                 }
                 .disabled(saving)
             } else {
-                Button("Skip for now") { vm.skip(.accounts) }.buttonStyle(.link)
-                    .accessibilityHint("Connect AI accounts later in Settings.")
+                Button(L("Skip for now")) { vm.skip(.accounts) }.buttonStyle(.link)
+                    .accessibilityHint(L("Connect AI accounts later in Settings."))
             }
         }
         .task { accounts.refresh() }
@@ -180,11 +213,11 @@ struct OnboardingHubIllustration: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(connected.count) of 3 subscriptions connected.")
+        .accessibilityLabel(L("%1$@ of 3 subscriptions connected.", connected.count))
     }
 }
 
-// MARK: 5 · Project
+// MARK: 6 · Project
 
 struct OnboardingProjectStep: View {
     @ObservedObject var vm: OnboardingViewModel
@@ -193,17 +226,17 @@ struct OnboardingProjectStep: View {
     var body: some View {
         OnboardingStepLayout(
             eyebrow: OnboardingStep.project.eyebrow,
-            title: "Open something of yours.",
-            subtitle: "Pick a project folder. MacCode opens it as a workspace\(vm.state.createDeveloper ? " with \(vm.state.developerName) ready" : "")."
+            title: L("Open something of yours."),
+            subtitle: L("Pick a project folder. MacCode opens it as a workspace%1$@.", vm.state.createDeveloper ? L(" with %1$@ ready", vm.state.developerName) : "")
         ) {
             VStack(alignment: .leading, spacing: DS.Space.xl) {
                 Button(action: pickFolder) {
                     VStack(spacing: DS.Space.lg) {
                         Image(systemName: vm.folder == nil ? "folder.badge.plus" : "folder.fill")
                             .font(.system(size: 30)).foregroundColor(DS.Palette.accent)
-                        Text(vm.folder?.lastPathComponent ?? "Choose project folder")
+                        Text(vm.folder?.lastPathComponent ?? L("Choose project folder"))
                             .font(DS.Font.title3).foregroundColor(DS.Palette.text).lineLimit(1).truncationMode(.middle)
-                        Text(vm.folder.map { ($0.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath } ?? "or drop a folder here")
+                        Text(vm.folder.map { ($0.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath } ?? L("or drop a folder here"))
                             .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary).lineLimit(1).truncationMode(.middle)
                     }
                     .frame(maxWidth: .infinity, minHeight: 170)
@@ -216,23 +249,23 @@ struct OnboardingProjectStep: View {
                     .animation(DS.Motion.micro, value: dropTargeted)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(vm.folder.map { "Project folder \($0.lastPathComponent). Choose another." } ?? "Choose project folder")
+                .accessibilityLabel(vm.folder.map { L("Project folder %1$@. Choose another.", $0.lastPathComponent) } ?? L("Choose project folder"))
                 .onDrop(of: [.fileURL], isTargeted: $dropTargeted, perform: handleDrop)
                 Toggle(isOn: Binding(get: { vm.state.createDeveloper }, set: { vm.setCreateDeveloper($0) })) {
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                        Text("Add a Developer Bot to this project").font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
-                        Text("Reads code, plans changes and reviews. Works only in this project.")
+                        Text(L("Add a Developer Bot to this project")).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
+                        Text(L("Reads code, plans changes and reviews. Works only in this project."))
                             .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                     }
                 }
                 .toggleStyle(.switch)
-                .accessibilityLabel("Add a Developer Bot to this project")
+                .accessibilityLabel(L("Add a Developer Bot to this project"))
                 if vm.state.createDeveloper {
-                    TextField("Developer", text: Binding(get: { vm.state.developerName }, set: { vm.setDeveloperName($0) }))
+                    TextField(L("Developer"), text: Binding(get: { vm.state.developerName }, set: { vm.setDeveloperName($0) }))
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 260)
-                        .accessibilityLabel("Developer Bot name")
-                    Label("The first message is a draft. Nothing runs until you send it.", systemImage: "paperplane")
+                        .accessibilityLabel(L("Developer Bot name"))
+                    Label(L("The first message is a draft. Nothing runs until you send it."), systemImage: "paperplane")
                         .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                 }
                 if let error = vm.finishError {
@@ -249,14 +282,14 @@ struct OnboardingProjectStep: View {
         } footer: {
             OnboardingBackButton(vm: vm)
             Spacer()
-            Button("Follow \(OnboardingFollow.handle) on X") { NSWorkspace.shared.open(OnboardingFollow.url) }
+            Button(L("Follow %1$@ on X", OnboardingFollow.handle)) { NSWorkspace.shared.open(OnboardingFollow.url) }
                 .buttonStyle(.link)
             if vm.state.completedSteps.contains(.project) {
-                OnboardingPrimaryButton(title: "Done") { vm.close() }
+                OnboardingPrimaryButton(title: L("Done")) { vm.close() }
             } else if vm.folder == nil {
-                OnboardingPrimaryButton(title: "Choose folder", action: pickFolder)
+                OnboardingPrimaryButton(title: L("Choose folder"), action: pickFolder)
             } else {
-                OnboardingPrimaryButton(title: "Create workspace", busy: vm.finishing) { vm.finish() }
+                OnboardingPrimaryButton(title: L("Create workspace"), busy: vm.finishing) { vm.finish() }
                     .disabled(vm.finishing)
             }
         }
@@ -264,10 +297,10 @@ struct OnboardingProjectStep: View {
 
     private var tour: some View {
         VStack(alignment: .leading, spacing: DS.Space.xl) {
-            Text("WHAT YOU GET").font(DS.Font.captionStrong).tracking(1).foregroundColor(DS.Palette.textSecondary)
-            lesson("folder", title: "A project, all in one place", detail: "Files, terminals, browser tabs and agent conversations stay together.")
-            lesson("bubble.left.and.bubble.right", title: "Titio and your Bots", detail: "Describe a goal in Agent App. Titio is your general assistant; Bots take a role.")
-            lesson("lock.shield", title: "You stay in control", detail: "Review permissions before sending. The first message opens as a draft you can edit.")
+            Text(L("WHAT YOU GET")).font(DS.Font.captionStrong).tracking(1).foregroundColor(DS.Palette.textSecondary)
+            lesson("folder", title: L("A project, all in one place"), detail: L("Files, terminals, browser tabs and agent conversations stay together."))
+            lesson("bubble.left.and.bubble.right", title: L("Titio and your Bots"), detail: L("Describe a goal in Agent App. Titio is your general assistant; Bots take a role."))
+            lesson("lock.shield", title: L("You stay in control"), detail: L("Review permissions before sending. The first message opens as a draft you can edit."))
         }
         .frame(maxWidth: 400, alignment: .leading)
     }
@@ -289,8 +322,8 @@ struct OnboardingProjectStep: View {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
-        panel.message = "Choose the project folder to open as a workspace."
+        panel.prompt = L("Choose")
+        panel.message = L("Choose the project folder to open as a workspace.")
         // begin, not runModal: a modal loop would hold every main-actor RPC.
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
@@ -327,11 +360,11 @@ struct OnboardingWorkspacePreview: View {
                     .frame(height: 8).padding(.bottom, DS.Space.md)
                 HStack(spacing: DS.Space.sm) {
                     OnboardingTitioImage(size: 16)
-                    Text("Titio").font(DS.Font.caption)
+                    Text(L("Titio")).font(DS.Font.caption)
                 }
                 .foregroundColor(DS.Palette.textSecondary)
                 .onboardingReveal(6)
-                Text("WORKSPACES").font(DS.Font.caption2).foregroundColor(DS.Palette.textTertiary).padding(.top, DS.Space.md)
+                Text(L("WORKSPACES")).font(DS.Font.caption2).foregroundColor(DS.Palette.textTertiary).padding(.top, DS.Space.md)
                     .onboardingReveal(7)
                 HStack(spacing: DS.Space.sm) {
                     Image(systemName: "folder.fill").font(.system(size: 10))
@@ -375,7 +408,7 @@ struct OnboardingWorkspacePreview: View {
         .overlay(RoundedRectangle(cornerRadius: DS.Radius.modal, style: .continuous).strokeBorder(DS.Palette.lineStrong))
         .shadow(color: .black.opacity(0.35), radius: 24, y: 12)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Preview of the MacCode window with your project and Titio in the sidebar.")
+        .accessibilityLabel(L("Preview of the MacCode window with your project and Titio in the sidebar."))
         .task {
             // One pass of typing, after the window has assembled. Hidden text
             // keeps the bubble's size fixed, so nothing reflows while typing.

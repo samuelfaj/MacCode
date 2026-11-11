@@ -15,40 +15,40 @@ public enum AgentNoticeStatus {
             return open(kind)
         }
         switch block.state {
-        case "answered": return ("Answered", "bubble.left.fill", .neutral)
-        case "approved": return ("Approved", "checkmark.circle.fill", .neutral)
-        case "declined": return ("Declined", "xmark.circle.fill", .neutral)
-        case "done": return ("Done", "checkmark.circle.fill", .neutral)
-        case "elsewhere": return ("Handled elsewhere", "arrow.up.right.circle.fill", .neutral)
-        case "expired": return ("Expired", "clock.fill", .neutral)
-        case "acknowledged": return ("Seen", "eye.fill", .neutral)
-        case "failed": return ("Didn't go through", "xmark.octagon.fill", .neutral)
-        case "unknown_effect": return ("Unconfirmed", "questionmark.circle.fill", .neutral)
+        case "answered": return (L("Answered"), "bubble.left.fill", .neutral)
+        case "approved": return (L("Approved"), "checkmark.circle.fill", .neutral)
+        case "declined": return (L("Declined"), "xmark.circle.fill", .neutral)
+        case "done": return (L("Done"), "checkmark.circle.fill", .neutral)
+        case "elsewhere": return (L("Handled elsewhere"), "arrow.up.right.circle.fill", .neutral)
+        case "expired": return (L("Expired"), "clock.fill", .neutral)
+        case "acknowledged": return (L("Seen"), "eye.fill", .neutral)
+        case "failed": return (L("Didn't go through"), "xmark.octagon.fill", .neutral)
+        case "unknown_effect": return (L("Unconfirmed"), "questionmark.circle.fill", .neutral)
         default: return update
         }
     }
 
-    private static let update = (label: "Update", symbol: "info.circle.fill", tone: Tone.neutral)
+    private static var update: (label: String, symbol: String, tone: Tone) { (label: L("Update"), symbol: "info.circle.fill", tone: Tone.neutral) }
 
     private static func open(_ kind: TitioNoticeKind) -> (label: String, symbol: String, tone: Tone) {
         switch kind {
         case .runCompleted, .gitCompleted, .scriptCompleted, .transferCompleted:
-            return ("Done", "checkmark.circle.fill", .success)
+            return (L("Done"), "checkmark.circle.fill", .success)
         case .runFailed, .scriptFailed, .gitFailed, .scheduledFailed, .transferFailed,
              .providerUpdateFailed, .serverListenerFailed:
-            return ("Failed", "xmark.octagon.fill", .danger)
+            return (L("Failed"), "xmark.octagon.fill", .danger)
         case .runInterrupted:
-            return ("Interrupted", "pause.circle.fill", .warning)
+            return (L("Interrupted"), "pause.circle.fill", .warning)
         case .botReply:
-            return ("Replied", "bubble.left.fill", .accent)
+            return (L("Replied"), "bubble.left.fill", .accent)
         case .botBlocked:
-            return ("Stuck", "exclamationmark.triangle.fill", .warning)
+            return (L("Stuck"), "exclamationmark.triangle.fill", .warning)
         case .approval:
-            return ("Needs approval", "checkmark.shield.fill", .warning)
+            return (L("Needs approval"), "checkmark.shield.fill", .warning)
         case .userInput, .botQuestion:
-            return ("Question", "questionmark.circle.fill", .accent)
+            return (L("Question"), "questionmark.circle.fill", .accent)
         case .manualAction:
-            return ("Action needed", "hand.raised.fill", .warning)
+            return (L("Action needed"), "hand.raised.fill", .warning)
         case .sshDisconnected, .fileConflict, .notificationsDenied, .external:
             return update
         }
@@ -148,7 +148,7 @@ public struct AgentChatNoticeCard: View {
                 .onPreferenceChange(NoticeContentHeightKey.self) { contentOverflows = $0 > Self.collapsedHeight }
                 .opacity(block.isOpen ? 1 : 0.75)
             if contentOverflows {
-                Button(expanded ? "Show less" : "Show more") { expanded.toggle() }
+                Button(expanded ? L("Show less") : L("Show more")) { expanded.toggle() }
                     .buttonStyle(.plain)
                     .font(DS.Font.captionStrong)
                     .foregroundColor(DS.Palette.accent)
@@ -241,8 +241,8 @@ public struct AgentChatNoticeCard: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Dismiss")
-                .accessibilityLabel("Dismiss notice")
+                .help(L("Dismiss"))
+                .accessibilityLabel(L("Dismiss notice"))
                 .accessibilityIdentifier("\(identifier).clear")
             }
         }
@@ -251,7 +251,7 @@ public struct AgentChatNoticeCard: View {
     private func replyField(blocked: Bool) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(spacing: DS.Space.md) {
-                TextField("Reply to Titio about this…", text: $replyText)
+                TextField(L("Reply to Titio about this…"), text: $replyText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14))
                     .foregroundColor(DS.Palette.text)
@@ -265,7 +265,7 @@ public struct AgentChatNoticeCard: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend(blocked: blocked))
-                .accessibilityLabel("Send reply")
+                .accessibilityLabel(L("Send reply"))
                 .accessibilityIdentifier("\(identifier).send")
             }
             .padding(.horizontal, DS.Space.lg)

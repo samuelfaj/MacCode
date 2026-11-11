@@ -7,7 +7,7 @@ import DesignSystemKit
 extension AgentAppViewModel {
     /// Header pill text; a pending manual action overrides the run status.
     public var statusLabel: String {
-        openManualAction == nil ? status.rawValue : "Waiting for you"
+        openManualAction == nil ? status.rawValue : L("Waiting for you")
     }
 
     func manualActionStoreDidChange() {
@@ -43,7 +43,7 @@ extension AgentAppViewModel {
     }
 
     private func reportManualActionStoreFailure(_ error: Error) {
-        statusMessage = "Manual action could not be saved: \(error.localizedDescription)"
+        statusMessage = L("Manual action could not be saved: %1$@", error.localizedDescription)
     }
 
     private func postManualActionStateChanged(_ request: ManualActionRequest) {
@@ -188,7 +188,7 @@ struct AgentManualActionCard: View {
                 Image(systemName: Self.symbol(request.kind))
                     .font(.system(size: 12))
                     .foregroundColor(DS.Palette.warning)
-                Text("\(vm.botNameProvider(request.botID) ?? "Bot") is waiting for you")
+                Text(L("%1$@ is waiting for you", vm.botNameProvider(request.botID) ?? L("Bot")))
                     .font(DS.Font.caption.weight(.semibold))
                     .foregroundColor(DS.Palette.textSecondary)
                 Spacer(minLength: 0)
@@ -196,7 +196,7 @@ struct AgentManualActionCard: View {
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
             }
-            Text(request.reason)
+            Text(request.reason == ManualActionRequest.defaultReason ? L("The bot asked you to take over") : request.reason)
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.text)
             if let ref = request.screenshotRef, FileManager.default.fileExists(atPath: ref),
@@ -207,42 +207,42 @@ struct AgentManualActionCard: View {
                     .frame(maxHeight: 120)
                     .cornerRadius(6)
             }
-            TextField("Note for the bot (optional)", text: $note)
+            TextField(L("Note for the bot (optional)"), text: $note)
                 .textFieldStyle(.roundedBorder)
-                .accessibilityLabel("Note for the bot")
+                .accessibilityLabel(L("Note for the bot"))
                 .accessibilityIdentifier("agent.manualAction.note")
             HStack(spacing: DS.Space.sm) {
                 if !executesOnMac {
-                    Button(request.state == .taken ? "Control taken" : "Take control") {
+                    Button(request.state == .taken ? L("Control taken") : L("Take control")) {
                         vm.takeManualControl()
                     }
                     .disabled(request.state == .taken)
-                    .help("Drive the bot's computer yourself; the bot stays paused")
+                    .help(L("Drive the bot's computer yourself; the bot stays paused"))
                     .accessibilityIdentifier("agent.manualAction.take")
                 }
                 if request.kind == .file, vm.importFilesToBotComputer != nil,
                    let named = MacPathReferences.requestedFile(in: request.reason, home: NSHomeDirectory()) {
-                    Button("Send \(named.lastPathComponent)") { sendFiles([named], for: request) }
+                    Button(L("Send %1$@", named.lastPathComponent)) { sendFiles([named], for: request) }
                         .buttonStyle(.borderedProminent)
-                        .help("Copy \(named.path) into the bot's Linux desktop and resume the bot")
+                        .help(L("Copy %1$@ into the bot's Linux desktop and resume the bot", named.path))
                         .accessibilityIdentifier("agent.manualAction.sendNamedFile")
                 }
                 if request.kind == .file, vm.importFilesToBotComputer != nil {
-                    Button("Choose file…") { chooseFiles(for: request) }
-                        .help("Copy files from this Mac into the bot's Linux desktop and resume the bot")
+                    Button(L("Choose file…")) { chooseFiles(for: request) }
+                        .help(L("Copy files from this Mac into the bot's Linux desktop and resume the bot"))
                         .accessibilityIdentifier("agent.manualAction.chooseFile")
                 }
-                Button("Ready, continue") {
+                Button(L("Ready, continue")) {
                     let text = note
                     note = ""
                     Task { await vm.continueManualAction(note: text) }
                 }
-                .help("Resume the bot with your note")
+                .help(L("Resume the bot with your note"))
                 .accessibilityIdentifier("agent.manualAction.continue")
-                Button("Decline") {
+                Button(L("Decline")) {
                     Task { await vm.declineManualAction() }
                 }
-                .help("Tell the bot to continue without this step, or stop")
+                .help(L("Tell the bot to continue without this step, or stop"))
                 .accessibilityIdentifier("agent.manualAction.decline")
             }
         }
@@ -256,7 +256,7 @@ struct AgentManualActionCard: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
-        panel.prompt = "Send to Linux desktop"
+        panel.prompt = L("Send to Linux desktop")
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         sendFiles(panel.urls, for: request)
     }
@@ -270,18 +270,18 @@ struct AgentManualActionCard: View {
             let copied = "Files copied into the Linux desktop: " + paths.joined(separator: ", ")
             Task { await vm.continueManualAction(note: typed.isEmpty ? copied : "\(copied). \(typed)") }
         } catch {
-            vm.statusMessage = "Could not copy files to the Linux desktop: \(error.localizedDescription)"
+            vm.statusMessage = L("Could not copy files to the Linux desktop: %1$@", error.localizedDescription)
         }
     }
 
     private func resolvedRow(_ request: ManualActionRequest) -> some View {
         let minutes = max(0, Int((request.resolvedAt ?? request.createdAt).timeIntervalSince(request.createdAt) / 60))
-        let outcome = request.state == .declined ? "declined" : "continued"
+        let outcome = request.state == .declined ? L("declined") : L("continued")
         return HStack(spacing: DS.Space.sm) {
             Image(systemName: Self.symbol(request.kind))
                 .font(.system(size: 10))
                 .foregroundColor(DS.Palette.textTertiary)
-            Text("You took over for \(minutes) min · \(outcome)")
+            Text(L("You took over for %1$@ min · %2$@", minutes, outcome))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
         }

@@ -43,7 +43,10 @@ let package = Package(
         .target(
             name: "CoreModel",
             path: "Sources/CoreModel",
-            resources: [.copy("Resources/ChromeComputerUse")],
+            resources: [
+                .copy("Resources/ChromeComputerUse"),
+                .copy("Resources/Localization"),
+            ],
             linkerSettings: [
                 .linkedFramework("Security"),
                 .linkedFramework("AppKit"),
@@ -96,10 +99,12 @@ let package = Package(
         ),
         .target(
             name: "DesignSystemKit",
+            dependencies: ["CoreModel"],
             path: "Sources/DesignSystemKit"
         ),
         .target(
             name: "AppLifecycleSupport",
+            dependencies: ["CoreModel"],
             path: "Sources/AppLifecycleSupport"
         ),
         .target(

@@ -111,7 +111,7 @@ public final class CommandPalette: NSObject, NSWindowDelegate, NSTableViewDataSo
     private let searchField = NSTextField()
     /// P2: footer hint shown below the list: "⌘1-⌘9 quick-run".
     // P3-CP-7: show full keyboard contract so new users understand navigation.
-    private let footerHint = NSTextField(labelWithString: "\u{2191}\u{2193} navigate \u{00B7} \u{23CE} run \u{00B7} esc dismiss \u{00B7} \u{2318}1\u{2013}\u{2318}9 quick-run")
+    private let footerHint = NSTextField(labelWithString: L("\u{2191}\u{2193} navigate \u{00B7} \u{23CE} run \u{00B7} esc dismiss \u{00B7} \u{2318}1\u{2013}\u{2318}9 quick-run"))
     private let tableView = NSTableView()
     private let scroll = NSScrollView()
     private var all: [PaletteCommand] = []
@@ -224,7 +224,7 @@ public final class CommandPalette: NSObject, NSWindowDelegate, NSTableViewDataSo
         panel.returnHandler = { [weak self] in self?.submit() }
 
         // UX-012: hint that scripts/threads/workspaces are searchable too.
-        searchField.placeholderString = "Search commands, scripts, threads, workspaces..."
+        searchField.placeholderString = L("Search commands, scripts, threads, workspaces...")
         searchField.font = .systemFont(ofSize: 15)
         searchField.delegate = self
         searchField.target = self
@@ -305,23 +305,23 @@ public final class CommandPalette: NSObject, NSWindowDelegate, NSTableViewDataSo
         observedAgentVM = nil
         agentModelObserver = nil
         var cmds: [PaletteCommand] = []
-        cmds.append(PaletteCommand(id: "workspace.new", title: "New Workspace...", subtitle: "Choose a folder to use as cwd", keywords: ["workspace", "create", "open"], shortcut: "⌘N", category: .workspace, iconName: "folder.badge.plus") { [weak self] in
+        cmds.append(PaletteCommand(id: "workspace.new", title: L("New Workspace..."), subtitle: L("Choose a folder to use as cwd"), keywords: ["workspace", "create", "open"], shortcut: "⌘N", category: .workspace, iconName: "folder.badge.plus") { [weak self] in
             let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true
             if panel.runModal() == .OK, let url = panel.url {
                 _ = try? self?.router?.createWorkspace(name: url.lastPathComponent, cwd: url.path)
             }
         })
         if let wid = router.context?.state.window.selectedWorkspaceID {
-            cmds.append(PaletteCommand(id: "surface.new.terminal", title: "New Terminal Surface", subtitle: "In current workspace", keywords: ["terminal", "shell"], shortcut: "⌘T", category: .surfaces, iconName: "terminal") {
+            cmds.append(PaletteCommand(id: "surface.new.terminal", title: L("New Terminal Surface"), subtitle: L("In current workspace"), keywords: ["terminal", "shell"], shortcut: "⌘T", category: .surfaces, iconName: "terminal") {
                 _ = try? router.createSurface(workspace: wid, type: .terminal, paneID: nil, title: nil)
             })
-            cmds.append(PaletteCommand(id: "surface.new.browser", title: "New Browser Surface", subtitle: "In current workspace", keywords: ["browser", "web"], shortcut: "⌘B", category: .surfaces, iconName: "globe") {
+            cmds.append(PaletteCommand(id: "surface.new.browser", title: L("New Browser Surface"), subtitle: L("In current workspace"), keywords: ["browser", "web"], shortcut: "⌘B", category: .surfaces, iconName: "globe") {
                 _ = try? router.createSurface(workspace: wid, type: .browser, paneID: nil, title: nil)
             })
-            cmds.append(PaletteCommand(id: "surface.new.agent", title: "New Agent App Surface", subtitle: "In current workspace", keywords: ["agent", "codex", "claude", "chat"], shortcut: "⌘G", category: .surfaces, iconName: "sparkles") {
+            cmds.append(PaletteCommand(id: "surface.new.agent", title: L("New Agent App Surface"), subtitle: L("In current workspace"), keywords: ["agent", "codex", "claude", "chat"], shortcut: "⌘G", category: .surfaces, iconName: "sparkles") {
                 _ = try? router.createSurface(workspace: wid, type: .agentApp, paneID: nil, title: nil)
             })
-            cmds.append(PaletteCommand(id: "surface.new.git", title: "New Git / Diff Surface", subtitle: "In current workspace", keywords: ["git", "diff", "changes", "history"], category: .surfaces, iconName: "arrow.triangle.branch") {
+            cmds.append(PaletteCommand(id: "surface.new.git", title: L("New Git / Diff Surface"), subtitle: L("In current workspace"), keywords: ["git", "diff", "changes", "history"], category: .surfaces, iconName: "arrow.triangle.branch") {
                 _ = try? router.createSurface(workspace: wid, type: .rightSidebarTool, paneID: nil, title: "Git")
             })
 
@@ -332,14 +332,14 @@ public final class CommandPalette: NSObject, NSWindowDelegate, NSTableViewDataSo
             let scriptCap = 12
             let scripts = cachedScripts(cwd: router.context?.state.workspaces[wid]?.cwd ?? "")
             for (i, s) in scripts.enumerated() {
-                cmds.append(PaletteCommand(id: "project.run.\(s.name)", title: "Run: \(s.name)", subtitle: "\(s.command) · \(s.source)", keywords: ["run", "script", "task", s.name], defaultHidden: i >= scriptCap, category: .project, iconName: "play.circle") {
+                cmds.append(PaletteCommand(id: "project.run.\(s.name)", title: L("Run: %1$@", s.name), subtitle: "\(s.command) · \(s.source)", keywords: ["run", "script", "task", s.name], defaultHidden: i >= scriptCap, category: .project, iconName: "play.circle") {
                     _ = try? router.projectRunScript(workspace: wid, name: s.name)
                 })
             }
             // UX-005: when the default view hides scripts, show an overflow row
             // that reveals the rest (typing reaches them anyway via UX-006).
-            appendOverflowRow(&cmds, hiddenCount: scripts.count - scriptCap, id: "project.run.more", noun: "scripts", category: .project)
-            cmds.append(PaletteCommand(id: "project.open_in_editor", title: "Open Workspace in Editor", subtitle: "Cursor / VS Code / Zed / Xcode", keywords: ["open", "editor", "code", "cursor", "zed"], category: .project, iconName: "chevron.left.forwardslash.chevron.right") {
+            appendOverflowRow(&cmds, hiddenCount: scripts.count - scriptCap, id: "project.run.more", noun: L("scripts"), category: .project)
+            cmds.append(PaletteCommand(id: "project.open_in_editor", title: L("Open Workspace in Editor"), subtitle: "Cursor / VS Code / Zed / Xcode", keywords: ["open", "editor", "code", "cursor", "zed"], category: .project, iconName: "chevron.left.forwardslash.chevron.right") {
                 _ = try? router.projectOpenInEditor(workspace: wid)
             })
 
@@ -353,7 +353,7 @@ public final class CommandPalette: NSObject, NSWindowDelegate, NSTableViewDataSo
                 // user sees what provider/model/thread is already active.
                 let currentModel = vm.model
                 let currentThread = vm.selectedThreadId
-                cmds.append(PaletteCommand(id: "agent.thread.new", title: "Agent: New Thread", subtitle: "Start a fresh thread", keywords: ["thread", "new", "chat"], category: .agent, iconName: "plus.bubble") {
+                cmds.append(PaletteCommand(id: "agent.thread.new", title: L("Agent: New Thread"), subtitle: L("Start a fresh thread"), keywords: ["thread", "new", "chat"], category: .agent, iconName: "plus.bubble") {
                     vm.createThread(title: "New thread")
                 })
                 // E2/UX-004: surface the provider's model catalog as quick-switches.
@@ -361,39 +361,39 @@ public final class CommandPalette: NSObject, NSWindowDelegate, NSTableViewDataSo
                 // disabled "Loading models..." row and observe the VM so the rows
                 // appear the moment loadModels() resolves - no reopen required.
                 if vm.availableModels.isEmpty && vm.modelListLoading {
-                    cmds.append(PaletteCommand(id: "agent.model.loading", title: "Agent: Loading models...", subtitle: "Fetching the provider's model catalog", category: .agent, iconName: "hourglass") {})
+                    cmds.append(PaletteCommand(id: "agent.model.loading", title: L("Agent: Loading models..."), subtitle: L("Fetching the provider's model catalog"), category: .agent, iconName: "hourglass") {})
                     nonRunnableRowIDs.insert("agent.model.loading")
                     observeAgentModels(vm)
                 }
                 // UX-006: add the full catalog; cap only the default view.
                 let modelCap = 12
                 for (i, m) in vm.availableModels.enumerated() {
-                    cmds.append(PaletteCommand(id: "agent.model.\(m.id)", title: "Agent: Model → \(m.label)", subtitle: Self.currentSubtitle(m.provider.rawValue, isCurrent: m.id == currentModel), keywords: ["model", "switch", m.id, m.label.lowercased()], defaultHidden: i >= modelCap, category: .agent, iconName: "cube") {
+                    cmds.append(PaletteCommand(id: "agent.model.\(m.id)", title: L("Agent: Model → %1$@", m.label), subtitle: Self.currentSubtitle(m.provider.rawValue, isCurrent: m.id == currentModel), keywords: ["model", "switch", m.id, m.label.lowercased()], defaultHidden: i >= modelCap, category: .agent, iconName: "cube") {
                         vm.model = m.id
                     })
                 }
-                appendOverflowRow(&cmds, hiddenCount: vm.availableModels.count - modelCap, id: "agent.model.more", noun: "models", category: .agent)
+                appendOverflowRow(&cmds, hiddenCount: vm.availableModels.count - modelCap, id: "agent.model.more", noun: L("models"), category: .agent)
                 let threadCap = 9
                 for (i, t) in vm.threads.enumerated() {
                     let n = i + 1
-                    cmds.append(PaletteCommand(id: "agent.thread.jump.\(n)", title: "Agent: Jump to \(t.title)", subtitle: Self.currentSubtitle("Thread \(n) · \(t.provider.rawValue)", isCurrent: t.id == currentThread), keywords: ["thread", "jump", "\(n)"], defaultHidden: i >= threadCap, category: .agent, iconName: "bubble.left.and.bubble.right") {
+                    cmds.append(PaletteCommand(id: "agent.thread.jump.\(n)", title: L("Agent: Jump to %1$@", AgentThreadTitle.display(t.title)), subtitle: Self.currentSubtitle(L("Thread %1$@ · %2$@", n, t.provider.rawValue), isCurrent: t.id == currentThread), keywords: ["thread", "jump", "\(n)"], defaultHidden: i >= threadCap, category: .agent, iconName: "bubble.left.and.bubble.right") {
                         vm.selectThread(t.id)
                     })
                 }
-                appendOverflowRow(&cmds, hiddenCount: vm.threads.count - threadCap, id: "agent.thread.more", noun: "threads", category: .agent)
+                appendOverflowRow(&cmds, hiddenCount: vm.threads.count - threadCap, id: "agent.thread.more", noun: L("threads"), category: .agent)
             }
         }
         // Jump to any workspace (sidebar navigation parity).
         if let ctx = router.context {
             for ws in ctx.state.window.workspaces.compactMap({ ctx.state.workspaces[$0] }) {
-                cmds.append(PaletteCommand(id: "workspace.jump.\(ws.id.value.uuidString)", title: "Switch to: \(ws.name)", subtitle: "Workspace · \(ws.cwd)", keywords: ["workspace", "switch", "jump", ws.name.lowercased()], category: .navigation, iconName: "arrow.right.circle") {
+                cmds.append(PaletteCommand(id: "workspace.jump.\(ws.id.value.uuidString)", title: L("Switch to: %1$@", ws.name), subtitle: L("Workspace · %1$@", ws.cwd), keywords: ["workspace", "switch", "jump", ws.name.lowercased()], category: .navigation, iconName: "arrow.right.circle") {
                     try? router.selectWorkspace(ws.id)
                 })
             }
         }
-        cmds.append(PaletteCommand(id: "session.save", title: "Save Session Snapshot", keywords: ["snapshot", "session"], category: .app, iconName: "camera") { router.context?.saveSnapshot() })
+        cmds.append(PaletteCommand(id: "session.save", title: L("Save Session Snapshot"), keywords: ["snapshot", "session"], category: .app, iconName: "camera") { router.context?.saveSnapshot() })
         // UX-011: Quit is destructive - red tint + de-prioritized in ranking.
-        cmds.append(PaletteCommand(id: "app.quit", title: "Quit MacCode", keywords: ["exit", "quit"], shortcut: "⌘Q", category: .app, iconName: "power", destructive: true) { NSApp.terminate(nil) })
+        cmds.append(PaletteCommand(id: "app.quit", title: L("Quit MacCode"), keywords: ["exit", "quit"], shortcut: "⌘Q", category: .app, iconName: "power", destructive: true) { NSApp.terminate(nil) })
         self.all = cmds
         applyFilter(currentQuery)
     }
@@ -402,7 +402,7 @@ public final class CommandPalette: NSObject, NSWindowDelegate, NSTableViewDataSo
     /// user sees the currently-selected provider/model/thread at a glance.
     private static func currentSubtitle(_ base: String, isCurrent: Bool) -> String {
         guard isCurrent else { return base }
-        return base.isEmpty ? "✓ Current" : "✓ Current · \(base)"
+        return base.isEmpty ? L("✓ Current") : L("✓ Current · %1$@", base)
     }
 
     /// UX-005: append a non-runnable "Show all N more <noun>..." row when the
@@ -410,7 +410,7 @@ public final class CommandPalette: NSObject, NSWindowDelegate, NSTableViewDataSo
     /// can reach them by typing - UX-006). No-op when nothing is hidden.
     private func appendOverflowRow(_ cmds: inout [PaletteCommand], hiddenCount: Int, id: String, noun: String, category: PaletteCategory) {
         guard hiddenCount > 0 else { return }
-        cmds.append(PaletteCommand(id: id, title: "Show all \(hiddenCount) more \(noun)...", subtitle: "Type to search the full list", category: category, iconName: "ellipsis.circle") {})
+        cmds.append(PaletteCommand(id: id, title: L("Show all %1$@ more %2$@...", hiddenCount, noun), subtitle: L("Type to search the full list"), category: category, iconName: "ellipsis.circle") {})
         nonRunnableRowIDs.insert(id)
     }
 
@@ -573,7 +573,7 @@ public final class CommandPalette: NSObject, NSWindowDelegate, NSTableViewDataSo
         // instead of a blank panel.
         if filtered.allSatisfy({ nonRunnableRowIDs.contains($0.id) }) && !lower.isEmpty {
             let id = "palette.noresults"
-            filtered = [PaletteCommand(id: id, title: "No commands matching “\(lower)”", subtitle: "Try a different term") {}]
+            filtered = [PaletteCommand(id: id, title: L("No commands matching “%1$@”", lower), subtitle: L("Try a different term")) {}]
             nonRunnableRowIDs.insert(id)
         }
         tableView.reloadData()
@@ -617,7 +617,7 @@ public final class CommandPalette: NSObject, NSWindowDelegate, NSTableViewDataSo
         for id in recentCommandIDs {
             guard let cmd = byID[id], !cmd.destructive else { continue }
             if out.isEmpty {
-                out.append(headerRow(id: headerID, title: "Recent"))
+                out.append(headerRow(id: headerID, title: L("Recent")))
             }
             out.append(cmd)
         }

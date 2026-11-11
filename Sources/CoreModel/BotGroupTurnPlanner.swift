@@ -26,9 +26,9 @@ public enum BotGroupTurnPlanner {
         public var message: String {
             switch self {
             case .noParticipants:
-                return "This group has no bots. Add a participant to continue."
+                return L("This group has no bots. Add a participant to continue.")
             case .mentionRequired:
-                return "This group answers only when you @mention a participant."
+                return L("This group answers only when you @mention a participant.")
             }
         }
     }
@@ -176,10 +176,10 @@ public enum BotGroupTurnPlanner {
         let limit = min(max(maxAutoHops, 0), BotGroupConversation.maxAutoHopsCap)
         let reason: String
         switch limit {
-        case 0: reason = "Automatic hand-offs are off in this group."
-        case 1: reason = "Paused after 1 automatic hand-off in this round."
-        default: reason = "Paused after \(limit) automatic hand-offs in this round."
+        case 0: reason = L("Automatic hand-offs are off in this group.")
+        case 1: reason = L("Paused after 1 automatic hand-off in this round.")
+        default: reason = L("Paused after %1$@ automatic hand-offs in this round.", limit)
         }
-        return "\(reason) \(handles) did not answer. Mention them in a new message to continue."
+        return L("%1$@ %2$@ did not answer. Mention them in a new message to continue.", reason, handles)
     }
 }

@@ -53,20 +53,20 @@ public enum PetNotificationCategory: String, CaseIterable, Sendable, Equatable {
         case .sshTransferFailed:
             return .safe(kind: .sshTransfer(.failed))
         case .sshUnexpectedDisconnect:
-            return PetAttentionPresentation(title: "Reconnect SSH", detail: "The connection ended unexpectedly. Reconnect or dismiss this alert.")
+            return PetAttentionPresentation(title: L("Reconnect SSH"), detail: L("The connection ended unexpectedly. Reconnect or dismiss this alert."))
         case .providerUpdateFailed:
             return .safe(kind: .providerUpdateFailed)
         case .fileConflict:
             return .safe(kind: .fileConflict)
         case .serverListenerFailed:
-            return PetAttentionPresentation(title: "Restore remote access", detail: "Open Settings to check the listener, or dismiss this alert.")
+            return PetAttentionPresentation(title: L("Restore remote access"), detail: L("Open Settings to check the listener, or dismiss this alert."))
         case .notificationsDenied:
             return PetAttentionPresentation(
-                title: "Notifications are turned off",
-                detail: "You can enable notifications in System Settings. Your runs can continue without them."
+                title: L("Notifications are turned off"),
+                detail: L("You can enable notifications in System Settings. Your runs can continue without them.")
             )
         case .agentAttention:
-            return PetAttentionPresentation(title: "Agent input requested", detail: nil)
+            return PetAttentionPresentation(title: L("Agent input requested"), detail: nil)
         }
     }
 }
@@ -293,7 +293,7 @@ public enum PetActiveThreadProjector {
 
 /// Groups popover rows under workspace headers while preserving relative order.
 public enum PetPopoverGrouping {
-    public static let unknownWorkspaceName = "Other"
+    public static let unknownWorkspaceName = L("Other")
 
     public struct Group<Item: Identifiable>: Identifiable {
         public let id: String

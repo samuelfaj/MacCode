@@ -12,17 +12,17 @@ public enum BotPublishError: Error, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .handleEmpty:
-            return "Bot handle is empty or invalid."
+            return L("Bot handle is empty or invalid.")
         case .handleConflict:
-            return "Bot handle is already used or retired."
+            return L("Bot handle is already used or retired.")
         case .revisionConflict:
-            return "Bot revision changed; publish again."
+            return L("Bot revision changed; publish again.")
         case .controlPlaneDisabled:
-            return "Bot control plane is off."
+            return L("Bot control plane is off.")
         case .invalidRevision:
-            return "Bot revision is invalid."
+            return L("Bot revision is invalid.")
         case .accountCap:
-            return "Account limit of 50 live bots reached."
+            return L("Account limit of 50 live bots reached.")
         }
     }
 }
@@ -73,39 +73,39 @@ public enum BotDesktopKind: String, Codable, Sendable, CaseIterable {
 
     /// Honest P1a copy — this kind is not a VM or a dedicated Desktop.
     public static let logicalExecutionSpaceHonestyLabel =
-        "This Mac · owner's Google Chrome. Same macOS account; not isolated."
+        L("This Mac · owner's Google Chrome. Same macOS account; not isolated.")
 
     public static let botOwnedBrowserHonestyLabel =
-        "This Mac · this teammate's own Playwright browser. Not the owner's browser. Same macOS account."
+        L("This Mac · this teammate's own Playwright browser. Not the owner's browser. Same macOS account.")
 
     /// New threads of a Docker bot always run inside the guest.
     public static let dockerDesktopHonestyLabel =
-        "Linux screen in Docker on 127.0.0.1. The bot's agent runs inside this Linux VM with your accounts. Not a security boundary."
+        L("Linux screen in Docker on 127.0.0.1. The bot's agent runs inside this Linux VM with your accounts. Not a security boundary.")
 
     /// Compiled into a thread whose agent runs inside the bot's guest.
     public static let dockerDesktopGuestRunHonestyLabel =
-        "Linux screen in Docker on 127.0.0.1. This thread's agent, shell, and files run inside this Linux VM with the user's accounts. Not a security boundary."
+        L("Linux screen in Docker on 127.0.0.1. This thread's agent, shell, and files run inside this Linux VM with the user's accounts. Not a security boundary.")
 
     /// Compiled into a Docker bot's thread whose agent runs on the Mac.
     public static let dockerDesktopMacRunHonestyLabel =
-        "Linux screen in Docker on 127.0.0.1. Browser work runs Playwright inside the guest. Agent, files, and workspace stay on this Mac. Not a security boundary."
+        L("Linux screen in Docker on 127.0.0.1. Browser work runs Playwright inside the guest. Agent, files, and workspace stay on this Mac. Not a security boundary.")
 
     /// Desk desktop pane: where the selected thread's agent runs.
     public static func guestRuntimeLabel(botName: String) -> String {
-        "Running inside \(botName)'s Linux VM · your accounts"
+        L("Running inside %1$@'s Linux VM · your accounts", botName)
     }
 
-    public static let macRuntimeLabel = "Running on this Mac"
+    public static let macRuntimeLabel = L("Running on this Mac")
 
     /// A guest thread whose provider changed: it still runs only in the guest,
     /// which runs only Distill, so it does not run until switched back.
     public static func guestNeedsDistillRuntimeLabel(botName: String) -> String {
-        "Runs only inside \(botName)'s Linux VM · switch back to Distill to run it"
+        L("Runs only inside %1$@'s Linux VM · switch back to Distill to run it", botName)
     }
 
     /// Decode-only leftover. Display and publish resolve to Logical execution space.
     public static let dedicatedLocalVMHonestyLabel =
-        "Guest is not running yet. Work still uses this Mac account; not isolated."
+        L("Guest is not running yet. Work still uses this Mac account; not isolated.")
 
     public var honestyLabel: String {
         switch self {
@@ -118,37 +118,37 @@ public enum BotDesktopKind: String, Codable, Sendable, CaseIterable {
         case .dedicatedLocalVM:
             return Self.dedicatedLocalVMHonestyLabel
         case .managedRemoteMac:
-            return "Managed remote Mac Desktop. Off until the remote flag is on."
+            return L("Managed remote Mac Desktop. Off until the remote flag is on.")
         }
     }
 
     public var displayTitle: String {
         switch self {
         case .logicalExecutionSpace:
-            return "macOS with the owner's Google Chrome"
+            return L("macOS with the owner's Google Chrome")
         case .botOwnedBrowser:
-            return "macOS with the bot's own browser"
+            return L("macOS with the bot's own browser")
         case .dockerDesktop:
-            return "Docker with GUI"
+            return L("Docker with GUI")
         case .dedicatedLocalVM:
-            return "Dedicated local VM"
+            return L("Dedicated local VM")
         case .managedRemoteMac:
-            return "Managed remote Mac"
+            return L("Managed remote Mac")
         }
     }
 
     public var statusPill: String {
         switch self {
         case .logicalExecutionSpace:
-            return "Owner's Chrome"
+            return L("Owner's Chrome")
         case .botOwnedBrowser:
-            return "Bot browser"
+            return L("Bot browser")
         case .dockerDesktop:
-            return "Docker · loopback"
+            return L("Docker · loopback")
         case .dedicatedLocalVM:
-            return "Local VM · not running"
+            return L("Local VM · not running")
         case .managedRemoteMac:
-            return "Remote Mac · not shipped"
+            return L("Remote Mac · not shipped")
         }
     }
 
@@ -254,29 +254,29 @@ public enum BotAttentionItemKind: String, Codable, Sendable, Equatable {
     public var activityTitle: String {
         switch self {
         case .question: return "Reply to Bot"
-        case .approval: return "Approve or decline Bot request"
-        case .blocked: return "Review failed Bot run"
-        case .handoff: return "Review Bot handoff"
-        case .unknownEffect: return "Verify action outcome"
-        case .unread: return "New Bot result"
+        case .approval: return L("Approve or decline Bot request")
+        case .blocked: return L("Review failed Bot run")
+        case .handoff: return L("Review Bot handoff")
+        case .unknownEffect: return L("Verify action outcome")
+        case .unread: return L("New Bot result")
         }
     }
 
     public var resolutionHint: String {
         switch self {
-        case .question: return "Reply in this conversation. This request clears when you send your response."
-        case .approval: return "Approve or decline the request in this conversation. It clears after your decision."
-        case .blocked: return "Review the error and try again, or dismiss this alert. A new run clears the previous failure."
-        case .handoff: return "Review the handoff and send the next instruction, or dismiss this alert."
-        case .unknownEffect: return "Check whether the action took effect before retrying. Dismiss this alert after verifying the outcome."
-        case .unread: return "Open the conversation to read the result."
+        case .question: return L("Reply in this conversation. This request clears when you send your response.")
+        case .approval: return L("Approve or decline the request in this conversation. It clears after your decision.")
+        case .blocked: return L("Review the error and try again, or dismiss this alert. A new run clears the previous failure.")
+        case .handoff: return L("Review the handoff and send the next instruction, or dismiss this alert.")
+        case .unknownEffect: return L("Check whether the action took effect before retrying. Dismiss this alert after verifying the outcome.")
+        case .unread: return L("Open the conversation to read the result.")
         }
     }
 }
 
 public enum BotRoutineCopy {
     public static let testRunHonestyCaption =
-        "Test runs are real work. Active tasks run on schedule only while MacCode is open."
+        L("Test runs are real work. Active tasks run on schedule only while MacCode is open.")
 }
 
 /// Bots default to Full access; the user may pick Supervised per Bot or per
@@ -286,7 +286,7 @@ public enum BotPermission {
     public static let advertisedModes: [AgentPermissionMode] = [.supervised, .fullAccess]
 
     public static let honestyLabel =
-        "Supervised. Ask before tool actions. Host-brokered writes stay off."
+        L("Supervised. Ask before tool actions. Host-brokered writes stay off.")
 
     public static func advertisedOrSupervised(_ mode: AgentPermissionMode) -> AgentPermissionMode {
         advertisedModes.contains(mode) ? mode : .supervised

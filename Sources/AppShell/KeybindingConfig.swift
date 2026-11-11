@@ -1,5 +1,6 @@
 import Foundation
 import os
+import CoreModel
 
 private let keybindingLog = Logger(subsystem: "io.remotecode.appshell", category: "keybindings")
 
@@ -46,7 +47,7 @@ public struct KeybindingConfig: Equatable {
         for (i, raw) in arr.enumerated() {
             guard let key = raw["key"] as? String, !key.isEmpty,
                   let cmd = raw["command"] as? String, !cmd.isEmpty else {
-                warns.append("rule \(i) missing key/command — dropped")
+                warns.append(L("rule %1$@ missing key/command — dropped", i))
                 continue
             }
             out.append(Keybinding(key: normalize(key), command: cmd, when: raw["when"] as? String))

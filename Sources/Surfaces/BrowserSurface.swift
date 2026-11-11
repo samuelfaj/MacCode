@@ -57,8 +57,8 @@ public enum BrowserContextMenuHelper {
     public static func menuItemSpecs(linkURL: URL?) -> [ContextMenuItemSpec] {
         guard let url = linkURL else { return [] }
         return [
-            ContextMenuItemSpec(title: "Open Link in New Surface", action: .openLinkInNewSurface(url)),
-            ContextMenuItemSpec(title: "Copy Link", action: .copyLink(url))
+            ContextMenuItemSpec(title: L("Open Link in New Surface"), action: .openLinkInNewSurface(url)),
+            ContextMenuItemSpec(title: L("Copy Link"), action: .copyLink(url))
         ]
     }
 }
@@ -72,7 +72,7 @@ public enum FindResultFormatter {
     ///   - wrapped: true when the search wrapped around the document.
     /// - Returns: e.g. "3 of 12", "1 of 5 \u{21A9}", or "No results".
     public static func label(current: Int, total: Int, wrapped: Bool) -> String {
-        guard total > 0 else { return "No results" }
+        guard total > 0 else { return L("No results") }
         let base = "\(current) of \(total)"
         return wrapped ? "\(base) \u{21A9}" : base
     }
@@ -268,7 +268,7 @@ public final class BrowserSurface: NSObject, Surface, WKNavigationDelegate, WKUI
         self.webView = wv
 
         let tf = NSTextField()
-        tf.placeholderString = "Search or enter address"
+        tf.placeholderString = L("Search or enter address")
         tf.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         tf.drawsBackground = true
         tf.backgroundColor = DS.NS.surfaceRaised
@@ -276,17 +276,17 @@ public final class BrowserSurface: NSObject, Surface, WKNavigationDelegate, WKUI
         tf.bezelStyle = .roundedBezel
         tf.focusRingType = .none
         tf.setAccessibilityIdentifier("browser.url-field")
-        tf.setAccessibilityLabel("Address")
+        tf.setAccessibilityLabel(L("Address"))
         self.addressBar = tf
 
         let toolbar = NSView()
         toolbar.wantsLayer = true
         toolbar.layer?.backgroundColor = DS.NS.surface.cgColor
         for (b, glyph, help, axID) in [
-            (backButton, "chevron.backward", "Back", "browser.back"),
-            (forwardButton, "chevron.forward", "Forward", "browser.forward"),
-            (reloadButton, "arrow.clockwise", "Reload", "browser.reload"),
-            (openExternalButton, "arrow.up.forward.square", "Open in Default Browser", "browser.open-external")
+            (backButton, "chevron.backward", L("Back"), "browser.back"),
+            (forwardButton, "chevron.forward", L("Forward"), "browser.forward"),
+            (reloadButton, "arrow.clockwise", L("Reload"), "browser.reload"),
+            (openExternalButton, "arrow.up.forward.square", L("Open in Default Browser"), "browser.open-external")
         ] {
             b.isBordered = false
             b.bezelStyle = .inline
@@ -303,13 +303,13 @@ public final class BrowserSurface: NSObject, Surface, WKNavigationDelegate, WKUI
         for v in [toolbar, wv] { v.translatesAutoresizingMaskIntoConstraints = false }
         securityIndicator.isBordered = false
         securityIndicator.bezelStyle = .inline
-        securityIndicator.image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "Secure")
+        securityIndicator.image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: L("Secure"))
         securityIndicator.contentTintColor = DS.NS.textSecondary
         securityIndicator.imageScaling = .scaleProportionallyDown
-        securityIndicator.toolTip = "Secure"
+        securityIndicator.toolTip = L("Secure")
         securityIndicator.isEnabled = false
         securityIndicator.setAccessibilityIdentifier("browser.security-indicator")
-        securityIndicator.setAccessibilityLabel("Security indicator")
+        securityIndicator.setAccessibilityLabel(L("Security indicator"))
         for v in [backButton, forwardButton, reloadButton, securityIndicator, tf, openExternalButton] { v.translatesAutoresizingMaskIntoConstraints = false; toolbar.addSubview(v) }
         container.addSubview(toolbar)
         container.addSubview(wv)
@@ -371,16 +371,16 @@ public final class BrowserSurface: NSObject, Surface, WKNavigationDelegate, WKUI
         findBar.isHidden = true
         findBar.setAccessibilityIdentifier("browser.find-bar")
         findBar.translatesAutoresizingMaskIntoConstraints = false
-        findField.placeholderString = "Find on page"
+        findField.placeholderString = L("Find on page")
         findField.bezelStyle = .roundedBezel
         findField.focusRingType = .none
         findField.setAccessibilityIdentifier("browser.find-field")
-        findField.setAccessibilityLabel("Find on page")
+        findField.setAccessibilityLabel(L("Find on page"))
         findField.translatesAutoresizingMaskIntoConstraints = false
         for (b, glyph, help, axID) in [
-            (findPrevButton, "chevron.up", "Previous match", "browser.find-prev"),
-            (findNextButton, "chevron.down", "Next match", "browser.find-next"),
-            (findCloseButton, "xmark", "Close find", "browser.find-close")
+            (findPrevButton, "chevron.up", L("Previous match"), "browser.find-prev"),
+            (findNextButton, "chevron.down", L("Next match"), "browser.find-next"),
+            (findCloseButton, "xmark", L("Close find"), "browser.find-close")
         ] {
             b.isBordered = false
             b.bezelStyle = .inline
@@ -394,7 +394,7 @@ public final class BrowserSurface: NSObject, Surface, WKNavigationDelegate, WKUI
         findCountLabel.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
         findCountLabel.textColor = DS.NS.textSecondary
         findCountLabel.setAccessibilityIdentifier("browser.find-count")
-        findCountLabel.setAccessibilityLabel("Match count")
+        findCountLabel.setAccessibilityLabel(L("Match count"))
 
         let findStack = NSStackView(views: [findField, findCountLabel, findPrevButton, findNextButton, findCloseButton])
         findStack.orientation = .horizontal
@@ -418,14 +418,14 @@ public final class BrowserSurface: NSObject, Surface, WKNavigationDelegate, WKUI
         errorOverlay.setAccessibilityIdentifier("browser.error-overlay")
         errorOverlay.translatesAutoresizingMaskIntoConstraints = false
         let errorIcon = NSImageView()
-        errorIcon.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: "Error")
+        errorIcon.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: L("Error"))
         errorIcon.contentTintColor = DS.NS.textSecondary
         errorIcon.translatesAutoresizingMaskIntoConstraints = false
         errorLabel.alignment = .center
         errorLabel.maximumNumberOfLines = 0
         errorLabel.textColor = DS.NS.text
         errorLabel.translatesAutoresizingMaskIntoConstraints = false
-        retryButton.title = "Retry"
+        retryButton.title = L("Retry")
         retryButton.bezelStyle = .rounded
         retryButton.setAccessibilityIdentifier("browser.error-retry")
         retryButton.translatesAutoresizingMaskIntoConstraints = false
@@ -573,13 +573,13 @@ public final class BrowserSurface: NSObject, Surface, WKNavigationDelegate, WKUI
     private func updateLoadingChrome(isLoading: Bool) {
         if isLoading {
             progressBar.isHidden = false
-            reloadButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Stop")
-            reloadButton.toolTip = "Stop"
+            reloadButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: L("Stop"))
+            reloadButton.toolTip = L("Stop")
         } else {
             progressBar.isHidden = true
             progressBar.doubleValue = 0
-            reloadButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Reload")
-            reloadButton.toolTip = "Reload"
+            reloadButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: L("Reload"))
+            reloadButton.toolTip = L("Reload")
         }
         updateNavigationButtons()
     }
@@ -668,7 +668,7 @@ public final class BrowserSurface: NSObject, Surface, WKNavigationDelegate, WKUI
         let currentURLString = webView.url?.absoluteString ?? retainedURL?.absoluteString ?? ""
         let secure = Self.isSecureURL(currentURLString)
         let glyph = secure ? "lock.fill" : "lock.open.fill"
-        let desc = secure ? "Secure" : "Not secure"
+        let desc = secure ? L("Secure") : L("Not secure")
         securityIndicator.image = NSImage(systemSymbolName: glyph, accessibilityDescription: desc)
         securityIndicator.contentTintColor = secure ? DS.NS.textSecondary : DS.NS.textTertiary
         securityIndicator.toolTip = desc
@@ -1052,7 +1052,7 @@ public final class BrowserSurface: NSObject, Surface, WKNavigationDelegate, WKUI
 
     private func showWindowOpenBanner(for url: URL) {
         let host = url.host ?? url.absoluteString
-        windowOpenBannerLabel.stringValue = "Opened \(host) in this tab"
+        windowOpenBannerLabel.stringValue = L("Opened %1$@ in this tab", host)
         windowOpenBanner.isHidden = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
             self?.windowOpenBanner.isHidden = true

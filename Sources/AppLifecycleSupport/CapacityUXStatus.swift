@@ -1,4 +1,5 @@
 import Foundation
+import CoreModel
 
 /// Capacity UX honesty model (S12 / T-003).
 ///
@@ -61,19 +62,19 @@ public struct CapacityUXStatus: Sendable, Equatable {
         unavailable: [String]
     ) -> String {
         var parts: [String] = []
-        parts.append("Hardware tier \(tier)")
+        parts.append(L("Hardware tier %1$@", tier))
         switch envelope {
         case .withinMeasuredEnvelope:
-            parts.append("within measured capacity envelope")
+            parts.append(L("within measured capacity envelope"))
         case .beyondMeasuredEnvelope:
-            parts.append("beyond measured capacity envelope; responsiveness not guaranteed")
+            parts.append(L("beyond measured capacity envelope; responsiveness not guaranteed"))
         case .unmeasured:
-            parts.append("envelope not yet physically measured")
+            parts.append(L("envelope not yet physically measured"))
         case .accountingUnavailable:
-            parts.append("memory accounting unavailable")
+            parts.append(L("memory accounting unavailable"))
         }
-        parts.append("host pressure \(host.rawValue)")
-        parts.append("provider tree pressure \(provider.rawValue)")
+        parts.append(L("host pressure %1$@", host.rawValue))
+        parts.append(L("provider tree pressure %1$@", provider.rawValue))
         if !actions.isEmpty {
             parts.append("actions: \(actions.joined(separator: ", "))")
         }

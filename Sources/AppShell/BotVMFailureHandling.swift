@@ -111,7 +111,7 @@ extension AppCommandRouter {
     }
 
     nonisolated static func botVMBusyNotice(holderTitle: String) -> String {
-        "The VM is busy in \(holderTitle)"
+        L("The VM is busy in %1$@", holderTitle)
     }
 
     /// Queues `thread` behind the run holding the bot's VM and shows the
@@ -183,7 +183,7 @@ extension AppCommandRouter {
             for viewModel in botThreadViewModels {
                 viewModel.pendingMacExecutionByThread[thread] = reason
                 if viewModel.selectedThreadId == thread {
-                    viewModel.statusMessage = "Could not save the answer: \(error.localizedDescription)"
+                    viewModel.statusMessage = L("Could not save the answer: %1$@", error.localizedDescription)
                 }
             }
             throw MacExecutionStoreError(underlying: error)
@@ -221,7 +221,7 @@ extension AppCommandRouter {
     /// its agent runs in the guest user's home, and BotHome is never a mountable workspace.
     /// A bot already running elsewhere keeps its container: the send queues instead of remounting.
     func botVMPreflight(_ botID: BotID, workspace: String?, threadID: AgentThreadID? = nil) async -> String? {
-        guard let ctx = context else { return "MacCode is not ready." }
+        guard let ctx = context else { return L("MacCode is not ready.") }
         let docker = botVMDocker
         let service = botVMService(appSupport: ctx.appSupportDirectory)
         let registered = Set(ctx.state.workspaces.values.map(\.cwd))
@@ -234,7 +234,7 @@ extension AppCommandRouter {
                 let destination = try threadID.flatMap { try store.threadExecutionDestination($0) } ?? store.executionDestination(botID: botID)
                 let thread = try threadID.map { id -> AgentThread in
                     guard let thread = try threads.get(id: id) else {
-                        throw BotStoreError.invalidInput("This conversation no longer exists.")
+                        throw BotStoreError.invalidInput(L("This conversation no longer exists."))
                     }
                     return thread
                 }
@@ -245,12 +245,12 @@ extension AppCommandRouter {
                     // A worktree has its own path while retaining the workspace identity.
                     guard let ownerWorkspace = workspaces[owner],
                           thread != nil || workspace == nil || workspace == ownerWorkspace.cwd else {
-                        return "This VM belongs to another workspace or its workspace is no longer available."
+                        return L("This VM belongs to another workspace or its workspace is no longer available.")
                     }
                 }
                 let resourceID = try store.guestResourceID(botID: botID, threadID: threadID)
                 if BotComputerControl.shared.isControlledByUser(botID, resourceID: resourceID) {
-                    return "You are controlling this VM. Return control before starting a conversation."
+                    return L("You are controlling this VM. Return control before starting a conversation.")
                 }
                 prefetch(try docker.info())
                 if machine != nil { return nil }
@@ -309,7 +309,7 @@ extension AppCommandRouter {
 
     /// nil on success; otherwise the user-facing failure.
     func provisionBotVM(_ botID: BotID) async -> String? {
-        guard let appSupport = context?.appSupportDirectory else { return "MacCode is not ready." }
+        guard let appSupport = context?.appSupportDirectory else { return L("MacCode is not ready.") }
         let service = botVMService(appSupport: appSupport)
         let docker = botVMDocker
         let prefetch = guestDistillPrefetch()

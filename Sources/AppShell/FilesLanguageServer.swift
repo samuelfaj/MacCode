@@ -1,3 +1,4 @@
+import CoreModel
 import Foundation
 
 struct LSPPosition: Equatable, Sendable {

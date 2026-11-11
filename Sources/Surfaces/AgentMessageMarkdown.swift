@@ -1,3 +1,4 @@
+import CoreModel
 import Foundation
 import SwiftUI
 import AppKit
@@ -1176,7 +1177,7 @@ struct CodeBlockCopyChrome: View {
                         .font(DS.Font.caption2.monospaced())
                         .foregroundColor(DS.Palette.textTertiary)
                         .lineLimit(1)
-                        .accessibilityLabel("\(language) code")
+                        .accessibilityLabel(L("%1$@ code", language))
                 }
                 AgentSelectablePlainText(
                     text: text.isEmpty ? " " : text,
@@ -1199,7 +1200,7 @@ struct CodeBlockCopyChrome: View {
                     copied = false
                 }
             }) {
-                Text(copied ? "Copied" : "Copy")
+                Text(copied ? L("Copied") : L("Copy"))
                     .font(DS.Font.caption2)
                     .foregroundColor(DS.Palette.textSecondary)
                     .padding(.horizontal, DS.Space.sm)
@@ -1214,9 +1215,9 @@ struct CodeBlockCopyChrome: View {
             }
             .buttonStyle(.plain)
             .focused($copyFocused)
-            .accessibilityLabel(copied ? "Copied" : "Copy code")
+            .accessibilityLabel(copied ? L("Copied") : L("Copy code"))
             .accessibilityIdentifier("agent.codeBlock.copy")
-            .help("Copy code to clipboard")
+            .help(L("Copy code to clipboard"))
             .padding(DS.Space.sm)
         }
         .onHover { inside in
@@ -1586,7 +1587,7 @@ struct DiffPreviewText: View {
             out.append(seg)
         }
         if lines.count > maxLines {
-            var more = AttributedString("… \(lines.count - maxLines) more lines")
+            var more = AttributedString(L("… %1$@ more lines", lines.count - maxLines))
             more.foregroundColor = DS.Palette.textSecondary
             out.append(more)
         }
@@ -1624,7 +1625,7 @@ struct AgentFileEditDiffCard: View {
                     Image(systemName: "diamond.fill")
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundColor(DS.Palette.textTertiary)
-                    Text("Edit")
+                    Text(L("Edit"))
                         .font(DS.Font.caption.weight(.semibold))
                         .foregroundColor(DS.Palette.textSecondary)
                     if let path = model.path, !path.isEmpty {
@@ -1645,7 +1646,7 @@ struct AgentFileEditDiffCard: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(expanded ? "Hide file edit diff" : "Show file edit diff")
+            .accessibilityLabel(expanded ? L("Hide file edit diff") : L("Show file edit diff"))
             .accessibilityIdentifier("agent.fileEdit.header")
 
             if expanded {
@@ -1657,7 +1658,7 @@ struct AgentFileEditDiffCard: View {
                         Button {
                             showAllLines = true
                         } label: {
-                            Text("Show \(visible.hiddenCount) more lines")
+                            Text(L("Show %1$@ more lines", visible.hiddenCount))
                                 .font(DS.Font.caption2)
                                 .foregroundColor(DS.Palette.accent)
                                 .padding(.horizontal, DS.Space.sm)
@@ -1666,7 +1667,7 @@ struct AgentFileEditDiffCard: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("agent.fileEdit.showMore")
                     } else if model.hiddenLineCount > 0 {
-                        Text("… \(model.hiddenLineCount) more lines truncated")
+                        Text(L("… %1$@ more lines truncated", model.hiddenLineCount))
                             .font(DS.Font.caption2)
                             .foregroundColor(DS.Palette.textSecondary)
                             .padding(.horizontal, DS.Space.sm)

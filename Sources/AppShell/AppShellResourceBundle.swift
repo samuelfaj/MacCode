@@ -1,3 +1,4 @@
+import CoreModel
 import Foundation
 
 /// Resolves the SwiftPM `RemoteCode_AppShell` resource bundle inside a real

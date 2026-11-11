@@ -138,7 +138,7 @@ final class AppIdentityNotificationTests: XCTestCase {
         let account = try XCTUnwrap(source.range(of: "if vm.privateAccountUser != nil"))
         let settings = try XCTUnwrap(source.range(of: "Button(action: onOpenSettings)"))
         let toggle = try XCTUnwrap(source.range(of: "Button { vm.toggleSidebar() }"))
-        let newWorkspace = try XCTUnwrap(source.range(of: "Label(\"New Workspace\""))
+        let newWorkspace = try XCTUnwrap(source.range(of: "Label(L(\"New Workspace\")"))
         let updates = try XCTUnwrap(source.range(of: "title: vm.updateActionTitle"))
 
         let reportBug = try XCTUnwrap(source.range(of: "accessibilityIdentifier(\"sidebar.reportBug\")"))

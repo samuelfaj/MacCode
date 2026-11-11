@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import DesignSystemKit
+import CoreModel
 
 /// Hosts first-run setup in its own titled window above the main window.
 @MainActor
@@ -14,7 +15,7 @@ public final class OnboardingWindowController: NSObject, NSWindowDelegate {
         self.onFinish = onFinish
         let host = NSHostingController(rootView: OnboardingView(vm: viewModel, setup: setup))
         let win = NSWindow(contentViewController: host)
-        win.title = "Set up MacCode"
+        win.title = L("Set up MacCode")
         win.styleMask = [.titled, .closable, .resizable, .fullSizeContentView]
         win.titlebarAppearsTransparent = true
         win.backgroundColor = DS.NS.bg
@@ -30,6 +31,13 @@ public final class OnboardingWindowController: NSObject, NSWindowDelegate {
     public func show() {
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// Without a MacCode account the app cannot be used, so closing setup quits.
+    public func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard !viewModel.isSignedIn else { return true }
+        NSApp.terminate(nil)
+        return false
     }
 
     public func windowWillClose(_ notification: Notification) {
@@ -50,7 +58,9 @@ extension AppDelegate {
         )
         if let initial = decision.stateToSave { store.save(initial) }
         guard decision.present else { return false }
-        showOnboarding()
+        // Finished setup that is only missing a session asks for sign-in alone.
+        let finished = store.load().map { $0.status == .completed || $0.status == .skipped } ?? false
+        openOnboarding(startingAt: nil, signInOnly: finished)
         return true
     }
 
@@ -58,7 +68,7 @@ extension AppDelegate {
     @objc func showOnboarding() { openOnboarding(startingAt: nil) }
 
     /// `step` moves an unfinished setup to that step (sidebar Sign in → Account).
-    func openOnboarding(startingAt step: OnboardingStep?) {
+    func openOnboarding(startingAt step: OnboardingStep?, signInOnly: Bool = false) {
         guard let context else { return }
         if let existing = onboardingController {
             if let step { existing.viewModel.jump(to: step) }
@@ -67,7 +77,7 @@ extension AppDelegate {
         }
         let store = OnboardingStateStore(repo: context.settingsRepo)
         var state = store.load() ?? OnboardingState()
-        if state.status != .inProgress {
+        if state.status != .inProgress, !signInOnly {
             state.status = .inProgress
             if state.completedAt != nil { state.step = .setup }
         }
@@ -85,6 +95,7 @@ extension AppDelegate {
             distillOverride: (try? context.settingsRepo.get("cli.distill.path")) ?? nil)
         let controller = OnboardingWindowController(viewModel: vm, setup: setup) { [weak self] in
             self?.onboardingController = nil
+            guard vm.isSignedIn else { return }
             // A first-run launch kept the main window hidden behind setup.
             if self?.windowController?.window.isVisible == false { self?.windowController?.show() }
         }

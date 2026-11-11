@@ -77,14 +77,14 @@ public struct ScheduledFrequencyRule: Codable, Sendable, Equatable {
 
     public func makeRecurrence() throws -> ScheduledTaskRecurrence {
         guard let time = ScheduledLocalTime(hour: localTimeHour, minute: localTimeMinute) else {
-            throw ScheduledFrequencyRuleError.invalid("Select a valid local time.")
+            throw ScheduledFrequencyRuleError.invalid(L("Select a valid local time."))
         }
         switch frequency {
         case .once:
             return .once(at: ScheduledTaskOccurrenceCalculator.canonicalInstant(scheduledDate))
         case .hourly:
             guard let value = ScheduledTaskRecurrence.makeHourly(anchor: scheduledDate, intervalHours: intervalHours) else {
-                throw ScheduledFrequencyRuleError.invalid("Hourly interval must be between 1 and 24.")
+                throw ScheduledFrequencyRuleError.invalid(L("Hourly interval must be between 1 and 24."))
             }
             return value
         case .daily:
@@ -93,21 +93,21 @@ public struct ScheduledFrequencyRule: Codable, Sendable, Equatable {
             return .weekdays(at: time)
         case .weekly:
             guard let value = ScheduledTaskRecurrence.makeWeekly(on: weekdays, at: time) else {
-                throw ScheduledFrequencyRuleError.invalid("Select at least one weekday.")
+                throw ScheduledFrequencyRuleError.invalid(L("Select at least one weekday."))
             }
             return value
         case .monthly:
             guard let value = ScheduledTaskRecurrence.makeMonthly(day: monthlyDay, at: time) else {
-                throw ScheduledFrequencyRuleError.invalid("Monthly day must be between 1 and 28.")
+                throw ScheduledFrequencyRuleError.invalid(L("Monthly day must be between 1 and 28."))
             }
             return value
         }
     }
 
     public static func combinedRecurrence(_ rules: [ScheduledFrequencyRule]) throws -> ScheduledTaskRecurrence {
-        guard !rules.isEmpty else { throw ScheduledFrequencyRuleError.invalid("Add at least one frequency.") }
+        guard !rules.isEmpty else { throw ScheduledFrequencyRuleError.invalid(L("Add at least one frequency.")) }
         guard rules.count <= ScheduledTaskRecurrence.maxRules else {
-            throw ScheduledFrequencyRuleError.invalid("At most \(ScheduledTaskRecurrence.maxRules) frequencies.")
+            throw ScheduledFrequencyRuleError.invalid(L("At most %1$@ frequencies.", ScheduledTaskRecurrence.maxRules))
         }
         var recurrences: [ScheduledTaskRecurrence] = []
         for (index, rule) in rules.enumerated() {
@@ -119,7 +119,7 @@ public struct ScheduledFrequencyRule: Codable, Sendable, Equatable {
             }
         }
         guard let combined = ScheduledTaskRecurrence.combining(recurrences) else {
-            throw ScheduledFrequencyRuleError.invalid("Add at least one frequency.")
+            throw ScheduledFrequencyRuleError.invalid(L("Add at least one frequency."))
         }
         return combined
     }
@@ -163,7 +163,7 @@ public struct ScheduledFrequencyRule: Codable, Sendable, Equatable {
         case .weekly:
             return "Weekly \(time)"
         case .monthly:
-            return "Monthly day \(monthlyDay) \(time)"
+            return L("Monthly day %1$@ %2$@", monthlyDay, time)
         }
     }
 }

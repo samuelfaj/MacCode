@@ -12,15 +12,15 @@ public enum AgentPermissionMode: String, Codable, Sendable, CaseIterable {
         switch self {
         case .supervised: return "Supervised"
         case .autoAcceptEdits: return "Auto-edit"
-        case .fullAccess: return "Full access"
+        case .fullAccess: return L("Full access")
         }
     }
 
     public var pickerHelpText: String {
         switch self {
-        case .supervised: return "Ask before tool actions"
-        case .autoAcceptEdits: return "Apply edits without asking"
-        case .fullAccess: return "Run tools without asking"
+        case .supervised: return L("Ask before tool actions")
+        case .autoAcceptEdits: return L("Apply edits without asking")
+        case .fullAccess: return L("Run tools without asking")
         }
     }
 }
@@ -70,14 +70,14 @@ public enum AgentReasoningEffort: String, Codable, Sendable, CaseIterable {
 
     public var pickerHelpText: String {
         switch self {
-        case .minimal: return "Fastest — minimal reasoning"
-        case .low: return "Light reasoning for simple tasks"
-        case .medium: return "Balanced reasoning (default)"
-        case .high: return "Deeper reasoning for harder tasks"
-        case .xhigh: return "Very deep reasoning for hard problems"
-        case .max: return "Deepest reasoning the model supports — slowest, most tokens"
-        case .ultra: return "Codex ultra reasoning — beyond max for supported models"
-        case .ultracode: return "Extra High effort + autonomous workflow orchestration"
+        case .minimal: return L("Fastest — minimal reasoning")
+        case .low: return L("Light reasoning for simple tasks")
+        case .medium: return L("Balanced reasoning (default)")
+        case .high: return L("Deeper reasoning for harder tasks")
+        case .xhigh: return L("Very deep reasoning for hard problems")
+        case .max: return L("Deepest reasoning the model supports — slowest, most tokens")
+        case .ultra: return L("Codex ultra reasoning — beyond max for supported models")
+        case .ultracode: return L("Extra High effort + autonomous workflow orchestration")
         }
     }
 }
@@ -346,11 +346,11 @@ public enum AgentAttachmentResolverError: Error, CustomStringConvertible, Equata
 
     public var description: String {
         switch self {
-        case .notFound(let path): return "Attachment not found: \(path)"
-        case .notReadableFile(let path): return "Attachment is not a readable file: \(path)"
+        case .notFound(let path): return L("Attachment not found: %1$@", path)
+        case .notReadableFile(let path): return L("Attachment is not a readable file: %1$@", path)
         case .exceedsMaximumSize(let name, let maximumBytes):
-            return "Attachment exceeds the \(maximumBytes)-byte limit: \(name)"
-        case .malformedReference(let value): return "Malformed attachment reference: \(value)"
+            return L("Attachment exceeds the %1$@-byte limit: %2$@", maximumBytes, name)
+        case .malformedReference(let value): return L("Malformed attachment reference: %1$@", value)
         }
     }
 }
@@ -424,11 +424,11 @@ public enum DistillExecutionMode: String, Sendable, CaseIterable, Equatable, Has
 
     public var pickerHelpText: String {
         switch self {
-        case .auto: return "Distill picks the best mode for each step, balancing quality, time and cost"
-        case .normal: return "Standard behavior: plans, delegates and verifies as needed"
-        case .ultrafast: return "Direct execution and parallel independent work"
-        case .ultracode: return "Plan, fan out to parallel subagents, then integrate and verify"
-        case .ultrasave: return "Prioritize token economy with direct-work tools only"
+        case .auto: return L("Distill picks the best mode for each step, balancing quality, time and cost")
+        case .normal: return L("Standard behavior: plans, delegates and verifies as needed")
+        case .ultrafast: return L("Direct execution and parallel independent work")
+        case .ultracode: return L("Plan, fan out to parallel subagents, then integrate and verify")
+        case .ultrasave: return L("Prioritize token economy with direct-work tools only")
         }
     }
 
@@ -652,7 +652,7 @@ public enum AgentRunAcceptanceError: Error, LocalizedError, Sendable {
     case cancelled
 
     public var errorDescription: String? {
-        "Provider start was cancelled before prompt acceptance."
+        L("Provider start was cancelled before prompt acceptance.")
     }
 }
 
@@ -1135,7 +1135,7 @@ public struct AgentProviderSnapshot: Codable, Sendable, Equatable, Identifiable 
         let method = accountAuthMethod?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !label.isEmpty && !method.isEmpty { return "\(label) via \(method)" }
         if !label.isEmpty { return label }
-        if !method.isEmpty { return "Authenticated via \(method)" }
+        if !method.isEmpty { return L("Authenticated via %1$@", method) }
         return nil
     }
 
@@ -1144,10 +1144,10 @@ public struct AgentProviderSnapshot: Codable, Sendable, Equatable, Identifiable 
             return "Update \(displayName)"
         }
         if authenticated == false {
-            return "Copy login command"
+            return L("Copy login command")
         }
         if !installed {
-            return "Copy install command"
+            return L("Copy install command")
         }
         return nil
     }
@@ -1235,23 +1235,23 @@ public enum AgentProviderRunPreflightError: Error, CustomStringConvertible, Equa
     public var description: String {
         switch self {
         case .missingSnapshot:
-            return "Provider capabilities are not loaded yet."
+            return L("Provider capabilities are not loaded yet.")
         case .disabled(let provider):
-            return "\(provider) is disabled."
+            return L("%1$@ is disabled.", provider)
         case .unavailable(let provider):
-            return "\(provider) is unavailable."
+            return L("%1$@ is unavailable.", provider)
         case .unauthenticated(let provider):
-            return "\(provider) is not authenticated. Sign in to continue."
+            return L("%1$@ is not authenticated. Sign in to continue.", provider)
         case .unsupportedInteractionMode(let provider, let mode):
-            return "\(provider) does not support \(mode.rawValue) mode for this session."
+            return L("%1$@ does not support %2$@ mode for this session.", provider, mode.rawValue)
         case .unsupportedPermissionMode(let provider, let mode):
-            return "\(provider) does not support \(mode.rawValue) permission for this session."
+            return L("%1$@ does not support %2$@ permission for this session.", provider, mode.rawValue)
         case .attachmentsUnsupported(let provider):
-            return "\(provider) does not support attachments for this session."
+            return L("%1$@ does not support attachments for this session.", provider)
         case .attachmentKindUnsupported(let provider, let kind):
-            return "\(provider) does not support \(kind.rawValue) attachments for this session."
+            return L("%1$@ does not support %2$@ attachments for this session.", provider, kind.rawValue)
         case .attachmentMediaTypeUnsupported(let provider, let mediaType):
-            return "\(provider) does not support attachment media type \(mediaType)."
+            return L("%1$@ does not support attachment media type %2$@.", provider, mediaType)
         }
     }
 }
@@ -1583,11 +1583,11 @@ public enum AgentProviderSnapshotFactory {
     }
 
     private static func statusDetail(providerName: String, installed: Bool, hasModels: Bool, authenticated: Bool?, advisory: String?, updateState: String?, enabled: Bool) -> String? {
-        guard enabled else { return "\(providerName) provider instance is disabled." }
-        guard installed else { return "\(providerName) CLI binary is unavailable." }
-        guard hasModels else { return "\(providerName) CLI models are unavailable." }
-        if authenticated == false { return "\(providerName) CLI is not authenticated." }
-        if updateState == "update_available" { return advisory ?? "\(providerName) CLI update is available." }
+        guard enabled else { return L("%1$@ provider instance is disabled.", providerName) }
+        guard installed else { return L("%1$@ CLI binary is unavailable.", providerName) }
+        guard hasModels else { return L("%1$@ CLI models are unavailable.", providerName) }
+        if authenticated == false { return L("%1$@ CLI is not authenticated.", providerName) }
+        if updateState == "update_available" { return advisory ?? L("%1$@ CLI update is available.", providerName) }
         if let advisory, !advisory.isEmpty { return advisory }
         return nil
     }
@@ -1806,6 +1806,8 @@ public enum AgentThreadTitle {
     }
 
     public static func display(_ title: String, limit: Int = displayLimit) -> String {
+        // The stored placeholder stays English (other code matches on it); show it translated.
+        let title = isPlaceholder(title) && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? L("New thread") : title
         guard title.count > limit else { return title }
         return String(title.prefix(max(0, limit))) + "..."
     }

@@ -345,8 +345,8 @@ public enum BotStudioFilesLocation: String, Codable, Sendable, Equatable {
 
     public var title: String {
         switch self {
-        case .botFiles: return "Bot files"
-        case .dockerHome: return "Docker home"
+        case .botFiles: return L("Bot files")
+        case .dockerHome: return L("Docker home")
         }
     }
 }
@@ -2594,7 +2594,7 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
                     activityID: activityID,
                     previous: stored,
                     current: stored,
-                    errorMessage: "The bot handoff state could not be saved."
+                    errorMessage: L("The bot handoff state could not be saved.")
                 )
             )
             return
@@ -2627,7 +2627,7 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
                     botID: next.botID,
                     conversationID: next.id,
                     kind: .blocked,
-                    title: "Review Bot handoff",
+                    title: L("Review Bot handoff"),
                     detail: detail
                 )
             )
@@ -2657,7 +2657,7 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
                         conversationID: next.id,
                         kind: kind,
                         title: BotsDeskFollowThrough.attentionTitle(for: status, terminalReason: reason),
-                        detail: run?.errorMessage ?? "The supervised turn ended without a clean completion."
+                        detail: run?.errorMessage ?? L("The supervised turn ended without a clean completion.")
                     )
                 )
             }
@@ -3190,7 +3190,7 @@ public enum BotStudioTab: String, CaseIterable, Identifiable {
 
     public var title: String {
         switch self {
-        case .profile: return "Profile"
+        case .profile: return L("Profile")
         case .brain: return BotsChrome.Label.brain
         case .files: return BotsChrome.Label.files
         case .routines: return BotsChrome.Label.routines
@@ -3850,7 +3850,7 @@ public final class BotsViewModel: ObservableObject {
     private var studioSupportByBot: [BotID: BotStudioSupportSnapshot] = [:]
     private var revisionByID: [BotRevisionID: BotRevision] = [:]
     @Published public private(set) var conversations: [BotConversation] = []
-    @Published public private(set) var selectedPinnedContextLabel = "Legacy"
+    @Published public private(set) var selectedPinnedContextLabel = L("Legacy")
     @Published public private(set) var selectedConversation: BotConversation? {
         didSet {
             if oldValue?.id != selectedConversation?.id { refreshPinnedContextLabel() }
@@ -4357,20 +4357,20 @@ public final class BotsViewModel: ObservableObject {
     }
 
     public var activeBotsFooterLine: String {
-        let activeLabel = activeBotCount == 1 ? "1 active" : "\(activeBotCount) active"
+        let activeLabel = activeBotCount == 1 ? L("1 active") : L("%1$@ active", activeBotCount)
         let finishedLabel = finishedBotItems.count == 1
-            ? "1 recent finished"
-            : "\(finishedBotItems.count) recent finished"
+            ? L("1 recent finished")
+            : L("%1$@ recent finished", finishedBotItems.count)
         return "\(activeLabel) · \(finishedLabel)"
     }
 
     public var activeBotsSubtitle: String {
         if activeBotCount == 0 {
-            return "No bots running right now"
+            return L("No bots running right now")
         }
         return activeBotCount == 1
-            ? "1 bot is running"
-            : "\(activeBotCount) bots are running"
+            ? L("1 bot is running")
+            : L("%1$@ bots are running", activeBotCount)
     }
 
     public func filteredActiveBotItems() -> [ActiveBotScreenItem] {
@@ -4481,17 +4481,17 @@ public final class BotsViewModel: ObservableObject {
         do {
             guard let router = resolvedRouter(),
                   try router.openBotsDesk(botID: botID, conversationID: conversationID) else {
-                errorMessage = "This run's conversation is no longer available."
+                errorMessage = L("This run's conversation is no longer available.")
                 return
             }
         } catch {
-            errorMessage = "Could not open conversation: \(error.localizedDescription)"
+            errorMessage = L("Could not open conversation: %1$@", error.localizedDescription)
         }
     }
 
     public func createScheduleTask() {
         guard let bot = selectedBot ?? bots.first else {
-            errorMessage = "Create a bot before adding a scheduled task."
+            errorMessage = L("Create a bot before adding a scheduled task.")
             return
         }
         scheduleTaskDraft = BotScheduleTaskDraft(botID: bot.id)
@@ -4526,7 +4526,7 @@ public final class BotsViewModel: ObservableObject {
     /// Open the same Edit Scheduled Task screen the fleet dest already uses.
     public func editRoutine(_ routine: BotRoutine) {
         guard let bot = bots.first(where: { $0.id == routine.definition.botID }) else {
-            errorMessage = "Pick a bot for this scheduled task."
+            errorMessage = L("Pick a bot for this scheduled task.")
             return
         }
         editScheduleTask(BotScheduleTaskItem(routine: routine, bot: bot, workspaceID: scheduleWorkspace(for: bot)))
@@ -4540,11 +4540,11 @@ public final class BotsViewModel: ObservableObject {
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         let prompt = draft.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !prompt.isEmpty else {
-            errorMessage = "Task name and instruction are required."
+            errorMessage = L("Task name and instruction are required.")
             return
         }
         guard bots.contains(where: { $0.id == draft.botID }) else {
-            errorMessage = "Pick a bot for this scheduled task."
+            errorMessage = L("Pick a bot for this scheduled task.")
             return
         }
         do {
@@ -4592,16 +4592,16 @@ public final class BotsViewModel: ObservableObject {
     public var scheduleTasksFooterLine: String {
         let all = scheduleTaskFilterCounts.all
         let active = scheduleTaskFilterCounts.active
-        let tasks = all == 1 ? "1 task" : "\(all) tasks"
-        let live = active == 1 ? "1 active" : "\(active) active"
+        let tasks = all == 1 ? L("1 task") : L("%1$@ tasks", all)
+        let live = active == 1 ? L("1 active") : L("%1$@ active", active)
         return "\(tasks) · \(live)"
     }
 
     public var scheduleTasksSubtitle: String {
         if isAutonomyActive {
-            return "Automate recurring bot work"
+            return L("Automate recurring bot work")
         }
-        return "Automatic runs paused — turn Active on when you're back"
+        return L("Automatic runs paused — turn Active on when you're back")
     }
 
     private var scheduleTaskSource: [BotScheduleTaskItem] = []
@@ -4833,7 +4833,7 @@ public final class BotsViewModel: ObservableObject {
             if !plain.isEmpty { return plain }
         }
         if !bot.title.isEmpty { return bot.title }
-        return "No job yet"
+        return L("No job yet")
     }
 
     public func rosterTimestamp(for bot: BotDefinition) -> Date? {
@@ -4846,7 +4846,7 @@ public final class BotsViewModel: ObservableObject {
             return BotsDeskFollowThrough.displayUserText(from: conversation.title)
         }
         let preview = rosterPreview(for: bot)
-        if preview == "No job yet" { return "No current goal" }
+        if preview == L("No job yet") { return L("No current goal") }
         return preview
     }
 
@@ -5043,7 +5043,7 @@ public final class BotsViewModel: ObservableObject {
 
     private func beginCreateNow(inWorkspace workspaceID: WorkspaceID? = nil) {
         guard isControlPlaneActive else {
-            errorMessage = "Turn on Bot control plane in Settings"
+            errorMessage = L("Turn on Bot control plane in Settings")
             return
         }
         do {
@@ -5053,7 +5053,7 @@ public final class BotsViewModel: ObservableObject {
             // The row stays unpublished until Save Bot. Leaving Studio
             // confirms so Back does not keep a teammate the owner never saved.
             let previous = selectedBotID
-            let name = "New Agent"
+            let name = L("New Agent")
             let bot = try create(
                 name: name,
                 title: "",
@@ -5308,7 +5308,7 @@ public final class BotsViewModel: ObservableObject {
                 self.botSecretsReloadTask = nil
                 self.isBotSecretsLoading = false
                 self.botSecretsLoadFailed = true
-                self.errorMessage = "Protected secret storage is unavailable."
+                self.errorMessage = L("Protected secret storage is unavailable.")
             }
         }
     }
@@ -5578,17 +5578,17 @@ public final class BotsViewModel: ObservableObject {
     }
 
     private func refreshPinnedContextLabel() {
-        guard let conversation = selectedConversation else { selectedPinnedContextLabel = "Legacy"; return }
+        guard let conversation = selectedConversation else { selectedPinnedContextLabel = L("Legacy"); return }
         do {
             guard let pin = try botStore.conversationContextPin(conversationID: conversation.id) else {
-                selectedPinnedContextLabel = "Legacy"
+                selectedPinnedContextLabel = L("Legacy")
                 return
             }
             switch pin.context {
-            case .general: selectedPinnedContextLabel = "General"
-            case .workspace(let id): selectedPinnedContextLabel = context.state.workspaces[id].map { $0.name } ?? "Context unavailable"
+            case .general: selectedPinnedContextLabel = L("General")
+            case .workspace(let id): selectedPinnedContextLabel = context.state.workspaces[id].map { $0.name } ?? L("Context unavailable")
             }
-        } catch { selectedPinnedContextLabel = "Context unavailable" }
+        } catch { selectedPinnedContextLabel = L("Context unavailable") }
     }
 
     func makeContextExportModel(copy: @escaping (String) -> Void = { text in
@@ -5603,7 +5603,7 @@ public final class BotsViewModel: ObservableObject {
               try botStore.authorizes(hostID: pin.hostID, botID: botID, context: pin.context, action: .read, policyRevision: pin.policyRevision),
               try botStore.authorizes(hostID: pin.hostID, botID: botID, context: pin.context, action: .export, policyRevision: pin.policyRevision),
               let router = router ?? context.router else {
-            throw NSError(domain: "BotContextExport", code: 1, userInfo: [NSLocalizedDescriptionKey: "This conversation needs current read and export permission. Policy changes require a new conversation."])
+            throw NSError(domain: "BotContextExport", code: 1, userInfo: [NSLocalizedDescriptionKey: L("This conversation needs current read and export permission. Policy changes require a new conversation.")])
         }
         let rows = try context.messageRepo.list(threadId: threadID)
             .filter { $0.role == .user || $0.role == .assistant }
@@ -5613,7 +5613,7 @@ public final class BotsViewModel: ObservableObject {
             .compactMap { binding -> BotContextExportModel.Target? in
                 let label: String
                 switch binding.context {
-                case .general: label = "General"
+                case .general: label = L("General")
                 case .workspace(let id):
                     guard let workspace = context.state.workspaces[id] else { return nil }
                     label = workspace.name
@@ -5636,7 +5636,7 @@ public final class BotsViewModel: ObservableObject {
     public func allowReadAndSend(botID: BotID, context: BotContext) -> Bool {
         guard selectedBotID == botID else { return false }
         if case .workspace(let id) = context, self.context.state.workspaces[id] == nil {
-            errorMessage = "This workspace no longer exists."
+            errorMessage = L("This workspace no longer exists.")
             return false
         }
         let hostID = self.context.liveActivityHostIdentity.serverId
@@ -5695,17 +5695,17 @@ public final class BotsViewModel: ObservableObject {
         inheriting parentThreadID: AgentThreadID? = nil
     ) throws -> (conversation: BotConversation, routing: BotDeskRouting) {
         if case .workspace(let id) = context, self.context.state.workspaces[id] == nil {
-            throw BotStoreError.invalidInput("This workspace no longer exists.")
+            throw BotStoreError.invalidInput(L("This workspace no longer exists."))
         }
         let hostID = self.context.liveActivityHostIdentity.serverId
         guard let binding = try botStore.getContextBinding(hostID: hostID, botID: bot.id, context: context),
               binding.state == .active,
               binding.actions.isSuperset(of: [.read, .send]) else {
-            throw BotStoreError.invalidInput("This Bot has no active read and send grant for this context.")
+            throw BotStoreError.invalidInput(L("This Bot has no active read and send grant for this context."))
         }
         guard route.provider == .distill,
               route.runAsUser.isCurrentAccount else {
-            throw BotStoreError.invalidInput("Contextual threads require the current Distill account.")
+            throw BotStoreError.invalidInput(L("Contextual threads require the current Distill account."))
         }
         let model = Self.resolvedUnlinkedDeskModel(
             route,
@@ -5713,7 +5713,7 @@ public final class BotsViewModel: ObservableObject {
             lastUsed: lastModelStore.model(for: route.provider)
         )
         guard !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw BotStoreError.invalidInput("Select a Main model before creating a contextual thread.")
+            throw BotStoreError.invalidInput(L("Select a Main model before creating a contextual thread."))
         }
         var routing = route
         routing.provider = .distill
@@ -5721,7 +5721,7 @@ public final class BotsViewModel: ObservableObject {
         let workspaceID: WorkspaceID? = if case .workspace(let id) = context { id } else { nil }
         let parent = try parentThreadID.flatMap { try self.context.threadRepo.get(id: $0) }
         if parentThreadID != nil, parent == nil {
-            throw BotStoreError.invalidInput("The task's source conversation no longer exists.")
+            throw BotStoreError.invalidInput(L("The task's source conversation no longer exists."))
         }
         var thread = AgentThread(
             projectId: parent?.projectId,
@@ -5863,24 +5863,24 @@ public final class BotsViewModel: ObservableObject {
         do {
             guard let resolved = try conversations.first(where: { $0.id == id })
                     ?? context.botStore.conversation(id: id) else {
-                errorMessage = "Could not open conversation: It no longer exists."
+                errorMessage = L("Could not open conversation: It no longer exists.")
                 return
             }
             guard resolved.botID == selectedBotID else {
-                errorMessage = "Could not open conversation: It belongs to another Bot."
+                errorMessage = L("Could not open conversation: It belongs to another Bot.")
                 return
             }
             if try context.botStore.conversationContextPin(conversationID: id) != nil {
                 guard let threadID = resolved.linkedAgentThreadID,
                       try AppCommandRouter.contextPinnedThreadDestination(threadID, context: context)
                         == .bot(resolved.botID, resolved.id) else {
-                    errorMessage = "Could not open conversation: Its pinned context is unavailable."
+                    errorMessage = L("Could not open conversation: Its pinned context is unavailable.")
                     return
                 }
             }
             conversation = resolved
         } catch {
-            errorMessage = "Could not open conversation: \(error.localizedDescription)"
+            errorMessage = L("Could not open conversation: %1$@", error.localizedDescription)
             return
         }
         if !conversations.contains(where: { $0.id == id }) {
@@ -6135,7 +6135,7 @@ public final class BotsViewModel: ObservableObject {
         workspaceID: WorkspaceID? = nil
     ) throws -> BotDefinition {
         guard isControlPlaneActive else {
-            errorMessage = "Turn on Bot control plane in Settings"
+            errorMessage = L("Turn on Bot control plane in Settings")
             throw BotPublishError.controlPlaneDisabled
         }
         let bot = try botStore.create(
@@ -6210,12 +6210,12 @@ public final class BotsViewModel: ObservableObject {
         defer { flushPendingDraftPersistence() }
         let name = studioDraft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
-            errorMessage = "Name is required."
+            errorMessage = L("Name is required.")
             throw BotPublishError.invalidRevision
         }
         let handle = studioDraft.handle.trimmingCharacters(in: .whitespacesAndNewlines)
         if !handle.isEmpty, BotHandle.normalize(handle) == nil {
-            errorMessage = "Slug is empty or invalid."
+            errorMessage = L("Slug is empty or invalid.")
             throw BotPublishError.handleEmpty
         }
         let publishedDesktop = selectedRevision?.desktopKind
@@ -6226,7 +6226,7 @@ public final class BotsViewModel: ObservableObject {
             flags: settingsStore.load().botControlPlaneFlags,
             guestReady: dockerGuestReady
            ) {
-            errorMessage = "Docker desktop is not ready."
+            errorMessage = L("Docker desktop is not ready.")
             throw BotComputerGuestError.notReady
         }
         let destination = studioDraft.executionDestination
@@ -6334,7 +6334,7 @@ public final class BotsViewModel: ObservableObject {
     @discardableResult
     public func duplicate(id: BotID) throws -> BotDefinition {
         guard isControlPlaneActive else {
-            errorMessage = "Turn on Bot control plane in Settings"
+            errorMessage = L("Turn on Bot control plane in Settings")
             throw BotPublishError.controlPlaneDisabled
         }
         let copy = try botStore.duplicate(id: id)
@@ -6542,7 +6542,7 @@ public final class BotsViewModel: ObservableObject {
     }
 
     public var deskRunIsLive: Bool {
-        deskWorkLog.contains { $0.statusLabel == "Working" }
+        deskWorkLog.contains { $0.statusLabel == L("Working") }
     }
 
     public var deskShowsLoading: Bool {
@@ -6558,7 +6558,7 @@ public final class BotsViewModel: ObservableObject {
     }
 
     public func deskWorkingStartedAt() -> Date? {
-        if let started = deskWorkLog.first(where: { $0.statusLabel == "Working" })?.createdAt {
+        if let started = deskWorkLog.first(where: { $0.statusLabel == L("Working") })?.createdAt {
             return started
         }
         if let turn = deskLiveTimeline.turns.last(where: { !$0.finished }) {
@@ -6741,7 +6741,7 @@ public final class BotsViewModel: ObservableObject {
                 return try self.liveThreadIDs(for: botID, includeInFlightSends: false).isEmpty
             } catch {
                 self.errorMessage = force
-                    ? "Force stop: \(error.localizedDescription)"
+                    ? L("Force stop: %1$@", error.localizedDescription)
                     : String(describing: error)
                 return false
             }
@@ -6803,7 +6803,7 @@ public final class BotsViewModel: ObservableObject {
                 onSettled?(self.context.coordinator.activeRunId(threadId: threadID) != targetRunID)
             } catch {
                 self.errorMessage = force
-                    ? "Force stop: \(error.localizedDescription)"
+                    ? L("Force stop: %1$@", error.localizedDescription)
                     : String(describing: error)
                 onSettled?(false)
             }
@@ -6901,7 +6901,7 @@ public final class BotsViewModel: ObservableObject {
               let conversation = try botStore.conversation(id: conversationID),
               conversation.botID == botID,
               let threadID = conversation.linkedAgentThreadID else {
-            throw BotStoreError.invalidRow("queued follow-up authority is stale")
+            throw BotStoreError.invalidRow(L("queued follow-up authority is stale"))
         }
         try requireContextualSendAuthority(conversation)
         func ownsQueuedDeskSendReservation() -> Bool {
@@ -6917,7 +6917,7 @@ public final class BotsViewModel: ObservableObject {
             if context.coordinator.activeRunId(threadId: threadID) == attempt {
                 return ["force_status": "started", "run_id": attempt.value.uuidString.lowercased(), "conversation_id": conversationID.value.uuidString.lowercased(), "thread_id": threadID.value.uuidString.lowercased()]
             }
-            throw BotStoreError.invalidInput("Restored queued outcome requires reconciliation before another send.")
+            throw BotStoreError.invalidInput(L("Restored queued outcome requires reconciliation before another send."))
         }
         if try HostDatabaseRestore.requiresQueueReview(kind: .bot, id: id, db: context.db) {
             try admitDesktopSend(bot: bot, threadID: threadID)
@@ -6937,7 +6937,7 @@ public final class BotsViewModel: ObservableObject {
         }
         guard queuedFollowUpsByBot[botID]?.contains(where: { $0.id == itemID }) != true,
               let runID = context.coordinator.activeRunId(threadId: threadID) else {
-            throw BotStoreError.invalidRow("queued follow-up did not start")
+            throw BotStoreError.invalidRow(L("queued follow-up did not start"))
         }
         return [
             "force_status": "started",
@@ -6965,14 +6965,14 @@ public final class BotsViewModel: ObservableObject {
                     try await self.context.coordinator.stopAndAwaitTermination(threadId: threadID)
                 } catch {
                     forceStopFailed = true
-                    self.errorMessage = "Force stop: \(error.localizedDescription)"
+                    self.errorMessage = L("Force stop: %1$@", error.localizedDescription)
                 }
                 if self.context.coordinator.activeRunId(threadId: threadID) == nil {
                     self.isStopping = false
                 } else {
                     self.isStopping = false
                     if !forceStopFailed {
-                        self.errorMessage = "Stop is taking longer than expected. Try again or restart the agent."
+                        self.errorMessage = L("Stop is taking longer than expected. Try again or restart the agent.")
                     }
                 }
             }
@@ -6992,7 +6992,7 @@ public final class BotsViewModel: ObservableObject {
     }
 
     private struct BotContextSendUnauthorized: LocalizedError {
-        var errorDescription: String? { "Bot conversation context is no longer authorized." }
+        var errorDescription: String? { L("Bot conversation context is no longer authorized.") }
     }
 
     private func requireContextualSendAuthority(for bot: BotDefinition) throws {
@@ -7040,11 +7040,11 @@ public final class BotsViewModel: ObservableObject {
         } catch {
             switch guestLaunchState(for: bot.id) {
             case .starting:
-                errorMessage = "Linux desktop is starting. Try again when it is ready."
+                errorMessage = L("Linux desktop is starting. Try again when it is ready.")
             case .failed(let message):
                 errorMessage = message
             case .idle:
-                errorMessage = "Docker desktop is not ready."
+                errorMessage = L("Docker desktop is not ready.")
             }
             return false
         }
@@ -7130,9 +7130,9 @@ public final class BotsViewModel: ObservableObject {
             throw BotStoreError.notFound
         }
         let message = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty else { throw BotStoreError.invalidRow("message is empty") }
+        guard !message.isEmpty else { throw BotStoreError.invalidRow(L("message is empty")) }
         guard resolvedRouter() != nil, try currentRevision(for: bot) != nil else {
-            throw BotStoreError.invalidRow("Bot runtime is unavailable")
+            throw BotStoreError.invalidRow(L("Bot runtime is unavailable"))
         }
         let existingConversation = try conversationID.map { id -> BotConversation in
             guard let existing = try botStore.conversation(id: id),
@@ -7143,7 +7143,7 @@ public final class BotsViewModel: ObservableObject {
             return existing
         }
         if let destination = explicitRouting?.executionDestination {
-            guard conversationID == nil else { throw BotStoreError.invalidInput("Choose a destination when starting a new conversation.") }
+            guard conversationID == nil else { throw BotStoreError.invalidInput(L("Choose a destination when starting a new conversation.")) }
             try botStore.validateExecutionDestination(destination, botID: bot.id)
         } else {
             try admitDesktopSend(bot: bot, threadID: existingConversation?.linkedAgentThreadID)
@@ -7155,7 +7155,7 @@ public final class BotsViewModel: ObservableObject {
                 // only the paired user's own text may reach the intercept,
                 // and nothing else may write into the inbox as the user.
                 guard case .pairedClient(let tapsNoticeCards, let bindsNoticeReplies) = origin else {
-                    throw BotStoreError.invalidRow("Titio's Notifications inbox only takes messages from you.")
+                    throw BotStoreError.invalidRow(L("Titio's Notifications inbox only takes messages from you."))
                 }
                 if attachments.isEmpty,
                    let consumed = interceptTitioInboxSend(
@@ -7212,7 +7212,7 @@ public final class BotsViewModel: ObservableObject {
             attachments: attachments,
             routingOverride: routing
         ) else {
-            throw BotStoreError.invalidRow("Bot runtime is unavailable")
+            throw BotStoreError.invalidRow(L("Bot runtime is unavailable"))
         }
         stampDeskUserMessageIdentity(runID: prepared.runID, botID: bot.id)
         return .object([
@@ -7268,7 +7268,7 @@ public final class BotsViewModel: ObservableObject {
         let skillID = skillDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !skillID.isEmpty, let bot = selectedBot else { return }
         guard !skillID.contains("/") else {
-            errorMessage = "Catalog ids only. A skill id is not a filesystem path."
+            errorMessage = L("Catalog ids only. A skill id is not a filesystem path.")
             return
         }
         do {
@@ -7412,7 +7412,7 @@ public final class BotsViewModel: ObservableObject {
         setStudioFilesLocation(root == "docker_home" ? .dockerHome : .botFiles, for: bot)
         attachHomeFilesSurface(for: bot)
         guard let router = homeFilesRouter else {
-            throw BotStoreError.invalidRow("Bot files surface is unavailable")
+            throw BotStoreError.invalidRow(L("Bot files surface is unavailable"))
         }
         let workspaceID = WorkspaceID(bot.id.value)
         let surfaceID = SurfaceID(bot.id.value)
@@ -7559,7 +7559,7 @@ public final class BotsViewModel: ObservableObject {
 
     public func confirmClearDockerData(for bot: BotDefinition) {
         guard (try? botStore.executionDestination(botID: bot.id))?.virtualMachineID == nil else {
-            errorMessage = "Shared VM files belong to every bot using it and cannot be cleared from one bot."
+            errorMessage = L("Shared VM files belong to every bot using it and cannot be cleared from one bot.")
             return
         }
         guard supportsDockerHomeFiles(for: bot),
@@ -7634,7 +7634,7 @@ public final class BotsViewModel: ObservableObject {
 
     public var studioWorkspaceLabel: String {
         let name = advertisedWorkspace?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return name.isEmpty ? "None" : name
+        return name.isEmpty ? L("None") : name
     }
 
     /// Same last website tools persist. Compile URL + title so first-chat
@@ -7829,7 +7829,7 @@ public final class BotsViewModel: ObservableObject {
         let name = routineName.trimmingCharacters(in: .whitespacesAndNewlines)
         let prompt = routinePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !prompt.isEmpty else {
-            errorMessage = "Routine name and prompt are required."
+            errorMessage = L("Routine name and prompt are required.")
             return
         }
         do {
@@ -7879,12 +7879,12 @@ public final class BotsViewModel: ObservableObject {
         let instruction = (routine?.definition.prompt ?? fleetItem?.prompt)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !instruction.isEmpty else {
-            errorMessage = "Task instruction is required."
+            errorMessage = L("Task instruction is required.")
             return
         }
         let botID = routine?.definition.botID ?? fleetItem?.botID
         guard let botID, let bot = bots.first(where: { $0.id == botID }) else {
-            errorMessage = "Task bot is unavailable."
+            errorMessage = L("Task bot is unavailable.")
             return
         }
         let spec = routine?.definition.scheduleSpec
@@ -7918,23 +7918,23 @@ public final class BotsViewModel: ObservableObject {
         let botID = routines.first(where: { $0.definition.id == id })?.definition.botID
             ?? scheduleTaskSource.first(where: { $0.id == id })?.botID
         guard let botID else {
-            errorMessage = "Task bot is unavailable."
+            errorMessage = L("Task bot is unavailable.")
             return
         }
         do {
             guard let routine = try botStore.listRoutines(botID: botID)
                 .first(where: { $0.definition.id == id }) else {
-                errorMessage = "This scheduled task no longer exists."
+                errorMessage = L("This scheduled task no longer exists.")
                 return
             }
             guard !routine.definition.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                errorMessage = "Task instruction is required."
+                errorMessage = L("Task instruction is required.")
                 return
             }
             let limit = routine.definition.scheduleSpec?.effectiveMaxConcurrentRuns ?? 1
             let active = activeRoutineRunCount(id: id)
             guard active < limit else {
-                errorMessage = "This scheduled task already has \(active) active run(s) (limit \(limit))."
+                errorMessage = L("This scheduled task already has %1$@ active run(s) (limit %2$@).", active, limit)
                 return
             }
             // Like a scheduled fire, a stopped bot computer is started and awaited
@@ -8036,7 +8036,7 @@ public final class BotsViewModel: ObservableObject {
     func enqueueScheduledRoutine(_ routine: BotRoutine) throws -> JSONValue {
         if !routine.definition.scheduleSpecJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            BotScheduleSpec.decodeJSON(routine.definition.scheduleSpecJSON) == nil {
-            throw BotStoreError.invalidInput("The saved schedule settings are invalid. Open Schedule Tasks and save this task again.")
+            throw BotStoreError.invalidInput(L("The saved schedule settings are invalid. Open Schedule Tasks and save this task again."))
         }
         var route = routine.definition.scheduleSpec.map { Self.routineRouting($0, base: BotDeskRouting()) }
         // A schedule saved without a Main model must not reach Distill empty.
@@ -8112,10 +8112,10 @@ public final class BotsViewModel: ObservableObject {
         }
         let deadline = Date().addingTimeInterval(timeout)
         while true {
-            if Task.isCancelled { return "Scheduled task start was cancelled." }
+            if Task.isCancelled { return L("Scheduled task start was cancelled.") }
             if guestRunningByBot[botID.value] == true { return nil }
             if case .failed(let reason) = guestLaunchStateByBot[botID.value] { return reason }
-            guard Date() < deadline else { return "The bot computer did not start in time." }
+            guard Date() < deadline else { return L("The bot computer did not start in time.") }
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
     }
@@ -8566,7 +8566,7 @@ public final class BotsViewModel: ObservableObject {
     /// where its turns run (its locked target, else the bot's desktop default).
     func groupRouteLabel(for bot: BotDefinition, memberThread: BotTeamsGroupsController.MemberThread?) -> String {
         let target = memberThread?.target ?? BotExecutionDefault.target(for: cachedRevision(for: bot))
-        let place = target == .vm ? "Linux VM" : "Mac"
+        let place = target == .vm ? L("Linux VM") : L("Mac")
         guard let memberThread else { return place }
         return "\(providerChipTitle(memberThread.provider)) · \(place)"
     }
@@ -8746,7 +8746,7 @@ public final class BotsViewModel: ObservableObject {
     /// A Bot with no name still needs a label in the roster, the Desk header
     /// and VoiceOver. Same fallback as iOS.
     static func displayName(_ name: String) -> String {
-        name.isEmpty ? "Untitled" : name
+        name.isEmpty ? L("Untitled") : name
     }
 
     /// One placeholder for the Desk composer before and after the thread is
@@ -9223,15 +9223,15 @@ public final class BotsViewModel: ObservableObject {
         if let effort = mainSelection.effort,
            !deskSupportedReasoning.isEmpty,
            !deskSupportedReasoning.contains(effort) {
-            return "Main effort \(effort.displayName) is unavailable for the selected Distill model. Choose Auto or a supported effort."
+            return L("Main effort %1$@ is unavailable for the selected Distill model. Choose Auto or a supported effort.", effort.displayName)
         }
         if let reasoningModel = deskRouting.reasoningModel,
            let effort = deskDistillReasoningEffortSelection.effort {
             if !deskDistillReasoningEfforts.isEmpty, !deskDistillReasoningEfforts.contains(effort) {
-                return "Worker effort \(effort.displayName) is unavailable for \(reasoningModel). Choose Auto or a supported effort."
+                return L("Worker effort %1$@ is unavailable for %2$@. Choose Auto or a supported effort.", effort.displayName, reasoningModel)
             }
             if !deskSupportsDistillReasoningModelEffort {
-                return "Update the Distill ACP harness to apply a separate Worker-model effort."
+                return L("Update the Distill ACP harness to apply a separate Worker-model effort.")
             }
         }
         return nil
@@ -9254,7 +9254,7 @@ public final class BotsViewModel: ObservableObject {
     public func setDeskDistillMainEffortSelection(_ selection: AgentEffortSelection) {
         guard deskRouting.provider == .distill else { return }
         if selection.isAutomatic, !deskSupportsDistillMainEffortAuto {
-            errorMessage = "Update the Distill ACP session to enable Auto Main effort."
+            errorMessage = L("Update the Distill ACP session to enable Auto Main effort.")
             return
         }
         if let effort = selection.effort,
@@ -9302,7 +9302,7 @@ public final class BotsViewModel: ObservableObject {
             try context.threadRepo.upsert(thread)
             return true
         } catch {
-            errorMessage = "Could not save Distill model settings: \(error)"
+            errorMessage = L("Could not save Distill model settings: %1$@", error)
             return false
         }
     }
@@ -9437,10 +9437,10 @@ public final class BotsViewModel: ObservableObject {
     }
 
     public var deskModelDisplayLabel: String {
-        if deskRouting.routingMode == .auto, deskRouting.provider != .distill { return "Auto" }
+        if deskRouting.routingMode == .auto, deskRouting.provider != .distill { return L("Auto") }
         let id = deskRunModel
         if deskRouting.provider == .distill, id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Select Main model"
+            return L("Select Main model")
         }
         return deskModels.first(where: { $0.id == id })?.label ?? id
     }
@@ -9765,7 +9765,7 @@ public final class BotsViewModel: ObservableObject {
             originPeer = deskPeer(
                 direction: .fromPeer,
                 botID: originID,
-                name: origin?.name ?? "Bot",
+                name: origin?.name ?? L("Bot"),
                 title: origin?.title ?? "",
                 handle: origin?.handle ?? "",
                 avatarSymbol: origin?.avatarSymbol
@@ -9885,7 +9885,7 @@ public final class BotsViewModel: ObservableObject {
         peerHandoffs[activityID] = handoff
         if !persistPeerHandoffs() {
             peerHandoffs[activityID] = previous
-            errorMessage = "The bot handoff state could not be saved."
+            errorMessage = L("The bot handoff state could not be saved.")
             return
         }
         if phase == .needsAttention {
@@ -10981,7 +10981,7 @@ public final class BotsViewModel: ObservableObject {
             throw BotStoreError.notFound
         }
         guard source.id != titioInboxConversationID else {
-            throw BotStoreError.invalidRow("Titio's Notifications can't be forked")
+            throw BotStoreError.invalidRow(L("Titio's Notifications can't be forked"))
         }
         let child = try await router.forkAgentThread(sourceThreadId: sourceThread, messageID: messageID)
         var conversation = BotConversation(
@@ -11006,7 +11006,7 @@ public final class BotsViewModel: ObservableObject {
 
     static func forkTitle(_ title: String) -> String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Fork" : "Fork · \(trimmed)"
+        return trimmed.isEmpty ? L("Fork") : L("Fork · %1$@", trimmed)
     }
 
     private func adoptWrittenConversation(_ conversation: BotConversation) {
@@ -11112,8 +11112,8 @@ public final class BotsViewModel: ObservableObject {
                 botID: bot.id,
                 conversationID: next.id,
                 kind: .blocked,
-                title: "Bot could not start",
-                detail: "Check the Bot's configuration, then send your request again."
+                title: L("Bot could not start"),
+                detail: L("Check the Bot's configuration, then send your request again.")
             )
             try botStore.upsertAttention(item)
             appendDeskMessage(
@@ -11396,8 +11396,8 @@ public final class BotsViewModel: ObservableObject {
                 self?.deskAgentRunStarted(botID: bot.id, conversationID: live.id, runID: runId)
             },
             composerPlaceholder: Self.deskComposerPlaceholder(botName: bot.name),
-            emptyConversationTitle: "Message \(Self.displayName(bot.name))",
-            emptyConversationSubtitle: "This thread has no messages yet.",
+            emptyConversationTitle: L("Message %1$@", Self.displayName(bot.name)),
+            emptyConversationSubtitle: L("This thread has no messages yet."),
             pinnedThread: thread,
             noticeChoiceHandler: isTitioInbox ? titioNoticeChoiceHandler() : nil,
             hostReplyHandler: isTitioInbox ? titioHostReplyHandler() : nil,
@@ -11452,7 +11452,7 @@ public final class BotsViewModel: ObservableObject {
         // launch, so the desktop pane and the send admission see that VM.
         router.configureBotVMHooks(on: vm)
         vm.botVMPreflight = { [weak self, weak router] botID, workspace, threadID in
-            guard let self, let router else { return "Bot unavailable." }
+            guard let self, let router else { return L("Bot unavailable.") }
             // A workspace-less desk thread on the bot's own VM asks Docker and
             // never provisions inline; shared VMs keep the router's checks.
             let destination = try? threadID.flatMap { try self.botStore.threadExecutionDestination($0) }
@@ -11464,7 +11464,7 @@ public final class BotsViewModel: ObservableObject {
             return await router.botVMPreflight(botID, workspace: workspace, threadID: threadID)
         }
         vm.botVMProvision = { [weak self] botID in
-            guard let self else { return "Bot unavailable." }
+            guard let self else { return L("Bot unavailable.") }
             return await self.deskGuestDesktopFailure(botID)
         }
         router.wireQueueDrainControl(on: vm, context: context)
@@ -11491,7 +11491,7 @@ public final class BotsViewModel: ObservableObject {
                     do {
                         _ = try await self.forkDeskConversation(conversationID: live.id, messageID: messageID)
                     } catch {
-                        vm?.statusMessage = "Could not fork thread: \(error)"
+                        vm?.statusMessage = L("Could not fork thread: %1$@", error)
                     }
                 }
             }
@@ -11528,7 +11528,7 @@ public final class BotsViewModel: ObservableObject {
     /// send waits for it; only a failed start shows the D11 banner.
     private func deskGuestDesktopPreflight(_ botID: BotID) async -> String? {
         if let dockerGuestReadyOverrideForTesting {
-            return dockerGuestReadyOverrideForTesting ? nil : "Docker desktop is not ready."
+            return dockerGuestReadyOverrideForTesting ? nil : L("Docker desktop is not ready.")
         }
         guard let service = computerGuestService else { return BotComputerDockerError.cliMissing.description }
         if isGuestRunning(botID) {
@@ -11549,7 +11549,7 @@ public final class BotsViewModel: ObservableObject {
     /// user-facing failure.
     private func deskGuestDesktopFailure(_ botID: BotID) async -> String? {
         if let dockerGuestReadyOverrideForTesting {
-            return dockerGuestReadyOverrideForTesting ? nil : "Docker desktop is not ready."
+            return dockerGuestReadyOverrideForTesting ? nil : L("Docker desktop is not ready.")
         }
         // A start already in flight (a Studio open, an earlier send) settles
         // first; `presentGuestDesktop` would return at once without waiting.
@@ -11562,7 +11562,7 @@ public final class BotsViewModel: ObservableObject {
         }
         if ready != nil { return nil }
         if case .failed(let message) = guestLaunchState(for: botID) { return message }
-        return "Linux desktop is starting. Try again when it is ready."
+        return L("Linux desktop is starting. Try again when it is ready.")
     }
 
     /// Workspace-linked threads keep running in their workspace (or worktree), not the bot home.
@@ -11580,11 +11580,11 @@ public final class BotsViewModel: ObservableObject {
                 try self?.linkWorkspaceThread(threadID, toBot: botID)
             },
             promptTransform: { [weak self] botID, text, threadID, runID in
-                guard let self else { throw BotDeskSendRefused(reason: "Bot unavailable.") }
+                guard let self else { throw BotDeskSendRefused(reason: L("Bot unavailable.")) }
                 let bot = try self.liveBotForWorkspaceRun(botID)
                 guard let conversation = try self.botStore.conversationLinked(to: threadID),
                       conversation.botID == bot.id else {
-                    throw BotDeskSendRefused(reason: "Bot unavailable.")
+                    throw BotDeskSendRefused(reason: L("Bot unavailable."))
                 }
                 // Carries the VM rules for a thread locked to the bot's VM.
                 return try self.compileDeskPrompt(
@@ -11615,7 +11615,7 @@ public final class BotsViewModel: ObservableObject {
                 ? try self.liveBotForWorkspaceRun(botID)
                 : (self.bots.first(where: { $0.id == botID }) ?? (try? self.botStore.get(id: botID)))
             guard let bot, let conversation, conversation.botID == bot.id else {
-                if actorBotID != nil { throw BotDeskSendRefused(reason: "Bot unavailable.") }
+                if actorBotID != nil { throw BotDeskSendRefused(reason: L("Bot unavailable.")) }
                 return nil
             }
             let prompt = try self.compileDeskPrompt(
@@ -11652,8 +11652,8 @@ public final class BotsViewModel: ObservableObject {
     private func liveBotForWorkspaceRun(_ botID: BotID) throws -> BotDefinition {
         let stored = try? botStore.get(id: botID)
         guard let bot = stored ?? nil, bot.deletedAt == nil else {
-            let label = (stored ?? nil).map { "Bot \($0.name)" } ?? "Bot"
-            throw BotDeskSendRefused(reason: "\(label) has been deleted. Use \"Continue without bot\".")
+            let label = (stored ?? nil).map { L("Bot %1$@", $0.name) } ?? L("Bot")
+            throw BotDeskSendRefused(reason: L("%1$@ has been deleted. Use \"Continue without bot\".", label))
         }
         return bot
     }
@@ -11664,12 +11664,12 @@ public final class BotsViewModel: ObservableObject {
         let bot = try liveBotForWorkspaceRun(botID)
         if let existing = try botStore.conversationLinked(to: threadID) {
             guard existing.botID == bot.id else {
-                throw BotDeskSendRefused(reason: "This conversation already belongs to another bot.")
+                throw BotDeskSendRefused(reason: L("This conversation already belongs to another bot."))
             }
             return
         }
         guard let thread = try context.threadRepo.get(id: threadID) else {
-            throw BotDeskSendRefused(reason: "A conversa sumiu antes de iniciar.")
+            throw BotDeskSendRefused(reason: L("The conversation disappeared before it started."))
         }
         let conversation = BotConversation(
             botID: bot.id,
@@ -11681,11 +11681,11 @@ public final class BotsViewModel: ObservableObject {
             let workspaceContext = BotContext.workspace(workspaceID)
             guard let binding = try botStore.getContextBinding(hostID: hostID, botID: bot.id, context: workspaceContext),
                   binding.state == .active, binding.actions.isSuperset(of: [.read, .send]) else {
-                throw BotStoreError.invalidInput("This Bot has no active read and send grant for this context.")
+                throw BotStoreError.invalidInput(L("This Bot has no active read and send grant for this context."))
             }
             guard thread.provider == .distill, thread.providerThreadId == nil,
                   thread.runAsUser == nil || thread.runAsUser?.isCurrentAccount == true else {
-                throw BotStoreError.invalidInput("Contextual threads require a new thread with the current Distill account.")
+                throw BotStoreError.invalidInput(L("Contextual threads require a new thread with the current Distill account."))
             }
             try botStore.createContextualConversation(
                 conversation, hostID: hostID, context: workspaceContext, policyRevision: binding.policyRevision
@@ -11763,7 +11763,7 @@ public final class BotsViewModel: ObservableObject {
         try requireContextualSendAuthority(pinnedConversation)
         guard let bot = bots.first(where: { $0.id == botID }) ?? (try? botStore.get(id: botID)),
               let revision = try currentRevision(for: bot) else {
-            throw BotDeskSendRefused(reason: "Bot runtime is unavailable.")
+            throw BotDeskSendRefused(reason: L("Bot runtime is unavailable."))
         }
         if selectedBotID == botID, let message = deskDistillEffortValidationMessage {
             throw BotDeskSendRefused(reason: message)
@@ -11773,11 +11773,11 @@ public final class BotsViewModel: ObservableObject {
         } catch {
             switch guestLaunchState(for: bot.id) {
             case .starting:
-                throw BotDeskSendRefused(reason: "Linux desktop is starting. Try again when it is ready.")
+                throw BotDeskSendRefused(reason: L("Linux desktop is starting. Try again when it is ready."))
             case .failed(let message):
                 throw BotDeskSendRefused(reason: message)
             case .idle:
-                throw BotDeskSendRefused(reason: "Docker desktop is not ready.")
+                throw BotDeskSendRefused(reason: L("Docker desktop is not ready."))
             }
         }
         let storedThread = try context.threadRepo.get(id: threadID)
@@ -11983,12 +11983,12 @@ public final class BotsViewModel: ObservableObject {
         if let reply = center.contextualReply(messageID: messageID, optionIndex: optionIndex) {
             guard reply["outcome"] as? String == "reply_required",
                   let vm = deskAgentVM, let threadID = vm.selectedThreadId else {
-                deskAgentVM?.statusMessage = "This question is no longer awaiting a reply."
+                deskAgentVM?.statusMessage = L("This question is no longer awaiting a reply.")
                 return
             }
             if let current = vm.activeReplyTarget,
                current.threadId != threadID || current.noticeMessageID?.caseInsensitiveCompare(messageID) != .orderedSame {
-                vm.statusMessage = "Finish or cancel your current reply before replying to another question. Your draft was kept."
+                vm.statusMessage = L("Finish or cancel your current reply before replying to another question. Your draft was kept.")
                 return
             }
             vm.composerState.replyTarget = AgentReplyTarget(
@@ -12034,9 +12034,9 @@ public final class BotsViewModel: ObservableObject {
             switch self.context.titioNoticeCenter.replyNow(messageID: id, text: text) {
             case .accepted: return true
             case .alreadyResolved:
-                throw BotStoreError.invalidInput("This question has already been answered. Your draft was kept.")
+                throw BotStoreError.invalidInput(L("This question has already been answered. Your draft was kept."))
             default:
-                throw BotStoreError.invalidInput("This reply could not be sent to its original question. Your draft was kept.")
+                throw BotStoreError.invalidInput(L("This reply could not be sent to its original question. Your draft was kept."))
             }
         }
     }
@@ -12130,10 +12130,10 @@ public final class BotsViewModel: ObservableObject {
                 try router.selectWorkspace(WorkspaceID(workspaceID))
                 try router.focusSurface(workspace: WorkspaceID(workspaceID), surface: SurfaceID(surfaceID))
             } else {
-                errorMessage = "This activity has no conversation destination."
+                errorMessage = L("This activity has no conversation destination.")
             }
         } catch {
-            errorMessage = "Could not open activity: \(error.localizedDescription)"
+            errorMessage = L("Could not open activity: %1$@", error.localizedDescription)
         }
     }
 
@@ -12154,7 +12154,7 @@ public final class BotsViewModel: ObservableObject {
                     try settings.delete(key: key)
                 }
             } catch {
-                vm?.statusMessage = "The reply context could not be saved: \(error.localizedDescription)"
+                vm?.statusMessage = L("The reply context could not be saved: %1$@", error.localizedDescription)
             }
         }
     }
@@ -12426,7 +12426,7 @@ public final class BotsViewModel: ObservableObject {
         let guestEligible = routing.provider == .distill && routing.runAsUser.uid == getuid()
         // A bot on a VM always runs in the VM: refuse instead of moving it to the Mac.
         if destination.target == .vm, !guestEligible {
-            throw BotStoreError.invalidInput("VM conversations use Distill with your current Mac account.")
+            throw BotStoreError.invalidInput(L("VM conversations use Distill with your current Mac account."))
         }
         try botStore.validateExecutionDestination(destination, botID: bot.id)
         try botStore.pinExecutionDestination(threadID: thread.id, botID: bot.id, destination: destination)
@@ -12437,7 +12437,7 @@ public final class BotsViewModel: ObservableObject {
         guard try context.threadRepo.setActor(
             id: thread.id, actor: .bot(bot.id), lockedAt: lockedAt, executionTarget: .vm
         ) else {
-            throw BotDeskSendRefused(reason: "A conversa sumiu antes de iniciar.")
+            throw BotDeskSendRefused(reason: L("The conversation disappeared before it started."))
         }
         thread.actor = .bot(bot.id)
         thread.actorLockedAt = lockedAt
@@ -12524,7 +12524,7 @@ public final class BotsViewModel: ObservableObject {
                 defer {
                     if !work.providerAccepted, let record = work.queuedRecord {
                         do { try HostDatabaseRestore.pauseQueue(kind: .bot, id: record.id, db: self.context.db) }
-                        catch { self.errorMessage = "Queued message review state could not be saved: \(error)" }
+                        catch { self.errorMessage = L("Queued message review state could not be saved: %1$@", error) }
                     }
                     if let threadID = work.threadID, let runID = work.runID {
                         self.context.coordinator.discardProviderStartReservation(
@@ -12598,10 +12598,10 @@ public final class BotsViewModel: ObservableObject {
                             } else {
                                 try HostDatabaseRestore.pauseQueue(kind: .bot, id: record.id, db: self.context.db)
                                 self.reloadQueuedFollowUpsFromStore(botID: bot.id)
-                                self.errorMessage = "Queued message changed during admission; review delivery before retrying."
+                                self.errorMessage = L("Queued message changed during admission; review delivery before retrying.")
                             }
                         } catch {
-                            self.errorMessage = "Queued message acknowledgement could not be saved: \(error)"
+                            self.errorMessage = L("Queued message acknowledgement could not be saved: %1$@", error)
                         }
                     }
                     self.forgetDeskSend(work, botID: bot.id)
@@ -13057,7 +13057,7 @@ public final class BotsViewModel: ObservableObject {
                     conversationID: next.id,
                     kind: kind,
                     title: BotsDeskFollowThrough.attentionTitle(for: status, terminalReason: reason),
-                    detail: run?.errorMessage ?? "The supervised turn ended without a clean completion."
+                    detail: run?.errorMessage ?? L("The supervised turn ended without a clean completion.")
                 )
                 try botStore.upsertAttention(item)
                 adoptWrittenAttention(item)
@@ -13122,7 +13122,7 @@ public final class BotsViewModel: ObservableObject {
 
     public var dockerDesktopStatus: String? {
         if dockerDesktopSelectable { return nil }
-        return dockerGuestProbeReason ?? "Guest is proving the screen…"
+        return dockerGuestProbeReason ?? L("Guest is proving the screen…")
     }
 
     /// Machine probe. Tests inject a ready/not-ready override.
@@ -13248,7 +13248,7 @@ public final class BotsViewModel: ObservableObject {
                 }
             } catch {
                 await MainActor.run {
-                    self.errorMessage = "Could not stop the Linux desktop."
+                    self.errorMessage = L("Could not stop the Linux desktop.")
                     onSettled?(false)
                 }
             }
@@ -13264,7 +13264,7 @@ public final class BotsViewModel: ObservableObject {
             return
         }
         guard let service = computerGuestService else {
-            errorMessage = "Docker desktop is not ready."
+            errorMessage = L("Docker desktop is not ready.")
             DispatchQueue.main.async { onSettled?(nil) }
             return
         }
@@ -13286,8 +13286,8 @@ public final class BotsViewModel: ObservableObject {
                         self.errorMessage = String(describing: error)
                     } else {
                         self.errorMessage = wasRunning
-                            ? "Could not rebuild the Linux desktop. The current desktop is still running."
-                            : "Could not rebuild the Linux desktop."
+                            ? L("Could not rebuild the Linux desktop. The current desktop is still running.")
+                            : L("Could not rebuild the Linux desktop.")
                     }
                     onSettled?(nil)
                 }
@@ -13805,17 +13805,17 @@ func botManagementButtons(
     fromRoster: Bool
 ) -> some View {
     let locked = !vm.isControlPlaneActive
-    Button(bot.pinned ? "Unpin" : "Pin") {
+    Button(bot.pinned ? L("Unpin") : L("Pin")) {
         vm.setPinned(id: bot.id, pinned: !bot.pinned)
     }
     .disabled(locked)
     .accessibilityIdentifier("bots.menu.pin")
-    Button(bot.hidden ? "Unhide" : "Hide") {
+    Button(bot.hidden ? L("Unhide") : L("Hide")) {
         vm.setHidden(id: bot.id, hidden: !bot.hidden)
     }
     .disabled(locked)
     .accessibilityIdentifier("bots.menu.hide")
-    Button("Duplicate") {
+    Button(L("Duplicate")) {
         if fromRoster {
             vm.duplicateFromRoster(bot)
         } else {
@@ -13824,13 +13824,13 @@ func botManagementButtons(
     }
     .disabled(locked)
     .accessibilityIdentifier("bots.menu.duplicate")
-    Button("Edit") {
+    Button(L("Edit")) {
         vm.beginEdit(bot)
     }
     .disabled(locked)
     .accessibilityIdentifier("bots.menu.edit")
     Divider()
-    Button("Delete", role: .destructive) {
+    Button(L("Delete"), role: .destructive) {
         vm.pendingDeleteID = bot.id
     }
     .disabled(locked)
@@ -13861,7 +13861,7 @@ private struct BotsUnsavedNewBotConfirmation: ViewModifier {
                 vm.discardUnsavedNewBotAndLeave()
             }
             .accessibilityIdentifier("bots.studio.unsaved.discard")
-            Button("Cancel", role: .cancel) {
+            Button(L("Cancel"), role: .cancel) {
                 vm.cancelUnsavedNewBotLeave()
             }
             .accessibilityIdentifier("bots.studio.unsaved.cancel")
@@ -13897,9 +13897,9 @@ private struct BotsDockerConfirmation: ViewModifier {
                 }
                 vm.pendingDockerConfirm = nil
             }
-            Button("Cancel", role: .cancel) { vm.pendingDockerConfirm = nil }
+            Button(L("Cancel"), role: .cancel) { vm.pendingDockerConfirm = nil }
         } message: {
-            Text("The Linux desktop is restarted from its base image. Unsaved work inside it is lost.")
+            Text(L("The Linux desktop is restarted from its base image. Unsaved work inside it is lost."))
         }
     }
 
@@ -13909,20 +13909,20 @@ private struct BotsDockerConfirmation: ViewModifier {
         case .rebuild(let botID), .stop(let botID): id = botID
         case nil: id = nil
         }
-        return id.flatMap { id in vm.bots.first { $0.id == id }?.name } ?? "this Bot"
+        return id.flatMap { id in vm.bots.first { $0.id == id }?.name } ?? L("this Bot")
     }
 
     private var title: String {
         switch vm.pendingDockerConfirm {
-        case .rebuild: return "Rebuild \(name)'s computer?"
-        case .stop: return "Stop \(name)'s computer?"
-        case nil: return "Rebuild this computer?"
+        case .rebuild: return L("Rebuild %1$@'s computer?", name)
+        case .stop: return L("Stop %1$@'s computer?", name)
+        case nil: return L("Rebuild this computer?")
         }
     }
 
     private var action: String {
-        if case .stop = vm.pendingDockerConfirm { return "Stop" }
-        return "Rebuild"
+        if case .stop = vm.pendingDockerConfirm { return L("Stop") }
+        return L("Rebuild")
     }
 }
 
@@ -13940,16 +13940,16 @@ private struct BotsDeleteConfirmation: ViewModifier {
                 ),
                 titleVisibility: .visible
             ) {
-                Button("Delete", role: .destructive) {
+                Button(L("Delete"), role: .destructive) {
                     if let id = vm.pendingDeleteID {
                         vm.delete(id: id)
                     }
                     vm.pendingDeleteID = nil
                 }
                 .accessibilityIdentifier("bots.menu.delete.confirm")
-                Button("Cancel", role: .cancel) { vm.pendingDeleteID = nil }
+                Button(L("Cancel"), role: .cancel) { vm.pendingDeleteID = nil }
             } message: {
-                Text("This teammate is removed from the fleet. Conversations and routines are deleted.")
+                Text(L("This teammate is removed from the fleet. Conversations and routines are deleted."))
             }
         } else {
             content
@@ -13958,9 +13958,9 @@ private struct BotsDeleteConfirmation: ViewModifier {
 
     private var title: String {
         if let id = vm.pendingDeleteID, let bot = vm.bots.first(where: { $0.id == id }) {
-            return "Delete \(bot.name)?"
+            return L("Delete %1$@?", bot.name)
         }
-        return "Delete this Bot?"
+        return L("Delete this Bot?")
     }
 }
 
@@ -14037,24 +14037,24 @@ public struct BotsRootView: View {
         // or it hangs in empty padding beside the open sidebar.
         .modifier(BotsTitlebarBleed(edges: titlebarSafeAreaEdges))
         .confirmationDialog(
-            "Remove secret?",
+            L("Remove secret?"),
             isPresented: Binding(
                 get: { vm.pendingSecretDeleteName != nil },
                 set: { if !$0 { vm.pendingSecretDeleteName = nil } }
             ),
             titleVisibility: .visible
         ) {
-            Button("Remove secret", role: .destructive) {
+            Button(L("Remove secret"), role: .destructive) {
                 if let name = vm.pendingSecretDeleteName {
                     vm.removeBotSecret(name)
                 }
             }
             .accessibilityIdentifier("bots.studio.secrets.remove.confirm")
-            Button("Cancel", role: .cancel) {
+            Button(L("Cancel"), role: .cancel) {
                 vm.pendingSecretDeleteName = nil
             }
         } message: {
-            Text("This deletes the protected value from this Bot's storage.")
+            Text(L("This deletes the protected value from this Bot's storage."))
         }
         .modifier(BotsDeleteConfirmation(vm: vm, enabled: !vm.presentsAsDetachedWindow))
         .modifier(BotsDockerConfirmation(vm: vm))
@@ -14068,10 +14068,10 @@ public struct BotsRootView: View {
     private var emptyDesk: some View {
         DSEmptyState(
             icon: "bubble.left.and.bubble.right",
-            title: vm.isControlPlaneActive ? "Select a teammate" : "Turn on Bot control plane in Settings",
+            title: vm.isControlPlaneActive ? L("Select a teammate") : L("Turn on Bot control plane in Settings"),
             subtitle: vm.isControlPlaneActive
-                ? "Chat opens here. Studio is the other destination."
-                : "Bots stay off until the control plane is enabled."
+                ? L("Chat opens here. Studio is the other destination.")
+                : L("Bots stay off until the control plane is enabled.")
         ) {
             if vm.isControlPlaneActive {
                 Button(action: vm.beginCreate) {
@@ -14085,7 +14085,7 @@ public struct BotsRootView: View {
                 .buttonStyle(DSPrimaryButtonStyle())
                 .frame(minHeight: BotsChrome.hitTarget)
                 .contentShape(Rectangle())
-                .help("Create a named teammate")
+                .help(L("Create a named teammate"))
                 .accessibilityIdentifier("bots.desk.empty.new")
                 .padding(.top, DS.Space.xs)
             }
@@ -14138,8 +14138,8 @@ public struct BotsRootView: View {
                         studioPage {
                             studioEmptyState(
                                 icon: "clock.arrow.2.circlepath",
-                                title: "No bot selected",
-                                subtitle: "Pick a bot to see its scheduled tasks."
+                                title: L("No bot selected"),
+                                subtitle: L("Pick a bot to see its scheduled tasks.")
                             )
                         }
                     }
@@ -14239,19 +14239,19 @@ public struct BotsRootView: View {
             )
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: DS.Space.sm) {
-                    Text("Bot Studio")
+                    Text(L("Bot Studio"))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textTertiary)
                     if vm.studioHasUnpublishedChanges {
-                        DSPill("Draft", tone: .warning)
+                        DSPill(L("Draft"), tone: .warning)
                     }
                 }
-                Text(vm.studioDraft.name.isEmpty ? "New Bot" : vm.studioDraft.name)
+                Text(vm.studioDraft.name.isEmpty ? L("New Bot") : vm.studioDraft.name)
                     .font(DS.Font.title2.weight(.semibold))
                     .foregroundColor(DS.Palette.text)
                     .lineLimit(2)
                     .accessibilityIdentifier("bots.studio.name")
-                Text(vm.studioDraft.title.isEmpty ? "No job yet" : vm.studioDraft.title)
+                Text(vm.studioDraft.title.isEmpty ? L("No job yet") : vm.studioDraft.title)
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.textSecondary)
                     .accessibilityIdentifier("bots.studio.role")
@@ -14292,7 +14292,7 @@ public struct BotsRootView: View {
                     )
                     .frame(width: 14)
                     .accessibilityHidden(true)
-                Text("Notify")
+                Text(L("Notify"))
                     .font(DS.Font.caption.weight(.medium))
                     .foregroundColor(DS.Palette.textSecondary)
             }
@@ -14300,9 +14300,9 @@ public struct BotsRootView: View {
         .toggleStyle(.switch)
         .controlSize(.small)
         .disabled(!vm.isControlPlaneActive)
-        .help("Notify when this Bot needs you. Alerts stay on this Mac; they are not an isolated Desktop.")
-        .accessibilityLabel("Notify when this Bot needs you")
-        .accessibilityHint("Alerts stay on this Mac. They are not an isolated Desktop.")
+        .help(L("Notify when this Bot needs you. Alerts stay on this Mac; they are not an isolated Desktop."))
+        .accessibilityLabel(L("Notify when this Bot needs you"))
+        .accessibilityHint(L("Alerts stay on this Mac. They are not an isolated Desktop."))
         .accessibilityIdentifier("bots.studio.notifications")
         .frame(minHeight: BotsChrome.hitTarget)
     }
@@ -14407,19 +14407,19 @@ public struct BotsRootView: View {
     private var studioReplyStyle: some View {
         let style = vm.studioDraftReplyStyle
         return VStack(alignment: .leading, spacing: DS.Space.xl) {
-            studioSectionHeader("Reply Style")
+            studioSectionHeader(L("Reply Style"))
             labeledField(
-                "Reply style",
+                L("Reply style"),
                 caption: style.verbosity == .human
-                    ? "Writes like a person explaining to someone who isn't technical. The chat hides commands and tool steps and shows only what the Bot is thinking right now."
-                    : "Can include files, commands and code, and the chat shows every step it runs."
+                    ? L("Writes like a person explaining to someone who isn't technical. The chat hides commands and tool steps and shows only what the Bot is thinking right now.")
+                    : L("Can include files, commands and code, and the chat shows every step it runs.")
             ) {
-                Picker("Reply style", selection: Binding(
+                Picker(L("Reply style"), selection: Binding(
                     get: { style.verbosity },
                     set: { vm.studioDraft.verbosity = $0 }
                 )) {
-                    Text("Simple").tag(BotReplyVerbosity.human)
-                    Text("Technical").tag(BotReplyVerbosity.verbose)
+                    Text(L("Simple")).tag(BotReplyVerbosity.human)
+                    Text(L("Technical")).tag(BotReplyVerbosity.verbose)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -14435,11 +14435,11 @@ public struct BotsRootView: View {
     private var studioTitioFactoryReset: some View {
         HStack(alignment: .center, spacing: DS.Space.xl) {
             studioSectionHeader(
-                "Factory Settings",
-                caption: "Put Titio's name, role, description and instructions back to the built-in defaults. Conversations, files and scheduled tasks stay."
+                L("Factory Settings"),
+                caption: L("Put Titio's name, role, description and instructions back to the built-in defaults. Conversations, files and scheduled tasks stay.")
             )
             .frame(maxWidth: .infinity, alignment: .leading)
-            Button("Restore Factory Settings…") {
+            Button(L("Restore Factory Settings…")) {
                 isConfirmingTitioFactoryReset = true
             }
             .buttonStyle(DSSecondaryButtonStyle())
@@ -14447,11 +14447,11 @@ public struct BotsRootView: View {
             .accessibilityIdentifier("bots.studio.titio.factoryReset")
         }
         .confirmationDialog(
-            "Restore Titio's factory settings?",
+            L("Restore Titio's factory settings?"),
             isPresented: $isConfirmingTitioFactoryReset,
             titleVisibility: .visible
         ) {
-            Button("Restore Factory Settings", role: .destructive) {
+            Button(L("Restore Factory Settings"), role: .destructive) {
                 vm.errorMessage = nil
                 do {
                     _ = try vm.restoreTitioFactorySettings()
@@ -14460,9 +14460,9 @@ public struct BotsRootView: View {
                 }
             }
             .accessibilityIdentifier("bots.studio.titio.factoryReset.confirm")
-            Button("Cancel", role: .cancel) {}
+            Button(L("Cancel"), role: .cancel) {}
         } message: {
-            Text("Your changes to Titio's profile and instructions are replaced. Conversations, files and scheduled tasks are kept.")
+            Text(L("Your changes to Titio's profile and instructions are replaced. Conversations, files and scheduled tasks are kept."))
         }
         .accessibilityIdentifier("bots.studio.titio.factorySettings")
     }
@@ -14471,9 +14471,9 @@ public struct BotsRootView: View {
         VStack(alignment: .leading, spacing: DS.Space.xl) {
             studioSectionHeader(BotsChrome.Label.roleAndIdentity)
             (studioCompact ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.xl)) : AnyLayout(HStackLayout(alignment: .top, spacing: DS.Space.xl))) {
-                labeledField("Name") {
+                labeledField(L("Name")) {
                     studioField(
-                        placeholder: "e.g. Piper",
+                        placeholder: L("e.g. Piper"),
                         text: Binding(
                             get: { vm.studioDraft.name },
                             set: { vm.didEditStudioName($0) }
@@ -14481,15 +14481,15 @@ public struct BotsRootView: View {
                     )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                labeledField("Role") {
-                    studioField(placeholder: "What this teammate does", text: $vm.studioDraft.title)
+                labeledField(L("Role")) {
+                    studioField(placeholder: L("What this teammate does"), text: $vm.studioDraft.title)
                         .onChange(of: vm.studioDraft.title) { _ in
                             vm.refreshGeneratedStandingInstructions()
                         }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            labeledField("Slug") {
+            labeledField(L("Slug")) {
                 HStack(spacing: DS.Space.xs) {
                     Text("@")
                         .font(DS.Font.body)
@@ -14504,8 +14504,8 @@ public struct BotsRootView: View {
                     )
                     // The app finds Titio by its slug; renaming it would orphan the pet.
                     .disabled(vm.studioEditsTitio)
-                    .help(vm.studioEditsTitio ? "Titio's slug is fixed." : "")
-                    .accessibilityLabel("Slug")
+                    .help(vm.studioEditsTitio ? L("Titio's slug is fixed.") : "")
+                    .accessibilityLabel(L("Slug"))
                     .accessibilityValue(vm.studioDraft.handle.isEmpty ? "" : "@\(vm.studioDraft.handle)")
                     .accessibilityIdentifier("bots.studio.slug")
                 }
@@ -14597,13 +14597,13 @@ public struct BotsRootView: View {
 
     private var studioDesktop: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
-            AgentChoiceSectionHeader("Where it runs")
+            AgentChoiceSectionHeader(L("Where it runs"))
             securityCard {
                 securityRow(
                     icon: "desktopcomputer",
                     tint: DS.Palette.accent,
-                    title: "Run on",
-                    caption: "Default for new conversations. Existing conversations keep theirs."
+                    title: L("Run on"),
+                    caption: L("Default for new conversations. Existing conversations keep theirs.")
                 ) {
                     BotExecutionDestinationPicker(
                         selection: Binding(get: { vm.studioExecutionDestination }, set: { vm.studioExecutionDestination = $0 }),
@@ -14617,10 +14617,10 @@ public struct BotsRootView: View {
                     securityRow(
                         icon: "safari",
                         tint: DS.Palette.accent,
-                        title: "Use a separate browser for this bot",
-                        caption: "Gives this bot its own browser instead of the shared logical space."
+                        title: L("Use a separate browser for this bot"),
+                        caption: L("Gives this bot its own browser instead of the shared logical space.")
                     ) {
-                        Toggle("Use a separate browser for this bot", isOn: Binding(
+                        Toggle(L("Use a separate browser for this bot"), isOn: Binding(
                             get: { vm.studioDraft.desktopKind == .botOwnedBrowser },
                             set: { vm.studioDraft.desktopKind = $0 ? .botOwnedBrowser : .logicalExecutionSpace }
                         ))
@@ -14629,12 +14629,12 @@ public struct BotsRootView: View {
                     }
                 }
             }
-            Text("Logical space is not a security boundary.")
+            Text(L("Logical space is not a security boundary."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
                 .accessibilityIdentifier("bots.studio.desktop.honesty")
             if !vm.studioDestinationIsSaved {
-                Text("Save the bot to apply this destination.")
+                Text(L("Save the bot to apply this destination."))
                     .font(DS.Font.caption).foregroundStyle(DS.Palette.textSecondary)
             }
             if vm.displayedDesktopKind == .dockerDesktop, vm.studioDestinationIsSaved {
@@ -14667,10 +14667,10 @@ public struct BotsRootView: View {
 
     private var secretsHeaderText: some View {
         VStack(alignment: .leading, spacing: DS.Space.xxs) {
-            Text("Secrets")
+            Text(L("Secrets"))
                 .font(DS.Font.body)
                 .foregroundColor(DS.Palette.text)
-            Text("Encrypted values this bot can use. Values are never shown again.")
+            Text(L("Encrypted values this bot can use. Values are never shown again."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -14679,7 +14679,7 @@ public struct BotsRootView: View {
 
     private var studioSecrets: some View {
         let formVisible = addingSecret || vm.studioState.editingSecretName != nil
-        let addButton = Button("Add secret") {
+        let addButton = Button(L("Add secret")) {
             vm.cancelBotSecretEdit()
             addingSecret = true
         }
@@ -14714,7 +14714,7 @@ public struct BotsRootView: View {
                         .accessibilityIdentifier("bots.studio.secrets.loading")
                 } else if vm.botSecretsLoadFailed {
                     studioRule
-                    Text("Protected secret storage is unavailable.")
+                    Text(L("Protected secret storage is unavailable."))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.warning)
                         .fixedSize(horizontal: false, vertical: true)
@@ -14722,7 +14722,7 @@ public struct BotsRootView: View {
                         .accessibilityIdentifier("bots.studio.secrets.error")
                 } else if vm.botSecrets.isEmpty, !formVisible {
                     studioRule
-                    Text("No secrets yet")
+                    Text(L("No secrets yet"))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textTertiary)
                         .padding(.vertical, DS.Space.md)
@@ -14737,18 +14737,18 @@ public struct BotsRootView: View {
                         Text(secret.name)
                             .font(DS.Font.mono)
                             .foregroundColor(DS.Palette.text)
-                        Text("••••••••")
+                        Text(L("••••••••"))
                             .font(DS.Font.mono)
                             .foregroundColor(DS.Palette.textTertiary)
                             .accessibilityHidden(true)
                         Spacer(minLength: 0)
                         Menu {
-                            Button("Update") {
+                            Button(L("Update")) {
                                 addingSecret = false
                                 vm.editBotSecret(secret.name)
                             }
                             .accessibilityIdentifier("bots.studio.secrets.update.\(secret.name)")
-                            Button("Remove…", role: .destructive) {
+                            Button(L("Remove…"), role: .destructive) {
                                 vm.requestDeleteBotSecret(secret.name)
                             }
                             .accessibilityIdentifier("bots.studio.secrets.remove.\(secret.name)")
@@ -14759,7 +14759,7 @@ public struct BotsRootView: View {
                         .menuStyle(.borderlessButton)
                         .menuIndicator(.hidden)
                         .fixedSize()
-                        .accessibilityLabel("Actions for \(secret.name)")
+                        .accessibilityLabel(L("Actions for %1$@", secret.name))
                     }
                     .padding(.vertical, DS.Space.md)
                     .frame(minHeight: BotsChrome.hitTarget)
@@ -14767,7 +14767,7 @@ public struct BotsRootView: View {
                 if formVisible {
                     studioRule
                     VStack(alignment: .leading, spacing: DS.Space.lg) {
-                        labeledField("Name", caption: "Environment-variable name used only by this Bot's runtime.") {
+                        labeledField(L("Name"), caption: L("Environment-variable name used only by this Bot's runtime.")) {
                             studioField(
                                 placeholder: "SERVICE_TOKEN",
                                 text: Binding(
@@ -14779,13 +14779,13 @@ public struct BotsRootView: View {
                             .accessibilityIdentifier("bots.studio.secrets.name")
                         }
                         labeledField(
-                            "Value",
+                            L("Value"),
                             caption: vm.studioState.editingSecretName == nil
-                                ? "The value is cleared after save."
-                                : "Enter the replacement value."
+                                ? L("The value is cleared after save.")
+                                : L("Enter the replacement value.")
                         ) {
                             SecureField(
-                                "Enter secret value",
+                                L("Enter secret value"),
                                 text: Binding(
                                     get: { vm.studioState.secretValueDraft },
                                     set: { vm.studioState.secretValueDraft = $0 }
@@ -14807,13 +14807,13 @@ public struct BotsRootView: View {
                         }
                         HStack(spacing: DS.Space.md) {
                             Spacer(minLength: 0)
-                            Button("Cancel") {
+                            Button(L("Cancel")) {
                                 addingSecret = false
                                 vm.cancelBotSecretEdit()
                             }
                             .buttonStyle(DSSecondaryButtonStyle())
                             .accessibilityIdentifier("bots.studio.secrets.cancel")
-                            Button(vm.studioState.editingSecretName == nil ? "Save secret" : "Update secret") {
+                            Button(vm.studioState.editingSecretName == nil ? L("Save secret") : L("Update secret")) {
                                 vm.saveBotSecret()
                                 // A failed save keeps the value draft, so the form stays open.
                                 if vm.studioState.secretValueDraft.isEmpty {
@@ -14860,7 +14860,7 @@ public struct BotsRootView: View {
                     attention: studioAvatarAttention
                 )
                 .accessibilityHidden(false)
-                .accessibilityLabel("Avatar, \(mood)")
+                .accessibilityLabel(L("Avatar, %1$@", mood))
                 if studioAvatarAttention != .none {
                     DSPill(mood, tone: studioAvatarPillTone)
                 }
@@ -14950,15 +14950,15 @@ public struct BotsRootView: View {
                             attentionBadge(vm.activityState(for: bot))
                                 .layoutPriority(1)
                             if vm.liveRosterBotIDs.contains(bot.id) {
-                                DSBusySpinner(label: "Running", identifier: "bots.desk.running")
+                                DSBusySpinner(label: L("Running"), identifier: "bots.desk.running")
                             }
                         }
                         HStack(spacing: DS.Space.sm) {
-                            Text(bot.title.isEmpty ? "No job yet" : bot.title)
+                            Text(bot.title.isEmpty ? L("No job yet") : bot.title)
                                 .font(DS.Font.caption2)
                                 .foregroundColor(DS.Palette.textSecondary)
                                 .accessibilityIdentifier("bots.desk.job")
-                            Text("@\(bot.handle)")
+                            Text(L("@%1$@", bot.handle))
                                 .font(DS.Font.caption2)
                                 .foregroundColor(DS.Palette.textSecondary)
                                 .accessibilityIdentifier("bots.desk.handle")
@@ -14973,16 +14973,16 @@ public struct BotsRootView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Open Studio for \(BotsViewModel.displayName(bot.name))")
+            .accessibilityLabel(L("Open Studio for %1$@", BotsViewModel.displayName(bot.name)))
             .accessibilityIdentifier("bots.desk.identity")
             Spacer(minLength: DS.Space.lg)
             HStack(spacing: Self.deskHeaderIconSpacing) {
-                DSIconButton("gearshape", help: "Studio") {
+                DSIconButton("gearshape", help: L("Studio")) {
                     vm.openStudio(bot)
                 }
                 .accessibilityIdentifier("bots.desk.studio")
                 if !vm.presentsAsDetachedWindow {
-                    DSIconButton("rectangle.on.rectangle", help: "Open in New Window") {
+                    DSIconButton("rectangle.on.rectangle", help: L("Open in New Window")) {
                         vm.openInNewWindow(bot)
                     }
                     .accessibilityIdentifier("bots.desk.openInNewWindow")
@@ -14993,7 +14993,7 @@ public struct BotsRootView: View {
                 .accessibilityIdentifier("bots.desk.thread.new.header")
                 DSIconButton(
                     "sidebar.right",
-                    help: vm.isDeskSidePaneVisible ? "Hide inspector" : "Show inspector"
+                    help: vm.isDeskSidePaneVisible ? L("Hide inspector") : L("Show inspector")
                 ) {
                     withAnimation(reduceMotion ? nil : DS.Motion.standard) {
                         vm.isDeskSidePaneVisible.toggle()
@@ -15016,7 +15016,7 @@ public struct BotsRootView: View {
                 deskThreadRail
                     .frame(width: vm.deskThreadRailWidth)
                     .transition(.move(edge: .leading).combined(with: .opacity))
-                DSResizeDivider(axis: .vertical, help: "Resize threads") { delta in
+                DSResizeDivider(axis: .vertical, help: L("Resize threads")) { delta in
                     vm.resizeDeskThreadRail(by: delta)
                 }
             }
@@ -15047,7 +15047,7 @@ public struct BotsRootView: View {
             .accessibilityIdentifier("bots.desk.timeline")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             if vm.isDeskSidePaneVisible {
-                DSResizeDivider(axis: .vertical, help: "Resize inspector") { delta in
+                DSResizeDivider(axis: .vertical, help: L("Resize inspector")) { delta in
                     // Divider reports + when the pointer moves right. This
                     // pane is trailing, so pull the handle left to widen.
                     vm.resizeDeskSidePane(by: -delta)
@@ -15065,16 +15065,16 @@ public struct BotsRootView: View {
         .animation(nil, value: vm.selectedBotID)
         .animation(nil, value: vm.selectedConversation?.id)
         .confirmationDialog(
-            "Clear all threads?",
+            L("Clear all threads?"),
             isPresented: $pendingClearAllDeskThreads,
             titleVisibility: .visible
         ) {
             Button(AgentChatThreadRailCopy.clearAllTitle, role: .destructive) {
                 vm.clearAllDeskThreads()
             }
-            Button("Cancel", role: .cancel) { pendingClearAllDeskThreads = false }
+            Button(L("Cancel"), role: .cancel) { pendingClearAllDeskThreads = false }
         } message: {
-            Text("Deletes every thread for this teammate. A live run will be stopped first. This cannot be undone.")
+            Text(L("Deletes every thread for this teammate. A live run will be stopped first. This cannot be undone."))
         }
     }
 
@@ -15090,8 +15090,8 @@ public struct BotsRootView: View {
                 // Scrolls so a tall empty state cannot push the Desk header out.
                 ScrollView(.vertical) {
                     AgentNewConversationEmptyState(
-                        title: "Message \(BotsViewModel.displayName(bot.name))",
-                        subtitle: "This thread has no messages yet."
+                        title: L("Message %1$@", BotsViewModel.displayName(bot.name)),
+                        subtitle: L("This thread has no messages yet.")
                     )
                     // Reaches the subtitle too: three lines keep it whole in the
                     // narrowest chat column.
@@ -15163,13 +15163,13 @@ public struct BotsRootView: View {
                     selected: vm.effectiveDeskPermissionMode,
                     modes: vm.selectedBotExecutionTarget == .vm ? [.fullAccess] : AgentPermissionMode.allCases,
                     disabled: vm.deskRunIsLive,
-                    help: vm.selectedBotExecutionTarget == .vm ? "VM bots always run with full access" : "Permission mode",
+                    help: vm.selectedBotExecutionTarget == .vm ? L("VM bots always run with full access") : L("Permission mode"),
                     accessibilityIdentifier: "bots.desk.permission.menu",
                     onSelect: vm.setDeskPermissionMode
                 )
                 AgentComposerCapsule {
                     AgentComposerCapsuleLabel(icon: vm.selectedBotExecutionTarget == .vm ? "desktopcomputer" : "folder",
-                        title: vm.selectedBotExecutionTarget == .vm ? "VM" : "Local", chevron: false)
+                        title: vm.selectedBotExecutionTarget == .vm ? "VM" : L("Local"), chevron: false)
                 }
                 .accessibilityIdentifier("bots.desk.execution.location")
             }
@@ -15188,7 +15188,7 @@ public struct BotsRootView: View {
             min: AgentModelMenuWidth.distillMin,
             max: AgentModelMenuWidth.distillMax
         )
-        let emptyListTitle = vm.providers.isEmpty ? "Loading models..." : "No models available"
+        let emptyListTitle = vm.providers.isEmpty ? L("Loading models...") : L("No models available")
         return AgentDistillModelPills(
             mainModel: mainModel, mainModels: models,
             reasoningModel: vm.deskRouting.reasoningModel, reasoningModels: models,
@@ -15204,7 +15204,7 @@ public struct BotsRootView: View {
             isDisabled: vm.deskRunIsLive,
             emptyListTitle: emptyListTitle,
             workerEmptyListTitle: vm.providers.isEmpty
-                ? "Loading models..." : "No models yet. Connect an account on the start screen.",
+                ? L("Loading models...") : L("No models yet. Connect an account on the start screen."),
             menuWidth: menuWidth,
             mainIdentifier: "bots.desk.model.menu", mainPopoverIdentifier: "bots.desk.model.popover",
             workerIdentifier: "bots.desk.reasoningModel.menu",
@@ -15225,7 +15225,7 @@ public struct BotsRootView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(DS.Palette.textSecondary)
                     .accessibilityHidden(true)
-                Text("\(bot.name) Desktop")
+                Text(L("%1$@ Desktop", bot.name))
                     .font(DS.Font.bodyStrong)
                     .foregroundColor(DS.Palette.text)
                     .lineLimit(1)
@@ -15265,7 +15265,7 @@ public struct BotsRootView: View {
         .padding(DS.Space.lg)
         .dsBar(edge: .bottom)
         .accessibilityIdentifier("bots.desk.desktop")
-        .accessibilityLabel("Desktop for \(bot.name). \(vm.deskRuntimeLabel.map { "\($0). " } ?? "")\(vm.desktopHonestyLabel)")
+        .accessibilityLabel(L("Desktop for %1$@. %2$@%3$@", bot.name, vm.deskRuntimeLabel.map { "\($0). " } ?? "", vm.desktopHonestyLabel))
     }
 
     private func deskInspector(_ bot: BotDefinition) -> some View {
@@ -15330,16 +15330,16 @@ public struct BotsRootView: View {
         let receipt = vm.inspectedBrain
         return VStack(alignment: .leading, spacing: DS.Space.md) {
             HStack(spacing: DS.Space.sm) {
-                Text("What this Bot sees")
+                Text(L("What this Bot sees"))
                     .font(DS.Font.bodyStrong)
                     .foregroundColor(DS.Palette.text)
                 Spacer(minLength: 0)
                 if vm.inspectedBrainIsLastCall {
-                    DSPill("Last call", tone: .accent)
+                    DSPill(L("Last call"), tone: .accent)
                 } else if vm.inspectedBrainIsPreview {
-                    DSPill("Preview", tone: .neutral)
+                    DSPill(L("Preview"), tone: .neutral)
                 } else {
-                    DSPill("Compiled", tone: .neutral)
+                    DSPill(L("Compiled"), tone: .neutral)
                 }
             }
             Text(vm.inspectedBrainIsLastCall ? BotsChrome.Label.brainReceiptHonesty : BotsChrome.Label.brainPreviewHonesty)
@@ -15378,7 +15378,7 @@ public struct BotsRootView: View {
                 brainWhyMemory(receipt)
                 brainCapabilities(receipt)
             } else {
-                Text("Save or select a Bot to compile Source and Effective Brain.")
+                Text(L("Save or select a Bot to compile Source and Effective Brain."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
             }
@@ -15387,18 +15387,18 @@ public struct BotsRootView: View {
 
     private func brainReceiptMeta(_ receipt: ContextAssemblyReceipt, compact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Revision \(receipt.revisionNumber) · \(vm.providerChipTitle(receipt.provider)) · \(receipt.model.isEmpty ? "model unset" : receipt.model) · \(receipt.permissionMode.rawValue)")
+            Text(L("Revision %1$@ · %2$@ · %3$@ · %4$@", receipt.revisionNumber, vm.providerChipTitle(receipt.provider), receipt.model.isEmpty ? L("model unset") : receipt.model, receipt.permissionMode.rawValue))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textSecondary)
             AgentSelectablePlainText(
-                text: "payload \(receipt.payloadDigest)",
+                text: L("payload %1$@", receipt.payloadDigest),
                 fontSize: 11,
                 monospaced: true,
                 textColor: DS.NS.textTertiary
             )
             .accessibilityIdentifier("bots.brain.digest")
             if !compact {
-                Text("compiler \(receipt.compilerVersion) · no opaque MacCode layer")
+                Text(L("compiler %1$@ · no opaque MacCode layer", receipt.compilerVersion))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
             }
@@ -15411,7 +15411,7 @@ public struct BotsRootView: View {
             ForEach(receipt.layers) { layer in
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: DS.Space.sm) {
-                        DSPill(layer.included ? "Included" : "Excluded", tone: layer.included ? .success : .neutral)
+                        DSPill(layer.included ? L("Included") : L("Excluded"), tone: layer.included ? .success : .neutral)
                         Text(layer.title)
                             .font(DS.Font.caption.weight(.semibold))
                             .foregroundColor(DS.Palette.text)
@@ -15437,7 +15437,7 @@ public struct BotsRootView: View {
 
     private func brainEffective(_ receipt: ContextAssemblyReceipt) -> some View {
         AgentSelectablePlainText(
-            text: receipt.compiledPayload.isEmpty ? "(empty payload)" : receipt.compiledPayload,
+            text: receipt.compiledPayload.isEmpty ? L("(empty payload)") : receipt.compiledPayload,
             fontSize: 11,
             monospaced: true,
             textColor: DS.NS.text
@@ -15451,18 +15451,18 @@ public struct BotsRootView: View {
 
     private func brainWhyMemory(_ receipt: ContextAssemblyReceipt) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
-            Text("Why this memory?")
+            Text(L("Why this memory?"))
                 .font(DS.Font.bodyStrong)
                 .foregroundColor(DS.Palette.text)
             if receipt.memoryLayers.isEmpty {
-                Text("No memory items were considered.")
+                Text(L("No memory items were considered."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
             } else {
                 ForEach(receipt.memoryLayers) { layer in
                     VStack(alignment: .leading, spacing: 2) {
                         AgentSelectablePlainText(
-                            text: layer.text.isEmpty ? "(empty fact)" : layer.text,
+                            text: layer.text.isEmpty ? L("(empty fact)") : layer.text,
                             fontSize: 11,
                             textColor: DS.NS.textSecondary
                         )
@@ -15478,7 +15478,7 @@ public struct BotsRootView: View {
 
     private func brainCapabilities(_ receipt: ContextAssemblyReceipt) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
-            Text("What this Bot can do")
+            Text(L("What this Bot can do"))
                 .font(DS.Font.bodyStrong)
                 .foregroundColor(DS.Palette.text)
             Text(BotPermission.honestyLabel)
@@ -15493,7 +15493,7 @@ public struct BotsRootView: View {
                     partial.append(layer.text)
                 }
             }
-            Text(skills.isEmpty ? "No enabled skills." : "Skills: \(skills.joined(separator: ", "))")
+            Text(skills.isEmpty ? L("No enabled skills.") : L("Skills: %1$@", skills.joined(separator: ", ")))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
         }
@@ -15507,8 +15507,8 @@ public struct BotsRootView: View {
                 // feature instead of pointing somewhere else.
                 DSEmptyState(
                     icon: "clock.arrow.2.circlepath",
-                    title: "No scheduled tasks",
-                    subtitle: "Run this teammate automatically at times you choose.",
+                    title: L("No scheduled tasks"),
+                    subtitle: L("Run this teammate automatically at times you choose."),
                     background: .clear
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -15530,7 +15530,7 @@ public struct BotsRootView: View {
                     Image(systemName: "plus")
                         .font(.system(size: 11, weight: .semibold))
                         .accessibilityHidden(true)
-                    Text("Add scheduled task")
+                    Text(L("Add scheduled task"))
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -15558,14 +15558,14 @@ public struct BotsRootView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Toggle("Active", isOn: Binding(
+            Toggle(L("Active"), isOn: Binding(
                 get: { routine.activation.isEnabled },
                 set: { vm.setRoutineEnabled(id: routine.definition.id, enabled: $0) }
             ))
             .toggleStyle(.switch)
             .labelsHidden()
             .controlSize(.small)
-            .accessibilityLabel("Active, \(routine.definition.name)")
+            .accessibilityLabel(L("Active, %1$@", routine.definition.name))
             .accessibilityIdentifier("bots.routines.active")
         }
         .dsPanel(padding: DS.Space.md)
@@ -15576,7 +15576,7 @@ public struct BotsRootView: View {
         AgentChatThreadRail(
             title: AgentChatThreadRailCopy.headerTitle(activeCount: vm.deskThreadActiveCount),
             isEmpty: vm.conversations.isEmpty,
-            emptySubtitle: "Start a conversation or mention this teammate.",
+            emptySubtitle: L("Start a conversation or mention this teammate."),
             searchQuery: $vm.deskThreadSearchQuery,
             hasSearchMatches: !vm.filteredDeskConversations.isEmpty,
             identifier: "bots.desk.threads",
@@ -15654,7 +15654,7 @@ public struct BotsRootView: View {
         VStack(spacing: 0) {
             if let bot = vm.selectedBot, vm.supportsDockerHomeFiles(for: bot) {
                 VStack(alignment: .leading, spacing: DS.Space.sm) {
-                    Picker("Files location", selection: Binding(
+                    Picker(L("Files location"), selection: Binding(
                         get: { vm.studioFilesLocation },
                         set: { vm.setStudioFilesLocation($0, for: bot) }
                     )) {
@@ -15668,11 +15668,11 @@ public struct BotsRootView: View {
                     .accessibilityIdentifier("bots.studio.files.location")
                     if vm.studioFilesLocation == .dockerHome {
                         HStack(alignment: .firstTextBaseline, spacing: DS.Space.lg) {
-                            Text("Persisted on this Mac and mounted in Docker at /home/remotecode.")
+                            Text(L("Persisted on this Mac and mounted in Docker at /home/remotecode."))
                                 .font(DS.Font.caption)
                                 .foregroundColor(DS.Palette.textSecondary)
                             Spacer(minLength: 0)
-                            Button("Clear Docker data…", role: .destructive) {
+                            Button(L("Clear Docker data…"), role: .destructive) {
                                 pendingDockerDataClear = bot.id
                             }
                             .buttonStyle(.plain)
@@ -15692,8 +15692,8 @@ public struct BotsRootView: View {
                 } else {
                     studioEmptyState(
                         icon: "folder",
-                        title: "Bot files",
-                        subtitle: "This teammate’s exclusive folder."
+                        title: L("Bot files"),
+                        subtitle: L("This teammate’s exclusive folder.")
                     )
                 }
             }
@@ -15712,7 +15712,7 @@ public struct BotsRootView: View {
             }
         }
         .confirmationDialog(
-            "Clear Docker data?",
+            L("Clear Docker data?"),
             isPresented: Binding(
                 get: { pendingDockerDataClear != nil },
                 set: { presented in
@@ -15721,7 +15721,7 @@ public struct BotsRootView: View {
             ),
             titleVisibility: .visible
         ) {
-            Button("Clear Docker data", role: .destructive) {
+            Button(L("Clear Docker data"), role: .destructive) {
                 let botID = pendingDockerDataClear
                 pendingDockerDataClear = nil
                 if let botID,
@@ -15729,9 +15729,9 @@ public struct BotsRootView: View {
                     vm.confirmClearDockerData(for: bot)
                 }
             }
-            Button("Cancel", role: .cancel) { pendingDockerDataClear = nil }
+            Button(L("Cancel"), role: .cancel) { pendingDockerDataClear = nil }
         } message: {
-            Text("Deletes this teammate’s Docker container and every file in /home/remotecode. This cannot be undone.")
+            Text(L("Deletes this teammate’s Docker container and every file in /home/remotecode. This cannot be undone."))
         }
     }
 
@@ -15746,7 +15746,7 @@ public struct BotsRootView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Back")
+        .accessibilityLabel(L("Back"))
     }
 
     private func labeledField<Content: View>(
@@ -15856,7 +15856,7 @@ public final class BotDeskWindowController: NSWindowController, NSWindowDelegate
             backing: .buffered,
             defer: false
         )
-        window.title = vm.selectedBot?.name ?? "Bot"
+        window.title = vm.selectedBot?.name ?? L("Bot")
         window.minSize = NSSize(width: 700, height: 520)
         window.backgroundColor = DS.NS.bg
         window.titlebarAppearsTransparent = true
@@ -15910,7 +15910,7 @@ public final class BotGuestDesktopWindowController: NSWindowController, NSWindow
             backing: .buffered,
             defer: false
         )
-        let title = "\((vm.selectedBot?.name ?? "Bot")) Desktop"
+        let title = L("%1$@ Desktop", (vm.selectedBot?.name ?? L("Bot")))
         window.title = title
         window.minSize = NSSize(width: 640, height: 420)
         window.backgroundColor = DS.NS.bg
@@ -15973,7 +15973,7 @@ private struct BotGuestDesktopRoot: View {
                     )
                     .padding(DS.Space.lg)
                 } else {
-                    Text("Start the Linux desktop to use this machine.")
+                    Text(L("Start the Linux desktop to use this machine."))
                         .font(DS.Font.body)
                         .foregroundColor(DS.Palette.textSecondary)
                 }

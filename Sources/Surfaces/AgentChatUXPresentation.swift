@@ -136,11 +136,11 @@ public enum AgentWorkingPhase: Sendable, Equatable {
 
     public var accessibilityLabel: String {
         switch self {
-        case .idle: return "Idle"
-        case .thinking: return "Thinking"
-        case .tools: return "Running tools"
-        case .awaitingBackground: return "Awaiting background work"
-        case .subagents(let n): return n == 1 ? "1 subagent active" : "\(n) subagents active"
+        case .idle: return L("Idle")
+        case .thinking: return L("Thinking")
+        case .tools: return L("Running tools")
+        case .awaitingBackground: return L("Awaiting background work")
+        case .subagents(let n): return n == 1 ? L("1 subagent active") : L("%1$@ subagents active", n)
         }
     }
 }
@@ -178,19 +178,19 @@ public enum AgentWorkingStripPresentation {
         case .idle:
             return nil
         case .thinking:
-            base = "Thinking"
+            base = L("Thinking")
         case .tools:
-            base = "Tools"
+            base = L("Tools")
         case .awaitingBackground:
             // Prefer the CLI's own noun ("1 shell — Wait for CI") over a
             // generic "Awaiting" that hides what is holding Stop.
             if let hold, !hold.isEmpty {
                 base = hold.pillBase
             } else {
-                base = "Awaiting"
+                base = L("Awaiting")
             }
         case .subagents(let n):
-            base = n == 1 ? "1 subagent" : "\(n) subagents"
+            base = n == 1 ? L("1 subagent") : L("%1$@ subagents", n)
         }
         guard let elapsedSeconds, elapsedSeconds > 0 else { return base }
         return "\(base) · \(formatElapsed(elapsedSeconds))"
@@ -261,8 +261,8 @@ public struct AgentBackgroundHoldSummary: Sendable, Equatable {
     }
 
     public var holdingHeadline: String {
-        if let primaryDescription { return "Holding: \(nounLabel) — \(primaryDescription)" }
-        return "Holding: \(nounLabel)"
+        if let primaryDescription { return L("Holding: %1$@ — %2$@", nounLabel, primaryDescription) }
+        return L("Holding: %1$@", nounLabel)
     }
 
     public var extraDescriptionsLine: String? {
@@ -271,9 +271,9 @@ public struct AgentBackgroundHoldSummary: Sendable, Equatable {
     }
 
     public var helpText: String {
-        if tasks.isEmpty { return "Waiting on background work" }
+        if tasks.isEmpty { return L("Waiting on background work") }
         let lines = tasks.map { task -> String in
-            let kind = task.kind == .agent ? "Agent" : "Shell"
+            let kind = task.kind == .agent ? L("Agent") : L("Shell")
             if let description = task.description { return "\(kind): \(description)" }
             return kind
         }
@@ -304,9 +304,9 @@ public enum AgentPeerActivityPresentation {
     public static func title(for snapshot: BotPeerActivitySnapshot) -> String {
         switch snapshot.phase {
         case .waiting:
-            return "Waiting for \(snapshot.name)"
+            return L("Waiting for %1$@", snapshot.name)
         case .needsAttention:
-            return "\(snapshot.name) could not reply"
+            return L("%1$@ could not reply", snapshot.name)
         }
     }
 
@@ -321,7 +321,7 @@ public enum AgentPeerActivityPresentation {
                 elapsedSeconds: elapsedSeconds
             )
         case .needsAttention:
-            return "The run stopped. Send a new instruction to retry the handoff."
+            return L("The run stopped. Send a new instruction to retry the handoff.")
         }
     }
 
@@ -346,9 +346,9 @@ public enum AgentChatWorkingCopy {
         let elapsed = AgentWorkingStripPresentation.formatElapsed(elapsedSeconds)
         switch context {
         case .agent(let name):
-            return "\(name) is working for \(elapsed)"
+            return L("%1$@ is working for %2$@", name, elapsed)
         case .reviewing(let peerName):
-            return "Reviewing \(peerName)'s reply for \(elapsed)"
+            return L("Reviewing %1$@'s reply for %2$@", peerName, elapsed)
         case nil:
             return AgentWorkingCatCopy.statusLabel(elapsedSeconds: elapsedSeconds, seed: seed)
         }
@@ -386,106 +386,106 @@ public enum AgentWorkingCatCopy {
     /// 100 English cat activities (gerund / short phrase). Order is stable —
     /// index is `elapsed / rotationSeconds % count`.
     public static let activities: [String] = [
-        "Working",
-        "Scratching the Sofa",
-        "Hunting Mice",
-        "Eating Kibble",
-        "Sleeping",
-        "Purring",
-        "Kneading the Blanket",
-        "Chasing Laser Dots",
-        "Staring Out the Window",
-        "Knocking Pens Off the Desk",
-        "Zooming Down the Hall",
-        "Guarding the Cardboard Box",
-        "Napping on the Keyboard",
-        "Batting Yarn Balls",
-        "Climbing the Cat Tree",
-        "Hiding Under the Bed",
-        "Watching Birds",
-        "Grooming Fur",
-        "Stretching in a Sunbeam",
-        "Meowing at the Fridge",
-        "Claiming the Warm Laptop",
-        "Pouncing on Dust Bunnies",
-        "Investigating the Grocery Bag",
-        "Sitting in the Empty Sink",
-        "Loafing on the Couch",
-        "Chirping at Squirrels",
-        "Stealing the Warm Seat",
-        "Batting Cap Lids",
-        "Inspecting the Suitcase",
-        "Rolling on the Rug",
-        "Headbutting the Monitor",
-        "Snoozing on Clean Laundry",
-        "Chasing the Red Dot",
-        "Perching on the Fridge",
-        "Burying Treats",
-        "Patrolling the Bookshelf",
-        "Licking a Paw",
-        "Fluffing the Cat Bed",
-        "Stalking Socks",
-        "Hiding in the Closet",
-        "Scratching the Post",
-        "Blinking Slowly",
-        "Begging for Tuna",
-        "Sitting on Open Mail",
-        "Chasing Tail",
-        "Guarding the Doorway",
-        "Sniffing the Shoes",
-        "Curling Up in a Circle",
-        "Watching the Fish Tank",
-        "Pawing the Curtain",
-        "Napping in a Box",
+        L("Working"),
+        L("Scratching the Sofa"),
+        L("Hunting Mice"),
+        L("Eating Kibble"),
+        L("Sleeping"),
+        L("Purring"),
+        L("Kneading the Blanket"),
+        L("Chasing Laser Dots"),
+        L("Staring Out the Window"),
+        L("Knocking Pens Off the Desk"),
+        L("Zooming Down the Hall"),
+        L("Guarding the Cardboard Box"),
+        L("Napping on the Keyboard"),
+        L("Batting Yarn Balls"),
+        L("Climbing the Cat Tree"),
+        L("Hiding Under the Bed"),
+        L("Watching Birds"),
+        L("Grooming Fur"),
+        L("Stretching in a Sunbeam"),
+        L("Meowing at the Fridge"),
+        L("Claiming the Warm Laptop"),
+        L("Pouncing on Dust Bunnies"),
+        L("Investigating the Grocery Bag"),
+        L("Sitting in the Empty Sink"),
+        L("Loafing on the Couch"),
+        L("Chirping at Squirrels"),
+        L("Stealing the Warm Seat"),
+        L("Batting Cap Lids"),
+        L("Inspecting the Suitcase"),
+        L("Rolling on the Rug"),
+        L("Headbutting the Monitor"),
+        L("Snoozing on Clean Laundry"),
+        L("Chasing the Red Dot"),
+        L("Perching on the Fridge"),
+        L("Burying Treats"),
+        L("Patrolling the Bookshelf"),
+        L("Licking a Paw"),
+        L("Fluffing the Cat Bed"),
+        L("Stalking Socks"),
+        L("Hiding in the Closet"),
+        L("Scratching the Post"),
+        L("Blinking Slowly"),
+        L("Begging for Tuna"),
+        L("Sitting on Open Mail"),
+        L("Chasing Tail"),
+        L("Guarding the Doorway"),
+        L("Sniffing the Shoes"),
+        L("Curling Up in a Circle"),
+        L("Watching the Fish Tank"),
+        L("Pawing the Curtain"),
+        L("Napping in a Box"),
         "Meowing at 3 AM",
-        "Claiming the Windowsill",
-        "Batting Ice Cubes",
-        "Investigating the Trash",
-        "Stretching Like a Yawn",
-        "Sitting on the Newspaper",
-        "Chasing Shadows",
-        "Grooming Whiskers",
-        "Loafing on the Desk",
-        "Hunting Crumbs",
-        "Purring on the Lap",
-        "Zooming at Midnight",
-        "Knocking Over Cups",
-        "Staring at Nothing",
-        "Claiming the Suitcase",
-        "Batting Phone Cords",
-        "Sleeping on the Router",
-        "Patrolling the Counter",
-        "Sniffing the Delivery Box",
-        "Kneading a Sweater",
-        "Chirping at Bugs",
-        "Guarding the Food Bowl",
-        "Rolling in Catnip",
-        "Climbing the Drapes",
-        "Hiding Behind the Curtain",
-        "Watching Raindrops",
-        "Pouncing on Toes",
-        "Sitting in the Laundry Basket",
-        "Meowing for Attention",
-        "Napping on the Printer",
-        "Batting Hair Ties",
-        "Inspecting the Keyboard",
-        "Stealing the Armchair",
-        "Chasing Moths",
-        "Stretching on the Carpet",
-        "Loafing by the Heater",
-        "Hunting String",
-        "Purring on the Pillow",
-        "Knocking Down Magnets",
-        "Claiming the Scanner Tray",
-        "Staring Into the Void",
-        "Grooming After Dinner",
-        "Zooming Across Tiles",
-        "Batting Bottle Caps",
-        "Sleeping on the Charger",
-        "Guarding the Mousepad",
-        "Sniffing the Coffee Cup",
-        "Kneading the Cushion",
-        "Watching the Cursor",
+        L("Claiming the Windowsill"),
+        L("Batting Ice Cubes"),
+        L("Investigating the Trash"),
+        L("Stretching Like a Yawn"),
+        L("Sitting on the Newspaper"),
+        L("Chasing Shadows"),
+        L("Grooming Whiskers"),
+        L("Loafing on the Desk"),
+        L("Hunting Crumbs"),
+        L("Purring on the Lap"),
+        L("Zooming at Midnight"),
+        L("Knocking Over Cups"),
+        L("Staring at Nothing"),
+        L("Claiming the Suitcase"),
+        L("Batting Phone Cords"),
+        L("Sleeping on the Router"),
+        L("Patrolling the Counter"),
+        L("Sniffing the Delivery Box"),
+        L("Kneading a Sweater"),
+        L("Chirping at Bugs"),
+        L("Guarding the Food Bowl"),
+        L("Rolling in Catnip"),
+        L("Climbing the Drapes"),
+        L("Hiding Behind the Curtain"),
+        L("Watching Raindrops"),
+        L("Pouncing on Toes"),
+        L("Sitting in the Laundry Basket"),
+        L("Meowing for Attention"),
+        L("Napping on the Printer"),
+        L("Batting Hair Ties"),
+        L("Inspecting the Keyboard"),
+        L("Stealing the Armchair"),
+        L("Chasing Moths"),
+        L("Stretching on the Carpet"),
+        L("Loafing by the Heater"),
+        L("Hunting String"),
+        L("Purring on the Pillow"),
+        L("Knocking Down Magnets"),
+        L("Claiming the Scanner Tray"),
+        L("Staring Into the Void"),
+        L("Grooming After Dinner"),
+        L("Zooming Across Tiles"),
+        L("Batting Bottle Caps"),
+        L("Sleeping on the Charger"),
+        L("Guarding the Mousepad"),
+        L("Sniffing the Coffee Cup"),
+        L("Kneading the Cushion"),
+        L("Watching the Cursor"),
     ]
 
     /// Activity phrase for the current elapsed window (no " for" suffix).
@@ -500,16 +500,16 @@ public enum AgentWorkingCatCopy {
         activities: [String] = activities,
         rotationSeconds: Int = rotationSeconds
     ) -> String {
-        let list = activities.isEmpty ? ["Working"] : activities
+        let list = activities.isEmpty ? [L("Working")] : activities
         let period = max(1, rotationSeconds)
         let window = max(0, elapsedSeconds) / period
         if window == 0 {
-            return "Working"
+            return L("Working")
         }
         // Random among everything except the mandatory first "Working".
         let pool: [String] = {
             if list.count <= 1 { return list }
-            if list[0] == "Working" { return Array(list.dropFirst()) }
+            if list[0] == L("Working") { return Array(list.dropFirst()) }
             return list
         }()
         let index = Int(mix(seed: seed, window: UInt64(window)) % UInt64(pool.count))
@@ -529,7 +529,7 @@ public enum AgentWorkingCatCopy {
             activities: activities,
             rotationSeconds: rotationSeconds
         )
-        return "\(phrase) for \(AgentWorkingStripPresentation.formatElapsed(elapsedSeconds))"
+        return L("%1$@ for %2$@", phrase, AgentWorkingStripPresentation.formatElapsed(elapsedSeconds))
     }
 
     /// SplitMix64-style mix so (seed, window) → stable non-sequential index.
@@ -543,7 +543,7 @@ public enum AgentWorkingCatCopy {
     /// Stable VoiceOver / UITest label so assistive tech and tests still hear
     /// "Working for …" while the visible line rotates cat activities.
     public static func accessibilityLabel(elapsedSeconds: Int) -> String {
-        "Working for \(AgentWorkingStripPresentation.formatElapsed(elapsedSeconds))"
+        L("Working for %1$@", AgentWorkingStripPresentation.formatElapsed(elapsedSeconds))
     }
 }
 
@@ -588,7 +588,7 @@ public enum AgentComposerChromePresentation {
     }
 
     /// Relay surfaces never take attachments: the button stays, disabled, with this reason.
-    public static let relayAttachUnavailable = "Attachments are not supported in group conversations yet."
+    public static let relayAttachUnavailable = L("Attachments are not supported in group conversations yet.")
 
     public static func shows(_ control: AgentComposerChromeControl, mode: AgentComposerChromeMode) -> Bool {
         controls(for: mode).contains(control)
@@ -625,10 +625,10 @@ public enum AgentCompletedWorkPresentation {
 
     public static func collapsedLabel(workBlockCount: Int, durationText: String?) -> String {
         if let durationText, !durationText.isEmpty {
-            return "Worked for \(durationText)"
+            return L("Worked for %1$@", durationText)
         }
-        if workBlockCount <= 0 { return "Worked" }
-        return workBlockCount == 1 ? "Worked · 1 step" : "Worked · \(workBlockCount) steps"
+        if workBlockCount <= 0 { return L("Worked") }
+        return workBlockCount == 1 ? L("Worked · 1 step") : L("Worked · %1$@ steps", workBlockCount)
     }
 }
 
@@ -1163,7 +1163,7 @@ public enum AgentFileEditDiffPresentation {
             if let path, !path.isEmpty {
                 return Model(
                     path: path,
-                    lines: [Line(id: 0, kind: .meta, text: "File updated")],
+                    lines: [Line(id: 0, kind: .meta, text: L("File updated"))],
                     hiddenLineCount: 0
                 )
             }
@@ -1567,22 +1567,22 @@ public enum AgentThreadRailRowCopy {
 /// One header/search/clear-all contract for Agent App and dest.
 /// Surfaces mount the same chrome; they must not fork this copy.
 public enum AgentChatThreadRailCopy {
-    public static let emptyTitle = "No threads"
+    public static let emptyTitle = L("No threads")
     public static let emptyIcon = "bubble.left.and.bubble.right"
-    public static let searchPlaceholder = "Search threads"
-    public static let clearAllTitle = "Clear All"
-    public static let hideHelp = "Hide threads"
-    public static let showHelp = "Show threads"
-    public static let newHelp = "New thread"
-    public static let clearSearchLabel = "Clear search"
-    public static let clearAllHelp = "Delete all threads"
+    public static let searchPlaceholder = L("Search threads")
+    public static let clearAllTitle = L("Clear All")
+    public static let hideHelp = L("Hide threads")
+    public static let showHelp = L("Show threads")
+    public static let newHelp = L("New thread")
+    public static let clearSearchLabel = L("Clear search")
+    public static let clearAllHelp = L("Delete all threads")
 
     public static func headerTitle(activeCount: Int) -> String {
-        activeCount > 0 ? "Threads · \(activeCount) active" : "Threads"
+        activeCount > 0 ? L("Threads · %1$@ active", activeCount) : L("Threads")
     }
 
     public static func noMatchText(query: String) -> String {
-        "No threads match \"\(query)\""
+        L("No threads match \"%1$@\"", query)
     }
 
     public static func showsClearAll(isEmpty: Bool) -> Bool {

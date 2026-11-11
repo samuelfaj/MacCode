@@ -39,16 +39,16 @@ public enum BotComputerGuestServiceError: Error, Equatable, Sendable, CustomStri
     public var description: String {
         switch self {
         case .screenshotTooLarge(let actualBytes, let maximumBytes):
-            return "Guest screenshot is too large: \(actualBytes) bytes (maximum \(maximumBytes))."
+            return L("Guest screenshot is too large: %1$@ bytes (maximum %2$@).", actualBytes, maximumBytes)
         case .screenshotResultTooLarge(let actualBytes, let maximumBytes):
-            return "Guest screenshot result is too large: \(actualBytes) bytes (maximum \(maximumBytes))."
+            return L("Guest screenshot result is too large: %1$@ bytes (maximum %2$@).", actualBytes, maximumBytes)
         case .rebuildWhileRunActive(let threadTitle):
-            return "The Linux desktop was not rebuilt: \(threadTitle) is running on it. "
-                + "Rebuild after that run finishes."
+            return L("The Linux desktop was not rebuilt: %1$@ is running on it. ", threadTitle)
+                + L("Rebuild after that run finishes.")
         case .contextualRuntimeUnavailable:
-            return "Contextual guest runtime is unavailable."
+            return L("Contextual guest runtime is unavailable.")
         case .contextualRuntimeCapacityReached(let limit):
-            return "At most \(limit) contextual desktops can run at once. Retry after one finishes."
+            return L("At most %1$@ contextual desktops can run at once. Retry after one finishes.", limit)
         }
     }
 }
@@ -121,7 +121,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
     private let workspacesWriter: @Sendable (Data, URL) throws -> Void
     private let stateLock = NSLock()
     private var _lastReady: BotComputerGuestReady?
-    private var _lastReason = "Guest is proving the screen…"
+    private var _lastReason = L("Guest is proving the screen…")
     public var lastReady: BotComputerGuestReady? { stateLock.withLock { _lastReady } }
     public var lastReason: String { stateLock.withLock { _lastReason } }
     public var recipeContextURL: URL? { recipeContext }
@@ -207,7 +207,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
         } catch {
             stateLock.withLock {
                 _lastReady = nil
-                if _lastReason == "Guest is proving the screen…" {
+                if _lastReason == L("Guest is proving the screen…") {
                     _lastReason = String(describing: error)
                 }
             }
@@ -322,7 +322,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
                 return try readyState(name: name, botID: botID, resumed: true, contextualNetworkPolicy: contextualNetworkPolicy)
             }
             guard !heldByAnotherRun(botID: botID, requestingThreadID: requestingThreadID) else {
-                throw BotStoreError.invalidInput("The VM is busy. Wait for the current conversation before changing its runtime.")
+                throw BotStoreError.invalidInput(L("The VM is busy. Wait for the current conversation before changing its runtime."))
             }
             try? docker.remove(name: name)
         }
@@ -455,7 +455,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
             return
         }
         guard !heldByAnotherRun(botID: botID, requestingThreadID: requestingThreadID) else {
-            throw BotStoreError.invalidInput("The VM is busy. Wait for the current conversation before changing its workspace.")
+            throw BotStoreError.invalidInput(L("The VM is busy. Wait for the current conversation before changing its workspace."))
         }
         if !existing.running {
             // A stopped VM is recreated like Start does; the live swap only protects a running one.
@@ -576,9 +576,9 @@ public final class BotComputerGuestService: @unchecked Sendable {
     }
 
     public func stop(botID: BotID) throws {
-        let claim = BotVMRunRegistry.Entry(threadID: AgentThreadID(), runID: AgentRunID(), title: "Stopping VM", workspace: "", exclusive: true)
+        let claim = BotVMRunRegistry.Entry(threadID: AgentThreadID(), runID: AgentRunID(), title: L("Stopping VM"), workspace: "", exclusive: true)
         if let holder = vmRuns.tryBegin(botID: botID, entry: claim) {
-            throw BotStoreError.invalidInput("The VM is busy in \(holder.title). Stop that conversation first.")
+            throw BotStoreError.invalidInput(L("The VM is busy in %1$@. Stop that conversation first.", holder.title))
         }
         defer {
             if let next = vmRuns.releaseAndNextWaiter(runID: claim.runID) {
@@ -641,7 +641,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
             }
             return BotContextGatewayLease(identity: identity, runID: runID, hostAddress: hostAddress, port: port)
         } catch {
-            stateLock.withLock { _lastReady = nil; _lastReason = "Context gateway lease failed; runtime cleanup unconfirmed." }
+            stateLock.withLock { _lastReady = nil; _lastReason = L("Context gateway lease failed; runtime cleanup unconfirmed.") }
             Self.unprovenLock.withLock { _ = Self.unprovenContainers.insert(name) }
             throw error
         }
@@ -662,7 +662,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
                 throw BotComputerGuestServiceError.contextualRuntimeUnavailable
             }
         } catch {
-            stateLock.withLock { _lastReady = nil; _lastReason = "Context gateway cleanup unconfirmed." }
+            stateLock.withLock { _lastReady = nil; _lastReason = L("Context gateway cleanup unconfirmed.") }
             Self.unprovenLock.withLock { _ = Self.unprovenContainers.insert(name) }
             throw error
         }
@@ -837,7 +837,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
         )
     }
 
-    static let rebuildClaimTitle = "Linux desktop rebuild"
+    static let rebuildClaimTitle = L("Linux desktop rebuild")
 
     /// Refused while another thread's run is on the VM: the rebuild replaces
     /// the container that run is using. `requestingThreadID` is the thread whose
@@ -936,7 +936,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
         let callerThread = action.threadID.flatMap(UUID.init(uuidString:)).map(AgentThreadID.init)
         if let holder = vmRuns.blocker(botID: resource, threadID: callerThread),
            resource != botID || callerThread != nil {
-            throw BotComputerError.invalid("The VM is busy in \(holder.title)")
+            throw BotComputerError.invalid(L("The VM is busy in %1$@", holder.title))
         }
         // Refused, never queued: nothing below runs while the user drives.
         if action.kind == BotComputerCatalog.act || action.kind == BotComputerCatalog.exec,
@@ -1102,9 +1102,9 @@ public final class BotComputerGuestService: @unchecked Sendable {
                 let output = try docker.exec(name: name, command: ["/usr/local/bin/rc-context-network"], user: "0", detach: false, workdir: nil, environment: [:])
                 guard output == Data("context-network-policy-v1\n".utf8) else { throw BotComputerGuestServiceError.contextualRuntimeUnavailable }
             } catch {
-                stateLock.withLock { _lastReady = nil; _lastReason = "Context network policy bootstrap failed; runtime cleanup unconfirmed." }
+                stateLock.withLock { _lastReady = nil; _lastReason = L("Context network policy bootstrap failed; runtime cleanup unconfirmed.") }
                 do { try docker.stop(name: name) } catch {
-                    stateLock.withLock { _lastReason = "Context network policy bootstrap failed; runtime cleanup unconfirmed: stop failed: \(error)." }
+                    stateLock.withLock { _lastReason = L("Context network policy bootstrap failed; runtime cleanup unconfirmed: stop failed: %1$@.", error) }
                 }
                 throw BotComputerGuestServiceError.contextualRuntimeUnavailable
             }
@@ -1164,7 +1164,7 @@ public final class BotComputerGuestService: @unchecked Sendable {
         let exists = try docker.imageExists(tag: tag)
         guard let recipeContext else {
             if exists { return }
-            stateLock.withLock { _lastReason = "Docker image missing" }
+            stateLock.withLock { _lastReason = L("Docker image missing") }
             throw BotComputerGuestError.dockerUnavailable
         }
         // The tag and revision can belong to an image another build left on

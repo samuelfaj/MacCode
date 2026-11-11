@@ -244,7 +244,7 @@ public struct AgentNowStrip: View {
         }
       }
     case .needsYou:
-      Text("Review")
+      Text(L("Review"))
         .font(DS.Font.captionStrong)
         .foregroundStyle(DS.Palette.warning)
         .padding(.horizontal, DS.Space.sm)
@@ -262,8 +262,8 @@ public struct AgentNowStrip: View {
 
   public static func summary(_ s: AgentNowStripSnapshot) -> String {
     var parts: [String] = []
-    if s.running > 0 { parts.append("\(s.running) running") }
-    if s.needsYou > 0 { parts.append(s.needsYou == 1 ? "1 needs you" : "\(s.needsYou) need you") }
+    if s.running > 0 { parts.append(L("%1$@ running", s.running)) }
+    if s.needsYou > 0 { parts.append(s.needsYou == 1 ? L("1 needs you") : L("%1$@ need you", s.needsYou)) }
     return parts.joined(separator: " · ")
   }
 }

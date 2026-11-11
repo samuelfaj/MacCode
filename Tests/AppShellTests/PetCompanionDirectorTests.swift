@@ -159,7 +159,7 @@ final class PetCompanionDirectorTests: XCTestCase {
         ]
 
         XCTAssertEqual(PetCareAction.allCases.map(\.title), [
-            "Feed", "Give water", "Pet", "Play", "Cheer up"
+            "Feed the cat", "Give water", "Pet the cat", "Play", "Cheer up"
         ])
         for (action, state) in expected {
             XCTAssertEqual(

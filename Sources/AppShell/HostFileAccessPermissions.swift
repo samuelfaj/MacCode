@@ -1,3 +1,4 @@
+import CoreModel
 import Foundation
 import AppKit
 import Security
@@ -140,11 +141,11 @@ public enum HostFileAccessProbeTarget: String, CaseIterable, Sendable {
 
     public var title: String {
         switch self {
-        case .desktop: return "Desktop"
-        case .documents: return "Documents"
-        case .downloads: return "Downloads"
-        case .networkVolumes: return "Network volumes"
-        case .removableVolumes: return "Removable volumes"
+        case .desktop: return L("Desktop")
+        case .documents: return L("Documents")
+        case .downloads: return L("Downloads")
+        case .networkVolumes: return L("Network volumes")
+        case .removableVolumes: return L("Removable volumes")
         }
     }
 
@@ -217,6 +218,15 @@ public struct HostFileAccessProbeResult: Equatable, Sendable {
 /// denial (Apple returns false both ways). Directory listing error codes are
 /// used when available; otherwise outcome is best-effort.
 public enum HostFileAccessProber {
+    /// Full Disk Access is the only grant that lets an app open the user's TCC
+    /// database, so a successful open proves it without prompting.
+    public static func hasFullDiskAccess(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        canOpen: (URL) -> Bool = { (try? FileHandle(forReadingFrom: $0))?.closeFile() != nil }
+    ) -> Bool {
+        canOpen(home.appendingPathComponent("Library/Application Support/com.apple.TCC/TCC.db"))
+    }
+
     public static func probe(
         _ target: HostFileAccessProbeTarget,
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -365,7 +375,7 @@ public enum HostFileAccessOnboarding {
 // MARK: - User-facing copy
 
 public enum HostFileAccessCopy {
-    public static let onboardingTitle = "Fewer folder permission prompts"
+    public static let onboardingTitle = L("Fewer folder permission prompts")
     public static let onboardingMessage = """
     MacCode needs project folders for agents, terminals, and file tools.
 
@@ -377,7 +387,7 @@ public enum HostFileAccessCopy {
 
     Open Full Disk Access to review the toggle. Not Now dismisses this tip — we will not ask again at launch.
     """
-    public static let settingsSectionTitle = "Disk access"
+    public static let settingsSectionTitle = L("Disk access")
     public static let settingsExplanation = """
     For the fewest prompts, enable Full Disk Access for MacCode in System Settings. \
     That covers most project folders without asking Desktop, Documents, and Downloads one by one.
@@ -385,8 +395,8 @@ public enum HostFileAccessCopy {
     “Check folder access” is optional: it touches common folders once and may show system dialogs for any still-pending grants. \
     If you previously chose Don’t Allow, macOS will not re-prompt — open System Settings to change the grant.
     """
-    public static let requestAccessButton = "Check folder access"
-    public static let openFilesAndFoldersButton = "Open Files & Folders settings"
-    public static let openFullDiskAccessButton = "Open Full Disk Access"
-    public static let notNowButton = "Not Now"
+    public static let requestAccessButton = L("Check folder access")
+    public static let openFilesAndFoldersButton = L("Open Files & Folders settings")
+    public static let openFullDiskAccessButton = L("Open Full Disk Access")
+    public static let notNowButton = L("Not Now")
 }

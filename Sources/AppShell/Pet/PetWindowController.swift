@@ -1,3 +1,4 @@
+import CoreModel
 import AppKit
 import CoreGraphics
 import CryptoKit
@@ -72,10 +73,10 @@ enum PetAttentionVisualStatus: Equatable {
 
     var accessibilityLabel: String {
         switch self {
-        case .completed: return "Completed"
-        case .failed: return "Failed"
-        case .interrupted: return "Interrupted"
-        case .needsAttention: return "Needs attention"
+        case .completed: return L("Completed")
+        case .failed: return L("Failed")
+        case .interrupted: return L("Interrupted")
+        case .needsAttention: return L("Needs attention")
         }
     }
 }
@@ -274,7 +275,7 @@ private struct PetSpriteView: View {
                     // needs you. Both carry their count, capped at "99+".
                     if let active = model.activeBadgeText {
                         PetCountDot(text: active, color: .blue)
-                            .help("\(active) running")
+                            .help(L("%1$@ running", active))
                             .accessibilityIdentifier("pet.activeBadge")
                     }
                     Spacer(minLength: 0)
@@ -287,9 +288,9 @@ private struct PetSpriteView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Titio")
+        .accessibilityLabel(L("Titio"))
         .accessibilityValue(model.accessibilityValue)
-        .accessibilityHint("Opens MacCode pet status")
+        .accessibilityHint(L("Opens MacCode pet status"))
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onActivate() }
         .accessibilityIdentifier("pet.status")
@@ -400,12 +401,12 @@ private struct PetAttentionPopoverView: View {
                 TitioAvatarView(size: 44)
             }
             .buttonStyle(TitioPressableStyle())
-            .help("Open Titio's chat")
-            .accessibilityLabel("Open Titio's chat")
+            .help(L("Open Titio's chat"))
+            .accessibilityLabel(L("Open Titio's chat"))
             .accessibilityIdentifier("pet.avatar")
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Titio")
+                Text(L("Titio"))
                     .font(.title3.weight(.semibold))
                 statusChips
             }
@@ -417,8 +418,8 @@ private struct PetAttentionPopoverView: View {
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(PetPopoverHoverStyle(cornerRadius: 12))
-            .help("Close")
-            .accessibilityLabel("Close")
+            .help(L("Close"))
+            .accessibilityLabel(L("Close"))
             .accessibilityIdentifier("pet.close")
         }
     }
@@ -428,11 +429,11 @@ private struct PetAttentionPopoverView: View {
     private var statusChips: some View {
         let counts = model.activityCounts
         if !counts.isAvailable {
-            Text("Activity status unavailable")
+            Text(L("Activity status unavailable"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         } else if counts.running == 0, counts.needsYou == 0 {
-            Text("All quiet. Ask me anything.")
+            Text(L("All quiet. Ask me anything."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("pet.status.quiet")
@@ -440,7 +441,7 @@ private struct PetAttentionPopoverView: View {
             HStack(spacing: 4) {
                 if counts.running > 0 {
                     statusChip(
-                        text: "\(PetActiveThreadCountFormatter.badgeText(count: counts.running) ?? "\(counts.running)") running",
+                        text: L("%1$@ running", PetActiveThreadCountFormatter.badgeText(count: counts.running) ?? "\(counts.running)"),
                         color: .blue,
                         identifier: "pet.status.running"
                     )
@@ -472,8 +473,8 @@ private struct PetAttentionPopoverView: View {
             .background(Capsule().fill(Color.primary.opacity(0.06)))
         }
         .buttonStyle(PetPopoverHoverStyle(cornerRadius: 10))
-        .help("Open Activity")
-        .accessibilityLabel("\(text). Open Activity")
+        .help(L("Open Activity"))
+        .accessibilityLabel(L("%1$@. Open Activity", text))
         .accessibilityIdentifier(identifier)
     }
 
@@ -481,7 +482,7 @@ private struct PetAttentionPopoverView: View {
         HStack(spacing: 4) {
             if showsQuickChatShortcut {
                 HStack(spacing: 5) {
-                    Text("\u{2325}Space")
+                    Text(L("\u{2325}Space"))
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1.5)
@@ -489,17 +490,17 @@ private struct PetAttentionPopoverView: View {
                             RoundedRectangle(cornerRadius: 4, style: .continuous)
                                 .stroke(Color.secondary.opacity(0.5), lineWidth: 1)
                         )
-                    Text("from anywhere")
+                    Text(L("from anywhere"))
                         .font(.caption2)
                 }
                 .foregroundStyle(.secondary)
                 .padding(.leading, 6)
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("Option Space opens Titio from anywhere")
+                .accessibilityLabel(L("Option Space opens Titio from anywhere"))
             }
             Spacer(minLength: 4)
-            footerButton("Activity", systemImage: "tray.full", identifier: "pet.openActivity", action: onOpenApp)
-            footerButton("Open Chat", systemImage: "bubble.left.and.bubble.right", identifier: "pet.openTitio", action: onOpenTitio)
+            footerButton(L("Activity"), systemImage: "tray.full", identifier: "pet.openActivity", action: onOpenApp)
+            footerButton(L("Open Chat"), systemImage: "bubble.left.and.bubble.right", identifier: "pet.openTitio", action: onOpenTitio)
         }
     }
 
@@ -522,7 +523,7 @@ private struct PetAttentionPopoverView: View {
     @ViewBuilder
     private func activeGroupedSection(_ items: [PetActiveThreadItem]) -> some View {
         if !items.isEmpty {
-            sectionHeader("Active", identifier: "pet.section.active")
+            sectionHeader(L("Active"), identifier: "pet.section.active")
             let groups = PetPopoverGrouping.active(items)
             let showWorkspaceHeaders = groups.count > 1
                 || groups.first?.name != PetPopoverGrouping.unknownWorkspaceName
@@ -609,8 +610,8 @@ private struct PetAttentionPopoverView: View {
         }
         .buttonStyle(PetPopoverHoverStyle(cornerRadius: 10))
         .padding(.horizontal, 8)
-        .accessibilityLabel(Self.rowAccessibilityLabel(status: "Active", title: item.title, detail: item.detail))
-        .accessibilityHint("Opens the thread")
+        .accessibilityLabel(Self.rowAccessibilityLabel(status: L("Active"), title: item.title, detail: item.detail))
+        .accessibilityHint(L("Opens the thread"))
         .accessibilityIdentifier("pet.activeRow.\(PetAccessibilityIdentifier.row(item.id))")
     }
 
@@ -635,7 +636,7 @@ private struct PetAttentionPopoverView: View {
                 }
             }
             Spacer(minLength: 8)
-            Button(item.classification == .needsYou ? "Review" : "Open") { onOpen(item) }
+            Button(item.classification == .needsYou ? L("Review") : L("Open")) { onOpen(item) }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .frame(minWidth: 44, minHeight: 44)
@@ -882,8 +883,8 @@ public final class PetWindowController: NSObject {
         hosting.identifier = NSUserInterfaceItemIdentifier("pet.window")
         hosting.setAccessibilityElement(true)
         hosting.setAccessibilityRole(.button)
-        hosting.setAccessibilityLabel("Titio")
-        hosting.setAccessibilityHelp("Open MacCode pet status")
+        hosting.setAccessibilityLabel(L("Titio"))
+        hosting.setAccessibilityHelp(L("Open MacCode pet status"))
         hosting.setAccessibilityIdentifier("pet.status")
         hosting.onClick = activate
         hosting.onRightClick = { [weak self, weak hosting] event in
@@ -902,7 +903,7 @@ public final class PetWindowController: NSObject {
         hosting.attentionBadgeVisibleProvider = { [weak self] in self?.model.badgeText != nil }
         hosting.activeBadgeVisibleProvider = { [weak self] in self?.model.activeBadgeText != nil }
         hosting.accessibilityValueProvider = { [weak self] in
-            self?.model.accessibilityValue ?? "Pet status unavailable"
+            self?.model.accessibilityValue ?? L("Pet status unavailable")
         }
         panel.contentView = hosting
         self.petPanel = panel
@@ -1358,13 +1359,13 @@ public final class PetWindowController: NSObject {
     }
 
     private func contextMenu() -> NSMenu {
-        let menu = NSMenu(title: "MacCode Pet")
-        menu.addItem(menuItem("Chat with Titio", #selector(contextOpenTitio)))
+        let menu = NSMenu(title: L("MacCode Pet"))
+        menu.addItem(menuItem(L("Chat with Titio"), #selector(contextOpenTitio)))
         menu.addItem(menuItem("Open MacCode", #selector(contextOpenRemoteCode)))
-        menu.addItem(menuItem("Open ready items", #selector(contextOpenReadyItems)))
+        menu.addItem(menuItem(L("Open ready items"), #selector(contextOpenReadyItems)))
         menu.addItem(.separator())
-        let careItem = NSMenuItem(title: "Care", action: nil, keyEquivalent: "")
-        let careMenu = NSMenu(title: "Care")
+        let careItem = NSMenuItem(title: L("Care"), action: nil, keyEquivalent: "")
+        let careMenu = NSMenu(title: L("Care"))
         for action in PetCareAction.allCases {
             let item = menuItem(action.title, #selector(contextCareAction(_:)))
             item.representedObject = action.rawValue
@@ -1374,11 +1375,11 @@ public final class PetWindowController: NSObject {
         menu.addItem(careItem)
         menu.addItem(.separator())
         menu.addItem(menuItem(
-            model.settings.petAnimationsEnabled ? "Pause animations" : "Resume animations",
+            model.settings.petAnimationsEnabled ? L("Pause animations") : L("Resume animations"),
             #selector(contextToggleAnimations)
         ))
         menu.addItem(menuItem("Settings…", #selector(contextOpenSettings)))
-        menu.addItem(menuItem("Hide pet", #selector(contextHidePet)))
+        menu.addItem(menuItem(L("Hide pet"), #selector(contextHidePet)))
         return menu
     }
 

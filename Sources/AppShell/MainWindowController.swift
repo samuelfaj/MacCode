@@ -50,7 +50,7 @@ private func splitKeyboardTargetPane(
         ?? controller.pane.surfaces.first
     let splitType = selectedSurface?.type ?? .terminal
     let splitTitle = selectedSurface.flatMap { WorkspaceTool.from(metadata: $0.metadata, title: $0.title)?.title }
-        ?? PaneTabsView.surfaceChoices.first(where: { $0.1 == splitType })?.0 ?? "Terminal"
+        ?? PaneTabsView.surfaceChoices.first(where: { $0.1 == splitType })?.0 ?? L("Terminal")
     return controller.performSplit(direction, type: splitType, title: splitTitle) != nil
 }
 
@@ -684,11 +684,11 @@ public final class MainWindowController: NSObject, NSWindowDelegate, PaneKeyboar
 	        collapsedWorkspaceLabel.translatesAutoresizingMaskIntoConstraints = false
 
 	        configureHeaderButton(collapsedPlusButton, symbol: "plus",
-	                              help: "New workspace",
+	                              help: L("New workspace"),
 	                              action: #selector(newWorkspace))
 	        collapsedPlusButton.setAccessibilityIdentifier("shell.collapsed.newWorkspace")
 	        configureHeaderButton(collapsedSidebarButton, symbol: "sidebar.left",
-	                              help: "Toggle sidebar",
+	                              help: L("Toggle sidebar"),
 	                              action: #selector(handleToggleSidebar))
 	        collapsedSidebarButton.setAccessibilityIdentifier("shell.collapsed.toggleSidebar")
 
@@ -732,14 +732,14 @@ public final class MainWindowController: NSObject, NSWindowDelegate, PaneKeyboar
             configureHeaderButton(
                 visibleNewWindowButton,
                 symbol: "rectangle.on.rectangle",
-                help: "Open in New Window",
+                help: L("Open in New Window"),
                 action: #selector(openSelectedWorkspaceInNewWindow)
             )
             visibleNewWindowButton.setAccessibilityIdentifier("workspaceHeader.openInNewWindow")
             configureHeaderButton(
                 visibleFinderButton,
                 symbol: "folder",
-                help: "Open in Finder",
+                help: L("Open in Finder"),
                 action: #selector(openSelectedWorkspaceInFinder)
             )
             visibleFinderButton.setAccessibilityIdentifier("workspaceHeader.openInFinder")
@@ -838,25 +838,25 @@ public final class MainWindowController: NSObject, NSWindowDelegate, PaneKeyboar
             // Schedule Tasks is a shell destination, not a workspace — title and
             // header must not keep the last workspace name.
             if shellContentMode == .scheduledTasks {
-                collapsedWorkspaceLabel.stringValue = "Schedule Tasks"
-                visibleWorkspaceLabel.stringValue = "Schedule Tasks"
-                window.title = "Schedule Tasks"
+                collapsedWorkspaceLabel.stringValue = L("Schedule Tasks")
+                visibleWorkspaceLabel.stringValue = L("Schedule Tasks")
+                window.title = L("Schedule Tasks")
                 visibleFinderButton.isHidden = true
                 visibleNewWindowButton.isHidden = true
                 return
             }
             if shellContentMode == .activeThreads {
-                collapsedWorkspaceLabel.stringValue = "Active Threads"
-                visibleWorkspaceLabel.stringValue = "Active Threads"
-                window.title = "Active Threads"
+                collapsedWorkspaceLabel.stringValue = L("Active Threads")
+                visibleWorkspaceLabel.stringValue = L("Active Threads")
+                window.title = L("Active Threads")
                 visibleFinderButton.isHidden = true
                 visibleNewWindowButton.isHidden = true
                 return
             }
             if shellContentMode == .settings {
-                collapsedWorkspaceLabel.stringValue = "Settings"
-                visibleWorkspaceLabel.stringValue = "Settings"
-                window.title = "Settings"
+                collapsedWorkspaceLabel.stringValue = L("Settings")
+                visibleWorkspaceLabel.stringValue = L("Settings")
+                window.title = L("Settings")
                 visibleFinderButton.isHidden = true
                 visibleNewWindowButton.isHidden = true
                 return
@@ -1864,12 +1864,12 @@ public final class MainWindowController: NSObject, NSWindowDelegate, PaneKeyboar
         icon.contentTintColor = DS.NS.textTertiary
         icon.translatesAutoresizingMaskIntoConstraints = false
 
-        let title = NSTextField(labelWithString: "No workspace selected")
+        let title = NSTextField(labelWithString: L("No workspace selected"))
         title.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
         title.textColor = DS.NS.textSecondary
         title.translatesAutoresizingMaskIntoConstraints = false
 
-        let sub = NSTextField(labelWithString: "Open a folder as a workspace to get started.")
+        let sub = NSTextField(labelWithString: L("Open a folder as a workspace to get started."))
         sub.font = NSFont.systemFont(ofSize: 12)
         sub.textColor = DS.NS.textTertiary
         sub.alignment = .center
@@ -1877,7 +1877,7 @@ public final class MainWindowController: NSObject, NSWindowDelegate, PaneKeyboar
 
         // UX-MAC_SHELL_WINDOW-010: an actionable button instead of copy
         // that points at a control which may be off-screen when collapsed.
-        let action = NSButton(title: "New Workspace", target: self, action: #selector(newWorkspace))
+        let action = NSButton(title: L("New Workspace"), target: self, action: #selector(newWorkspace))
         action.bezelStyle = .rounded
         action.keyEquivalent = "\r"
         action.translatesAutoresizingMaskIntoConstraints = false
@@ -1960,7 +1960,7 @@ public final class MainWindowController: NSObject, NSWindowDelegate, PaneKeyboar
         spinner.startAnimation(nil)
         spinner.translatesAutoresizingMaskIntoConstraints = false
 
-        let label = NSTextField(labelWithString: "Restoring workspaces…")
+        let label = NSTextField(labelWithString: L("Restoring workspaces…"))
         label.font = NSFont.systemFont(ofSize: 13, weight: .medium)
         label.textColor = DS.NS.textSecondary
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -2190,12 +2190,12 @@ private final class OrphanWindowAttachHandler: NSObject {
         icon.contentTintColor = DS.NS.textTertiary
         icon.translatesAutoresizingMaskIntoConstraints = false
 
-        let title = NSTextField(labelWithString: "No workspace attached")
+        let title = NSTextField(labelWithString: L("No workspace attached"))
         title.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
         title.textColor = DS.NS.textSecondary
         title.translatesAutoresizingMaskIntoConstraints = false
 
-        let sub = NSTextField(labelWithString: "Attach an existing workspace to this window,\nor use the sidebar / CLI (rc2 workspace.move_to_window).")
+        let sub = NSTextField(labelWithString: L("Attach an existing workspace to this window,\nor use the sidebar / CLI (rc2 workspace.move_to_window)."))
         sub.font = NSFont.systemFont(ofSize: 12)
         sub.textColor = DS.NS.textTertiary
         sub.alignment = .center
@@ -2229,13 +2229,13 @@ private final class OrphanWindowAttachHandler: NSObject {
         btn.removeAllItems()
         let workspaces = context?.state.workspaces.values.sorted { $0.name < $1.name } ?? []
         if workspaces.isEmpty {
-            btn.addItem(withTitle: "No workspaces available")
+            btn.addItem(withTitle: L("No workspaces available"))
             btn.item(at: 0)?.isEnabled = false
         } else {
-            btn.addItem(withTitle: "Attach Workspace...")
+            btn.addItem(withTitle: L("Attach Workspace..."))
             btn.item(at: 0)?.isEnabled = false
             for ws in workspaces {
-                let item = NSMenuItem(title: ws.name.isEmpty ? "Untitled" : ws.name, action: nil, keyEquivalent: "")
+                let item = NSMenuItem(title: ws.name.isEmpty ? L("Untitled") : ws.name, action: nil, keyEquivalent: "")
                 item.representedObject = ws.id
                 btn.menu?.addItem(item)
             }
@@ -2247,11 +2247,11 @@ private final class OrphanWindowAttachHandler: NSObject {
               let router else { return }
         do {
             try router.moveWorkspaceToWindow(workspace: wsID, target: windowID)
-            let wsName = context?.state.workspaces[wsID]?.name ?? "Workspace"
+            let wsName = context?.state.workspaces[wsID]?.name ?? L("Workspace")
             updateToAttachedState(workspaceName: wsName)
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Could not attach workspace"
+            alert.messageText = L("Could not attach workspace")
             alert.informativeText = error.localizedDescription
             alert.runModal()
         }
@@ -2268,7 +2268,7 @@ private final class OrphanWindowAttachHandler: NSObject {
         icon.contentTintColor = DS.NS.textTertiary
         icon.translatesAutoresizingMaskIntoConstraints = false
 
-        let label = NSTextField(labelWithString: "\"\(workspaceName)\" attached to this window.")
+        let label = NSTextField(labelWithString: L("\"%1$@\" attached to this window.", workspaceName))
         label.font = NSFont.systemFont(ofSize: 13)
         label.textColor = DS.NS.textSecondary
         label.alignment = .center
@@ -2470,10 +2470,10 @@ private final class WorkspaceWindowController: NSObject, NSWindowDelegate, PaneK
         backButton.isBordered = false
         backButton.bezelStyle = .inline
         backButton.imagePosition = .imageOnly
-        backButton.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Back to sidebar")
+        backButton.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: L("Back to sidebar"))
         backButton.symbolConfiguration = .init(pointSize: 13, weight: .regular)
         backButton.contentTintColor = DS.NS.textSecondary
-        backButton.toolTip = "Back to sidebar"
+        backButton.toolTip = L("Back to sidebar")
         backButton.target = self
         backButton.action = #selector(backToSidebar)
         backButton.setAccessibilityIdentifier("workspaceWindow.back")

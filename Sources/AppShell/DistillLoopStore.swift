@@ -9,7 +9,7 @@ import RemoteCodeTreaty
 @MainActor
 public final class DistillLoopStore: ObservableObject {
     public static let fileName = "distill-loops.json"
-    public static let resumeWaitingReason = "Waiting for the agent session to resume"
+    public static let resumeWaitingReason = L("Waiting for the agent session to resume")
 
     @Published public private(set) var snapshot: [AgentThreadID: [DistillLoopState]]
 

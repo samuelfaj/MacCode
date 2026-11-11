@@ -1,3 +1,4 @@
+import CoreModel
 import AppKit
 import SwiftUI
 import DesignSystemKit
@@ -13,19 +14,19 @@ struct OnboardingSetupStep: View {
     var body: some View {
         OnboardingStepLayout(
             eyebrow: OnboardingStep.setup.eyebrow,
-            title: "Getting your Mac ready.",
-            subtitle: "MacCode installs what it needs in your home folder, with no Terminal. Keep this window open while it downloads."
+            title: L("Getting your Mac ready."),
+            subtitle: L("MacCode installs what it needs in your home folder, with no Terminal. Keep this window open while it downloads.")
         ) {
             VStack(alignment: .leading, spacing: DS.Space.lg) {
                 ForEach(required, id: \.self) { tool in
                     OnboardingToolRow(tool: tool, state: setup.state(tool)) { Task { await setup.install(tool) } }
                 }
-                Text("OPTIONAL").font(DS.Font.captionStrong).tracking(1).foregroundColor(DS.Palette.textSecondary)
+                Text(L("OPTIONAL")).font(DS.Font.captionStrong).tracking(1).foregroundColor(DS.Palette.textSecondary)
                     .padding(.top, DS.Space.md)
                 ForEach(optional, id: \.self) { tool in
                     OnboardingToolRow(tool: tool, state: setup.state(tool)) { Task { await setup.install(tool) } }
                 }
-                Button("Check again") {
+                Button(L("Check again")) {
                     Task { for tool in OnboardingTool.allCases { await setup.refresh(tool) } }
                 }.buttonStyle(.link)
             }
@@ -33,19 +34,19 @@ struct OnboardingSetupStep: View {
             OnboardingPanel {
                 VStack(alignment: .leading, spacing: DS.Space.xl) {
                     OnboardingTitioImage(size: 140)
-                    Text(ready ? "Your Mac is ready." : "Getting this Mac ready.")
+                    Text(ready ? L("Your Mac is ready.") : L("Getting this Mac ready."))
                         .font(DS.Font.title2).foregroundColor(DS.Palette.text)
-                    Text("Downloads come from the official releases. MacCode checks checksums or macOS signatures before installing. Existing Chrome, Docker, OrbStack and Node installations are reused when compatible.")
+                    Text(L("Downloads come from the official releases. MacCode checks checksums or macOS signatures before installing. Existing Chrome, Docker, OrbStack and Node installations are reused when compatible."))
                         .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
-                    Text("You need an internet connection and space in your home folder. If a download fails, reconnect and retry. Your existing accounts are preserved.")
+                    Text(L("You need an internet connection and space in your home folder. If a download fails, reconnect and retry. Your existing accounts are preserved."))
                         .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
         } footer: {
             Spacer()
-            Button("Skip for now") { vm.skip(.setup) }.buttonStyle(.link)
-                .accessibilityHint("AI conversations need Distill. You can install it later from setup.")
-            OnboardingPrimaryButton(title: "Continue", busy: !ready && (setup.state(.distill).isBusy || setup.states.values.contains { $0.isBusy })) {
+            Button(L("Skip for now")) { vm.skip(.setup) }.buttonStyle(.link)
+                .accessibilityHint(L("AI conversations need Distill. You can install it later from setup."))
+            OnboardingPrimaryButton(title: L("Continue"), busy: !ready && (setup.state(.distill).isBusy || setup.states.values.contains { $0.isBusy })) {
                 vm.advance(completing: .setup)
             }.disabled(!ready)
         }
@@ -65,65 +66,56 @@ struct OnboardingSetupStep: View {
 struct OnboardingPermissionsStep: View {
     @ObservedObject var vm: OnboardingViewModel
     @State private var permissions = ComputerUsePermissionBroker.snapshot()
-    @State private var folderResults: [HostFileAccessProbeResult] = []
-    @State private var checkingFolders = false
+    @State private var fullDiskAccess = HostFileAccessProber.hasFullDiskAccess()
 
     var body: some View {
         OnboardingStepLayout(
             eyebrow: OnboardingStep.permissions.eyebrow,
-            title: "Your Mac, your permissions.",
-            subtitle: "macOS asks you to approve access. MacCode can open the right settings, but only you can grant permission."
+            title: L("Your Mac, your permissions."),
+            subtitle: L("macOS asks you to approve access. MacCode can open the right settings, but only you can grant permission.")
         ) {
             VStack(alignment: .leading, spacing: DS.Space.xl) {
-                permission("Accessibility", detail: "Lets computer automation use apps and controls.", granted: permissions.accessibility) {
+                permission(L("Accessibility"), detail: L("Lets computer automation use apps and controls."), granted: permissions.accessibility) {
                     _ = ComputerUsePermissionBroker.Requesters.live.requestAccessibility()
                     openPrivacy("Privacy_Accessibility")
                 }
-                permission("Screen Recording", detail: "Lets computer automation see the screen.", granted: permissions.screenCapture) {
+                permission(L("Screen Recording"), detail: L("Lets computer automation see the screen."), granted: permissions.screenCapture) {
                     _ = ComputerUsePermissionBroker.Requesters.live.requestScreenCapture()
                     openPrivacy("Privacy_ScreenCapture")
                 }
-                VStack(alignment: .leading, spacing: DS.Space.md) {
-                    Text("Project folders & Full Disk Access").font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
-                    Text("Opening a project may ask for Desktop, Documents, Downloads or external volumes. Full Disk Access can reduce repeated prompts. A settings button does not grant access.")
-                        .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button(HostFileAccessCopy.openFullDiskAccessButton) {
-                        NSWorkspace.shared.open(HostFileAccessSystemSettings.fullDiskAccessSettingsURL)
-                    }.buttonStyle(DSSecondaryButtonStyle())
-                    Button(checkingFolders ? "Checking…" : HostFileAccessCopy.requestAccessButton) {
-                        checkingFolders = true
-                        Task {
-                            folderResults = await Task.detached { HostFileAccessProber.probeStandardTargets() }.value
-                            checkingFolders = false
-                        }
-                    }.buttonStyle(.link).disabled(checkingFolders)
-                    ForEach(folderResults, id: \.target) { result in
-                        Text("\(result.target.title): \(result.outcome.rawValue)")
-                            .font(DS.Font.caption).foregroundColor(result.outcome == .denied ? DS.Palette.warning : DS.Palette.textSecondary)
-                    }
+                permission(L("Project folders & Full Disk Access"),
+                           detail: L("Opening a project may ask for Desktop, Documents, Downloads or external volumes. Full Disk Access avoids repeated prompts."),
+                           granted: fullDiskAccess) {
+                    NSWorkspace.shared.open(HostFileAccessSystemSettings.fullDiskAccessSettingsURL)
                 }
             }
         } illustration: {
             OnboardingPanel {
                 VStack(alignment: .leading, spacing: DS.Space.xl) {
                     Image(systemName: "lock.shield").font(DS.Font.title).foregroundColor(DS.Palette.accent).accessibilityHidden(true)
-                    Text("Approve only what you use.").font(DS.Font.title2).foregroundColor(DS.Palette.text)
-                    Text("Allow Local Network when you connect your iPhone. Camera, microphone and Automation prompts appear only when a feature needs them. If macOS requests a restart, reopen MacCode to continue here.")
+                    Text(L("Approve only what you use.")).font(DS.Font.title2).foregroundColor(DS.Palette.text)
+                    Text(L("Allow Local Network when you connect your iPhone. Camera, microphone and Automation prompts appear only when a feature needs them. If macOS requests a restart, reopen MacCode to continue here."))
                         .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
-                    Text("Denied access can be changed later in System Settings → Privacy & Security.")
+                    Text(L("Denied access can be changed later in System Settings → Privacy & Security."))
                         .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
         } footer: {
             OnboardingBackButton(vm: vm)
             Spacer()
-            Button("Skip for now") { vm.skip(.permissions) }.buttonStyle(.link)
-            OnboardingPrimaryButton(title: "Continue") { vm.advance(completing: .permissions) }
-                .accessibilityHint("Continue after reviewing permissions. This does not grant access.")
+            Button(L("Skip for now")) { vm.skip(.permissions) }.buttonStyle(.link)
+            OnboardingPrimaryButton(title: L("Continue")) { vm.advance(completing: .permissions) }
+                .accessibilityHint(L("Continue after reviewing permissions. This does not grant access."))
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            permissions = ComputerUsePermissionBroker.snapshot()
+            refreshPermissions()
+        }
+        // Grants made in System Settings show up here without a button press.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                refreshPermissions()
+            }
         }
     }
 
@@ -132,18 +124,23 @@ struct OnboardingPermissionsStep: View {
             HStack {
                 Text(title).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
                 Spacer()
-                Label(granted ? "Allowed" : "Not allowed", systemImage: granted ? "checkmark.circle.fill" : "circle")
+                Label(granted ? L("Allowed") : L("Not allowed"), systemImage: granted ? "checkmark.circle.fill" : "circle")
                     .font(DS.Font.caption).foregroundColor(granted ? DS.Palette.success : DS.Palette.warning)
             }
             Text(detail).font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)
-            Button(granted ? "Review settings" : "Open settings", action: action).buttonStyle(DSSecondaryButtonStyle())
-                .accessibilityLabel("\(title) settings")
+            Button(granted ? L("Review settings") : L("Open settings"), action: action).buttonStyle(DSSecondaryButtonStyle())
+                .accessibilityLabel(L("%1$@ settings", title))
         }
     }
 
     private func openPrivacy(_ pane: String) {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")!)
+        refreshPermissions()
+    }
+
+    private func refreshPermissions() {
         permissions = ComputerUsePermissionBroker.snapshot()
+        fullDiskAccess = HostFileAccessProber.hasFullDiskAccess()
     }
 }
 
@@ -195,10 +192,10 @@ struct OnboardingToolRow: View {
             if state.isBusy { ProgressView().controlSize(.small).padding(.top, DS.Space.xs) }
             else if state.isReady {
                 Image(systemName: "checkmark.circle.fill").foregroundColor(DS.Palette.success)
-                    .padding(.top, DS.Space.xs).accessibilityLabel("Ready")
+                    .padding(.top, DS.Space.xs).accessibilityLabel(L("Ready"))
             } else {
-                Button(state == .missing ? "Install" : "Try again", action: install)
-                    .buttonStyle(DSSecondaryButtonStyle()).accessibilityLabel("Install or retry \(tool.title)")
+                Button(state == .missing ? L("Install") : L("Try again"), action: install)
+                    .buttonStyle(DSSecondaryButtonStyle()).accessibilityLabel(L("Install or retry %1$@", tool.title))
             }
         }
         .padding(DS.Space.xl)

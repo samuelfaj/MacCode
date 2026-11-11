@@ -35,10 +35,10 @@ final class DistillAutoGuideReadinessTests: XCTestCase {
     func test_sourceContractsSelectAutoOnTapWithoutSecondConfirmation() throws {
         let guide = try source("Sources/AppShell/DistillAutoGuideSheet.swift")
         XCTAssertFalse(guide.contains("Use Auto"), "tapping the Auto card already chose Auto; the guide must not ask again")
-        XCTAssertTrue(guide.contains("Button(\"Save\") { controller.saveRouting(current) }"))
+        XCTAssertTrue(guide.contains("Button(L(\"Save\")) { controller.saveRouting(current) }"))
         XCTAssertTrue(guide.contains(".task { controller.refresh() }"),
                       "opening after a rejected Auto send must recheck the saved profile, including previously loaded state")
-        XCTAssertTrue(guide.contains("Button(\"Retry\") { controller.refresh() }"),
+        XCTAssertTrue(guide.contains("Button(L(\"Retry\")) { controller.refresh() }"),
                       "guide must offer explicit retry for a state error")
 
         let picker = try source("Sources/Surfaces/AgentModelPopover.swift")

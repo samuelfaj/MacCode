@@ -43,10 +43,10 @@ public final class PaneTabsView: NSObject {
         b.isBordered = false
         b.bezelStyle = .inline
         b.imagePosition = .imageOnly
-        b.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "All tabs")
+        b.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: L("All tabs"))
         b.symbolConfiguration = .init(pointSize: 11, weight: .regular)
         b.contentTintColor = DS.NS.textSecondary
-        b.toolTip = "All tabs"
+        b.toolTip = L("All tabs")
         b.wantsLayer = true
         b.layer?.cornerRadius = DS.Radius.control
         NSLayoutConstraint.activate([
@@ -132,7 +132,7 @@ public final class PaneTabsView: NSObject {
         // Clicking it pops the surface-type menu under the button.
         let addButton = Self.makeIconButton(
             symbol: "plus",
-            help: "New surface",
+            help: L("New surface"),
             target: self, action: #selector(showAddMenu(_:)))
         addButton.setAccessibilityIdentifier("pane.add")
         Self.populateSurfaceMenu(addMenu, target: self, action: #selector(addFromMenu(_:)))
@@ -144,12 +144,12 @@ public final class PaneTabsView: NSObject {
         // buttons: columns (side-by-side, .right) and rows (stacked, .down).
         let splitColumns = Self.makeIconButton(
             symbol: "rectangle.split.2x1",
-            help: "Split right (side by side)",
+            help: L("Split right (side by side)"),
             target: self, action: #selector(showSplitRightMenu(_:)))
         splitColumns.setAccessibilityIdentifier("pane.splitRight")
         let splitRows = Self.makeIconButton(
             symbol: "rectangle.split.1x2",
-            help: "Split down (stacked)",
+            help: L("Split down (stacked)"),
             target: self, action: #selector(showSplitDownMenu(_:)))
         splitRows.setAccessibilityIdentifier("pane.splitDown")
 
@@ -163,7 +163,7 @@ public final class PaneTabsView: NSObject {
             let minimized = Self.isPaneMinimized(paneIndex: splitContext.paneIndex, ratios: splitContext.ratios)
             let paneZoom = Self.makeIconButton(
                 symbol: minimized ? "arrow.up.left.and.arrow.down.right" : "minus",
-                help: minimized ? "Maximize pane" : "Minimize pane",
+                help: minimized ? L("Maximize pane") : L("Minimize pane"),
                 target: self, action: #selector(togglePaneMinimized))
             rightControls.insert(paneZoom, at: 0)
         }
@@ -315,7 +315,7 @@ public final class PaneTabsView: NSObject {
             }
             return changed
         } else if pane.surfaces.isEmpty {
-            let label = NSTextField(labelWithString: "Empty pane \u{2014} use + to add a surface")
+            let label = NSTextField(labelWithString: L("Empty pane \u{2014} use + to add a surface"))
             label.textColor = DS.NS.textTertiary
             label.font = NSFont.systemFont(ofSize: 12)
             label.translatesAutoresizingMaskIntoConstraints = false
@@ -328,17 +328,17 @@ public final class PaneTabsView: NSObject {
             // UX-P3: surface registered in the pane model but not in
             // SurfaceRegistry (e.g. session-restore failure). Show
             // user-readable copy and a recovery action.
-            let label = NSTextField(labelWithString: "This tab could not be loaded")
+            let label = NSTextField(labelWithString: L("This tab could not be loaded"))
             label.textColor = DS.NS.textTertiary
             label.font = NSFont.systemFont(ofSize: 13)
             label.translatesAutoresizingMaskIntoConstraints = false
 
-            let hint = NSTextField(labelWithString: "The surface is unavailable. Close the tab to continue.")
+            let hint = NSTextField(labelWithString: L("The surface is unavailable. Close the tab to continue."))
             hint.textColor = DS.NS.textTertiary
             hint.font = NSFont.systemFont(ofSize: 11)
             hint.translatesAutoresizingMaskIntoConstraints = false
 
-            let closeBtn = NSButton(title: "Close Tab", target: nil, action: nil)
+            let closeBtn = NSButton(title: L("Close Tab"), target: nil, action: nil)
             closeBtn.bezelStyle = .rounded
             closeBtn.controlSize = .small
             closeBtn.translatesAutoresizingMaskIntoConstraints = false
@@ -500,7 +500,7 @@ public final class PaneTabsView: NSObject {
     private func buildMinimizedSideRail(in root: NSView, selectedSurfaceID: SurfaceID?) {
         let restore = Self.makeIconButton(
             symbol: "arrow.up.left.and.arrow.down.right",
-            help: "Maximize pane",
+            help: L("Maximize pane"),
             target: self, action: #selector(togglePaneMinimized))
 
         let selected = selectedSurfaceID.flatMap { id in
@@ -508,14 +508,14 @@ public final class PaneTabsView: NSObject {
         } ?? pane.surfaces.first
         let icon = NSImageView()
         icon.image = NSImage(systemSymbolName: selected.map { Self.symbol(for: $0) } ?? "rectangle.dashed",
-                             accessibilityDescription: selected?.title ?? "Minimized pane")
+                             accessibilityDescription: selected?.title ?? L("Minimized pane"))
         icon.symbolConfiguration = .init(pointSize: 13, weight: .regular)
         icon.contentTintColor = DS.NS.textSecondary
         icon.translatesAutoresizingMaskIntoConstraints = false
         // UX-P2: tooltip lists all tab titles so the user knows what is
         // hidden behind the minimized rail without having to restore it.
         let allTitles = pane.surfaces.map(\.title).joined(separator: "\n")
-        icon.toolTip = allTitles.isEmpty ? "Minimized pane" : allTitles
+        icon.toolTip = allTitles.isEmpty ? L("Minimized pane") : allTitles
 
         // UX-P2: show a tab-count badge when more than one tab is hidden
         // so the user knows there are additional surfaces in this pane.
@@ -527,7 +527,7 @@ public final class PaneTabsView: NSObject {
             badge.alignment = .center
             badge.translatesAutoresizingMaskIntoConstraints = false
             badge.setAccessibilityIdentifier("pane.minimized.tabCount")
-            badge.toolTip = "\(pane.surfaces.count) tabs"
+            badge.toolTip = L("%1$@ tabs", pane.surfaces.count)
             stackViews.append(badge)
         }
 
@@ -727,13 +727,13 @@ public final class PaneTabsView: NSObject {
     }
 
     private func confirmCloseUnsavedSurface(_ id: SurfaceID) -> Bool {
-        let title = pane.surfaces.first(where: { $0.id == id })?.title ?? "this tab"
+        let title = pane.surfaces.first(where: { $0.id == id })?.title ?? L("this tab")
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Close “\(title)” with unsaved changes?"
-        alert.informativeText = "Unsaved file edits in this tab will be discarded if you close it."
-        alert.addButton(withTitle: "Close Without Saving")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = L("Close “%1$@” with unsaved changes?", title)
+        alert.informativeText = L("Unsaved file edits in this tab will be discarded if you close it.")
+        alert.addButton(withTitle: L("Close Without Saving"))
+        alert.addButton(withTitle: L("Cancel"))
         return alert.runModal() == .alertFirstButtonReturn
     }
 
@@ -816,14 +816,14 @@ public final class PaneTabsView: NSObject {
 
     /// Surfaces offered by the + and Split menus, in display order.
     static let surfaceChoices: [(String, SurfaceType)] = [
-        ("Terminal", .terminal),
+        (L("Terminal"), .terminal),
         ("SSH", .ssh),
-        ("Browser", .browser),
-        ("Agent App", .agentApp),
-        ("Files", .files),
-        ("Git", .rightSidebarTool),
-        ("Bots", .rightSidebarTool),
-        ("VMs", .rightSidebarTool)
+        (L("Browser"), .browser),
+        (L("Agent App"), .agentApp),
+        (L("Files"), .files),
+        (L("Git"), .rightSidebarTool),
+        (L("Bots"), .rightSidebarTool),
+        (L("VMs"), .rightSidebarTool)
     ]
 
     private static func title(for type: SurfaceType) -> String {
@@ -1120,14 +1120,14 @@ public final class PaneTabsView: NSObject {
     nonisolated public static func tabTooltipString(title: String, type: SurfaceType) -> String {
         let label: String
         switch type {
-        case .terminal: label = "Terminal"
-        case .ssh: label = "SSH"
-        case .browser: label = "Browser"
-        case .agentApp: label = "Agent App"
-        case .files: label = "Files"
-        case .markdown: label = "Markdown"
-        case .filePreview: label = "File Preview"
-        case .rightSidebarTool: label = "Git"
+        case .terminal: label = L("Terminal")
+        case .ssh: label = L("SSH")
+        case .browser: label = L("Browser")
+        case .agentApp: label = L("Agent App")
+        case .files: label = L("Files")
+        case .markdown: label = L("Markdown")
+        case .filePreview: label = L("File Preview")
+        case .rightSidebarTool: label = L("Git")
         @unknown default: label = type.rawValue
         }
         return "\(title) -- \(label)"
@@ -1380,7 +1380,7 @@ final class PaneTabButton: NSView {
     /// Pure: only string manipulation — safe to call from any context.
     nonisolated static func tabA11yLabel(title: String, isSelected: Bool, isDirty: Bool) -> String {
         var parts: [String] = [title]
-        if isDirty { parts.append("unsaved changes") }
+        if isDirty { parts.append(L("unsaved changes")) }
         if isSelected { parts.append("selected") }
         return parts.joined(separator: ", ")
     }
@@ -1440,19 +1440,19 @@ final class PaneTabButton: NSView {
         dirtyBadge.layer?.cornerRadius = 3.5
         dirtyBadge.translatesAutoresizingMaskIntoConstraints = false
         dirtyBadge.isHidden = !dirty
-        dirtyBadge.toolTip = "Unsaved changes"
+        dirtyBadge.toolTip = L("Unsaved changes")
 
         let close = NoDragButton(frame: .zero)
         close.isBordered = false
         close.bezelStyle = .inline
         close.imagePosition = .imageOnly
-        close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close tab")
+        close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: L("Close tab"))
         close.symbolConfiguration = .init(pointSize: 9, weight: .semibold)
         close.contentTintColor = DS.NS.textTertiary
         close.translatesAutoresizingMaskIntoConstraints = false
         close.target = self
         close.action = #selector(closeClicked)
-        close.toolTip = "Close tab"
+        close.toolTip = L("Close tab")
         close.setAccessibilityIdentifier("pane.tab.\(surfaceID.value.uuidString).close")
 
         addSubview(iconContainer); addSubview(label); addSubview(dirtyBadge); addSubview(close)
@@ -1602,8 +1602,8 @@ final class PaneTabButton: NSView {
             dot.wantsLayer = true
             dot.layer?.backgroundColor = DS.NS.success.cgColor
             dot.layer?.cornerRadius = 3.5
-            dot.toolTip = "Finished"
-            dot.setAccessibilityLabel("Finished")
+            dot.toolTip = L("Finished")
+            dot.setAccessibilityLabel(L("Finished"))
             NSLayoutConstraint.activate([
                 dot.widthAnchor.constraint(equalToConstant: 7),
                 dot.heightAnchor.constraint(equalToConstant: 7)
@@ -1640,20 +1640,20 @@ final class PaneTabButton: NSView {
 
     private func contextMenu() -> NSMenu {
         let menu = NSMenu()
-        addContextItem(menu, title: "Close all others", action: #selector(closeOthers), enabled: onCloseOthers != nil)
-        addContextItem(menu, title: "Close all to left", action: #selector(closeToLeft), enabled: onCloseToLeft != nil)
-        addContextItem(menu, title: "Close all to right", action: #selector(closeToRight), enabled: onCloseToRight != nil)
+        addContextItem(menu, title: L("Close all others"), action: #selector(closeOthers), enabled: onCloseOthers != nil)
+        addContextItem(menu, title: L("Close all to left"), action: #selector(closeToLeft), enabled: onCloseToLeft != nil)
+        addContextItem(menu, title: L("Close all to right"), action: #selector(closeToRight), enabled: onCloseToRight != nil)
 
         if onRename != nil {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
-            let r = NSMenuItem(title: "Rename…", action: #selector(renameTab), keyEquivalent: "")
+            let r = NSMenuItem(title: L("Rename…"), action: #selector(renameTab), keyEquivalent: "")
             r.target = self
             menu.addItem(r)
         }
         if onSetColor != nil {
-            let colorItem = NSMenuItem(title: "Color", action: nil, keyEquivalent: "")
+            let colorItem = NSMenuItem(title: L("Color"), action: nil, keyEquivalent: "")
             let sub = NSMenu()
-            let none = NSMenuItem(title: "None", action: #selector(colorTab(_:)), keyEquivalent: "")
+            let none = NSMenuItem(title: L("None"), action: #selector(colorTab(_:)), keyEquivalent: "")
             none.target = self; none.representedObject = ""
             sub.addItem(none)
             for c in TabColor.allCases {
@@ -1981,12 +1981,12 @@ final class PaneTabButton: NSView {
     /// moving focus to the sub-buttons.
     private func applyA11yCustomActions() {
         var actions: [NSAccessibilityCustomAction] = []
-        actions.append(NSAccessibilityCustomAction(name: "Close tab") { [weak self] in
+        actions.append(NSAccessibilityCustomAction(name: L("Close tab")) { [weak self] in
             self?.onClose()
             return true
         })
         if onRename != nil {
-            actions.append(NSAccessibilityCustomAction(name: "Rename tab") { [weak self] in
+            actions.append(NSAccessibilityCustomAction(name: L("Rename tab")) { [weak self] in
                 self?.onRename?()
                 return true
             })

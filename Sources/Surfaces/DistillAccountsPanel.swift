@@ -17,15 +17,15 @@ public enum DistillRoutingValidation {
                              accounts: [DistillAccountStatus], models: [AgentModelDescriptor]) -> String? {
         // Disabling an unchanged saved profile must work even when its catalog is no longer available.
         if !draft.enabled, draft.strategy == saved.strategy, draft.options == saved.options { return nil }
-        if draft.enabled && draft.options.isEmpty { return "Add an option before enabling Auto." }
+        if draft.enabled && draft.options.isEmpty { return L("Add an option before enabling Auto.") }
         var ids = Set<String>()
         for option in draft.options {
-            guard !option.id.isEmpty, ids.insert(option.id).inserted else { return "Each Auto option needs a unique identity." }
-            guard let account = accounts.first(where: { $0.id == option.accountID }) else { return "Choose an existing account for every option." }
+            guard !option.id.isEmpty, ids.insert(option.id).inserted else { return L("Each Auto option needs a unique identity.") }
+            guard let account = accounts.first(where: { $0.id == option.accountID }) else { return L("Choose an existing account for every option.") }
             let eligible = Self.models(for: account, catalog: models)
             guard eligible.contains(where: { $0.id == option.mainModel }),
                   option.workerModel == nil || eligible.contains(where: { $0.id == option.workerModel }) else {
-                return "Choose available Main and Worker models from the selected account’s provider."
+                return L("Choose available Main and Worker models from the selected account’s provider.")
             }
         }
         return nil
@@ -66,7 +66,7 @@ public struct DistillAccountsPanelPresentation: Equatable {
 
     static func quotaPresentation(_ quota: DistillAccountQuota?, connected: Bool, connectionError: String?,
                                   now: Date = Date()) -> (text: String, remainingPercent: Double?) {
-        guard let quota else { return ("Quota unknown", nil) }
+        guard let quota else { return (L("Quota unknown"), nil) }
         func date(_ timestamp: String?) -> Date? {
             guard let timestamp else { return nil }
             // CLI/chrono RFC3339 includes fractional seconds; older snapshots may omit them.
@@ -75,25 +75,25 @@ public struct DistillAccountsPanelPresentation: Equatable {
             return parser.date(from: timestamp) ?? ISO8601DateFormatter().date(from: timestamp)
         }
         let remaining = quota.remainingPercent.flatMap { $0.isFinite && (0...100).contains($0) ? $0 : nil }
-        let value = remaining.map { "\(Int($0.rounded()))% remaining" } ?? "Remaining quota unknown"
+        let value = remaining.map { "\(Int($0.rounded()))% remaining" } ?? L("Remaining quota unknown")
         let fetched = date(quota.fetchedAt)
         let age = fetched.map { now.timeIntervalSince($0) }
         let fresh = age.map { (0...300).contains($0) } ?? false
         let current = quota.status == "available" && fresh && connected && connectionError == nil
-        let updated = fetched.map { "Updated \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Update time unknown"
+        let updated = fetched.map { L("Updated %1$@", $0.formatted(date: .abbreviated, time: .shortened)) } ?? L("Update time unknown")
         let future = (age ?? 0) < 0
-        let freshness = fetched == nil || future ? "Quota freshness unknown" : (current ? "Saved quota" : "Stale")
+        let freshness = fetched == nil || future ? L("Quota freshness unknown") : (current ? L("Saved quota") : L("Stale"))
         switch quota.status {
         case "available", "stale":
-            return ("\(freshness) · \(value) · \(updated)\(future ? " (future timestamp)" : "")", current ? remaining : nil)
-        case "loading": return ("Refreshing quota…", nil)
-        case "unsupported": return ("Quota unavailable for this provider", nil)
+            return (L("%1$@ · %2$@ · %3$@%4$@", freshness, value, updated, future ? L(" (future timestamp)") : ""), current ? remaining : nil)
+        case "loading": return (L("Refreshing quota…"), nil)
+        case "unsupported": return (L("Quota unavailable for this provider"), nil)
         default:
             if quota.fetchedAt != nil {
-                return ("\(freshness) · \(value) · \(updated)\(future ? " (future timestamp)" : "") · Refresh unavailable", nil)
+                return (L("%1$@ · %2$@ · %3$@%4$@ · Refresh unavailable", freshness, value, updated, future ? L(" (future timestamp)") : ""), nil)
             }
-            let checked = date(quota.checkedAt)?.formatted(date: .abbreviated, time: .shortened) ?? "Unknown"
-            return ("Quota unavailable · Checked \(checked)", nil)
+            let checked = date(quota.checkedAt)?.formatted(date: .abbreviated, time: .shortened) ?? L("Unknown")
+            return (L("Quota unavailable · Checked %1$@", checked), nil)
         }
     }
 }
@@ -163,15 +163,15 @@ public struct DistillAccountsPanel: View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             if !embedded {
                 HStack {
-                    Text("Accounts & Auto").font(DS.Font.title2)
+                    Text(L("Accounts & Auto")).font(DS.Font.title2)
                     Spacer()
-                    Button("Done") {
+                    Button(L("Done")) {
                         if hasChanges { confirmingDiscard = true } else { dismiss() }
                     }.keyboardShortcut(.cancelAction).frame(minHeight: 44).disabled(presentation.isBusy)
                 }
-                .confirmationDialog("Discard unsaved profile changes?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
-                    Button("Discard changes", role: .destructive) { draft = nil; dismiss() }
-                    Button("Keep editing", role: .cancel) {}
+                .confirmationDialog(L("Discard unsaved profile changes?"), isPresented: $confirmingDiscard, titleVisibility: .visible) {
+                    Button(L("Discard changes"), role: .destructive) { draft = nil; dismiss() }
+                    Button(L("Keep editing"), role: .cancel) {}
                 }
             }
             if embedded {
@@ -194,9 +194,9 @@ public struct DistillAccountsPanel: View {
                         }
                     } else {
                         VStack(spacing: DS.Space.lg) {
-                            Picker("Settings section", selection: $showingRouting) {
-                                Text("Accounts").tag(false)
-                                Text("Auto routing").tag(true)
+                            Picker(L("Settings section"), selection: $showingRouting) {
+                                Text(L("Accounts")).tag(false)
+                                Text(L("Auto routing")).tag(true)
                             }.pickerStyle(.segmented).labelsHidden()
                             ScrollView {
                                 if showingRouting { routingCard } else { accountsCard }
@@ -210,8 +210,8 @@ public struct DistillAccountsPanel: View {
                     Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(DS.Palette.warning)
                         .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                     VStack {
-                        Button("Refresh accounts", action: refreshAccounts).frame(minHeight: 44)
-                        Button("Dismiss", action: dismissError).frame(minWidth: 44, minHeight: 44)
+                        Button(L("Refresh accounts"), action: refreshAccounts).frame(minHeight: 44)
+                        Button(L("Dismiss"), action: dismissError).frame(minWidth: 44, minHeight: 44)
                     }
                 }.padding(DS.Space.sm)
             }
@@ -222,21 +222,21 @@ public struct DistillAccountsPanel: View {
         .interactiveDismissDisabled(hasChanges || presentation.isBusy)
         .sheet(isPresented: $showingAddAccount) {
             VStack(alignment: .leading, spacing: DS.Space.xl) {
-                Text("Add account").font(DS.Font.title3)
+                Text(L("Add account")).font(DS.Font.title3)
                 AgentChoiceSelectField(
-                    caption: "PROVIDER",
+                    caption: L("PROVIDER"),
                     options: DistillAccountProvider.allCases.map { (value: $0, title: $0.displayName, subtitle: nil) },
                     selection: $newProvider,
                     identifier: "agent.accounts.add.provider"
                 )
-                TextField("Account label", text: $newLabel).frame(minHeight: 44)
-                    .accessibilityLabel("Account label")
-                Text("Give this account a name, then connect to sign in.")
+                TextField(L("Account label"), text: $newLabel).frame(minHeight: 44)
+                    .accessibilityLabel(L("Account label"))
+                Text(L("Give this account a name, then connect to sign in."))
                     .foregroundStyle(DS.Palette.textSecondary)
                 HStack {
-                    Button("Cancel") { showingAddAccount = false }.keyboardShortcut(.cancelAction)
+                    Button(L("Cancel")) { showingAddAccount = false }.keyboardShortcut(.cancelAction)
                     Spacer()
-                    Button("Add account") {
+                    Button(L("Add account")) {
                         add(newProvider, newLabel.trimmingCharacters(in: .whitespacesAndNewlines))
                         showingAddAccount = false
                     }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
@@ -248,11 +248,11 @@ public struct DistillAccountsPanel: View {
         }
         .sheet(isPresented: Binding(get: { renameAccount != nil }, set: { if !$0 { renameAccount = nil } })) {
             VStack(alignment: .leading, spacing: DS.Space.md) {
-                Text("Rename \(renameAccount?.provider.displayName ?? "account")").font(DS.Font.body)
-                TextField("Account label", text: $renamedLabel).frame(minHeight: 44)
+                Text(L("Rename %1$@", renameAccount?.provider.displayName ?? "account")).font(DS.Font.body)
+                TextField(L("Account label"), text: $renamedLabel).frame(minHeight: 44)
                 HStack {
-                    Button("Cancel") { renameAccount = nil }.keyboardShortcut(.cancelAction).frame(minHeight: 44)
-                    Button("Save") {
+                    Button(L("Cancel")) { renameAccount = nil }.keyboardShortcut(.cancelAction).frame(minHeight: 44)
+                    Button(L("Save")) {
                         if let account = renameAccount { rename(account.id, renamedLabel.trimmingCharacters(in: .whitespacesAndNewlines)) }
                         renameAccount = nil
                     }.keyboardShortcut(.defaultAction).frame(minHeight: 44).disabled(renamedLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -261,15 +261,15 @@ public struct DistillAccountsPanel: View {
                 .font(DS.Font.body).foregroundStyle(DS.Palette.text)
                 .background(DS.Palette.bg)
         }
-        .confirmationDialog("\(removing ? "Remove" : "Disconnect") \(confirmation?.label ?? "account")?",
+        .confirmationDialog(removing ? L("Remove %1$@?", confirmation?.label ?? L("account")) : L("Disconnect %1$@?", confirmation?.label ?? L("account")),
                             isPresented: Binding(get: { confirmation != nil }, set: { if !$0 { confirmation = nil } }), titleVisibility: .visible) {
-            Button(removing ? "Remove account" : "Disconnect account", role: .destructive) {
+            Button(removing ? L("Remove account") : L("Disconnect account"), role: .destructive) {
                 if let account = confirmation { if removing { remove(account.id) } else { disconnectAccount(account.id) } }
                 confirmation = nil
             }
-            Button("Cancel", role: .cancel) { confirmation = nil }
+            Button(L("Cancel"), role: .cancel) { confirmation = nil }
         } message: {
-            Text("\(confirmation?.provider.displayName ?? "") · \(confirmation?.label ?? "")\n\(confirmation?.email ?? confirmation?.id ?? "")\nOnly this account is affected. Other accounts stay connected.")
+            Text(L("%1$@ · %2$@\n%3$@\nOnly this account is affected. Other accounts stay connected.", confirmation?.provider.displayName ?? "", confirmation?.label ?? "", confirmation?.email ?? confirmation?.id ?? ""))
         }
         .onChange(of: presentation.routing) { saved in if draft == saved { draft = nil } }
     }
@@ -277,8 +277,8 @@ public struct DistillAccountsPanel: View {
     private var accountsCard: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             HStack(spacing: DS.Space.sm) {
-                Text("Accounts").font(DS.Font.title3)
-                Text("\(presentation.statuses.filter(\.connected).count)/\(presentation.statuses.count)")
+                Text(L("Accounts")).font(DS.Font.title3)
+                Text(L("%1$@/%2$@", presentation.statuses.filter(\.connected).count, presentation.statuses.count))
                     .font(DS.Font.caption).monospacedDigit().foregroundStyle(DS.Palette.textTertiary)
                 Spacer()
                 if presentation.isRefreshing {
@@ -288,21 +288,21 @@ public struct DistillAccountsPanel: View {
                         Image(systemName: "arrow.clockwise")
                     }
                     .buttonStyle(.borderless)
-                    .help("Refresh accounts")
-                    .accessibilityLabel("Refresh accounts")
+                    .help(L("Refresh accounts"))
+                    .accessibilityLabel(L("Refresh accounts"))
                     .disabled(presentation.isBusy)
                 }
                 Button { newLabel = ""; showingAddAccount = true } label: {
-                    Label("Add", systemImage: "plus")
+                    Label(L("Add"), systemImage: "plus")
                 }.buttonStyle(DSSecondaryButtonStyle()).disabled(unavailable)
             }
-            Text("Sign in to the accounts Distill can use.")
+            Text(L("Sign in to the accounts Distill can use."))
                 .font(DS.Font.caption).foregroundStyle(DS.Palette.textSecondary)
             installNotice
             if presentation.statuses.isEmpty {
                 VStack(spacing: DS.Space.sm) {
                     AgentChoiceIconTile(systemName: "person.crop.circle.badge.plus", tint: DS.Palette.accent, size: 36)
-                    Text("No accounts yet. Add one to get started.")
+                    Text(L("No accounts yet. Add one to get started."))
                         .font(DS.Font.caption).foregroundStyle(DS.Palette.textSecondary)
                 }
                 .frame(maxWidth: .infinity)
@@ -336,10 +336,10 @@ public struct DistillAccountsPanel: View {
     @ViewBuilder private var installNotice: some View {
         switch presentation.installState {
         case .installing:
-            HStack { ProgressView().controlSize(.small); Text("Installing Distill…") }.accessibilityIdentifier("agent.accounts.install.progress")
+            HStack { ProgressView().controlSize(.small); Text(L("Installing Distill…")) }.accessibilityIdentifier("agent.accounts.install.progress")
         case .failed(let message):
             Text(message).foregroundStyle(DS.Palette.warning).textSelection(.enabled).accessibilityIdentifier("agent.accounts.install.failed")
-            Button("Retry", action: retryInstall).frame(minHeight: 44).accessibilityIdentifier("agent.accounts.install.retry")
+            Button(L("Retry"), action: retryInstall).frame(minHeight: 44).accessibilityIdentifier("agent.accounts.install.retry")
         case .unknown, .installed: EmptyView()
         }
     }
@@ -358,7 +358,7 @@ public struct DistillAccountsPanel: View {
                 }
                 HStack(spacing: 6) {
                     Circle().fill(account.connectionError != nil ? DS.Palette.warning : (account.connected ? DS.Palette.success : DS.Palette.textTertiary)).frame(width: 6, height: 6)
-                    Text(account.connected ? (account.email ?? "Connected") : "Not connected")
+                    Text(account.connected ? (account.email ?? L("Connected")) : L("Not connected"))
                         .font(DS.Font.caption).foregroundStyle(DS.Palette.textSecondary)
                         .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                 }
@@ -370,9 +370,9 @@ public struct DistillAccountsPanel: View {
                         ProgressView(value: remaining, total: 100)
                             .tint(remaining < 20 ? DS.Palette.warning : DS.Palette.accent)
                             .frame(maxWidth: 160)
-                            .accessibilityLabel("Saved remaining quota")
-                            .accessibilityValue("\(Int(remaining.rounded())) percent")
-                        Text("\(Int(remaining.rounded()))% left")
+                            .accessibilityLabel(L("Saved remaining quota"))
+                            .accessibilityValue(L("%1$@ percent", Int(remaining.rounded())))
+                        Text(L("%1$@% left", Int(remaining.rounded())))
                             .font(DS.Font.caption2).monospacedDigit().foregroundStyle(DS.Palette.textTertiary)
                     }
                 } else if account.connected, !quota.text.isEmpty {
@@ -382,37 +382,37 @@ public struct DistillAccountsPanel: View {
             Spacer(minLength: DS.Space.sm)
             if presentation.busyAccountID == account.id {
                 HStack(spacing: DS.Space.sm) {
-                    ProgressView().controlSize(.small).accessibilityLabel("Account operation in progress")
-                    if let url = presentation.signInURL { Button("Open again") { openAgain(url) }.buttonStyle(.borderless) }
-                    Button("Cancel", action: cancel).buttonStyle(.borderless)
+                    ProgressView().controlSize(.small).accessibilityLabel(L("Account operation in progress"))
+                    if let url = presentation.signInURL { Button(L("Open again")) { openAgain(url) }.buttonStyle(.borderless) }
+                    Button(L("Cancel"), action: cancel).buttonStyle(.borderless)
                 }
             } else {
                 HStack(spacing: DS.Space.sm) {
                     if !account.connected || account.connectionError != nil {
-                        Button(account.connected ? "Sign in again" : "Connect") { connectAccount(account.id) }
+                        Button(account.connected ? L("Sign in again") : L("Connect")) { connectAccount(account.id) }
                             .buttonStyle(DSPrimaryButtonStyle())
                             .accessibilityIdentifier("agent.accounts.\(account.id).connect")
                     }
                     Menu {
                         if account.connected {
-                            Button("Sign in again") { connectAccount(account.id) }
+                            Button(L("Sign in again")) { connectAccount(account.id) }
                         }
-                        Button("Refresh quota") { refreshQuota(account.id) }.disabled(!account.connected)
-                        Button("Rename") { renamedLabel = account.label; renameAccount = account }
+                        Button(L("Refresh quota")) { refreshQuota(account.id) }.disabled(!account.connected)
+                        Button(L("Rename")) { renamedLabel = account.label; renameAccount = account }
                         if account.connected || !account.legacy { Divider() }
                         if account.connected {
-                            Button("Disconnect…", role: .destructive) { removing = false; confirmation = account }
+                            Button(L("Disconnect…"), role: .destructive) { removing = false; confirmation = account }
                         }
                         // Distill refuses to remove a provider's default (legacy) account; Disconnect covers it.
                         if !account.legacy {
-                            Button("Remove account…", role: .destructive) { removing = true; confirmation = account }
+                            Button(L("Remove account…"), role: .destructive) { removing = true; confirmation = account }
                         }
                     } label: {
                         Image(systemName: "ellipsis").frame(width: 24, height: 24)
                     }
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                    .accessibilityLabel("Account actions for \(account.provider.displayName) · \(account.label)")
-                    .help("Actions for \(account.provider.displayName) · \(account.label)")
+                    .accessibilityLabel(L("Account actions for %1$@ · %2$@", account.provider.displayName, account.label))
+                    .help(L("Actions for %1$@ · %2$@", account.provider.displayName, account.label))
                 }.disabled(unavailable)
             }
         }
@@ -423,7 +423,7 @@ public struct DistillAccountsPanel: View {
 
     private var routingCard: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
-            HStack { Text("Auto routing").font(DS.Font.title3); Spacer() }
+            HStack { Text(L("Auto routing")).font(DS.Font.title3); Spacer() }
             DistillAutoRoutingEditor(
                 draft: Binding(get: { currentDraft }, set: { draft = $0 }),
                 saved: presentation.routing,
@@ -440,17 +440,17 @@ public struct DistillAccountsPanel: View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Divider()
             HStack(spacing: DS.Space.lg) {
-                Text(!presentation.routingLoaded ? "Loading saved profile…" :
-                     (hasChanges ? "Unsaved changes" : "Saved profile · \(presentation.routing.enabled ? "Enabled" : "Disabled")"))
+                Text(!presentation.routingLoaded ? L("Loading saved profile…") :
+                     (hasChanges ? L("Unsaved changes") : L("Saved profile · %1$@", presentation.routing.enabled ? L("Enabled") : L("Disabled"))))
                     .foregroundStyle(hasChanges ? DS.Palette.warning : DS.Palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 if presentation.isBusy, presentation.busyAccountID == nil {
-                    ProgressView().controlSize(.small).accessibilityLabel("Saving accounts or routing")
+                    ProgressView().controlSize(.small).accessibilityLabel(L("Saving accounts or routing"))
                 }
                 if hasChanges {
-                    Button("Cancel") { draft = nil }.frame(minHeight: 44).disabled(unavailable)
-                    Button("Save profile") { saveRouting(currentDraft) }
+                    Button(L("Cancel")) { draft = nil }.frame(minHeight: 44).disabled(unavailable)
+                    Button(L("Save profile")) { saveRouting(currentDraft) }
                         .buttonStyle(.borderedProminent).frame(minHeight: 44)
                         .disabled(unavailable || validationError != nil)
                 }

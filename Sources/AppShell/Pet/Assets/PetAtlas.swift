@@ -1,3 +1,4 @@
+import CoreModel
 import AppKit
 import CoreGraphics
 import Foundation

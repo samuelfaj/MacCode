@@ -1794,7 +1794,7 @@ public struct AssistantTimelineState: Codable, Sendable, Equatable {
             recordActivity(AssistantWorkActivity(
                 id: "request:\(request.id)",
                 kind: .request,
-                title: "Approval requested: \(request.title)",
+                title: L("Approval requested: %1$@", request.title),
                 detail: request.detail,
                 state: request.state.rawValue,
                 createdAtMs: request.createdAtMs
@@ -1807,7 +1807,7 @@ public struct AssistantTimelineState: Codable, Sendable, Equatable {
                 recordActivity(AssistantWorkActivity(
                     id: "request:\(request.id)",
                     kind: .request,
-                    title: "Approval \(state.rawValue): \(request.title)",
+                    title: L("Approval %1$@: %2$@", Self.requestStateLabel(state), request.title),
                     detail: request.detail,
                     state: state.rawValue,
                     createdAtMs: request.resolvedAtMs ?? request.createdAtMs
@@ -1821,7 +1821,7 @@ public struct AssistantTimelineState: Codable, Sendable, Equatable {
             recordActivity(AssistantWorkActivity(
                 id: "user_input:\(request.id)",
                 kind: .userInput,
-                title: "Question requested",
+                title: L("Question requested"),
                 detail: request.prompt,
                 state: request.state.rawValue,
                 createdAtMs: request.createdAtMs
@@ -1835,7 +1835,7 @@ public struct AssistantTimelineState: Codable, Sendable, Equatable {
                 recordActivity(AssistantWorkActivity(
                     id: "user_input:\(request.id)",
                     kind: .userInput,
-                    title: "Question resolved",
+                    title: L("Question resolved"),
                     detail: answer ?? request.prompt,
                     state: AssistantRequestState.resolved.rawValue,
                     createdAtMs: request.resolvedAtMs ?? request.createdAtMs
@@ -1893,7 +1893,7 @@ public struct AssistantTimelineState: Codable, Sendable, Equatable {
             recordActivity(AssistantWorkActivity(
                 id: "error:\(UUID().uuidString)",
                 kind: .error,
-                title: "Agent error",
+                title: L("Agent error"),
                 detail: m,
                 state: "failed",
                 createdAtMs: Int64(Date().timeIntervalSince1970 * 1000)
@@ -2180,7 +2180,7 @@ public struct AssistantTimelineState: Codable, Sendable, Equatable {
         recordActivity(AssistantWorkActivity(
             id: "item:\(item.id)",
             kind: .tool,
-            title: "\(state == .streaming ? "Running" : state.rawValue.capitalized): \(Self.activityLabel(for: item))",
+            title: L("%1$@: %2$@", Self.itemStateLabel(state), Self.activityLabel(for: item)),
             detail: item.distillApplied == true
                 ? DistillAppliedReceipt.strip(rawDetail)
                 : rawDetail,
@@ -2197,6 +2197,27 @@ public struct AssistantTimelineState: Codable, Sendable, Equatable {
         workActivities.append(next)
         if workActivities.count > Self.workActivityLimit {
             workActivities.removeFirst(workActivities.count - Self.workActivityLimit)
+        }
+    }
+
+    private static func itemStateLabel(_ state: AssistantItemState) -> String {
+        switch state {
+        case .streaming: return L("Running")
+        case .completed: return L("Completed")
+        case .failed: return L("Failed")
+        case .cancelled: return L("Cancelled")
+        }
+    }
+
+    private static func requestStateLabel(_ state: AssistantRequestState) -> String {
+        switch state {
+        case .pending: return L("pending")
+        case .approved: return L("approved")
+        case .declined: return L("declined")
+        case .cancelled: return L("cancelled")
+        case .resolved: return L("resolved")
+        case .stale: return L("stale")
+        case .acknowledged: return L("acknowledged")
         }
     }
 

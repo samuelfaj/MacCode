@@ -61,8 +61,8 @@ final class AgentListChromeTests: XCTestCase {
         XCTAssertTrue(agent.contains("scheduledTasks.globalActive"))
         XCTAssertTrue(agent.contains("scheduledTasks.editor.provider"))
         XCTAssertTrue(agent.contains("scheduledTasks.editor.autoRouting"))
-        XCTAssertTrue(agent.contains("editorGroup(\"Details\")"))
-        XCTAssertTrue(agent.contains("editorGroup(\"Frequency\")"))
+        XCTAssertTrue(agent.contains("editorGroup(L(\"Details\"))"))
+        XCTAssertTrue(agent.contains("editorGroup(L(\"Frequency\"))"))
         XCTAssertTrue(agent.contains("Auto selects the best model for the selected provider at run time."))
         // WHY: the Frequency rows and their ids live in the one shared editor.
         XCTAssertTrue(dest.contains("ScheduledFrequencyEditor("))
@@ -96,7 +96,7 @@ final class AgentListChromeTests: XCTestCase {
         XCTAssertFalse(bots.contains("private func filterChip("))
         XCTAssertTrue(bots.contains("struct ActiveBotCard"))
         XCTAssertTrue(bots.contains("struct FinishedBotCard"))
-        XCTAssertTrue(bots.contains(".accessibilityLabel(\"Search bots\")"))
+        XCTAssertTrue(bots.contains(".accessibilityLabel(L(\"Search bots\"))"))
 
         XCTAssertTrue(threads.contains("AgentListFilterChip("))
         XCTAssertTrue(threads.contains("AgentListFooterBar("))

@@ -51,7 +51,7 @@ final class BotTeamGroupService {
     private var attentionFlushScheduled = false
     /// Groups whose delete is in flight: nothing new may start in them.
     private var deletingGroups: Set<BotGroupID> = []
-    static let deletingMessage = "This group is being deleted."
+    static let deletingMessage = L("This group is being deleted.")
     /// Groups whose room is on screen on the Mac, one entry per viewer (a
     /// viewer that goes away stops counting). A reply there is already read.
     private final class Viewer {
@@ -386,7 +386,7 @@ final class BotTeamGroupService {
                 if Self.controlPlaneMethods.contains(method), !isControlPlaneActive() {
                     throw DefiniteMutationRejection(JSONRPCError(
                         code: Self.controlPlaneOffCode,
-                        message: "Bot control plane is off."
+                        message: L("Bot control plane is off.")
                     ))
                 }
                 return Self.receipt(params, readback: try await mutate(method: method, params: params))
@@ -696,13 +696,13 @@ final class BotTeamGroupService {
             return DefiniteMutationRejection(error)
         case let error as BotStoreError:
             switch error {
-            case .notFound: return rejected(notFoundCode, "That team, group or bot no longer exists.", kind: "not_found")
+            case .notFound: return rejected(notFoundCode, L("That team, group or bot no longer exists."), kind: "not_found")
             case .revisionConflict: return rejected(revisionConflictCode, error.description, kind: "revision_conflict")
             case .invalidInput(let message): return rejected(-32602, message, kind: "invalid_input")
             case .invalidRow: return error
             }
         case let error as BotGroupOrchestrator.SendError:
-            return rejected(-32602, error.errorDescription ?? "The message was refused.", kind: "send_refused")
+            return rejected(-32602, error.errorDescription ?? L("The message was refused."), kind: "send_refused")
         default:
             return error
         }

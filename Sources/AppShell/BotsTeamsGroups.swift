@@ -97,12 +97,12 @@ public final class BotTeamsGroupsController: ObservableObject {
 
     static let selectedGroupDefaultsKey = "bots.selectedGroupID"
     static let inspectorDefaultsKey = "bots.groupInspector"
-    static let privateThreadReadOnlyMessage = "This is the bot's private thread. Write in the group."
-    static let roomPlaceholder = "Message the group. @mention a bot to choose who answers…"
+    static let privateThreadReadOnlyMessage = L("This is the bot's private thread. Write in the group.")
+    static let roomPlaceholder = L("Message the group. @mention a bot to choose who answers…")
     /// Empty room copy: the same instruction as the placeholder, not the
     /// Agent App's "Start a new agent run."
-    static let roomEmptyTitle = "Message the group"
-    static let roomEmptySubtitle = "@mention a bot to choose who answers."
+    static let roomEmptyTitle = L("Message the group")
+    static let roomEmptySubtitle = L("@mention a bot to choose who answers.")
 
     private let context: AppContext
     private let routerProvider: () -> AppCommandRouter?
@@ -392,7 +392,7 @@ public final class BotTeamsGroupsController: ObservableObject {
     func openPrivateThread(botID: BotID) {
         guard let group = selectedGroup, let router = routerProvider() else { return }
         guard let threadID = memberThreadID(groupID: group.id, botID: botID) else {
-            onError?("This bot has not answered in this group yet.")
+            onError?(L("This bot has not answered in this group yet."))
             return
         }
         closePrivateThread()
@@ -402,7 +402,7 @@ public final class BotTeamsGroupsController: ObservableObject {
                 throw BotGroupOrchestrator.SendError.rejected(Self.privateThreadReadOnlyMessage)
             },
             composerPlaceholder: Self.privateThreadReadOnlyMessage,
-            emptyConversationTitle: "No messages",
+            emptyConversationTitle: L("No messages"),
             emptyConversationSubtitle: Self.privateThreadReadOnlyMessage
         )
         privateThreadVM = makeEmbeddedVM(threadID: threadID, embedding: embedding, router: router)
@@ -726,21 +726,21 @@ struct BotTeamsManagerSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             HStack {
-                Text("Teams")
+                Text(L("Teams"))
                     .font(DS.Font.title2.weight(.semibold))
                     .foregroundColor(DS.Palette.text)
                 Spacer()
-                Button("Done") { dismiss() }
+                Button(L("Done")) { dismiss() }
                     .buttonStyle(DSSecondaryButtonStyle())
                     .keyboardShortcut(.cancelAction)
                     .accessibilityIdentifier("bots.teams.done")
             }
             HStack(spacing: DS.Space.sm) {
-                TextField("New team name", text: $newName)
+                TextField(L("New team name"), text: $newName)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(create)
                     .accessibilityIdentifier("bots.teams.new.name")
-                Button("Add", action: create)
+                Button(L("Add"), action: create)
                     .buttonStyle(BotsPrimaryButtonStyle())
                     .disabled(trimmedNewName.isEmpty || !canEdit)
                     .accessibilityIdentifier("bots.teams.new.add")
@@ -748,7 +748,7 @@ struct BotTeamsManagerSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.lg) {
                     if teamsGroups.teams.isEmpty {
-                        Text("No teams yet. Name one above and press Return.")
+                        Text(L("No teams yet. Name one above and press Return."))
                             .font(DS.Font.body)
                             .foregroundColor(DS.Palette.textTertiary)
                             .accessibilityIdentifier("bots.teams.empty")
@@ -763,7 +763,7 @@ struct BotTeamsManagerSheet: View {
                 }
             }
             .frame(minHeight: 220, maxHeight: 420)
-            Text("Click a bot to add or remove it. A bot can be in several teams.")
+            Text(L("Click a bot to add or remove it. A bot can be in several teams."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
         }
@@ -774,28 +774,28 @@ struct BotTeamsManagerSheet: View {
             isPresented: Binding(get: { pendingTeamDelete != nil }, set: { if !$0 { pendingTeamDelete = nil } }),
             titleVisibility: .visible
         ) {
-            Button("Delete", role: .destructive) {
+            Button(L("Delete"), role: .destructive) {
                 if let team = pendingTeamDelete { teamsGroups.deleteTeam(team.id) }
                 pendingTeamDelete = nil
             }
             .accessibilityIdentifier("bots.teams.delete.confirm")
-            Button("Cancel", role: .cancel) { pendingTeamDelete = nil }
+            Button(L("Cancel"), role: .cancel) { pendingTeamDelete = nil }
         } message: {
-            Text("The bots and their conversations stay.")
+            Text(L("The bots and their conversations stay."))
         }
         .confirmationDialog(
             "Delete \(pendingGroupDelete?.title ?? "this group")?",
             isPresented: Binding(get: { pendingGroupDelete != nil }, set: { if !$0 { pendingGroupDelete = nil } }),
             titleVisibility: .visible
         ) {
-            Button("Delete", role: .destructive) {
+            Button(L("Delete"), role: .destructive) {
                 if let group = pendingGroupDelete { Task { await teamsGroups.deleteGroup(group.id) } }
                 pendingGroupDelete = nil
             }
             .accessibilityIdentifier("bots.teams.group.delete.confirm")
-            Button("Cancel", role: .cancel) { pendingGroupDelete = nil }
+            Button(L("Cancel"), role: .cancel) { pendingGroupDelete = nil }
         } message: {
-            Text("The group transcript and each bot's private thread for it are deleted. The bots stay.")
+            Text(L("The group transcript and each bot's private thread for it are deleted. The bots stay."))
         }
         .accessibilityIdentifier("bots.teams.manager")
     }
@@ -815,12 +815,12 @@ struct BotTeamsManagerSheet: View {
     private var groupsSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             HStack {
-                Text("Group chats")
+                Text(L("Group chats"))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
                 Spacer()
                 Button { vm.beginCreateGroup() } label: {
-                    Label("New group", systemImage: "plus")
+                    Label(L("New group"), systemImage: "plus")
                         .font(DS.Font.caption)
                 }
                 .buttonStyle(.plain)
@@ -864,17 +864,17 @@ struct BotTeamsManagerSheet: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(group.title)
-        .accessibilityValue("\(group.hidden ? "Hidden. " : "")\(members.map(\.name).joined(separator: ", "))")
+        .accessibilityValue(L("%1$@%2$@", group.hidden ? L("Hidden. ") : "", members.map(\.name).joined(separator: ", ")))
         .accessibilityIdentifier("bots.groups.row.\(key)")
         .contextMenu {
-            Button(group.pinned ? "Unpin" : "Pin") { teamsGroups.setPinned(!group.pinned, groupID: group.id) }
+            Button(group.pinned ? L("Unpin") : L("Pin")) { teamsGroups.setPinned(!group.pinned, groupID: group.id) }
                 .disabled(!canEdit)
-            Button(group.hidden ? "Unhide" : "Hide") { teamsGroups.setHidden(!group.hidden, groupID: group.id) }
+            Button(group.hidden ? L("Unhide") : L("Hide")) { teamsGroups.setHidden(!group.hidden, groupID: group.id) }
                 .disabled(!canEdit)
-            Button("Edit Group…") { teamsGroups.sheet = .editGroup(group.id) }
+            Button(L("Edit Group…")) { teamsGroups.sheet = .editGroup(group.id) }
                 .disabled(!canEdit)
             Divider()
-            Button("Delete Group", role: .destructive) { pendingGroupDelete = group }
+            Button(L("Delete Group"), role: .destructive) { pendingGroupDelete = group }
         }
     }
 }
@@ -904,7 +904,7 @@ private struct BotTeamCard: View {
         let key = team.id.value.uuidString.lowercased()
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             HStack(spacing: DS.Space.sm) {
-                TextField("Team name", text: $name)
+                TextField(L("Team name"), text: $name)
                     .textFieldStyle(.plain)
                     .font(DS.Font.bodyStrong)
                     .foregroundColor(DS.Palette.text)
@@ -913,12 +913,12 @@ private struct BotTeamCard: View {
                     .onChange(of: nameFocused) { focused in if !focused { commitName() } }
                     .onChange(of: team.name) { updated in if !nameFocused { name = updated } }
                     .disabled(!canEdit)
-                    .accessibilityLabel("Team name")
+                    .accessibilityLabel(L("Team name"))
                     .accessibilityIdentifier("bots.teams.name.\(key)")
-                Text("\(members.count)")
+                Text(L("%1$@", members.count))
                     .font(DS.Font.caption2)
                     .foregroundColor(DS.Palette.textTertiary)
-                    .accessibilityLabel("\(members.count) members")
+                    .accessibilityLabel(L("%1$@ members", members.count))
                 Spacer(minLength: 0)
                 Button { vm.beginCreateGroup(teamID: team.id) } label: {
                     Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 12))
@@ -926,8 +926,8 @@ private struct BotTeamCard: View {
                 .buttonStyle(.plain)
                 .foregroundColor(DS.Palette.textSecondary)
                 .disabled(!canEdit || members.isEmpty)
-                .help("New group chat from \(team.name)")
-                .accessibilityLabel("New group from \(team.name)")
+                .help(L("New group chat from %1$@", team.name))
+                .accessibilityLabel(L("New group from %1$@", team.name))
                 .accessibilityIdentifier("bots.teams.group.\(key)")
                 Button(action: onDelete) {
                     Image(systemName: "trash").font(.system(size: 12))
@@ -935,12 +935,12 @@ private struct BotTeamCard: View {
                 .buttonStyle(.plain)
                 .foregroundColor(DS.Palette.textSecondary)
                 .disabled(!canEdit)
-                .help("Delete \(team.name)")
-                .accessibilityLabel("Delete \(team.name)")
+                .help(L("Delete %1$@", team.name))
+                .accessibilityLabel(L("Delete %1$@", team.name))
                 .accessibilityIdentifier("bots.teams.delete.\(key)")
             }
             if vm.bots.isEmpty {
-                Text("No bots yet").font(DS.Font.caption).foregroundColor(DS.Palette.textTertiary)
+                Text(L("No bots yet")).font(DS.Font.caption).foregroundColor(DS.Palette.textTertiary)
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 30, maximum: 30), spacing: DS.Space.sm)], alignment: .leading, spacing: DS.Space.sm) {
                     ForEach(vm.bots, id: \.id) { bot in avatarToggle(bot, teamKey: key) }
@@ -968,9 +968,9 @@ private struct BotTeamCard: View {
         }
         .buttonStyle(.plain)
         .disabled(!canEdit)
-        .help("\(isMember ? "Remove" : "Add") \(BotsViewModel.displayName(bot.name))")
+        .help(isMember ? L("Remove %1$@", BotsViewModel.displayName(bot.name)) : L("Add %1$@", BotsViewModel.displayName(bot.name)))
         .accessibilityLabel(BotsViewModel.displayName(bot.name))
-        .accessibilityValue(isMember ? "In team" : "Not in team")
+        .accessibilityValue(isMember ? L("In team") : L("Not in team"))
         .accessibilityAddTraits(isMember ? .isSelected : [])
         .accessibilityIdentifier("bots.teams.member.\(teamKey).\(bot.handle)")
     }
@@ -1008,17 +1008,17 @@ struct BotPickRow: View {
 extension BotGroupPolicy {
     var displayName: String {
         switch self {
-        case .roundtable: return "Roundtable"
-        case .lead: return "Lead"
-        case .mentionsOnly: return "Mentions only"
+        case .roundtable: return L("Roundtable")
+        case .lead: return L("Lead")
+        case .mentionsOnly: return L("Mentions only")
         }
     }
 
     var caption: String {
         switch self {
-        case .roundtable: return "Every bot answers each message, in order."
-        case .lead: return "Only the lead answers unless you @mention someone."
-        case .mentionsOnly: return "Only bots you @mention answer."
+        case .roundtable: return L("Every bot answers each message, in order.")
+        case .lead: return L("Only the lead answers unless you @mention someone.")
+        case .mentionsOnly: return L("Only bots you @mention answer.")
         }
     }
 }
@@ -1046,18 +1046,18 @@ struct BotGroupEditorSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
-            Text(isCreate ? "New Group" : "Edit Group")
+            Text(isCreate ? L("New Group") : L("Edit Group"))
                 .font(DS.Font.title2.weight(.semibold))
                 .foregroundColor(DS.Palette.text)
-            TextField("Group title", text: $title)
+            TextField(L("Group title"), text: $title)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("bots.group.title")
             HStack {
-                Text("Participants")
+                Text(L("Participants"))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
                 Spacer()
-                Text("\(selected.count) of \(cap)")
+                Text(L("%1$@ of %2$@", selected.count, cap))
                     .font(DS.Font.caption)
                     .foregroundColor(selected.count >= cap ? DS.Palette.warning : DS.Palette.textTertiary)
             }
@@ -1070,38 +1070,38 @@ struct BotGroupEditorSheet: View {
                             pickSection(section.team.name, bots: section.bots, team: section.team.id)
                         }
                         if !sections.otherBots.isEmpty {
-                            pickSection("Other Bots", bots: sections.otherBots, team: nil)
+                            pickSection(L("Other Bots"), bots: sections.otherBots, team: nil)
                         }
                     } else {
-                        pickSection("Bots", bots: vm.bots, team: nil)
+                        pickSection(L("Bots"), bots: vm.bots, team: nil)
                     }
                 }
             }
             .frame(minHeight: 160, maxHeight: 300)
-            Picker("Who answers", selection: $policy) {
+            Picker(L("Who answers"), selection: $policy) {
                 ForEach(BotGroupPolicy.allCases, id: \.self) { Text($0.displayName).tag($0) }
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("bots.group.policy")
             Text(policy.caption).font(DS.Font.caption).foregroundColor(DS.Palette.textTertiary)
             if policy == .lead {
-                Picker("Lead", selection: $lead) {
-                    Text("Choose a lead").tag(BotID?.none)
+                Picker(L("Lead"), selection: $lead) {
+                    Text(L("Choose a lead")).tag(BotID?.none)
                     ForEach(selectedBots, id: \.id) { Text($0.name).tag(Optional($0.id)) }
                 }
                 .accessibilityIdentifier("bots.group.lead")
             }
             Stepper(value: $hops, in: 0...BotGroupConversation.maxAutoHopsCap) {
-                Text("Bot hand-offs per message: \(hops)")
+                Text(L("Bot hand-offs per message: %1$@", hops))
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.text)
             }
             .accessibilityIdentifier("bots.group.hops")
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button(L("Cancel")) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button(isCreate ? "Create Group" : "Save") { save() }
+                Button(isCreate ? L("Create Group") : L("Save")) { save() }
                     .buttonStyle(BotsPrimaryButtonStyle())
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSave)
@@ -1141,7 +1141,7 @@ struct BotGroupEditorSheet: View {
                 Text(name).font(DS.Font.caption).foregroundColor(DS.Palette.textTertiary)
                 Spacer()
                 if let team, !bots.isEmpty {
-                    Button("Add whole team") { addAll(bots, team: team) }
+                    Button(L("Add whole team")) { addAll(bots, team: team) }
                         .buttonStyle(.link)
                         .font(DS.Font.caption)
                         .disabled(bots.allSatisfy { selected.contains($0.id) })
@@ -1268,8 +1268,8 @@ struct BotGroupRoomScreen: View {
         } else {
             DSEmptyState(
                 icon: "person.3",
-                title: "Select a group",
-                subtitle: "Open a group chat from Teams."
+                title: L("Select a group"),
+                subtitle: L("Open a group chat from Teams.")
             )
             .accessibilityIdentifier("bots.group.empty")
         }
@@ -1285,7 +1285,7 @@ struct BotGroupRoomScreen: View {
                     .foregroundColor(DS.Palette.text)
                     .lineLimit(1)
                     .accessibilityIdentifier("bots.group.header.title")
-                Text("\(members.count) bots · \(group.policy.displayName)")
+                Text(L("%1$@ bots · %2$@", members.count, group.policy.displayName))
                     .font(DS.Font.caption2)
                     .foregroundColor(DS.Palette.textSecondary)
                     .lineLimit(1)
@@ -1295,18 +1295,18 @@ struct BotGroupRoomScreen: View {
             if !retryable.isEmpty {
                 Button(retryTitle(retryable)) { teamsGroups.retryFailedTurns(groupID: group.id) }
                     .buttonStyle(DSSecondaryButtonStyle())
-                    .help("Run the bots whose last answer failed or was interrupted again")
+                    .help(L("Run the bots whose last answer failed or was interrupted again"))
                     .accessibilityIdentifier("bots.group.retry")
             }
             if group.attentionState == .working {
-                Button("Stop") { teamsGroups.stop(groupID: group.id) }
+                Button(L("Stop")) { teamsGroups.stop(groupID: group.id) }
                     .buttonStyle(DSSecondaryButtonStyle())
-                    .help("Stop every bot answering in this group")
+                    .help(L("Stop every bot answering in this group"))
                     .accessibilityIdentifier("bots.group.stop")
             }
             DSIconButton(
                 "sidebar.right",
-                help: teamsGroups.isInspectorVisible ? "Hide inspector" : "Show inspector"
+                help: teamsGroups.isInspectorVisible ? L("Hide inspector") : L("Show inspector")
             ) {
                 withAnimation(reduceMotion ? nil : DS.Motion.standard) { teamsGroups.isInspectorVisible.toggle() }
             }
@@ -1320,9 +1320,9 @@ struct BotGroupRoomScreen: View {
 
     private func retryTitle(_ turns: [BotGroupTurn]) -> String {
         guard turns.count == 1, let bot = vm.bots.first(where: { $0.id == turns[0].botID }) else {
-            return "Retry \(turns.count) bots"
+            return L("Retry %1$@ bots", turns.count)
         }
-        return "Retry \(bot.name)"
+        return L("Retry %1$@", bot.name)
     }
 
     @ViewBuilder
@@ -1334,11 +1334,11 @@ struct BotGroupRoomScreen: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(DS.Palette.textTertiary)
                         .accessibilityHidden(true)
-                    Text("Private thread · \(vm.bots.first { $0.id == botID }?.name ?? "Bot")")
+                    Text(L("Private thread · %1$@", vm.bots.first { $0.id == botID }?.name ?? L("Bot")))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textSecondary)
                     Spacer()
-                    Button("Back to group") { teamsGroups.closePrivateThread() }
+                    Button(L("Back to group")) { teamsGroups.closePrivateThread() }
                         .buttonStyle(.link)
                         .accessibilityIdentifier("bots.group.private.back")
                 }
@@ -1378,17 +1378,17 @@ struct BotGroupInspector: View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.lg) {
                 HStack {
-                    Text("Participants").font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
+                    Text(L("Participants")).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
                     Spacer()
-                    Button("Edit…") { teamsGroups.roomSheet = .editGroup(group.id) }
+                    Button(L("Edit…")) { teamsGroups.roomSheet = .editGroup(group.id) }
                         .buttonStyle(.link)
                         .disabled(!vm.isControlPlaneActive)
                         .accessibilityIdentifier("bots.group.inspector.edit")
                 }
                 ForEach(members, id: \.id) { bot in participantRow(bot) }
                 Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline).accessibilityHidden(true)
-                Text("Who answers").font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
-                Picker("Who answers", selection: Binding(
+                Text(L("Who answers")).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
+                Picker(L("Who answers"), selection: Binding(
                     get: { group.policy },
                     set: { teamsGroups.setPolicy($0, groupID: group.id) }
                 )) {
@@ -1400,7 +1400,7 @@ struct BotGroupInspector: View {
                 .accessibilityIdentifier("bots.group.inspector.policy")
                 Text(group.policy.caption).font(DS.Font.caption).foregroundColor(DS.Palette.textTertiary)
                 if group.policy == .lead {
-                    Picker("Lead", selection: Binding(
+                    Picker(L("Lead"), selection: Binding(
                         get: { group.leadBotID ?? members.first?.id ?? BotID() },
                         set: { teamsGroups.setLead($0, groupID: group.id) }
                     )) {
@@ -1415,10 +1415,10 @@ struct BotGroupInspector: View {
                     set: { teamsGroups.setMaxAutoHops($0, groupID: group.id) }
                 ), in: 0...BotGroupConversation.maxAutoHopsCap) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Hop budget: \(group.maxAutoHops)")
+                        Text(L("Hop budget: %1$@", group.maxAutoHops))
                             .font(DS.Font.bodyStrong)
                             .foregroundColor(DS.Palette.text)
-                        Text("How many times bots may hand the floor to each other with @mentions per message.")
+                        Text(L("How many times bots may hand the floor to each other with @mentions per message."))
                             .font(DS.Font.caption)
                             .foregroundColor(DS.Palette.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1442,17 +1442,17 @@ struct BotGroupInspector: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: DS.Space.xs) {
                     Text(bot.name).font(DS.Font.body).foregroundColor(DS.Palette.text).lineLimit(1)
-                    if isLead { DSPill("Lead", tone: .accent) }
+                    if isLead { DSPill(L("Lead"), tone: .accent) }
                 }
                 DSPill(vm.groupRouteLabel(for: bot, memberThread: memberThread))
                     .accessibilityIdentifier("bots.group.inspector.route.\(bot.handle)")
             }
             Spacer(minLength: 0)
-            Button("Open private thread") { teamsGroups.openPrivateThread(botID: bot.id) }
+            Button(L("Open private thread")) { teamsGroups.openPrivateThread(botID: bot.id) }
                 .buttonStyle(.link)
                 .font(DS.Font.caption)
                 .disabled(threadID == nil)
-                .help(threadID == nil ? "\(bot.name) has not answered here yet" : "Show \(bot.name)'s own thread for this group")
+                .help(threadID == nil ? L("%1$@ has not answered here yet", bot.name) : L("Show %1$@'s own thread for this group", bot.name))
                 .accessibilityIdentifier("bots.group.inspector.private.\(bot.handle)")
         }
     }

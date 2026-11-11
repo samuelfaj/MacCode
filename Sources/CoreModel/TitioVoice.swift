@@ -74,6 +74,11 @@ public enum TitioLanguageSetting {
     ) -> TitioNoticeLanguage {
         let tag = normalized(setting) ?? automatic
         guard tag == automatic else { return TitioNoticeLanguage(fixedTag: tag) }
+        // Settings > General owns the app language: with Titio on Automatic it
+        // decides, so both surfaces always read the same language.
+        if AppLocalization.setting != AppLocalization.automatic {
+            return TitioNoticeLanguage(fixedTag: AppLocalization.language.rawValue)
+        }
         return TitioNoticeCopy.language(
             recentUserTexts: recentUserTexts, excluding: cardLabels, preferredLanguages: preferredLanguages
         )
@@ -89,6 +94,9 @@ public enum TitioLanguageSetting {
     ) -> TitioVoiceLanguage {
         let tag = normalized(setting) ?? automatic
         if tag != automatic { return .fixed(tag: tag) }
+        if AppLocalization.setting != AppLocalization.automatic {
+            return .fixed(tag: AppLocalization.language.rawValue)
+        }
         let examples = recentUserTexts
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && !cardLabels.contains($0) }

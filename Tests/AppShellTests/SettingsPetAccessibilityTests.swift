@@ -11,7 +11,7 @@ final class SettingsPetAccessibilityTests: XCTestCase {
         let section = String(source[start.lowerBound..<end.lowerBound])
 
         XCTAssertTrue(
-            section.contains("DSSectionHeaderG(\"Desktop Pet\")\n                .accessibilityIdentifier(\"settings.pet.section\")"),
+            section.contains("DSSectionHeaderG(L(\"Desktop Pet\"))\n                .accessibilityIdentifier(\"settings.pet.section\")"),
             "The section identifier must live on the heading leaf so it cannot replace child control identifiers."
         )
         XCTAssertFalse(

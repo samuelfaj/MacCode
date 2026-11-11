@@ -48,14 +48,14 @@ public enum PetLiveActivityCopy: Sendable {
 
         if page.counts.needsYou > 0 {
             let callback = pendingCallbacks.first
-            let action = callback.map(Self.callbackLabel) ?? "Action required"
+            let action = callback.map(Self.callbackLabel) ?? L("Action required")
             let title = page.counts.needsYou == 1
-                ? "1 item needs attention"
-                : "\(page.counts.needsYou) items need attention"
+                ? L("1 item needs attention")
+                : L("%1$@ items need attention", page.counts.needsYou)
             return Output(
                 title: title,
                 statusLine: action,
-                preview: callback == nil ? action : "Needs you · \(action)",
+                preview: callback == nil ? action : L("Needs you · %1$@", action),
                 phase: .failed,
                 activeThreadCount: page.counts.running,
                 workspaceId: nil,
@@ -70,10 +70,10 @@ public enum PetLiveActivityCopy: Sendable {
                 .first
             let status = page.counts.newResults > 0
                 ? newResultsLabel(page.counts.newResults)
-                : "Running"
+                : L("Running")
             let identifiers = page.counts.running == 1 ? routeIDs(from: active) : (workspaceId: nil, threadId: nil)
             return Output(
-                title: "\(page.counts.running) running",
+                title: L("%1$@ running", page.counts.running),
                 statusLine: status,
                 preview: runningPreview(page: page, active: active),
                 phase: .running,
@@ -97,16 +97,16 @@ public enum PetLiveActivityCopy: Sendable {
         let phase: PrivateLiveActivityProjectionPhase
         switch latest.state {
         case .stopped:
-            status = "Stopped by you"
+            status = L("Stopped by you")
             phase = .completed
         case .failed:
-            status = "Failed"
+            status = L("Failed")
             phase = .failed
         case .interrupted:
-            status = "Interrupted"
+            status = L("Interrupted")
             phase = .failed
         default:
-            status = "Completed"
+            status = L("Completed")
             phase = .completed
         }
         let preview = page.counts.newResults > 0
@@ -127,36 +127,36 @@ public enum PetLiveActivityCopy: Sendable {
     /// "1 Thread Running" / "N Threads Running".
     public static func runningTitle(count: Int) -> String {
         let n = max(0, count)
-        return n == 1 ? "1 Thread Running" : "\(n) Threads Running"
+        return n == 1 ? L("1 Thread Running") : L("%1$@ Threads Running", n)
     }
 
     /// "1 Thread Completed" / "N Threads Completed" — finished, not necessarily green.
     public static func completedTitle(count: Int) -> String {
         let n = max(0, count)
-        return n == 1 ? "1 Thread Completed" : "\(n) Threads Completed"
+        return n == 1 ? L("1 Thread Completed") : L("%1$@ Threads Completed", n)
     }
 
     /// "2 done - 7 failed" — stable shared wording for existing consumers.
     public static func doneFailedLine(done: Int, failed: Int) -> String {
         let d = max(0, done)
         let f = max(0, failed)
-        if d > 0, f > 0 { return "\(d) done - \(f) failed" }
-        if d > 0 { return d == 1 ? "1 done" : "\(d) done" }
-        if f > 0 { return f == 1 ? "1 failed" : "\(f) failed" }
+        if d > 0, f > 0 { return L("%1$@ done - %2$@ failed", d, f) }
+        if d > 0 { return d == 1 ? L("1 done") : L("%1$@ done", d) }
+        if f > 0 { return f == 1 ? L("1 failed") : L("%1$@ failed", f) }
         return ""
     }
 
     private static func runningPreview(page: AgentActivityPage, active: AgentActivityItem?) -> String {
-        guard page.counts.running == 1 else { return "Work is running" }
-        return active?.kind == .operation ? "Registered operation running" : "Agent running"
+        guard page.counts.running == 1 else { return L("Work is running") }
+        return active?.kind == .operation ? L("Registered operation running") : L("Agent running")
     }
 
     private static func newResultsLabel(_ count: Int) -> String {
-        count == 1 ? "1 new result" : "\(count) new results"
+        count == 1 ? L("1 new result") : L("%1$@ new results", count)
     }
 
     private static func callbackLabel(_ item: AgentActivityItem) -> String {
-        item.state == .waitingApproval ? "Approval required" : "Input required"
+        item.state == .waitingApproval ? L("Approval required") : L("Input required")
     }
 
     private static func routeIDs(from item: AgentActivityItem?) -> (workspaceId: String?, threadId: String?) {

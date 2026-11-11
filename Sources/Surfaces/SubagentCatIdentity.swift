@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import SwiftUI
 import DesignSystemKit
+import CoreModel
 
 /// Presentation only: the receipt keeps its execution identity and original name.
 /// A stable seed keeps each cat unchanged across polling, completion and relaunch.
@@ -23,18 +24,18 @@ struct SubagentCatIdentity: Equatable, Sendable {
     }
 
     private static let families: [(asset: String, breed: String, names: [String])] = [
-        ("cat-tuxedo", "Tuxedo", ["Frajola", "Felix", "Oreo", "Silvestre", "Tom", "Bigode"]),
-        ("cat-siamese", "Siamese", ["Mimi", "Bento", "Suki", "Nala", "Kiko", "Milo"]),
-        ("cat-ginger", "Ginger tabby", ["Paçoca", "Chico", "Pudim", "Simba", "Garfield", "Caramelo"]),
-        ("cat-calico", "Calico", ["Amora", "Pipoca", "Lola", "Cacau", "Jujuba", "Mel"]),
-        ("cat-silver", "Silver tabby", ["Nino", "Luna", "Nico", "Zeca", "Pixel", "Tico"]),
-        ("cat-ragdoll", "Ragdoll", ["Nuvem", "Floquinho", "Algodão", "Yuki", "Mochi", "Pérola"]),
+        ("cat-tuxedo", L("Tuxedo"), ["Frajola", "Felix", "Oreo", "Silvestre", "Tom", "Bigode"]),
+        ("cat-siamese", L("Siamese"), ["Mimi", "Bento", "Suki", "Nala", "Kiko", "Milo"]),
+        ("cat-ginger", L("Ginger tabby"), ["Paçoca", "Chico", "Pudim", "Simba", "Garfield", "Caramelo"]),
+        ("cat-calico", L("Calico"), ["Amora", "Pipoca", "Lola", "Cacau", "Jujuba", "Mel"]),
+        ("cat-silver", L("Silver tabby"), ["Nino", "Luna", "Nico", "Zeca", "Pixel", "Tico"]),
+        ("cat-ragdoll", L("Ragdoll"), ["Nuvem", "Floquinho", "Algodão", "Yuki", "Mochi", "Pérola"]),
     ]
 
     // Loose SwiftPM PNG resources need an explicit URL on macOS; name-based
     // SwiftUI Image lookup can render an empty frame outside an asset catalog.
     @MainActor static let artwork: [String: NSImage] = Dictionary(uniqueKeysWithValues: families.compactMap { family in
-        guard let url = Bundle.module.url(forResource: family.asset, withExtension: "png"),
+        guard let url = PackagedResourceBundle.bundle(target: "Surfaces")?.url(forResource: family.asset, withExtension: "png"),
               let image = NSImage(contentsOf: url) else { return nil }
         return (family.asset, image)
     })

@@ -22,7 +22,7 @@ extension AppCommandRouter {
         executionTarget requestedTarget: ExecutionTarget?
     ) async throws -> AgentThread {
         guard let ctx = context, let stored = try ctx.threadRepo.get(id: thread) else {
-            throw actorRefusal(code: ManualActionWire.notFoundCode, kind: "not_found", message: "Agent thread not found.")
+            throw actorRefusal(code: ManualActionWire.notFoundCode, kind: "not_found", message: L("Agent thread not found."))
         }
         // Asking for what the thread already is changes nothing, and so does
         // `none` on a thread whose actor is not locked (the Mac chip's choice
@@ -48,30 +48,30 @@ extension AppCommandRouter {
             throw actorRefusal(
                 code: ThreadActorWire.lockedCode, kind: "locked",
                 message: runActive
-                    ? "A run is active on this thread."
-                    : "This thread's actor is fixed after the first message. Start a new thread to run as a different actor."
+                    ? L("A run is active on this thread.")
+                    : L("This thread's actor is fixed after the first message. Start a new thread to run as a different actor.")
             )
         }
         guard try ctx.botStore.group(roomThreadID: thread) == nil else {
             throw actorRefusal(
                 code: ThreadActorWire.lockedCode, kind: "locked",
-                message: "A group conversation has no actor; its bots answer on their own threads."
+                message: L("A group conversation has no actor; its bots answer on their own threads.")
             )
         }
         guard case .bot(let botID) = actor,
               let bot = try ctx.botStore.get(id: botID), bot.deletedAt == nil else {
-            throw actorRefusal(code: ManualActionWire.notFoundCode, kind: "not_found", message: "Bot not found.")
+            throw actorRefusal(code: ManualActionWire.notFoundCode, kind: "not_found", message: L("Bot not found."))
         }
         let revision = try bot.currentRevisionID.flatMap { try ctx.botStore.getRevision(id: $0) }
         let defaultTarget = BotExecutionDefault.target(for: revision)
         if requestedTarget == .vm, defaultTarget != .vm {
             throw actorRefusal(
                 code: ThreadActorWire.targetUnavailableCode, kind: "target_unavailable",
-                message: "This bot has no VM; it runs on the Mac."
+                message: L("This bot has no VM; it runs on the Mac.")
             )
         }
         guard let hooks = botWorkspaceRunHooks else {
-            throw actorRefusal(code: -32000, kind: "bots_unavailable", message: "Bots are not available on this Mac right now.")
+            throw actorRefusal(code: -32000, kind: "bots_unavailable", message: L("Bots are not available on this Mac right now."))
         }
         let target = requestedTarget ?? defaultTarget
         let lockedAt: Date
@@ -87,7 +87,7 @@ extension AppCommandRouter {
         } catch is ThreadActorAlreadyLockedError {
             throw actorRefusal(
                 code: ThreadActorWire.lockedCode, kind: "locked",
-                message: "This thread's actor is fixed after the first message. Start a new thread to run as a different actor."
+                message: L("This thread's actor is fixed after the first message. Start a new thread to run as a different actor.")
             )
         } catch BotStoreError.invalidInput(let message) {
             throw actorRefusal(code: -32602, kind: "invalid_context", message: message)
@@ -97,7 +97,7 @@ extension AppCommandRouter {
         }
         // Read back: the event, the result and later lists show the stored lock date.
         guard let updated = try ctx.threadRepo.get(id: thread) else {
-            throw actorRefusal(code: ManualActionWire.notFoundCode, kind: "not_found", message: "Agent thread not found.")
+            throw actorRefusal(code: ManualActionWire.notFoundCode, kind: "not_found", message: L("Agent thread not found."))
         }
         publishAgentThreadUpdated(updated)
         return updated
@@ -105,22 +105,22 @@ extension AppCommandRouter {
 
     public func resolveMacExecutionRemote(thread: AgentThreadID, approve: Bool) async throws -> MacExecutionResolveOutcome {
         guard let ctx = context, try ctx.threadRepo.get(id: thread) != nil else {
-            throw macExecutionRefusal(code: ManualActionWire.notFoundCode, kind: "not_found", message: "Agent thread not found.")
+            throw macExecutionRefusal(code: ManualActionWire.notFoundCode, kind: "not_found", message: L("Agent thread not found."))
         }
         do {
             if let outcome = try await resolveMacExecution(thread: thread, approve: approve) { return outcome }
         } catch let failure as MacExecutionStoreError {
             throw macExecutionRefusal(
                 code: -32000, kind: "store_unavailable",
-                message: "The answer could not be saved; the request is still open: \(failure.underlying.localizedDescription)"
+                message: L("The answer could not be saved; the request is still open: %1$@", failure.underlying.localizedDescription)
             )
         }
         guard try ctx.threadRepo.get(id: thread) != nil else {
-            throw macExecutionRefusal(code: ManualActionWire.notFoundCode, kind: "not_found", message: "Agent thread not found.")
+            throw macExecutionRefusal(code: ManualActionWire.notFoundCode, kind: "not_found", message: L("Agent thread not found."))
         }
         throw macExecutionRefusal(
             code: ThreadActorWire.notPendingCode, kind: "not_pending",
-            message: "This bot's request to run on the Mac was already answered."
+            message: L("This bot's request to run on the Mac was already answered.")
         )
     }
 

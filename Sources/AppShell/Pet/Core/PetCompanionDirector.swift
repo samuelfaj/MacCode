@@ -1,4 +1,5 @@
 import Foundation
+import CoreModel
 
 public enum PetCareAction: String, CaseIterable, Sendable, Equatable {
     case feed
@@ -9,11 +10,11 @@ public enum PetCareAction: String, CaseIterable, Sendable, Equatable {
 
     public var title: String {
         switch self {
-        case .feed: return "Feed"
-        case .giveWater: return "Give water"
-        case .pet: return "Pet"
-        case .play: return "Play"
-        case .cheerUp: return "Cheer up"
+        case .feed: return L("Feed the cat")
+        case .giveWater: return L("Give water")
+        case .pet: return L("Pet the cat")
+        case .play: return L("Play")
+        case .cheerUp: return L("Cheer up")
         }
     }
 

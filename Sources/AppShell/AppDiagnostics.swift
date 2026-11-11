@@ -137,13 +137,13 @@ public enum ManagedProviderAdmissionError: Error, LocalizedError, Sendable, Equa
     public var errorDescription: String? {
         switch self {
         case .processAccountingUnavailable:
-            return "A new provider could not start because managed-process accounting is incomplete. Try again after the next diagnostics scan."
+            return L("A new provider could not start because managed-process accounting is incomplete. Try again after the next diagnostics scan.")
         case .providerLimitReached(let limit):
-            return "This Mac is already running the safe limit of \(limit) managed provider sessions. Finish or release an idle session, then try again."
+            return L("This Mac is already running the safe limit of %1$@ managed provider sessions. Finish or release an idle session, then try again.", limit)
         case .hostMemoryLimitReached(let limitKB):
-            return "A new provider could not start because MacCode reached its low-memory host limit of \(limitKB / 1_024) MiB. Finish or release an idle session, then try again."
+            return L("A new provider could not start because MacCode reached its low-memory host limit of %1$@ MiB. Finish or release an idle session, then try again.", limitKB / 1_024)
         case .managedTreeMemoryLimitReached(let limitKB):
-            return "A new provider could not start because managed runtimes reached their low-memory limit of \(limitKB / 1_024) MiB. Finish or release an idle session, then try again."
+            return L("A new provider could not start because managed runtimes reached their low-memory limit of %1$@ MiB. Finish or release an idle session, then try again.", limitKB / 1_024)
         }
     }
 }

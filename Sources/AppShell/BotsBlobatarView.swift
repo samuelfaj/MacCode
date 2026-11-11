@@ -15,7 +15,7 @@ struct BotBlobatarEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.xl) {
-            section("Shape") {
+            section(L("Shape")) {
                 LazyVGrid(
                     columns: [GridItem(.adaptive(minimum: 64), spacing: DS.Space.sm)],
                     spacing: DS.Space.md
@@ -32,7 +32,7 @@ struct BotBlobatarEditor: View {
                     }
                 }
             }
-            section("Color") {
+            section(L("Color")) {
                 hueRow
             }
         }
@@ -89,7 +89,7 @@ struct BotBlobatarEditor: View {
                 HStack(spacing: DS.Space.sm) {
                     let automatic = BotBlobatar.figure(name: seed, spec: previewing { $0.hue = .auto }, handle: handle)
                     Circle().fill(Color(hex: automatic.palette.head)).frame(width: 18, height: 18)
-                    Text("Auto").font(DS.Font.caption.weight(.semibold))
+                    Text(L("Auto")).font(DS.Font.caption.weight(.semibold))
                     Spacer(minLength: 0)
                     if autoSelected { Image(systemName: "checkmark").font(DS.Font.caption) }
                 }
@@ -101,7 +101,7 @@ struct BotBlobatarEditor: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Automatic color")
+            .accessibilityLabel(L("Automatic color"))
             .accessibilityAddTraits(autoSelected ? .isSelected : [])
             .accessibilityIdentifier("bots.studio.avatar.hue.auto")
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 32), spacing: DS.Space.sm)], alignment: .leading, spacing: DS.Space.sm) {

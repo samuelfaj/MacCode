@@ -1,3 +1,4 @@
+import CoreModel
 import SwiftUI
 import DesignSystemKit
 
@@ -9,8 +10,8 @@ struct OnboardingChromeStep: View {
     var body: some View {
         OnboardingStepLayout(
             eyebrow: OnboardingStep.chrome.eyebrow,
-            title: "Connect the browser you already use.",
-            subtitle: "Install the Chrome extension once to let agents work in background tabs using the profile you choose."
+            title: L("Connect the browser you already use."),
+            subtitle: L("Install the Chrome extension once to let agents work in background tabs using the profile you choose.")
         ) {
             VStack(alignment: .leading, spacing: DS.Space.xl) {
                 OnboardingToolRow(tool: .chrome, state: setup.state(.chrome)) {
@@ -19,36 +20,24 @@ struct OnboardingChromeStep: View {
                 ChromeExtensionSettingsSection(setup: connection, showGuide: true)
                     .disabled(!setup.state(.chrome).isReady)
                 if !setup.state(.chrome).isReady {
-                    Text("Install Google Chrome above to begin extension setup.")
+                    Text(L("Install Google Chrome above to begin extension setup."))
                         .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                 }
             }
         } illustration: {
-            OnboardingPanel {
-                VStack(alignment: .leading, spacing: DS.Space.xxl) {
-                    OnboardingTitioImage(size: 140)
-                    Text("Your profile. Your choice.")
-                        .font(DS.Font.title2).foregroundColor(DS.Palette.text)
-                    Text("Choose the Chrome profile with the website logins you want agents to use. Review Chrome's permission prompts before enabling the extension.")
-                        .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("Selecting an automated tab gives control back to you. You can disable the extension later in Chrome.")
-                        .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            OnboardingChromeGuideAnimation()
         } footer: {
             OnboardingBackButton(vm: vm)
             Spacer()
             if connection.state != .connected {
-                Text("Continue unlocks once Chrome is connected.")
+                Text(L("Continue unlocks once Chrome is connected."))
                     .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
             }
-            Button("Skip for now") { vm.skip(.chrome) }.buttonStyle(.link)
-                .accessibilityHint("Continue without Chrome automation. Set it up later in Settings.")
-            OnboardingPrimaryButton(title: "Continue") { vm.advance(completing: .chrome) }
+            Button(L("Skip for now")) { vm.skip(.chrome) }.buttonStyle(.link)
+                .accessibilityHint(L("Continue without Chrome automation. Set it up later in Settings."))
+            OnboardingPrimaryButton(title: L("Continue")) { vm.advance(completing: .chrome) }
                 .disabled(connection.state != .connected)
-                .accessibilityHint("Available after Check Connection confirms Chrome is connected.")
+                .accessibilityHint(L("Available after Check Connection confirms Chrome is connected."))
                 .accessibilityIdentifier("onboarding.chrome.continue")
         }
         .task { await setup.refresh(.chrome) }

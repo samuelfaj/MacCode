@@ -89,8 +89,8 @@ public struct AgentChoiceSheet<Content: View, Footer: View>: View {
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.cancelAction)
-            .help("Close (Esc)")
-            .accessibilityLabel("Close")
+            .help(L("Close (Esc)"))
+            .accessibilityLabel(L("Close"))
             .accessibilityIdentifier("\(accessibilityIdentifier).close")
         }
         .padding(.horizontal, DS.Space.xxl)
@@ -362,7 +362,7 @@ public struct AgentChoiceSearchField: View {
                         .foregroundColor(DS.Palette.textTertiary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Clear search")
+                .accessibilityLabel(L("Clear search"))
             }
         }
         .padding(.horizontal, DS.Space.lg)
@@ -539,7 +539,7 @@ public struct AgentExecutionModeCapsule: View {
                 Image(systemName: selected.capsuleIcon)
                     .font(.system(size: 10))
                     .foregroundColor(selected == .normal ? DS.Palette.textSecondary : selected.capsuleTint)
-                Text("Mode")
+                Text(L("Mode"))
                     .font(DS.Font.caption2.weight(.semibold))
                     .foregroundColor(DS.Palette.textTertiary)
                 Text(selected.displayName)
@@ -560,9 +560,9 @@ public struct AgentExecutionModeCapsule: View {
         .fixedSize()
         .opacity(disabled ? 0.5 : 1)
         .disabled(disabled)
-        .help("Execution mode: \(selected.pickerHelpText)")
+        .help(L("Execution mode: %1$@", selected.pickerHelpText))
         .animation(reduceMotion ? nil : DS.Motion.micro, value: selected)
-        .accessibilityLabel("Mode \(selected.displayName)")
+        .accessibilityLabel(L("Mode %1$@", selected.displayName))
         .accessibilityIdentifier(accessibilityIdentifier)
         .sheet(isPresented: $isPresented) { sheet }
     }
@@ -594,8 +594,8 @@ public struct AgentExecutionModeCapsule: View {
         AgentChoiceSheet(
             icon: "slider.horizontal.3",
             tint: selected.capsuleTint,
-            title: "Execution mode",
-            subtitle: "How Distill works on this conversation. One mode is active at a time.",
+            title: L("Execution mode"),
+            subtitle: L("How Distill works on this conversation. One mode is active at a time."),
             width: 460,
             accessibilityIdentifier: "agent.mode.sheet",
             onClose: { isPresented = false }

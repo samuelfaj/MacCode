@@ -330,7 +330,7 @@ final class SidebarUnifiedNavigationTests: XCTestCase {
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/AppShell/SidebarView.swift"), encoding: .utf8)
         XCTAssertEqual(source.components(separatedBy: "SidebarSearchField(").count - 1, 1, "the sidebar mounts exactly one search field")
         XCTAssertEqual(source.components(separatedBy: "SidebarSectionMoreMenu(help:").count - 1, 3, "Bots, Workspaces and VMs headers share one \"...\" menu component")
-        XCTAssertTrue(source.contains("Text(\"Bots\")") && !source.contains("Text(\"General Bots\")"), "the section is titled Bots")
+        XCTAssertTrue(source.contains("Text(L(\"Bots\"))") && !source.contains("Text(\"General Bots\")"), "the section is titled Bots")
     }
 
 
@@ -472,7 +472,7 @@ final class SidebarUnifiedNavigationTests: XCTestCase {
         XCTAssertFalse(source.contains("BotsModeSwitcher"), "no Workspaces | Bots toggle")
         let order = try ["accessibilityIdentifier(\"sidebar.new\")", "accessibilityIdentifier(\"sidebar.activity\")",
                          "accessibilityIdentifier(\"sidebar.scheduleTasks\")", "            generalBotsSection\n",
-                         "Text(\"Workspaces\")", "workspaceChildren(ws)", "            accountFooter\n"].map(position)
+                         "Text(L(\"Workspaces\"))", "workspaceChildren(ws)", "            accountFooter\n"].map(position)
         XCTAssertEqual(order, order.sorted(), "top items, General Bots, Workspaces tree, account footer")
         XCTAssertEqual(f.vm.generalBots.first?.handle, TitioIdentity.handle)
         if let directory = ProcessInfo.processInfo.environment["RC_SIDEBAR_RENDER_DIR"] {

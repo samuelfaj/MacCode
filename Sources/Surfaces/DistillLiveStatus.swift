@@ -28,17 +28,17 @@ public struct DistillLiveStatus: Equatable, Sendable {
         /// "general-purpose" → "General", "explore" → "Explore".
         public var typeLabel: String {
             let first = type.split(whereSeparator: { $0 == "-" || $0 == "_" || $0 == " " }).first.map(String.init) ?? type
-            guard let head = first.first else { return "Agent" }
+            guard let head = first.first else { return L("Agent") }
             return head.uppercased() + first.dropFirst()
         }
 
         public var phaseText: String {
             switch finishedStatus {
-            case nil: return isCompacting ? "Compacting" : "Running"
-            case "completed": return "Done"
-            case "failed": return "Failed"
-            case "cancelled": return "Cancelled"
-            default: return "Done"
+            case nil: return isCompacting ? L("Compacting") : L("Running")
+            case "completed": return L("Done")
+            case "failed": return L("Failed")
+            case "cancelled": return L("Cancelled")
+            default: return L("Done")
             }
         }
 
@@ -71,7 +71,7 @@ public struct DistillLiveStatus: Equatable, Sendable {
         public var isActive: Bool { status == "active" }
 
         /// "Goal: <objective> — <phase>"
-        public var headline: String { "Goal: \(objective) — \(phase)" }
+        public var headline: String { L("Goal: %1$@ — %2$@", objective, phase) }
 
         /// "12k / 100k" or "12k" without a budget.
         public var tokensText: String {
@@ -106,14 +106,14 @@ public struct DistillLiveStatus: Equatable, Sendable {
         guard guestRecoveryText == nil, let operation else { return nil }
         let waited = DistillLoopPresentation.compactDuration(max(0, Int(now.timeIntervalSince(operation.phaseStartedAt))))
         if activeSubagents > 0, operation.label == "Running tool" {
-            return "Waiting on \(activeSubagents) \(activeSubagents == 1 ? "subagent" : "subagents") · \(waited)"
+            return L("Waiting on %1$@ %2$@ · %3$@", activeSubagents, activeSubagents == 1 ? "subagent" : "subagents", waited)
         }
         if waitingOnBackground, operation.label == "Running tool" {
-            return "Waiting for background task · \(waited)"
+            return L("Waiting for background task · %1$@", waited)
         }
         let quiet = DistillLoopPresentation.compactDuration(max(0, Int(now.timeIntervalSince(operation.lastProgressAt))))
-        if operation.stalled { return "\(operation.label) · no output for \(quiet)" }
-        return "\(operation.label) · updated \(quiet) ago"
+        if operation.stalled { return L("%1$@ · no output for %2$@", operation.label, quiet) }
+        return L("%1$@ · updated %2$@ ago", operation.label, quiet)
     }
 
     public static let maxSubagents = 50
@@ -149,9 +149,9 @@ public struct DistillLiveStatus: Equatable, Sendable {
     /// "Subagent (<description>): Compacting…" / "Compacting…" / nil (keep existing copy).
     public var headline: String? {
         if let guestRecoveryText { return guestRecoveryText }
-        if let operation { return operation.stalled ? "\(operation.label) · no output" : operation.label }
-        if let sub = compactingSubagent { return "Subagent (\(sub.description)): Compacting…" }
-        if mainCompactingSince != nil { return "Compacting…" }
+        if let operation { return operation.stalled ? L("%1$@ · no output", operation.label) : operation.label }
+        if let sub = compactingSubagent { return L("Subagent (%1$@): Compacting…", sub.description) }
+        if mainCompactingSince != nil { return L("Compacting…") }
         if let text = guestStage?.text { return text }
         return nil
     }
@@ -255,11 +255,11 @@ public struct DistillLiveStatus: Equatable, Sendable {
                   let elapsed = payload["phaseElapsedMs"] as? Double, elapsed.isFinite, elapsed >= 0 else { return }
             let label: String
             switch phase {
-            case "loading_configuration": label = "Loading configuration"
-            case "preparing_session": label = "Preparing conversation"
-            case "waiting_model": label = "Waiting for model"
-            case "executing_tool": label = "Running tool"
-            case "waiting_authorization": label = "Waiting for authorization"
+            case "loading_configuration": label = L("Loading configuration")
+            case "preparing_session": label = L("Preparing conversation")
+            case "waiting_model": label = L("Waiting for model")
+            case "executing_tool": label = L("Running tool")
+            case "waiting_authorization": label = L("Waiting for authorization")
             default: return
             }
             var lastProgress = receivedAt.addingTimeInterval(-age / 1000)

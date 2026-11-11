@@ -471,7 +471,7 @@ final class ScheduledTaskRuntimeTests: XCTestCase {
         let source = try String(contentsOf: repositoryRoot.appendingPathComponent("Sources/AppShell/ScheduledTaskRuntime.swift"))
 
         XCTAssertTrue(source.contains("SystemNotifier.shared.bootstrap()"))
-        XCTAssertTrue(source.contains("title: \"Scheduled task failed\""))
+        XCTAssertTrue(source.contains("title: L(\"Scheduled task failed\")"))
     }
 
     private func makeHourly(nextRunAt: Date?) -> ScheduledTask {

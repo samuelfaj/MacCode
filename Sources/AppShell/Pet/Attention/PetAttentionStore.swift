@@ -193,9 +193,9 @@ public final class PetAttentionStore {
         let title: String
         if isStale {
             if kind == .approval, let action = actionLabel {
-                title = "Approval expired: \(action)"
+                title = L("Approval expired: %1$@", action)
             } else {
-                title = kind == .approval ? "Approval expired" : "Input request expired"
+                title = kind == .approval ? L("Approval expired") : L("Input request expired")
             }
         } else {
             title = presentation.title
@@ -340,7 +340,7 @@ public final class PetAttentionStore {
             let presentation = PetAttentionPresentation.safe(
                 kind: kinds.presentation,
                 context: PetAttentionContext(
-                    workspaceName: "Bots",
+                    workspaceName: L("Bots"),
                     threadTitle: bot?.name
                 )
             )
@@ -350,7 +350,7 @@ public final class PetAttentionStore {
                     kind: kinds.item,
                     title: row.kind.activityTitle,
                     detail: presentation.detail,
-                    workspaceName: "Bots",
+                    workspaceName: L("Bots"),
                     createdAt: row.createdAt,
                     route: .botsDesk(botID: row.botID),
                     source: .bot(
@@ -380,7 +380,7 @@ public final class PetAttentionStore {
                 let presentation = PetAttentionPresentation.safe(
                     kind: .agentOutcome(.completed),
                     context: PetAttentionContext(
-                        workspaceName: "Bots",
+                        workspaceName: L("Bots"),
                         threadTitle: bot?.name
                     )
                 )
@@ -390,7 +390,7 @@ public final class PetAttentionStore {
                         kind: .agentOutcome(.completed),
                         title: presentation.title,
                         detail: presentation.detail,
-                        workspaceName: "Bots",
+                        workspaceName: L("Bots"),
                         createdAt: conversation.updatedAt,
                         route: .botsDesk(botID: conversation.botID),
                         source: .bot(
@@ -404,7 +404,7 @@ public final class PetAttentionStore {
                 let presentation = PetAttentionPresentation.safe(
                     kind: .question(isSecret: false),
                     context: PetAttentionContext(
-                        workspaceName: "Bots",
+                        workspaceName: L("Bots"),
                         threadTitle: bot?.name
                     )
                 )
@@ -414,7 +414,7 @@ public final class PetAttentionStore {
                         kind: .callback(.question, isStale: false),
                         title: presentation.title,
                         detail: presentation.detail,
-                        workspaceName: "Bots",
+                        workspaceName: L("Bots"),
                         createdAt: conversation.updatedAt,
                         route: .botsDesk(botID: conversation.botID),
                         source: .bot(

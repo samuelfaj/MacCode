@@ -44,10 +44,10 @@ public enum ActiveSurfaceProjector {
 
     private static func fallbackTitle(for type: SurfaceType) -> String {
         switch type {
-        case .terminal, .ssh: return "Terminal"
-        case .browser: return "Browser"
-        case .rightSidebarTool: return "Diff"
-        default: return "Tab"
+        case .terminal, .ssh: return L("Terminal")
+        case .browser: return L("Browser")
+        case .rightSidebarTool: return L("Diff")
+        default: return L("Tab")
         }
     }
 
@@ -71,8 +71,8 @@ public final class ActiveThreadsViewModel: ObservableObject {
 
         public var title: String {
             switch self {
-            case .active: return "Active"
-            case .lastFinished: return "Last Finished"
+            case .active: return L("Active")
+            case .lastFinished: return L("Last Finished")
             }
         }
     }
@@ -143,8 +143,8 @@ public final class ActiveThreadsViewModel: ObservableObject {
     public var finishedCount: Int { finishedItems.count }
 
     public var footerLine: String {
-        let activeLabel = activeCount == 1 ? "1 active" : "\(activeCount) active"
-        let finishedLabel = finishedCount == 1 ? "1 recent finished" : "\(finishedCount) recent finished"
+        let activeLabel = activeCount == 1 ? L("1 active") : L("%1$@ active", activeCount)
+        let finishedLabel = finishedCount == 1 ? L("1 recent finished") : L("%1$@ recent finished", finishedCount)
         return "\(activeLabel) · \(finishedLabel)"
     }
 
@@ -152,16 +152,16 @@ public final class ActiveThreadsViewModel: ObservableObject {
         switch selectedTab {
         case .active:
             if activeCount == 0 {
-                return "Nothing running right now"
+                return L("Nothing running right now")
             }
             let threads = activeItems.count
             let tabs = activeSurfaces.count
             var parts: [String] = []
-            if threads > 0 { parts.append(threads == 1 ? "1 agent thread" : "\(threads) agent threads") }
-            if tabs > 0 { parts.append(tabs == 1 ? "1 tab" : "\(tabs) tabs") }
-            return parts.joined(separator: " and ") + (activeCount == 1 ? " is running" : " are running")
+            if threads > 0 { parts.append(threads == 1 ? L("1 agent thread") : L("%1$@ agent threads", threads)) }
+            if tabs > 0 { parts.append(tabs == 1 ? L("1 tab") : L("%1$@ tabs", tabs)) }
+            return parts.joined(separator: " and ") + (activeCount == 1 ? L(" is running") : L(" are running"))
         case .lastFinished:
-            return "Recent completed, failed, cancelled, and interrupted runs"
+            return L("Recent completed, failed, cancelled, and interrupted runs")
         }
     }
 
@@ -238,7 +238,7 @@ public final class ActiveThreadsViewModel: ObservableObject {
             try router.selectWorkspace(item.workspaceID)
             try router.focusSurface(workspace: item.workspaceID, surface: item.surfaceID)
         } catch {
-            errorMessage = "Could not open terminal: \(error.localizedDescription)"
+            errorMessage = L("Could not open terminal: %1$@", error.localizedDescription)
         }
     }
 
@@ -316,22 +316,22 @@ public final class ActiveThreadsViewModel: ObservableObject {
                     }
                     do {
                         guard try self.router.openBotsDesk(botID: botID) else {
-                            self.errorMessage = "Could not open bot Desk."
+                            self.errorMessage = L("Could not open bot Desk.")
                             return
                         }
                     } catch {
-                        self.errorMessage = "Could not open bot Desk: \(error.localizedDescription)"
+                        self.errorMessage = L("Could not open bot Desk: %1$@", error.localizedDescription)
                     }
                 }
                 return
             }
             do {
                 guard try router.openBotsDesk(botID: botID) else {
-                    errorMessage = "Could not open bot Desk."
+                    errorMessage = L("Could not open bot Desk.")
                     return
                 }
             } catch {
-                errorMessage = "Could not open bot Desk: \(error.localizedDescription)"
+                errorMessage = L("Could not open bot Desk: %1$@", error.localizedDescription)
             }
             return
         }
@@ -347,7 +347,7 @@ public final class ActiveThreadsViewModel: ObservableObject {
               let workspaceUUID = item.workspace_id.flatMap(UUID.init(uuidString:)),
               let turnCount = item.checkpoint_turn_count, turnCount > 0,
               let runUUID = item.run_id.flatMap(UUID.init(uuidString:)) else {
-            errorMessage = "This activity has no valid checkpoint destination."
+            errorMessage = L("This activity has no valid checkpoint destination.")
             return
         }
         openThread(
@@ -361,7 +361,7 @@ public final class ActiveThreadsViewModel: ObservableObject {
         errorMessage = nil
         if item.id.hasPrefix("scheduled-occurrence:") {
             guard let windowController = router.windowController else {
-                errorMessage = "Open Schedule Tasks from the main window to review this task."
+                errorMessage = L("Open Schedule Tasks from the main window to review this task.")
                 return
             }
             windowController.presentScheduledTasksInMainContent()
@@ -371,12 +371,12 @@ public final class ActiveThreadsViewModel: ObservableObject {
             do {
                 guard let notification = try NotificationRepository(db: context.db).get(id: notificationID),
                       let route = PetAttentionStore.notificationRoute(notification) else {
-                    errorMessage = "This activity has no valid destination."
+                    errorMessage = L("This activity has no valid destination.")
                     return
                 }
                 open(route)
             } catch {
-                errorMessage = "Could not load activity destination: \(error.localizedDescription)"
+                errorMessage = L("Could not load activity destination: %1$@", error.localizedDescription)
             }
             return
         }
@@ -393,7 +393,7 @@ public final class ActiveThreadsViewModel: ObservableObject {
             open(.surface(surfaceID: SurfaceID(surfaceID), workspaceID: WorkspaceID(workspaceID)))
             return
         }
-        errorMessage = "This activity has no conversation destination."
+        errorMessage = L("This activity has no conversation destination.")
     }
 
     private func open(_ route: PetAttentionRoute) {
@@ -401,7 +401,7 @@ public final class ActiveThreadsViewModel: ObservableObject {
             switch route {
             case .agentThread(let threadID, let workspaceID): openThread(threadID, workspaceID: workspaceID)
             case .surface(let surfaceID, let workspaceID):
-                guard let workspaceID else { errorMessage = "This activity has no valid destination."; return }
+                guard let workspaceID else { errorMessage = L("This activity has no valid destination."); return }
                 // Activity fills the main content; leave it or the focused terminal stays hidden.
                 router.windowController?.presentWorkspaceContent()
                 try router.selectWorkspace(workspaceID)
@@ -416,12 +416,12 @@ public final class ActiveThreadsViewModel: ObservableObject {
                 }
                 guard let settings = (NSApp.delegate as? AppDelegate)?.settings,
                       settings.show(route: route) else {
-                    errorMessage = "Could not open activity settings destination."
+                    errorMessage = L("Could not open activity settings destination.")
                     return
                 }
             case .botsDesk(let botID): openBot(botID, conversationID: nil)
             }
-        } catch { reportAfterLeaving("Could not open activity destination: \(error.localizedDescription)") }
+        } catch { reportAfterLeaving(L("Could not open activity destination: %1$@", error.localizedDescription)) }
     }
 
     private func workspaceID(from route: PetAttentionRoute) -> WorkspaceID? {
@@ -439,7 +439,7 @@ public final class ActiveThreadsViewModel: ObservableObject {
             guard try router.openBotsDesk(botID: botID, conversationID: conversationID) else {
                 throw LayoutError.surfaceNotFound
             }
-        } catch { reportAfterLeaving("Could not open bot: \(error.localizedDescription)") }
+        } catch { reportAfterLeaving(L("Could not open bot: %1$@", error.localizedDescription)) }
     }
 
     /// A failure found after Activity was replaced would wait on this hidden model and
@@ -455,21 +455,21 @@ public final class ActiveThreadsViewModel: ObservableObject {
         // its Desk, and a thread with no open workspace fails here, on the clicked row.
         let destination: AgentThreadOpenDestination
         do { destination = try router.agentThreadOpenDestination(threadID) }
-        catch { errorMessage = "Could not open thread: \(error.localizedDescription)"; return }
+        catch { errorMessage = L("Could not open thread: %1$@", error.localizedDescription); return }
         switch destination {
         case .workspace: break
         case .bot(let botID, let conversationID):
             openBot(botID, conversationID: conversationID)
             return
         case .unavailable:
-            errorMessage = "Could not open thread: \(LayoutError.workspaceNotFound.localizedDescription)"
+            errorMessage = L("Could not open thread: %1$@", LayoutError.workspaceNotFound.localizedDescription)
             return
         }
         // Leave the shell destination first so the workspace cache can paint.
         router.windowController?.presentWorkspaceContent()
         guard deferHydration || finalMessageID != nil || checkpoint != nil else {
             do { _ = try router.openAgentThread(thread: threadID, markRead: false) }
-            catch { reportAfterLeaving("Could not open thread: \(error.localizedDescription)") }
+            catch { reportAfterLeaving(L("Could not open thread: %1$@", error.localizedDescription)) }
             return
         }
         navigationTask?.cancel()
@@ -501,7 +501,7 @@ public final class ActiveThreadsViewModel: ObservableObject {
             } catch {
                 guard !(error is CancellationError), self.navigationGeneration == generation else { return }
                 if let revealError = error as? AgentAppSurfaceMessageRevealError, case .selectionChanged = revealError { return }
-                self.reportAfterLeaving("Could not open thread: \(error.localizedDescription)")
+                self.reportAfterLeaving(L("Could not open thread: %1$@", error.localizedDescription))
             }
         }
     }
@@ -531,9 +531,9 @@ public struct FinishedThreadItem: Identifiable, Equatable, Sendable {
         self.runID = run.id
         self.threadID = run.threadId
         self.workspaceID = workspaceID
-        let safeTitle = PetAttentionRedactor.safeContextLabel(threadTitle) ?? "Agent thread"
+        let safeTitle = PetAttentionRedactor.safeContextLabel(threadTitle) ?? L("Agent thread")
         self.title = safeTitle
-        let workspace = PetAttentionRedactor.safeContextLabel(workspaceName) ?? "Other"
+        let workspace = PetAttentionRedactor.safeContextLabel(workspaceName) ?? L("Other")
         let provider = providerName ?? PetActiveThreadProjector.providerLabel(run.provider)
         let model = run.model.isEmpty ? provider : "\(provider) · \(run.model)"
         self.detail = "\(workspace) · \(model)"
@@ -566,11 +566,11 @@ public struct ActiveThreadsRootView: View {
         }
         .onAppear { botsVM.reloadActiveBotItems() }
         .onChange(of: botsVM.activeBotCount) { _ in botsVM.reloadActiveBotItems() }
-        .alert("Could not open conversation", isPresented: Binding(
+        .alert(L("Could not open conversation"), isPresented: Binding(
             get: { vm.errorMessage != nil },
             set: { if !$0 { vm.errorMessage = nil } }
         )) {
-            Button("OK") { vm.errorMessage = nil }
+            Button(L("OK")) { vm.errorMessage = nil }
         } message: {
             Text(vm.errorMessage ?? "")
         }
@@ -579,7 +579,7 @@ public struct ActiveThreadsRootView: View {
     private var overviewHeader: some View {
         HStack(alignment: .center, spacing: DS.Space.lg) {
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                Text("Active Threads")
+                Text(L("Active Threads"))
                     .font(DS.Font.title.weight(.semibold))
                     .foregroundColor(DS.Palette.text)
                 Text(vm.subtitle)
@@ -642,8 +642,8 @@ public struct ActiveThreadsRootView: View {
             if vm.activeItems.isEmpty && vm.activeSurfaces.isEmpty {
                 DSEmptyState(
                     icon: "bolt.horizontal.circle",
-                    title: "No active threads",
-                    subtitle: "Agent runs and busy terminals will show up here with workspace context."
+                    title: L("No active threads"),
+                    subtitle: L("Agent runs and busy terminals will show up here with workspace context.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -673,8 +673,8 @@ public struct ActiveThreadsRootView: View {
             if vm.finishedItems.isEmpty {
                 DSEmptyState(
                     icon: "checkmark.circle",
-                    title: "No recent finished runs",
-                    subtitle: "Completed, failed, cancelled, and interrupted runs appear here."
+                    title: L("No recent finished runs"),
+                    subtitle: L("Completed, failed, cancelled, and interrupted runs appear here.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -697,7 +697,7 @@ public struct ActiveThreadsRootView: View {
     private var footerBar: some View {
         AgentListFooterBar(
             caption: vm.footerLine,
-            pillTitle: vm.activeCount > 0 ? "Live" : "Idle",
+            pillTitle: vm.activeCount > 0 ? L("Live") : L("Idle"),
             pillTone: vm.activeCount > 0 ? .warning : .neutral
         )
         .accessibilityLabel(vm.footerLine)
@@ -715,7 +715,7 @@ private struct ActiveThreadCard: View {
             icon: "bolt.horizontal.circle.fill",
             iconColor: Color.blue,
             title: item.title,
-            subtitle: item.detail ?? item.workspaceName ?? "Agent",
+            subtitle: item.detail ?? item.workspaceName ?? L("Agent"),
             preview: {
                 guard let preview = item.lastUpdatePreview, !preview.isEmpty else { return nil }
                 return preview
@@ -723,7 +723,7 @@ private struct ActiveThreadCard: View {
             identifier: "activeThreads.active.\(item.threadID.value.uuidString.lowercased())",
             onOpen: onOpen
         ) {
-            DSPill("Running", tone: .warning)
+            DSPill(L("Running"), tone: .warning)
         } meta: {
             EmptyView()
         } trailing: {
@@ -759,7 +759,7 @@ private struct ActiveTerminalCard: View {
         ) {
             HStack(spacing: DS.Space.sm) {
                 ProgressView().controlSize(.small)
-                DSPill("Running", tone: .warning)
+                DSPill(L("Running"), tone: .warning)
             }
         } meta: {
             EmptyView()
@@ -787,7 +787,7 @@ private struct FinishedThreadCard: View {
             statusPill
         } meta: {
             AgentOverviewMetaColumn(
-                title: "Finished",
+                title: L("Finished"),
                 value: finishedLabel,
                 alignment: .trailing,
                 multilineTextAlignment: .trailing
@@ -826,12 +826,12 @@ private struct FinishedThreadCard: View {
     @ViewBuilder
     private var statusPill: some View {
         switch item.status {
-        case .completed: DSPill("Completed", tone: .success)
-        case .failed: DSPill("Failed", tone: .danger)
-        case .cancelled: DSPill("Cancelled", tone: .neutral)
-        case .interrupted: DSPill("Interrupted", tone: .warning)
-        case .pending: DSPill("Pending", tone: .warning)
-        case .running: DSPill("Running", tone: .warning)
+        case .completed: DSPill(L("Completed"), tone: .success)
+        case .failed: DSPill(L("Failed"), tone: .danger)
+        case .cancelled: DSPill(L("Cancelled"), tone: .neutral)
+        case .interrupted: DSPill(L("Interrupted"), tone: .warning)
+        case .pending: DSPill(L("Pending"), tone: .warning)
+        case .running: DSPill(L("Running"), tone: .warning)
         }
     }
 }

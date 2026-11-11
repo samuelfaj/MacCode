@@ -178,22 +178,22 @@ public struct RemoteCodeNotificationContent: Equatable, Sendable {
         switch phase {
         case .completed:
             return (
-                title: "Thread finished",
-                body: "Run response is ready.",
+                title: L("Thread finished"),
+                body: L("Run response is ready."),
                 identifierSuffix: "completed",
                 threadIdentifier: threadId
             )
         case .failed, .interrupted:
             return (
-                title: "Thread failed",
-                body: "Run ended with an error.",
+                title: L("Thread failed"),
+                body: L("Run ended with an error."),
                 identifierSuffix: "failed",
                 threadIdentifier: threadId
             )
         case .cancelled:
             return (
-                title: "Thread cancelled",
-                body: "Run was stopped before finishing.",
+                title: L("Thread cancelled"),
+                body: L("Run was stopped before finishing."),
                 identifierSuffix: "cancelled",
                 threadIdentifier: threadId
             )
@@ -220,7 +220,7 @@ public struct RemoteCodeNotificationContent: Equatable, Sendable {
 
         guard let parts = outcomeNotificationParts(
             threadId: threadId,
-            displayTitle: "Run",
+            displayTitle: L("Run"),
             phase: phase
         ) else { return nil }
 
@@ -267,7 +267,7 @@ public struct RemoteCodeNotificationContent: Equatable, Sendable {
         }
         _ = threadTitle
         _ = actionTitle
-        let action = "Action needed"
+        let action = L("Action needed")
         var userInfo: [String: String] = [
             "threadId": threadId,
             "outcome": "attention",
@@ -280,7 +280,7 @@ public struct RemoteCodeNotificationContent: Equatable, Sendable {
         return RemoteCodeNotificationContent(
             identifier: "thread.\(threadId).attention.\(requestId)",
             title: action,
-            body: "A run needs your attention.",
+            body: L("A run needs your attention."),
             categoryIdentifier: Self.threadUpdateCategoryIdentifier,
             threadIdentifier: threadId,
             userInfo: userInfo,
@@ -300,8 +300,8 @@ public struct RemoteCodeNotificationContent: Equatable, Sendable {
         userInfo["runIds"] = contents.compactMap { $0.userInfo["runId"] }.joined(separator: ",")
         return RemoteCodeNotificationContent(
             identifier: "workspace.\(first.userInfo["workspaceId"] ?? "none").runs.\(UUID().uuidString)",
-            title: "\(contents.count) runs completed",
-            body: "Runs are ready in Activity.",
+            title: L("%1$@ runs completed", contents.count),
+            body: L("Runs are ready in Activity."),
             categoryIdentifier: first.categoryIdentifier,
             threadIdentifier: first.threadIdentifier,
             userInfo: userInfo,

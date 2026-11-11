@@ -1,3 +1,4 @@
+import CoreModel
 import Foundation
 import AppKit
 import AppLifecycleSupport

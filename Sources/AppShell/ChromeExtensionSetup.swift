@@ -15,10 +15,10 @@ final class ChromeExtensionSetup: ObservableObject {
 
         var message: String {
             switch self {
-            case .disconnected: return "Connect Chrome to use your existing logins in background tabs."
-            case .preparing: return "Preparing the Chrome extension…"
-            case .awaitingChrome: return "Local setup is ready. Finish loading the extension in Chrome."
-            case .connected: return "Chrome is connected. Your background tabs can use your existing logins."
+            case .disconnected: return L("Connect Chrome to use your existing logins in background tabs.")
+            case .preparing: return L("Preparing the Chrome extension…")
+            case .awaitingChrome: return L("Local setup is ready. Finish loading the extension in Chrome.")
+            case .connected: return L("Chrome is connected. Your background tabs can use your existing logins.")
             case .failed(let message): return message
             }
         }
@@ -37,7 +37,7 @@ final class ChromeExtensionSetup: ObservableObject {
             try await Task.detached(priority: .userInitiated) {
                 guard let helper = AgentSkillInstaller.resolveServiceBinary() else {
                     throw NSError(domain: "RemoteCode.ChromeSetup", code: 1,
-                                  userInfo: [NSLocalizedDescriptionKey: "The Chrome connection helper is missing. Reinstall MacCode and try again."])
+                                  userInfo: [NSLocalizedDescriptionKey: L("The Chrome connection helper is missing. Reinstall MacCode and try again.")])
                 }
                 return try ChromeProfileConnection.install(executable: helper.path)
             }.value
@@ -53,7 +53,7 @@ final class ChromeExtensionSetup: ObservableObject {
         openSetup: @escaping @MainActor (URL) async throws -> Void = { folder in
             guard let chrome = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") else {
                 throw NSError(domain: "RemoteCode.ChromeSetup", code: 2,
-                              userInfo: [NSLocalizedDescriptionKey: "Install Google Chrome, then try setup again."])
+                              userInfo: [NSLocalizedDescriptionKey: L("Install Google Chrome, then try setup again.")])
             }
             NSWorkspace.shared.activateFileViewerSelecting([folder])
             _ = try await NSWorkspace.shared.open(
@@ -119,8 +119,8 @@ struct ChromeExtensionSettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            DSSectionHeaderG("Computer Use")
-            Text("Use Chrome in background tabs without taking over your mouse or keyboard. Selecting an automated tab gives control back to you.")
+            DSSectionHeaderG(L("Computer Use"))
+            Text(L("Use Chrome in background tabs without taking over your mouse or keyboard. Selecting an automated tab gives control back to you."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -138,22 +138,22 @@ struct ChromeExtensionSettingsSection: View {
                     .lineLimit(3).truncationMode(.middle).textSelection(.enabled)
                     .help(folder.path)
                     .accessibilityIdentifier("onboarding.chrome.extensionFolder")
-                Button("Show Extension Folder") { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
+                Button(L("Show Extension Folder")) { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
                     .buttonStyle(.link)
                     .accessibilityIdentifier("onboarding.chrome.showFolder")
             }
             if showGuide {
                 VStack(alignment: .leading, spacing: DS.Space.xl) {
                     Divider().overlay(DS.Palette.line)
-                    instruction("1", title: "Prepare the extension", detail: "Click Set Up Chrome Extension. MacCode prepares the files and opens Finder and Chrome's extensions page.")
-                    instruction("2", title: "Enable Developer mode", detail: "In Chrome, choose the profile you want to connect. Turn on Developer mode at the top right of chrome://extensions.")
-                    instruction("3", title: "Choose Load unpacked", detail: "Select the extension folder shown in Finder, not a file inside it. Confirm MacCode Computer Use is enabled and review any Chrome permission prompts.")
-                    instruction("4", title: "Check the connection", detail: "Return to MacCode and click Check Connection. If disconnected, click MacCode Computer Use in Chrome's Extensions menu once, then check again. Continue becomes available when Chrome replies.")
+                    instruction("1", title: L("Prepare the extension"), detail: L("Click Set Up Chrome Extension. MacCode prepares the files and opens Finder and Chrome's extensions page."))
+                    instruction("2", title: L("Enable Developer mode"), detail: L("In Chrome, choose the profile you want to connect. Turn on Developer mode at the top right of chrome://extensions."))
+                    instruction("3", title: L("Choose Load unpacked"), detail: L("Select the extension folder shown in Finder, not a file inside it. Confirm MacCode Computer Use is enabled and review any Chrome permission prompts."))
+                    instruction("4", title: L("Check the connection"), detail: L("Return to MacCode and click Check Connection. If disconnected, click MacCode Computer Use in Chrome's Extensions menu once, then check again. Continue becomes available when Chrome replies."))
                 }
                 .accessibilityIdentifier("onboarding.chrome.guide")
             }
             if !showGuide && setup.extensionDirectory != nil && setup.state != .connected {
-                Text("One-time Chrome setup: enable Developer mode, choose Load unpacked, and select the extension folder shown in Finder. Return here to check the connection.")
+                Text(L("One-time Chrome setup: enable Developer mode, choose Load unpacked, and select the extension folder shown in Finder. Return here to check the connection."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -175,13 +175,13 @@ struct ChromeExtensionSettingsSection: View {
     }
 
     @ViewBuilder private var actions: some View {
-        Button(setup.extensionDirectory == nil ? "Set Up Chrome Extension" : "Open Chrome Setup") {
+        Button(setup.extensionDirectory == nil ? L("Set Up Chrome Extension") : L("Open Chrome Setup")) {
             Task { await setup.install() }
         }
         .buttonStyle(.bordered)
         .disabled(setup.state == .preparing)
         .accessibilityIdentifier("settings.computerUse.chrome.setup")
-        Button(setup.checking ? "Checking…" : "Check Connection") {
+        Button(setup.checking ? L("Checking…") : L("Check Connection")) {
             Task { await setup.refresh() }
         }
         .buttonStyle(.bordered)

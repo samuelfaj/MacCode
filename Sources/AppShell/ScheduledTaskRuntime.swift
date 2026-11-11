@@ -72,13 +72,13 @@ public enum ScheduledTaskPreflightError: Error, CustomStringConvertible, Localiz
     public var description: String {
         switch self {
         case .invalidTask(let value): return value
-        case .missingWorkspace: return "The selected workspace no longer exists."
-        case .inaccessibleWorkspace(let path): return "The workspace is not readable and writable: \(path)"
-        case .ineligibleUser(let user): return "The system user is not eligible: \(user)"
-        case .helperUnavailable(let user): return "MacCode's privileged helper is unavailable for user \(user). Authorize its one-time installation, then retry."
+        case .missingWorkspace: return L("The selected workspace no longer exists.")
+        case .inaccessibleWorkspace(let path): return L("The workspace is not readable and writable: %1$@", path)
+        case .ineligibleUser(let user): return L("The system user is not eligible: %1$@", user)
+        case .helperUnavailable(let user): return L("MacCode's privileged helper is unavailable for user %1$@. Authorize its one-time installation, then retry.", user)
         case .providerUnavailable(let reason): return reason
-        case .unsupportedModel(let model): return "The selected provider does not expose model \(model)."
-        case .unsupportedReasoning(let effort): return "The selected model does not support \(effort) reasoning."
+        case .unsupportedModel(let model): return L("The selected provider does not expose model %1$@.", model)
+        case .unsupportedReasoning(let effort): return L("The selected model does not support %1$@ reasoning.", effort)
         }
     }
 
@@ -217,7 +217,7 @@ public final class ScheduledTaskExecutor {
         onThreadCreated: ((AgentThreadID) throws -> Void)? = nil
     ) async throws -> (threadID: AgentThreadID, runID: AgentRunID) {
         var task = Self.resolvingDistillDefaults(task)
-        ScheduledTaskRunPhases.set("Checking provider…", taskID: task.id)
+        ScheduledTaskRunPhases.set(L("Checking provider…"), taskID: task.id)
         let prepared = try await prepareExecution(task)
         if task.effectiveRoutingMode != .auto, let snapshot = prepared.providerSnapshot {
             task.providerInstanceID = snapshot.id
@@ -261,7 +261,7 @@ public final class ScheduledTaskExecutor {
             quiet: true
         )
         try onThreadCreated?(thread.id)
-        ScheduledTaskRunPhases.set("Starting…", taskID: task.id)
+        ScheduledTaskRunPhases.set(L("Starting…"), taskID: task.id)
         if task.executionMode != .local {
             _ = try router.configureAgentThreadExecution(
                 thread: thread.id,
@@ -288,14 +288,14 @@ public final class ScheduledTaskExecutor {
         case .started:
             guard let runID = sendResult.runId else {
                 throw ScheduledTaskPreflightError.invalidTask(
-                    "Scheduled task send did not return a provider run id."
+                    L("Scheduled task send did not return a provider run id.")
                 )
             }
             return (thread.id, runID)
         case .queued:
             // Brand-new thread must never queue behind another run.
             throw ScheduledTaskPreflightError.invalidTask(
-                "Scheduled task was queued instead of started. Retry when no other run is active on the thread."
+                L("Scheduled task was queued instead of started. Retry when no other run is active on the thread.")
             )
         }
     }
@@ -398,7 +398,7 @@ public final class ScheduledTaskExecutor {
         }
         guard URL(fileURLWithPath: workspace.cwd).standardizedFileURL.path
                 == URL(fileURLWithPath: task.workspacePathSnapshot).standardizedFileURL.path else {
-            throw ScheduledTaskPreflightError.inaccessibleWorkspace("The selected workspace path changed after this task was saved.")
+            throw ScheduledTaskPreflightError.inaccessibleWorkspace(L("The selected workspace path changed after this task was saved."))
         }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: workspace.cwd, isDirectory: &isDirectory), isDirectory.boolValue,
@@ -410,7 +410,7 @@ public final class ScheduledTaskExecutor {
             throw ScheduledTaskPreflightError.ineligibleUser(task.runAsUser)
         }
         guard user.uid == task.runAsUID else {
-            throw ScheduledTaskPreflightError.ineligibleUser("\(task.runAsUser) changed identity since this task was saved")
+            throw ScheduledTaskPreflightError.ineligibleUser(L("%1$@ changed identity since this task was saved", task.runAsUser))
         }
         if user.name != NSUserName() {
             do {
@@ -452,7 +452,7 @@ public final class ScheduledTaskExecutor {
         } catch {
             throw ScheduledTaskPreflightError.providerUnavailable(String(describing: error))
         }
-        guard let snapshot else { throw ScheduledTaskPreflightError.providerUnavailable("Provider capabilities are not loaded yet.") }
+        guard let snapshot else { throw ScheduledTaskPreflightError.providerUnavailable(L("Provider capabilities are not loaded yet.")) }
         let descriptor = snapshot.models.first { $0.id == task.model }
         guard descriptor != nil || snapshot.models.isEmpty || snapshot.models.contains(where: \.supportsCustomModel) else {
             throw ScheduledTaskPreflightError.unsupportedModel(task.model)
@@ -502,9 +502,9 @@ public final class ScheduledTaskExecutor {
         authenticated: Bool?
     ) -> String {
         guard authenticated == nil else {
-            return "The selected provider is unavailable for system user \(userName). Sign in as that user and retry."
+            return L("The selected provider is unavailable for system user %1$@. Sign in as that user and retry.", userName)
         }
-        return "Could not verify the \(provider.rawValue.capitalized) sign-in for system user \(userName) (the check timed out). Try again."
+        return L("Could not verify the %1$@ sign-in for system user %2$@ (the check timed out). Try again.", provider.rawValue.capitalized, userName)
     }
 
     nonisolated static func modelSelection(for task: ScheduledTask) -> AgentModelSelection {
@@ -536,7 +536,7 @@ public final class ScheduledTaskExecutor {
         let mainModel = task.model.trimmingCharacters(in: .whitespacesAndNewlines)
         let reasoningModel = task.reasoningModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !mainModel.isEmpty else {
-            throw ScheduledTaskPreflightError.invalidTask("Select an explicit Distill Main model.")
+            throw ScheduledTaskPreflightError.invalidTask(L("Select an explicit Distill Main model."))
         }
         let mainEffortSelection = task.distillMainEffortSelection ?? .fixed(task.reasoningEffort)
         let mainDescriptor = snapshot.models.first(where: { $0.id == mainModel })
@@ -602,7 +602,7 @@ public final class ScheduledTaskExecutor {
         }
         guard !candidateSnapshots.isEmpty else {
             throw ScheduledTaskPreflightError.providerUnavailable(
-                "The selected provider (\(task.provider.rawValue.capitalized)) is unavailable for Auto model routing."
+                L("The selected provider (%1$@) is unavailable for Auto model routing.", task.provider.rawValue.capitalized)
             )
         }
 
@@ -674,7 +674,7 @@ public final class ScheduledTaskExecutor {
             )
         } catch {
             throw ScheduledTaskPreflightError.providerUnavailable(
-                "Auto model routing is unavailable: \(error)"
+                L("Auto model routing is unavailable: %1$@", error)
             )
         }
         return AgentOrchestrationRoutingSnapshot(
@@ -889,10 +889,10 @@ public final class ScheduledTaskScheduler {
             if let expected = agentRunID,
                let owned = occurrence.agentRunID,
                expected != owned {
-                return (.notOwned, "Active scheduled run ID does not match.")
+                return (.notOwned, L("Active scheduled run ID does not match."))
             }
             if occurrence.status == .queued {
-                try store.finish(runID: occurrence.id, status: .cancelled, errorSummary: "Cancelled before start.")
+                try store.finish(runID: occurrence.id, status: .cancelled, errorSummary: L("Cancelled before start."))
                 ScheduledTaskCrossProcess.notifyStoreChanged(reason: "cancelled")
                 return (.alreadyTerminal, nil)
             }
@@ -925,7 +925,7 @@ public final class ScheduledTaskScheduler {
                     try store.finish(runID: run.id, status: .completed, at: chrome.finishedAt ?? now)
                 case .failed, .interrupted:
                     let errorSummary = (try? context.runRepo.errorMessage(of: agentRunID))
-                        ?? "Scheduled run ended after app restart."
+                        ?? L("Scheduled run ended after app restart.")
                     try store.finish(
                         runID: run.id,
                         status: .failed,
@@ -944,7 +944,7 @@ public final class ScheduledTaskScheduler {
                     try store.finish(
                         runID: run.id,
                         status: .failed,
-                        errorSummary: "Scheduled run did not survive app restart.",
+                        errorSummary: L("Scheduled run did not survive app restart."),
                         at: now
                     )
                 }
@@ -952,14 +952,14 @@ public final class ScheduledTaskScheduler {
                 try store.finish(
                     runID: run.id,
                     status: .cancelled,
-                    errorSummary: "Cancelled on app restart before start.",
+                    errorSummary: L("Cancelled on app restart before start."),
                     at: now
                 )
             } else {
                 try store.finish(
                     runID: run.id,
                     status: .failed,
-                    errorSummary: "Scheduled run did not survive app restart.",
+                    errorSummary: L("Scheduled run did not survive app restart."),
                     at: now
                 )
             }
@@ -1047,8 +1047,8 @@ public final class ScheduledTaskScheduler {
         let settings = SettingsStore(db: context.db).load()
         let content = RemoteCodeNotificationContent(
             identifier: "scheduled_task_run.\(run.id.uuidString).failed",
-            title: "Scheduled task failed",
-            body: "A scheduled task failed.",
+            title: L("Scheduled task failed"),
+            body: L("A scheduled task failed."),
             categoryIdentifier: "",
             threadIdentifier: "",
             userInfo: ["activityItemId": Self.failureActivityItemID(for: run), "workspaceId": task?.workspaceID.value.uuidString ?? "", "outcome": "failed"],
@@ -1125,7 +1125,7 @@ public enum ScheduledTaskStopResult: String, Sendable, Equatable {
         if let raw, let known = ScheduledTaskStopResult(rawValue: raw) {
             return (known, message)
         }
-        return (.failed, message ?? raw ?? "Unknown stop result")
+        return (.failed, message ?? raw ?? L("Unknown stop result"))
     }
 }
 
@@ -1181,7 +1181,7 @@ private final class ScheduledTaskAgentXPCEndpoint: NSObject, @preconcurrency Sch
 
     func wake(taskID: String?, withReply reply: @escaping (Bool, String?) -> Void) {
         if let taskID {
-            guard let id = UUID(uuidString: taskID) else { reply(false, "Invalid task ID."); return }
+            guard let id = UUID(uuidString: taskID) else { reply(false, L("Invalid task ID.")); return }
             scheduler.runNow(taskID: id) { result in
                 switch result {
                 case .success:
@@ -1251,11 +1251,11 @@ public final class ScheduledTaskAgentServiceManager {
 
     public var statusDescription: String {
         switch status {
-        case .enabled: return "Background scheduler active"
-        case .requiresApproval: return "Approval required in Login Items"
-        case .notFound: return "Background scheduler is ready to register"
-        case .notRegistered: return "Background scheduler is not registered"
-        @unknown default: return "Background scheduler status unknown"
+        case .enabled: return L("Background scheduler active")
+        case .requiresApproval: return L("Approval required in Login Items")
+        case .notFound: return L("Background scheduler is ready to register")
+        case .notRegistered: return L("Background scheduler is not registered")
+        @unknown default: return L("Background scheduler status unknown")
         }
     }
 
@@ -1291,7 +1291,7 @@ public final class ScheduledTaskAgentServiceManager {
                     if ok { completion(.success(())) }
                     else {
                         completion(.failure(ScheduledTaskPreflightError.invalidTask(
-                            message ?? "Background scheduler rejected the request."
+                            message ?? L("Background scheduler rejected the request.")
                         )))
                     }
                     connection.invalidate()
@@ -1338,7 +1338,7 @@ public final class ScheduledTaskAgentServiceManager {
         } as? ScheduledTaskAgentXPCProtocol
         guard let proxy else {
             Task { @MainActor in
-                onFailure(ScheduledTaskPreflightError.providerUnavailable("Background scheduler is unavailable."))
+                onFailure(ScheduledTaskPreflightError.providerUnavailable(L("Background scheduler is unavailable.")))
             }
             connection.invalidate()
             return
@@ -1355,7 +1355,7 @@ public final class ScheduledTaskAgentServiceManager {
                         return
                     }
                     onFailure(ScheduledTaskPreflightError.invalidTask(
-                        "Scheduler version mismatch. The background scheduler was re-registered; retry when its status becomes active."
+                        L("Scheduler version mismatch. The background scheduler was re-registered; retry when its status becomes active.")
                     ))
                     connection.invalidate()
                     return

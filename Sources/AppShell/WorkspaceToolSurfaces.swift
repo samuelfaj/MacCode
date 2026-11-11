@@ -12,7 +12,7 @@ import SwiftUI
 enum WorkspaceTool: String, CaseIterable {
     case bots, vms
 
-    var title: String { self == .bots ? "Bots" : "VMs" }
+    var title: String { self == .bots ? L("Bots") : L("VMs") }
     var symbol: String { self == .bots ? "person.2" : "desktopcomputer" }
 
     /// The tool a `rightSidebarTool` descriptor or menu title names; nil for Git/Diff and Feed.
@@ -43,7 +43,7 @@ final class WorkspaceToolSurface: NSObject, Surface {
             if let context = router.context, let workspace = context.state.workspaces[workspaceID] {
                 root = AnyView(BotVirtualMachinesView(store: context.botStore, workspaces: [workspace], lockedWorkspaceID: workspaceID))
             } else {
-                root = AnyView(Text("This workspace is no longer available.").foregroundColor(DS.Palette.textSecondary))
+                root = AnyView(Text(L("This workspace is no longer available.")).foregroundColor(DS.Palette.textSecondary))
             }
         }
         let host = NSHostingView(rootView: root.frame(maxWidth: .infinity, maxHeight: .infinity).background(DS.Palette.bg))
@@ -131,19 +131,19 @@ struct WorkspaceBotsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             HStack {
-                Text("Bots").font(DS.Font.title)
+                Text(L("Bots")).font(DS.Font.title)
                 Spacer()
-                Button { model.newBot() } label: { Label("New bot", systemImage: "plus") }
+                Button { model.newBot() } label: { Label(L("New bot"), systemImage: "plus") }
                     .buttonStyle(DSPrimaryButtonStyle())
-                    .help("Create a Bot exclusive to this workspace")
+                    .help(L("Create a Bot exclusive to this workspace"))
                     .accessibilityIdentifier("workspaceBots.new")
             }
-            Text("Bots that work in this workspace. Open one to chat in its Desk.")
+            Text(L("Bots that work in this workspace. Open one to chat in its Desk."))
                 .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)
             if model.rows.isEmpty {
                 Spacer()
                 if model.loaded {
-                    DSEmptyState(icon: "person.2", title: "No bots yet", subtitle: "Create a Bot to give this workspace a teammate.") {
+                    DSEmptyState(icon: "person.2", title: L("No bots yet"), subtitle: L("Create a Bot to give this workspace a teammate.")) {
                         EmptyView()
                     }
                     .frame(maxWidth: .infinity)
@@ -172,7 +172,7 @@ struct WorkspaceBotsView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .help("Open \(row.botName)'s Desk")
+                            .help(L("Open %1$@'s Desk", row.botName))
                             .accessibilityLabel("\(row.botName), \(row.title)")
                             .accessibilityIdentifier("workspaceBots.bot.\(row.botID.value.uuidString)")
                         }

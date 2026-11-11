@@ -1,3 +1,4 @@
+import CoreModel
 import AppKit
 import SwiftUI
 
@@ -110,7 +111,7 @@ struct TitioComposerField: View {
     @State private var text = ""
     @FocusState private var focused: Bool
 
-    static let placeholder = "Ask Titio anything"
+    static let placeholder = L("Ask Titio anything")
 
     private var canSend: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -134,8 +135,8 @@ struct TitioComposerField: View {
             .buttonStyle(TitioPressableStyle())
             .foregroundStyle(canSend ? Color.accentColor : Color.secondary)
             .disabled(!canSend)
-            .help("Send to Titio (Return)")
-            .accessibilityLabel("Send to Titio")
+            .help(L("Send to Titio (Return)"))
+            .accessibilityLabel(L("Send to Titio"))
             .accessibilityIdentifier("\(identifier).send")
         }
         .padding(.leading, size == .spotlight ? 16 : 12)

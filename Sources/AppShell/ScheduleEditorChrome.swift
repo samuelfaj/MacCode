@@ -49,10 +49,10 @@ struct ScheduleEditorPage<Content: View, Footer: View>: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Back")
+                .accessibilityLabel(L("Back"))
                 .disabled(isSaving)
                 Spacer()
-                Button("Cancel", action: onBack)
+                Button(L("Cancel"), action: onBack)
                     .buttonStyle(DSSecondaryButtonStyle())
                     .disabled(isSaving)
                     .keyboardShortcut(.cancelAction)
@@ -193,7 +193,7 @@ struct ScheduleEditorTextField: View {
     @Binding var text: String
     let identifier: String
     /// VoiceOver name; the placeholder is hint copy, not the control name.
-    var label = "Name"
+    var label = L("Name")
 
     var body: some View {
         TextField(placeholder, text: $text)
@@ -258,7 +258,7 @@ struct ScheduleEditorFooter: View {
             Image(systemName: "clock")
                 .foregroundColor(DS.Palette.textTertiary)
                 .accessibilityHidden(true)
-            Text("Next run: \(nextRun)")
+            Text(L("Next run: %1$@", nextRun))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textSecondary)
             Spacer()

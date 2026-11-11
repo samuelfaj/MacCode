@@ -575,14 +575,14 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
             phase = count > 0 || titio.openDecisions > 0 ? .running : .completed
             title = "Titio"
             if titio.openDecisions > 0 {
-                statusLine = titio.openDecisions == 1 ? "1 question needs you" : "\(titio.openDecisions) questions need you"
-                preview = count > 0 ? "\(count) running · Open Titio to reply" : "Open Titio to reply"
+                statusLine = titio.openDecisions == 1 ? L("1 question needs you") : L("%1$@ questions need you", titio.openDecisions)
+                preview = count > 0 ? L("%1$@ running · Open Titio to reply", count) : L("Open Titio to reply")
             } else if count > 0 {
-                statusLine = count == 1 ? "Following 1 run" : "Following \(count) runs"
-                preview = "Titio will bring updates here"
+                statusLine = count == 1 ? L("Following 1 run") : L("Following %1$@ runs", count)
+                preview = L("Titio will bring updates here")
             } else {
-                statusLine = titio.unreadCount > 0 ? "\(titio.unreadCount) unread updates" : "Up to date"
-                preview = titio.unreadCount > 0 ? "Open Titio to review" : "No pending questions or running work"
+                statusLine = titio.unreadCount > 0 ? L("%1$@ unread updates", titio.unreadCount) : L("Up to date")
+                preview = titio.unreadCount > 0 ? L("Open Titio to review") : L("No pending questions or running work")
             }
             threadId = titio.threadID.value.uuidString
             workspaceId = nil
@@ -605,10 +605,10 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
                 workspaceId = nil
                 title = PetLiveActivityCopy.runningTitle(count: count)
                 if let surface {
-                    statusLine = surface.statusLine.isEmpty ? "Running" : surface.statusLine
+                    statusLine = surface.statusLine.isEmpty ? L("Running") : surface.statusLine
                     preview = surface.preview.isEmpty ? title : surface.preview
                 } else {
-                    statusLine = "Running"
+                    statusLine = L("Running")
                     preview = title
                 }
                 runStartDate = nil
@@ -633,7 +633,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
             workspaceId = nil
             runStartDate = nil
             title = "MacCode"
-            statusLine = phase == .completed ? "Finished" : "Failed"
+            statusLine = phase == .completed ? L("Finished") : L("Failed")
             preview = "MacCode"
         }
         let contentState = PrivateLiveActivityProjectionV2(

@@ -1,3 +1,4 @@
+import CoreModel
 import Foundation
 import AppKit
 import SwiftUI
@@ -55,44 +56,44 @@ public enum KeybindingConflictDetector {
     /// All) are intentionally included since a user binding could shadow them too.
     public static let builtInMenuChords: [(chord: String, label: String)] = [
         // App menu
-        (KeybindingConfig.normalize("mod+,"), "Settings"),
-        (KeybindingConfig.normalize("mod+h"), "Hide MacCode"),
-        (KeybindingConfig.normalize("mod+q"), "Quit MacCode"),
+        (KeybindingConfig.normalize("mod+,"), L("Settings")),
+        (KeybindingConfig.normalize("mod+h"), L("Hide MacCode")),
+        (KeybindingConfig.normalize("mod+q"), L("Quit MacCode")),
         // File menu
-        (KeybindingConfig.normalize("mod+n"), "New Workspace"),
-        (KeybindingConfig.normalize("mod+w"), "Close Tab"),
-        (KeybindingConfig.normalize("mod+shift+t"), "Reopen Closed Tab"),
-        (KeybindingConfig.normalize("mod+shift+w"), "Close Window"),
+        (KeybindingConfig.normalize("mod+n"), L("New Workspace")),
+        (KeybindingConfig.normalize("mod+w"), L("Close Tab")),
+        (KeybindingConfig.normalize("mod+shift+t"), L("Reopen Closed Tab")),
+        (KeybindingConfig.normalize("mod+shift+w"), L("Close Window")),
         // Edit menu
-        (KeybindingConfig.normalize("mod+z"), "Undo"),
-        (KeybindingConfig.normalize("mod+shift+z"), "Redo"),
-        (KeybindingConfig.normalize("mod+x"), "Cut"),
-        (KeybindingConfig.normalize("mod+c"), "Copy"),
-        (KeybindingConfig.normalize("mod+v"), "Paste"),
-        (KeybindingConfig.normalize("mod+a"), "Select All"),
+        (KeybindingConfig.normalize("mod+z"), L("Undo")),
+        (KeybindingConfig.normalize("mod+shift+z"), L("Redo")),
+        (KeybindingConfig.normalize("mod+x"), L("Cut")),
+        (KeybindingConfig.normalize("mod+c"), L("Copy")),
+        (KeybindingConfig.normalize("mod+v"), L("Paste")),
+        (KeybindingConfig.normalize("mod+a"), L("Select All")),
         // View menu
-        (KeybindingConfig.normalize("mod+k"), "Show Command Palette"),
+        (KeybindingConfig.normalize("mod+k"), L("Show Command Palette")),
         // Surface menu
-        (KeybindingConfig.normalize("mod+t"), "New Terminal Surface"),
-        (KeybindingConfig.normalize("mod+b"), "New Browser Surface"),
-        (KeybindingConfig.normalize("mod+g"), "New Agent App Surface"),
-        (KeybindingConfig.normalize("mod+d"), "Split Right"),
-        (KeybindingConfig.normalize("mod+shift+d"), "Split Down"),
+        (KeybindingConfig.normalize("mod+t"), L("New Terminal Surface")),
+        (KeybindingConfig.normalize("mod+b"), L("New Browser Surface")),
+        (KeybindingConfig.normalize("mod+g"), L("New Agent App Surface")),
+        (KeybindingConfig.normalize("mod+d"), L("Split Right")),
+        (KeybindingConfig.normalize("mod+shift+d"), L("Split Down")),
         // Tab menu
-        (KeybindingConfig.normalize("mod+shift+]"), "Next Tab"),
-        (KeybindingConfig.normalize("mod+shift+["), "Previous Tab"),
-        (KeybindingConfig.normalize("mod+1"), "Select Tab 1"),
-        (KeybindingConfig.normalize("mod+2"), "Select Tab 2"),
-        (KeybindingConfig.normalize("mod+3"), "Select Tab 3"),
-        (KeybindingConfig.normalize("mod+4"), "Select Tab 4"),
-        (KeybindingConfig.normalize("mod+5"), "Select Tab 5"),
-        (KeybindingConfig.normalize("mod+6"), "Select Tab 6"),
-        (KeybindingConfig.normalize("mod+7"), "Select Tab 7"),
-        (KeybindingConfig.normalize("mod+8"), "Select Tab 8"),
-        (KeybindingConfig.normalize("mod+9"), "Select Tab 9"),
-        (KeybindingConfig.normalize("ctrl+tab"), "Focus Next Pane"),
+        (KeybindingConfig.normalize("mod+shift+]"), L("Next Tab")),
+        (KeybindingConfig.normalize("mod+shift+["), L("Previous Tab")),
+        (KeybindingConfig.normalize("mod+1"), L("Select Tab 1")),
+        (KeybindingConfig.normalize("mod+2"), L("Select Tab 2")),
+        (KeybindingConfig.normalize("mod+3"), L("Select Tab 3")),
+        (KeybindingConfig.normalize("mod+4"), L("Select Tab 4")),
+        (KeybindingConfig.normalize("mod+5"), L("Select Tab 5")),
+        (KeybindingConfig.normalize("mod+6"), L("Select Tab 6")),
+        (KeybindingConfig.normalize("mod+7"), L("Select Tab 7")),
+        (KeybindingConfig.normalize("mod+8"), L("Select Tab 8")),
+        (KeybindingConfig.normalize("mod+9"), L("Select Tab 9")),
+        (KeybindingConfig.normalize("ctrl+tab"), L("Focus Next Pane")),
         // Window menu
-        (KeybindingConfig.normalize("mod+m"), "Minimize")
+        (KeybindingConfig.normalize("mod+m"), L("Minimize"))
     ]
 
     /// Named (non-character) key tokens that AppDelegate cannot write as a raw
@@ -176,7 +177,7 @@ struct ShortcutRecorder: View {
 
     var body: some View {
         HStack(spacing: DS.Space.sm) {
-            Button(recording ? "Press a shortcut\u{2026}" : "Record Shortcut") {
+            Button(recording ? L("Press a shortcut\u{2026}") : L("Record Shortcut")) {
                 if recording { stop() } else { start() }
             }
             .buttonStyle(DSSecondaryButtonStyle())
@@ -188,7 +189,7 @@ struct ShortcutRecorder: View {
                     .foregroundColor(DS.Palette.accent)
                     .textSelection(.enabled)
                     .accessibilityIdentifier("settings.keybindings.record.chord")
-                    .accessibilityLabel("Captured chord \(captured)")
+                    .accessibilityLabel(L("Captured chord %1$@", captured))
             }
         }
         .onDisappear(perform: stop)
@@ -283,14 +284,14 @@ struct KeybindingsSettingsPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            DSSectionHeaderG("Keybindings")
+            DSSectionHeaderG(L("Keybindings"))
 
-            Text("Parsed from \(KeybindingConfig.defaultPath). Editing the JSON updates this list live; no restart needed. Conflicts shadow a built-in menu shortcut.")
+            Text(L("Parsed from %1$@. Editing the JSON updates this list live; no restart needed. Conflicts shadow a built-in menu shortcut.", KeybindingConfig.defaultPath))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
 
             // Record-a-shortcut helper (read-only: copy the chord into the JSON).
-            settingRow("Record a shortcut") {
+            settingRow(L("Record a shortcut")) {
                 ShortcutRecorder()
             }
 
@@ -306,14 +307,14 @@ struct KeybindingsSettingsPane: View {
                                 .foregroundColor(DS.Palette.warning)
                         }
                         .accessibilityElement(children: .combine)
-                        .accessibilityLabel("Warning: \(warn)")
+                        .accessibilityLabel(L("Warning: %1$@", warn))
                     }
                 }
                 .accessibilityIdentifier("settings.keybindings.warnings")
             }
 
             if config.bindings.isEmpty {
-                Text("No bindings defined. Add rules to keybindings.json to customize shortcuts.")
+                Text(L("No bindings defined. Add rules to keybindings.json to customize shortcuts."))
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.textSecondary)
                     .accessibilityIdentifier("settings.keybindings.empty")
@@ -328,7 +329,7 @@ struct KeybindingsSettingsPane: View {
 
             HStack {
                 Spacer()
-                Button("Reload") { reload() }
+                Button(L("Reload")) { reload() }
                     .buttonStyle(DSSecondaryButtonStyle())
                     .accessibilityIdentifier("settings.keybindings.reload.button")
             }
@@ -364,17 +365,17 @@ struct KeybindingsSettingsPane: View {
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.text)
                 if let when = b.when, !when.isEmpty {
-                    Text("when: \(when)")
+                    Text(L("when: %1$@", when))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textTertiary)
                 }
                 if let conflict {
-                    Text("Shadows built-in: \(conflict.builtInMenuLabel)")
+                    Text(L("Shadows built-in: %1$@", conflict.builtInMenuLabel))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.danger)
                 }
                 if unsupportedKey {
-                    Text("Non-character key: won't work as a menu shortcut via AppDelegate")
+                    Text(L("Non-character key: won't work as a menu shortcut via AppDelegate"))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.warning)
                 }
@@ -384,12 +385,12 @@ struct KeybindingsSettingsPane: View {
         .padding(.vertical, DS.Space.sm)
         .accessibilityElement(children: .combine)
         .accessibilityLabel({
-            var label = "\(b.key) bound to \(b.command)"
+            var label = L("%1$@ bound to %2$@", b.key, b.command)
             if let conflict {
-                label += ", conflict: shadows built-in \(conflict.builtInMenuLabel)"
+                label += L(", conflict: shadows built-in %1$@", conflict.builtInMenuLabel)
             }
             if unsupportedKey {
-                label += ", warning: non-character key won't work as a menu shortcut"
+                label += L(", warning: non-character key won't work as a menu shortcut")
             }
             return label
         }())

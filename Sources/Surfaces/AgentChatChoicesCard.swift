@@ -17,7 +17,7 @@ public struct AgentChatChoicesCard: View {
     public let onAnswer: (String) -> Void
     public let onDismiss: () -> Void
 
-    public static let blockedByDraftMessage = "Send or clear your draft to answer here."
+    public static let blockedByDraftMessage = L("Send or clear your draft to answer here.")
 
     @State private var selected: Set<Int> = []
     @State private var ownAnswer = ""
@@ -88,7 +88,7 @@ public struct AgentChatChoicesCard: View {
                         .foregroundColor(DS.Palette.text)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if let hint = choices.hint ?? (choices.multiple ? "Pick one or more." : nil) {
+                if let hint = choices.hint ?? (choices.multiple ? L("Pick one or more.") : nil) {
                     Text(hint)
                         .font(DS.Font.body)
                         .foregroundColor(DS.Palette.textSecondary)
@@ -104,8 +104,8 @@ public struct AgentChatChoicesCard: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Dismiss")
-            .accessibilityLabel("Dismiss choices")
+            .help(L("Dismiss"))
+            .accessibilityLabel(L("Dismiss choices"))
             .accessibilityIdentifier("\(identifier).dismiss")
         }
     }
@@ -120,7 +120,7 @@ public struct AgentChatChoicesCard: View {
 
     private var ownAnswerField: some View {
         HStack(spacing: DS.Space.md) {
-            TextField("Type your own answer", text: $ownAnswer)
+            TextField(L("Type your own answer"), text: $ownAnswer)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
                 .foregroundColor(DS.Palette.text)
@@ -128,7 +128,7 @@ public struct AgentChatChoicesCard: View {
                 .onSubmit(sendOwnAnswer)
                 .accessibilityIdentifier("\(identifier).own")
             if choices.multiple && ownAnswer.isEmpty {
-                Button("Send") {
+                Button(L("Send")) {
                     if let answer = choices.answer(selecting: selected) { onAnswer(answer) }
                 }
                 .buttonStyle(DSSecondaryButtonStyle())
@@ -214,9 +214,9 @@ struct AgentChoiceProvenanceRow: View {
     let identifier: String
 
     private static let sources: [(key: String, name: String, symbol: String)] = [
-        ("workspace", "Workspace", "folder"),
-        ("bot", "Bot", "person.crop.circle"),
-        ("conversation", "Conversation", "bubble.left.and.bubble.right"),
+        ("workspace", L("Workspace"), "folder"),
+        ("bot", L("Bot"), "person.crop.circle"),
+        ("conversation", L("Conversation"), "bubble.left.and.bubble.right"),
     ]
 
     var body: some View {

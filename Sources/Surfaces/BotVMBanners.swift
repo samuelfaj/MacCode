@@ -35,14 +35,14 @@ struct BotMacExecutionBanner: View {
     var body: some View {
         BotVMBannerRow(
             icon: "desktopcomputer",
-            text: "The bot asked to run on the Mac: \(vm.pendingMacExecutionReason ?? "")",
+            text: L("The bot asked to run on the Mac: %1$@", vm.pendingMacExecutionReason ?? ""),
             identifier: "agent.macExecution.banner"
         ) {
-            Button("Decline") { vm.resolveMacExecution(approve: false) }
+            Button(L("Decline")) { vm.resolveMacExecution(approve: false) }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityIdentifier("agent.macExecution.decline")
-            Button("Approve") { vm.resolveMacExecution(approve: true) }
+            Button(L("Approve")) { vm.resolveMacExecution(approve: true) }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .accessibilityIdentifier("agent.macExecution.approve")
@@ -57,14 +57,14 @@ struct BotVMUnavailableBanner: View {
     var body: some View {
         BotVMBannerRow(
             icon: "exclamationmark.triangle",
-            text: "The bot's VM is not available.",
+            text: L("The bot's VM is not available."),
             identifier: "agent.vmUnavailable.banner"
         ) {
-            Button("Start VM") { vm.startUnavailableBotVM() }
+            Button(L("Start VM")) { vm.startUnavailableBotVM() }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityIdentifier("agent.vmUnavailable.start")
-            Button("Run this thread on the Mac") { vm.runSelectedThreadOnMac() }
+            Button(L("Run this thread on the Mac")) { vm.runSelectedThreadOnMac() }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityIdentifier("agent.vmUnavailable.runOnMac")

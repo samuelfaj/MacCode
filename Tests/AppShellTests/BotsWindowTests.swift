@@ -1585,7 +1585,7 @@ final class BotsWindowTests: XCTestCase {
         let editor = source[start.lowerBound...]
 
         XCTAssertTrue(editor.contains("if spec.provider != .distill && spec.routingMode == .auto"))
-        XCTAssertTrue(editor.contains("if spec.provider != .distill {\n                    formRow(\"Model routing\")"))
+        XCTAssertTrue(editor.contains("if spec.provider != .distill {\n                    formRow(L(\"Model routing\"))"))
         XCTAssertTrue(editor.contains("AgentDistillModelSelectors("))
         XCTAssertTrue(editor.contains("mainEffortSelection: mainEffortSelection"))
         XCTAssertTrue(editor.contains("reasoningEffortSelection: reasoningEffortSelection"))
@@ -3620,7 +3620,7 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertTrue(source.contains("row.pinned"))
         XCTAssertTrue(source.contains("pin.fill"))
         XCTAssertTrue(
-            source.contains("row.pinned ? \"Pinned. \""),
+            source.contains("row.pinned ? L(\"Pinned. \")"),
             "VoiceOver must hear Pinned so Pin is not sort-only"
         )
     }
@@ -3639,7 +3639,7 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertTrue(source.contains("row.hidden"))
         XCTAssertTrue(source.contains("eye.slash"))
         XCTAssertTrue(
-            source.contains("row.hidden ? \"Hidden. \""),
+            source.contains("row.hidden ? L(\"Hidden. \")"),
             "VoiceOver must hear Hidden so Show hidden is not a silent list"
         )
     }
@@ -4846,7 +4846,7 @@ final class BotsWindowTests: XCTestCase {
             XCTAssertTrue(chrome[start.lowerBound..<end].contains(".accessibilityLabel(label)"),
                           "\(control) must expose its label as the control name")
         }
-        XCTAssertTrue(source.contains("label: \"Instruction\""))
+        XCTAssertTrue(source.contains("label: L(\"Instruction\")"))
         XCTAssertTrue(
             source.contains("Picker(\"\", selection: $draft.botID)"),
             "Picker title must stay empty so VoiceOver does not speak Bot, Bot"
@@ -4874,11 +4874,11 @@ final class BotsWindowTests: XCTestCase {
             "Sidebar Search bots / Filter workspaces must expose the placeholder as the AX name"
         )
         XCTAssertTrue(
-            active.contains(".accessibilityLabel(\"Search bots\")"),
+            active.contains(".accessibilityLabel(L(\"Search bots\"))"),
             "Active Bots search must expose Search bots as the control name"
         )
         XCTAssertTrue(
-            schedule.contains(".accessibilityLabel(\"Search tasks\")"),
+            schedule.contains(".accessibilityLabel(L(\"Search tasks\"))"),
             "Schedule Tasks search must expose Search tasks as the control name"
         )
     }
@@ -4903,15 +4903,15 @@ final class BotsWindowTests: XCTestCase {
             "the card title must carry the task name"
         )
         XCTAssertTrue(
-            body.contains("DSPill(\"Active\", tone: .success)"),
+            body.contains("DSPill(L(\"Active\"), tone: .success)"),
             "the visible status must say Active"
         )
         XCTAssertTrue(
-            body.contains("Button(item.isEnabled ? \"Pause\" : \"Resume\", action: onToggle)"),
+            body.contains("Button(item.isEnabled ? L(\"Pause\") : L(\"Resume\"), action: onToggle)"),
             "the card must expose the enable toggle as a named action"
         )
         XCTAssertTrue(
-            body.contains("Button(\"Edit\", action: onEdit)"),
+            body.contains("Button(L(\"Edit\"), action: onEdit)"),
             "existing tasks must expose Edit, not only Run Now"
         )
     }
@@ -8010,7 +8010,7 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertTrue(BotsChrome.allVisibleLabels.contains(BotsChrome.Label.unsavedNewBotConfirmTitle))
         XCTAssertTrue(BotsChrome.allVisibleLabels.contains(BotsChrome.Label.unsavedNewBotConfirmMessage))
         XCTAssertTrue(BotsChrome.allVisibleLabels.contains(BotsChrome.Label.unsavedNewBotDontSave))
-        let back = try XCTUnwrap(bots.range(of: "accessibilityLabel(\"Back\")"))
+        let back = try XCTUnwrap(bots.range(of: "accessibilityLabel(L(\"Back\"))"))
         let header = bots[bots.startIndex..<back.lowerBound]
         XCTAssertTrue(
             header.contains("requestLeaveUnsavedNewBot"),
@@ -11562,7 +11562,7 @@ final class BotsWindowTests: XCTestCase {
         vm.didEditStudioName("Chief")
         XCTAssertEqual(vm.studioDraft.handle, "boss")
         let bots = try String(contentsOf: sourceURL("Sources/AppShell/BotsWindow.swift"), encoding: .utf8)
-        XCTAssertTrue(bots.contains("labeledField(\"Slug\")"))
+        XCTAssertTrue(bots.contains("labeledField(L(\"Slug\"))"))
         XCTAssertTrue(bots.contains("bots.studio.slug"))
         XCTAssertFalse(bots.contains("labeledField(\"Handle\")"))
         XCTAssertFalse(bots.contains(".disabled(!vm.studioDraft.isNew)"))
@@ -12531,8 +12531,8 @@ final class BotsWindowTests: XCTestCase {
             return XCTFail("guest canvas must exist")
         }
         let canvas = String(source[start.lowerBound...])
-        let rebuild = try XCTUnwrap(canvas.range(of: "Text(rebuilding ? \"Rebuilding…\" : \"Rebuild\")")?.lowerBound)
-        let stop = try XCTUnwrap(canvas.range(of: "Button(\"Stop\"")?.lowerBound)
+        let rebuild = try XCTUnwrap(canvas.range(of: "Text(rebuilding ? L(\"Rebuilding…\") : L(\"Rebuild\"))")?.lowerBound)
+        let stop = try XCTUnwrap(canvas.range(of: "Button(L(\"Stop\")")?.lowerBound)
         XCTAssertLessThan(rebuild, stop, "Rebuild must sit immediately before Stop")
         XCTAssertFalse(canvas.contains("Button(\"Terminal\""))
     }
@@ -13137,7 +13137,7 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertFalse(bots.contains("onStop: { vm.stopDockerGuest"))
         XCTAssertTrue(bots.contains("vm.pendingDockerConfirm = .rebuild(bot.id)"))
         XCTAssertTrue(bots.contains("vm.pendingDockerConfirm = .stop(bot.id)"))
-        XCTAssertTrue(bots.contains("\\(name)'s computer?"))
+        XCTAssertTrue(bots.contains("L(\"Rebuild %1$@'s computer?\", name)"))
     }
 
     func test_guestCanvasRunningControlsRenderOffscreen() throws {
@@ -17208,7 +17208,7 @@ final class BotsWindowTests: XCTestCase {
             "Skills enable switch left Studio; skills live in Files"
         )
         XCTAssertTrue(
-            bots.contains(".accessibilityLabel(\"Active, \\(routine.definition.name)\")"),
+            bots.contains(".accessibilityLabel(L(\"Active, %1$@\", routine.definition.name))"),
             "Routines Active switch must say Active plus the routine name, not only the title"
         )
         let labeledField = try XCTUnwrap(bots.range(of: "private func labeledField<Content: View>"))
@@ -17391,7 +17391,7 @@ final class BotsWindowTests: XCTestCase {
         let bots = try String(contentsOf: sourceURL("Sources/AppShell/BotsWindow.swift"), encoding: .utf8)
         let sidebar = try String(contentsOf: sourceURL("Sources/AppShell/SidebarView.swift"), encoding: .utf8)
         XCTAssertTrue(sidebar.contains("SidebarSearchField("))
-        XCTAssertTrue(sidebar.contains("placeholder: \"Search workspaces, Bots and VMs\""))
+        XCTAssertTrue(sidebar.contains("placeholder: L(\"Search workspaces, Bots and VMs\")"))
         XCTAssertFalse(bots.contains("SidebarSearchField("), "the Bots shell has no second search field")
     }
 
@@ -17850,7 +17850,7 @@ final class BotsWindowTests: XCTestCase {
             header.contains(".layoutPriority(1)"),
             "the attention badge keeps its place when the name truncates"
         )
-        XCTAssertTrue(header.contains("\"Open Studio for \\(BotsViewModel.displayName(bot.name))\""))
+        XCTAssertTrue(header.contains("L(\"Open Studio for %1$@\", BotsViewModel.displayName(bot.name))"))
     }
 
     func test_rosterAndHeaderSubtitlesUseTextSecondary_becauseTertiaryIsUnreadableAt10pt() throws {
@@ -17870,8 +17870,8 @@ final class BotsWindowTests: XCTestCase {
         let bots = try String(contentsOf: sourceURL("Sources/AppShell/BotsWindow.swift"), encoding: .utf8)
         let groups = try String(contentsOf: sourceURL("Sources/AppShell/BotsTeamsGroups.swift"), encoding: .utf8)
         let sites = [
-            try slice(bots, from: "Text(\"@\\(bot.handle)\")", to: "\"bots.desk.permission\""),
-            try slice(groups, from: "Text(\"\\(members.count) bots · \\(group.policy.displayName)\")", to: ".lineLimit(1)"),
+            try slice(bots, from: "Text(L(\"@%1$@\", bot.handle))", to: "\"bots.desk.permission\""),
+            try slice(groups, from: "Text(L(\"%1$@ bots · %2$@\", members.count, group.policy.displayName))", to: ".lineLimit(1)"),
         ]
         for site in sites {
             XCTAssertTrue(site.contains(".foregroundColor(DS.Palette.textSecondary)"), site)
@@ -17891,8 +17891,8 @@ final class BotsWindowTests: XCTestCase {
         let empty = String(source[start.lowerBound..<end.lowerBound])
         // The unlinked Desk shares the Agent App's empty conversation state.
         XCTAssertTrue(empty.contains("AgentNewConversationEmptyState("))
-        XCTAssertTrue(empty.contains("title: \"Message \\(BotsViewModel.displayName(bot.name))\""))
-        XCTAssertTrue(empty.contains("subtitle: \"This thread has no messages yet.\""))
+        XCTAssertTrue(empty.contains("title: L(\"Message %1$@\", BotsViewModel.displayName(bot.name))"))
+        XCTAssertTrue(empty.contains("subtitle: L(\"This thread has no messages yet.\")"))
         // The limit set from outside reaches the subtitle as well as the
         // title. Two lines cut "This thread has no messages yet." in the
         // 120pt column of the minimum window; three keep it whole.

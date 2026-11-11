@@ -59,13 +59,13 @@ enum BotsDeskFollowThrough {
     }
 
     static func attentionTitle(for status: AgentRunStatus, terminalReason: String? = nil) -> String {
-        if status == .cancelled && terminalReason == "userStop" { return "Stopped by you" }
-        return status == .failed ? "Bot run failed" : "Bot run interrupted"
+        if status == .cancelled && terminalReason == "userStop" { return L("Stopped by you") }
+        return status == .failed ? L("Bot run failed") : L("Bot run interrupted")
     }
 
-    static let workingPlaceholder = "Working…"
+    static let workingPlaceholder = L("Working…")
     static let noRouterPlaceholder =
-        "This Bot could not start. Check its configuration, then send your request again."
+        L("This Bot could not start. Check its configuration, then send your request again.")
 
     static func visibleDeskMessages(
         cached: [BotDeskMessage],
@@ -102,7 +102,7 @@ enum BotsDeskFollowThrough {
     ) -> BotDeskWorkLogRow {
         BotDeskWorkLogRow(
             id: run.id.value,
-            title: "\(mode.displayName) run",
+            title: L("%1$@ run", mode.displayName),
             detail: workLogDetail(provider: run.provider, model: run.model),
             statusLabel: workLogStatusLabel(for: run.status),
             createdAt: run.finishedAt ?? run.startedAt,
@@ -126,15 +126,15 @@ enum BotsDeskFollowThrough {
     static func workLogStatusLabel(for status: AgentRunStatus) -> String {
         switch status {
         case .pending, .running:
-            return "Working"
+            return L("Working")
         case .completed:
-            return "Done"
+            return L("Done")
         case .failed:
-            return "Failed"
+            return L("Failed")
         case .interrupted:
-            return "Interrupted"
+            return L("Interrupted")
         case .cancelled:
-            return "Cancelled"
+            return L("Cancelled")
         }
     }
 

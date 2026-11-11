@@ -64,9 +64,22 @@ public final class OnboardingViewModel: ObservableObject {
             state.completedSteps.remove(.project)
         }
         if let id = state.developerBotID, !services.botExists(id) { state.developerBotID = nil }
+        let email = services.signedInUser()?.email
+        // Sign-in is mandatory and always first: a session completes it, its absence reopens it.
+        if email != nil {
+            state.complete(.signIn)
+            if state.step == .signIn { state.step = .setup }
+        } else {
+            state.completedSteps.remove(.signIn)
+            state.skippedSteps.remove(.signIn)
+            state.step = .signIn
+        }
         self.state = state
-        signedInEmail = services.signedInUser()?.email
+        signedInEmail = email
+        if state != initial { _ = store.save(state) }
     }
+
+    public var isSignedIn: Bool { signedInEmail != nil }
 
     public var accounts: DistillAccountsController { services.accountsController }
 
@@ -90,6 +103,7 @@ public final class OnboardingViewModel: ObservableObject {
     }
 
     public func skip(_ step: OnboardingStep) {
+        guard step != .signIn else { return }
         direction = 1
         update {
             $0.skip(step)
@@ -110,6 +124,7 @@ public final class OnboardingViewModel: ObservableObject {
     }
 
     public func skipSetup() {
+        guard isSignedIn else { return }
         update { $0.status = .skipped }
         guard persistenceError == nil else { return }
         close()
@@ -148,7 +163,7 @@ public final class OnboardingViewModel: ObservableObject {
         var next = state
         change(&next)
         state = next
-        persistenceError = store.save(next) ? nil : "Progress could not be saved. Your choices still apply in this window."
+        persistenceError = store.save(next) ? nil : L("Progress could not be saved. Your choices still apply in this window.")
     }
 
     // MARK: Account
@@ -172,6 +187,9 @@ public final class OnboardingViewModel: ObservableObject {
                 : try await services.signIn(email: trimmed, password: password)
             password = ""
             signedInEmail = user.email
+            if state.step == .signIn { advance(completing: .signIn) } else { update { $0.complete(.signIn) } }
+            // A finished setup reopened only for sign-in closes once signed in.
+            if state.status == .completed || state.status == .skipped { close() }
         } catch {
             accountError = Self.accountErrorMessage(error, creating: creatingAccount)
         }
@@ -181,22 +199,22 @@ public final class OnboardingViewModel: ObservableObject {
         if let error = error as? OnboardingAccountError { return error.message }
         if let api = error as? PrivateAccountAPIError, case .conflict(let code) = api {
             return code == "email_already_registered"
-                ? "An account with this email already exists. Sign in instead."
-                : "Account could not be created right now. Try again shortly."
+                ? L("An account with this email already exists. Sign in instead.")
+                : L("Account could not be created right now. Try again shortly.")
         }
         if let api = error as? PrivateAccountAPIError, case .http(let code) = api {
             switch code {
-            case 400: return creating ? "Check the email address and use at least 8 characters for the password." : "Check the email address and password."
-            case 401, 403: return "Email or password is incorrect."
-            case 429: return "Too many attempts. Wait a minute and try again."
-            case 500...599: return "The service is unavailable. Try again shortly."
-            default: return "Something went wrong. Try again."
+            case 400: return creating ? L("Check the email address and use at least 8 characters for the password.") : L("Check the email address and password.")
+            case 401, 403: return L("Email or password is incorrect.")
+            case 429: return L("Too many attempts. Wait a minute and try again.")
+            case 500...599: return L("The service is unavailable. Try again shortly.")
+            default: return L("Something went wrong. Try again.")
             }
         }
         if let url = error as? URLError, [.notConnectedToInternet, .networkConnectionLost, .dataNotAllowed].contains(url.code) {
-            return "No internet connection."
+            return L("No internet connection.")
         }
-        return "Something went wrong. Try again."
+        return L("Something went wrong. Try again.")
     }
 
     // MARK: Auto
@@ -224,7 +242,7 @@ public final class OnboardingViewModel: ObservableObject {
         let chosen = strategy ?? routingDraft.strategy
         routingDraft = Self.recommendedRouting(accounts: accounts.statuses, models: models, strategy: chosen)
         routingNote = routingDraft.options.isEmpty
-            ? "Connect ChatGPT, Claude or Grok to use Auto. You can also choose a model per conversation."
+            ? L("Connect ChatGPT, Claude or Grok to use Auto. You can also choose a model per conversation.")
             : nil
     }
 
@@ -252,7 +270,7 @@ public final class OnboardingViewModel: ObservableObject {
         if await accounts.saveRoutingAndWait(routingDraft) {
             advance(completing: .accounts)
         } else {
-            routingNote = accounts.lastError ?? "Auto was not saved. Try again."
+            routingNote = accounts.lastError ?? L("Auto was not saved. Try again.")
         }
     }
 
@@ -276,7 +294,7 @@ public final class OnboardingViewModel: ObservableObject {
     /// mutation, so a retry resumes at the first missing resource.
     public func finish() {
         guard !finishing, !state.completedSteps.contains(.project) else { return }
-        guard let folder else { finishError = "Choose a project folder first."; return }
+        guard let folder else { finishError = L("Choose a project folder first."); return }
         finishing = true
         finishError = nil
         defer { finishing = false }
@@ -300,8 +318,9 @@ public final class OnboardingViewModel: ObservableObject {
                 }
             }
             update { $0.complete(.project) }
+            services.openInBrowser(OnboardingFollow.url)
         } catch {
-            finishError = "Could not finish setup: \(error.localizedDescription)"
+            finishError = L("Could not finish setup: %1$@", error.localizedDescription)
         }
     }
 }

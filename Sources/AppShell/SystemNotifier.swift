@@ -1,3 +1,4 @@
+import CoreModel
 import Foundation
 import AppKit
 import UserNotifications
@@ -158,7 +159,7 @@ public final class SystemNotifier: NSObject, UNUserNotificationCenterDelegate {
     static var notificationCategories: Set<UNNotificationCategory> {
         let open = UNNotificationAction(
             identifier: RemoteCodeNotificationContent.openActionIdentifier,
-            title: "Open",
+            title: L("Open"),
             options: [.foreground]
         )
         return [
@@ -287,7 +288,7 @@ public final class SystemNotifier: NSObject, UNUserNotificationCenterDelegate {
         let deliver = { [self] in
             post(RemoteCodeNotificationContent(
                 identifier: UUID().uuidString, title: "MacCode",
-                body: "Test notification — your alerts appear here.",
+                body: L("Test notification — your alerts appear here."),
                 categoryIdentifier: RemoteCodeNotificationContent.threadUpdateCategoryIdentifier,
                 threadIdentifier: "notification.test", userInfo: [:],
                 soundEnabled: settings.notificationSoundEnabled

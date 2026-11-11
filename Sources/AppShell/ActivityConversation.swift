@@ -34,7 +34,7 @@ struct ActivityBotTarget {
 
 enum ActivityBotSendError: LocalizedError {
     case runtimeUnavailable
-    var errorDescription: String? { "Bot runtime is unavailable." }
+    var errorDescription: String? { L("Bot runtime is unavailable.") }
 }
 
 extension AppCommandRouter {

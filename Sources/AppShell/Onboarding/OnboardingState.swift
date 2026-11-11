@@ -4,26 +4,29 @@ import Persistence
 
 /// The first-run setup steps, in order.
 public enum OnboardingStep: String, Codable, CaseIterable, Sendable {
-    case setup, permissions, chrome, accounts, project
+    case signIn, setup, permissions, chrome, accounts, project
 
     public var title: String {
         switch self {
-        case .setup: return "Setup"
-        case .permissions: return "Permissions"
-        case .chrome: return "Chrome"
-        case .accounts: return "AI accounts"
-        case .project: return "Project"
+        case .signIn: return L("Sign in")
+        case .setup: return L("Setup")
+        case .permissions: return L("Permissions")
+        case .chrome: return L("Chrome")
+        case .accounts: return L("AI accounts")
+        case .project: return L("Project")
         }
     }
 
     public var index: Int { Self.allCases.firstIndex(of: self) ?? 0 }
     public var next: OnboardingStep? { Self.allCases.dropFirst(index + 1).first }
     public var previous: OnboardingStep? { index == 0 ? nil : Self.allCases[index - 1] }
-    public var eyebrow: String { "Step \(index + 1) of \(Self.allCases.count)" }
+    public var eyebrow: String { L("Step %1$@ of %2$@", index + 1, Self.allCases.count) }
 
     /// Version 3 steps, folded into the current ones. A current step counts as
     /// done only when every legacy step it replaced was done.
     static let legacyGroups: [(OnboardingStep, [String])] = [
+        // Sign-in is never inherited from saved progress; the session decides it.
+        (.signIn, ["signIn"]),
         (.setup, ["distill", "tools"]),
         (.permissions, ["permissions"]),
         (.chrome, ["basics", "chrome"]),
@@ -61,7 +64,7 @@ public struct OnboardingState: Codable, Equatable, Sendable {
 
     public var version = 4
     public var status: Status = .inProgress
-    public var step: OnboardingStep = .setup
+    public var step: OnboardingStep = .signIn
     public var completedSteps: Set<OnboardingStep> = []
     public var skippedSteps: Set<OnboardingStep> = []
     public var createDeveloper = true
@@ -80,7 +83,7 @@ public struct OnboardingState: Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let saved = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
         status = try c.decodeIfPresent(Status.self, forKey: .status) ?? .inProgress
-        step = try c.decodeIfPresent(OnboardingStep.self, forKey: .step) ?? .setup
+        step = try c.decodeIfPresent(OnboardingStep.self, forKey: .step) ?? .signIn
         createDeveloper = try c.decodeIfPresent(Bool.self, forKey: .createDeveloper) ?? true
         developerName = try c.decodeIfPresent(String.self, forKey: .developerName) ?? OnboardingDeveloperTemplate.defaultName
         workspaceID = try c.decodeIfPresent(WorkspaceID.self, forKey: .workspaceID)
@@ -138,13 +141,14 @@ public final class OnboardingStateStore {
 public enum OnboardingGate {
     /// Only completion or an explicit Skip setup dismisses first-run setup.
     /// Existing projects/accounts do not prove the setup was handled.
+    /// MacCode never starts signed out: without a session setup always opens.
     public static func launchDecision(
         saved: OnboardingState?,
         hasWorkspaces: Bool,
         hasAccountSession: Bool
     ) -> (present: Bool, stateToSave: OnboardingState?) {
         if var saved {
-            if saved.status == .completed || saved.status == .skipped { return (false, nil) }
+            if saved.status == .completed || saved.status == .skipped { return (!hasAccountSession, nil) }
             if saved.status != .inProgress {
                 saved.status = .inProgress
                 return (true, saved)
@@ -164,9 +168,9 @@ public enum OnboardingGate {
 
 /// The example Bot offered by setup.
 public enum OnboardingDeveloperTemplate {
-    public static let defaultName = "Developer"
-    public static let title = "Software engineer"
-    public static let description = "Understands the project, plans changes and reviews code."
+    public static let defaultName = L("Developer")
+    public static let title = L("Software engineer")
+    public static let description = L("Understands the project, plans changes and reviews code.")
     public static let firstPrompt = "Analyze this project's structure and propose next steps. Do not change files or run commands yet."
 
     public static func soul(name: String) -> String {

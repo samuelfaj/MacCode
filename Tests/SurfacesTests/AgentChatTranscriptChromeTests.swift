@@ -330,7 +330,7 @@ final class AgentChatTranscriptChromeTests: XCTestCase {
             "bubble body must expose the prompt as the VoiceOver name"
         )
         XCTAssertTrue(
-            slice.contains(".accessibilityLabel(\"Copy message\")"),
+            slice.contains(".accessibilityLabel(L(\"Copy message\"))"),
             "copy control must stay Copy message after the role label is gone"
         )
         XCTAssertTrue(
@@ -367,7 +367,7 @@ final class AgentChatTranscriptChromeTests: XCTestCase {
             "reply body must expose the message as the VoiceOver name"
         )
         XCTAssertTrue(
-            slice.contains(".accessibilityLabel(\"Copy message\")"),
+            slice.contains(".accessibilityLabel(L(\"Copy message\"))"),
             "copy control must stay Copy message after the role label is gone"
         )
     }

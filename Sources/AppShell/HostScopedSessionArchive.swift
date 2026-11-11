@@ -42,10 +42,10 @@ internal enum HostScopedSessionArchive {
     }
 
     static func capture(databaseURL: URL, appSupport: URL, destination: URL) throws -> Manifest {
-        guard mkdir(destination.path, 0o700) == 0 else { throw failure("cannot create new scoped archive destination") }
+        guard mkdir(destination.path, 0o700) == 0 else { throw failure(L("cannot create new scoped archive destination")) }
         let root = try PrivateDirectory(destination, create: false)
         defer { root.close() }
-        guard try PrivateDirectoryTree.childNames(root).isEmpty else { throw failure("archive destination is not empty") }
+        guard try PrivateDirectoryTree.childNames(root).isEmpty else { throw failure(L("archive destination is not empty")) }
         try requireNoPendingRecovery(appSupport: appSupport)
 
         let fingerprint = try HostDatabaseRestore.inspect(backupURL: databaseURL).fingerprint
@@ -61,7 +61,7 @@ internal enum HostScopedSessionArchive {
         if let bindingsRoot {
             for storageName in try PrivateDirectoryTree.childNames(bindingsRoot).sorted() {
                 guard let storageUUID = UUID(uuidString: storageName), storageName == storageUUID.uuidString.lowercased() else {
-                    throw failure("noncanonical scoped binding storage ID: \(storageName)")
+                    throw failure(L("noncanonical scoped binding storage ID: %1$@", storageName))
                 }
                 let scope = try bindingsRoot.child(storageName, create: false)
                 defer { scope.close() }
@@ -69,14 +69,14 @@ internal enum HostScopedSessionArchive {
                     guard filename.hasSuffix(".json"),
                           let conversationUUID = UUID(uuidString: String(filename.dropLast(5))),
                           filename == conversationUUID.uuidString.lowercased() + ".json" else {
-                        throw failure("invalid scoped binding filename: \(filename)")
+                        throw failure(L("invalid scoped binding filename: %1$@", filename))
                     }
                     let bytes = try PrivateDirectoryTree.readFile(filename, in: scope, maximumBytes: maximumManifestBytes)
                     let binding = try JSONDecoder().decode(BotContextSessionStore.Binding.self, from: bytes)
                     guard binding.version == 1,
                           binding.pin.conversationID.value == conversationUUID,
                           try storageID(for: binding.pin, virtualMachineID: binding.virtualMachineID) == BotID(storageUUID) else {
-                        throw failure("scoped binding identity mismatch: \(filename)")
+                        throw failure(L("scoped binding identity mismatch: %1$@", filename))
                     }
                     try requireQuiescent(Manifest(databaseFingerprint: fingerprint, sessions: [
                         Session(storageBotID: BotID(storageUUID), conversationID: BotConversationID(conversationUUID), binding: binding, bindingSHA256: digest(bytes), hasHistoryHome: false, history: [])
@@ -98,38 +98,38 @@ internal enum HostScopedSessionArchive {
                             let before = try PrivateDirectoryTree.inventory(sessionHome, excludingRootNames: excludedHomeNames)
                             let entries = try PrivateDirectoryTree.copy(from: sessionHome, to: target, excludingRootNames: excludedHomeNames)
                             let after = try PrivateDirectoryTree.inventory(sessionHome, excludingRootNames: excludedHomeNames)
-                            guard before == after, entries == before else { throw failure("native scoped history changed during capture") }
+                            guard before == after, entries == before else { throw failure(L("native scoped history changed during capture")) }
                             history = entries
                         }
                     }
                     if !hasHistoryHome && binding.providerSessionID != nil {
-                        throw failure("bound scoped session has no native history home")
+                        throw failure(L("bound scoped session has no native history home"))
                     }
                     let bindingScope = try createOrOpenChild(archiveBindings, storageName)
                     defer { bindingScope.close() }
                     try PrivateDirectoryTree.writeFile(filename, data: bytes, in: bindingScope)
                     guard try PrivateDirectoryTree.readFile(filename, in: scope, maximumBytes: maximumManifestBytes) == bytes else {
-                        throw failure("native scoped binding changed during capture")
+                        throw failure(L("native scoped binding changed during capture"))
                     }
                     sessions.append(Session(storageBotID: BotID(storageUUID), conversationID: BotConversationID(conversationUUID), binding: binding, bindingSHA256: digest(bytes), hasHistoryHome: hasHistoryHome, history: history))
                 }
             }
         }
-        guard sessions.count <= maximumEntries else { throw failure("too many scoped sessions") }
+        guard sessions.count <= maximumEntries else { throw failure(L("too many scoped sessions")) }
         sessions.sort(by: sessionOrder)
         let manifest = Manifest(databaseFingerprint: fingerprint, sessions: sessions)
         try validateBindings(manifest, databaseURL: databaseURL)
         try requireQuiescent(manifest, appSupport: appSupport)
         try rejectOrphanHistories(manifest, appSupport: appSupport)
         let bytes = try encoder().encode(manifest)
-        guard bytes.count <= maximumManifestBytes else { throw failure("scoped archive manifest exceeds size limit") }
+        guard bytes.count <= maximumManifestBytes else { throw failure(L("scoped archive manifest exceeds size limit")) }
         try PrivateDirectoryTree.writeFile("manifest.json", data: bytes, in: root)
         try synchronizeDirectories(root)
         let destinationParent = try PrivateDirectory(destination.deletingLastPathComponent(), create: false)
         defer { destinationParent.close() }
         try destinationParent.synchronize()
         let manifestInventory = try PrivateDirectoryTree.inventory(root)
-        guard manifestInventory.count <= maximumEntries else { throw failure("scoped archive has too many entries") }
+        guard manifestInventory.count <= maximumEntries else { throw failure(L("scoped archive has too many entries")) }
         return try validate(databaseURL: databaseURL, archiveURL: destination)
     }
 
@@ -142,7 +142,7 @@ internal enum HostScopedSessionArchive {
               manifest.sessions.count <= maximumEntries,
               manifest.sessions == manifest.sessions.sorted(by: sessionOrder),
               manifest.databaseFingerprint == (try HostDatabaseRestore.inspect(backupURL: databaseURL).fingerprint) else {
-            throw failure("scoped archive manifest or database fingerprint mismatch")
+            throw failure(L("scoped archive manifest or database fingerprint mismatch"))
         }
         var expected: [PrivateDirectoryTree.Entry] = [
             PrivateDirectoryTree.Entry(path: "manifest.json", isDirectory: false, byteCount: Int64(data.count), sha256: digest(data)),
@@ -162,7 +162,7 @@ internal enum HostScopedSessionArchive {
                   session.binding.cwd.utf8.count <= 16_384,
                   !session.binding.cwd.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
                   session.binding.providerSessionID.map(isCanonicalSessionID) ?? true,
-                  seen.insert(storage + "/" + cid).inserted else { throw failure("invalid or duplicate scoped session identity") }
+                  seen.insert(storage + "/" + cid).inserted else { throw failure(L("invalid or duplicate scoped session identity")) }
             let bindingPath = "bindings/\(storage)/\(cid).json"
             let bindingDir = try archive.child("bindings", create: false)
             defer { bindingDir.close() }
@@ -171,7 +171,7 @@ internal enum HostScopedSessionArchive {
             let bindingBytes = try PrivateDirectoryTree.readFile(cid + ".json", in: scope, maximumBytes: maximumManifestBytes)
             guard digest(bindingBytes) == session.bindingSHA256,
                   try JSONDecoder().decode(BotContextSessionStore.Binding.self, from: bindingBytes) == session.binding else {
-                throw failure("scoped binding bytes do not match manifest")
+                throw failure(L("scoped binding bytes do not match manifest"))
             }
             expected += [
                 PrivateDirectoryTree.Entry(path: "bindings/\(storage)", isDirectory: true, byteCount: 0, sha256: nil),
@@ -193,12 +193,12 @@ internal enum HostScopedSessionArchive {
                     PrivateDirectoryTree.Entry(path: "\(prefix)/\($0.path)", isDirectory: $0.isDirectory, byteCount: $0.byteCount, sha256: $0.sha256)
                 }
             } else if !session.history.isEmpty || session.binding.providerSessionID != nil {
-                throw failure("missing history home for scoped cursor")
+                throw failure(L("missing history home for scoped cursor"))
             }
         }
         expected = deduplicated(expected)
         let actual = try PrivateDirectoryTree.inventory(archive)
-        guard actual == expected.sorted(by: { $0.path < $1.path }) else { throw failure("scoped archive inventory mismatch") }
+        guard actual == expected.sorted(by: { $0.path < $1.path }) else { throw failure(L("scoped archive inventory mismatch")) }
         try rejectCredentialEntries(actual)
         try validateBindings(manifest, databaseURL: databaseURL)
         return manifest
@@ -239,7 +239,7 @@ internal enum HostScopedSessionArchive {
                   try threads.guestPlacement(of: binding.threadID)?.guestRuntime == BotGuestRuntime.distillV1,
                   resourceID == session.storageBotID,
                   pin.conversationID == session.conversationID else {
-                throw failure("scoped binding does not match canonical database conversation/thread/pin")
+                throw failure(L("scoped binding does not match canonical database conversation/thread/pin"))
             }
         }
     }
@@ -249,7 +249,7 @@ internal enum HostScopedSessionArchive {
         let docker = BotComputerDockerCLI()
         let dockerInfo = try docker.info()
         guard !dockerInfo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw failure("Docker info returned no readable data")
+            throw failure(L("Docker info returned no readable data"))
         }
         let supportPath = appSupport.standardizedFileURL.resolvingSymlinksInPath().path
         for storageBotID in Set(manifest.sessions.map(\.storageBotID)) {
@@ -261,7 +261,7 @@ internal enum HostScopedSessionArchive {
                 if inspect.running, let source = inspect.homeSource,
                    URL(fileURLWithPath: source).standardizedFileURL.resolvingSymlinksInPath().path == ownHome,
                    ownHome.hasPrefix(supportPath + "/") {
-                    throw failure("scoped bot container is running: \(name)")
+                    throw failure(L("scoped bot container is running: %1$@", name))
                 }
             } catch BotComputerGuestError.notReady {
                 continue
@@ -278,7 +278,7 @@ internal enum HostScopedSessionArchive {
         for botName in try PrivateDirectoryTree.childNames(guests) {
             if botName == ".DS_Store" { continue }
             guard let id = UUID(uuidString: botName), botName == id.uuidString.lowercased() else {
-                throw failure("noncanonical guest-home storage ID: \(botName)")
+                throw failure(L("noncanonical guest-home storage ID: %1$@", botName))
             }
             let bot = try guests.child(botName, create: false)
             defer { bot.close() }
@@ -295,7 +295,7 @@ internal enum HostScopedSessionArchive {
             let parts = entry.path.split(separator: "/")
             guard parts.count >= 4, parts[0] == "histories",
                   credentialNames.contains(String(parts[3])) else { continue }
-            throw failure("forbidden credential entry in scoped archive")
+            throw failure(L("forbidden credential entry in scoped archive"))
         }
     }
 
@@ -304,21 +304,21 @@ internal enum HostScopedSessionArchive {
         defer { support.close() }
         let names = try PrivateDirectoryTree.childNames(support)
         guard !names.contains(where: { $0.hasPrefix(".distill-context-recovery") || $0 == ".scoped-session-restore.json" }) else {
-            throw failure("pending contextual recovery journal prevents scoped archive capture")
+            throw failure(L("pending contextual recovery journal prevents scoped archive capture"))
         }
         guard let runs = try openOptionalChild(support, "guest-runs") else { return }
         defer { runs.close() }
         for scopeName in try PrivateDirectoryTree.childNames(runs) {
             if scopeName == ".DS_Store" { continue }
             guard let scopeID = UUID(uuidString: scopeName), scopeName == scopeID.uuidString.lowercased() else {
-                throw failure("unrecognized contextual recovery entry: \(scopeName)")
+                throw failure(L("unrecognized contextual recovery entry: %1$@", scopeName))
             }
             let scope = try runs.child(scopeName, create: false)
             defer { scope.close() }
             for name in try PrivateDirectoryTree.childNames(scope) where name.hasSuffix(".context.json") {
                 let bytes = try PrivateDirectoryTree.readFile(name, in: scope, maximumBytes: 1_024 * 1_024)
                 let record = try JSONDecoder().decode(BotContextGuestRecovery.Record.self, from: bytes)
-                guard record.state == .ended else { throw failure("pending contextual recovery record prevents scoped archive capture") }
+                guard record.state == .ended else { throw failure(L("pending contextual recovery record prevents scoped archive capture")) }
             }
         }
     }

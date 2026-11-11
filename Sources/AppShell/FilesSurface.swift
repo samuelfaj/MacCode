@@ -34,14 +34,14 @@ final class FilesSurface: NSObject, Surface {
     private let model: FilesViewModel
     private var initialStateLoaded = false
 
-    init(workspaceID: WorkspaceID, cwd: String, title: String = "Files", router: AppCommandRouter, initialState: String?, selectedPath: String? = nil, restoredSurfaceID: SurfaceID? = nil) {
+    init(workspaceID: WorkspaceID, cwd: String, title: String = L("Files"), router: AppCommandRouter, initialState: String?, selectedPath: String? = nil, restoredSurfaceID: SurfaceID? = nil) {
         var metadata = ["workspace": workspaceID.value.uuidString, "cwd": cwd]
         if let initialState { metadata["files_state"] = initialState }
         if let selectedPath {
             metadata["selected_path"] = selectedPath
             metadata["selected_relative_path"] = selectedPath
         }
-        self.descriptor = SurfaceDescriptor(id: restoredSurfaceID ?? SurfaceID(), type: .files, title: "Files", iconName: "folder", metadata: metadata)
+        self.descriptor = SurfaceDescriptor(id: restoredSurfaceID ?? SurfaceID(), type: .files, title: L("Files"), iconName: "folder", metadata: metadata)
         self.model = FilesViewModel(
             surfaceID: descriptor.id,
             workspaceID: workspaceID,
@@ -169,7 +169,7 @@ struct FileEntry: Identifiable, Equatable {
         self.modifiedAt = object["modified_at"]?.doubleValue
         self.isHidden = object["is_hidden"]?.boolValue == true
         self.isEditable = identity["is_editable"]?.boolValue == true
-        self.editabilityReason = identity["editability_reason"]?.stringValue ?? "not editable"
+        self.editabilityReason = identity["editability_reason"]?.stringValue ?? L("not editable")
         self.language = identity["language"]?.stringValue
         // Use per-extension icon for files when the extension is recognised; fall back to the
         // coarser kind-based icon so MIME-detected files (e.g. a detected image with no
@@ -708,9 +708,9 @@ struct BinaryMetadataRow: Equatable {
 
 func binaryMetadataRows(relativePath: String, mime: String, size: Int) -> [BinaryMetadataRow] {
     [
-        BinaryMetadataRow(label: "Path", value: relativePath),
-        BinaryMetadataRow(label: "MIME", value: mime),
-        BinaryMetadataRow(label: "Size", value: "\(size) bytes")
+        BinaryMetadataRow(label: L("Path"), value: relativePath),
+        BinaryMetadataRow(label: L("MIME"), value: mime),
+        BinaryMetadataRow(label: L("Size"), value: L("%1$@ bytes", size))
     ]
 }
 
@@ -1156,7 +1156,7 @@ final class FilesViewModel: ObservableObject {
         try self?.listEntries(at: path) ?? []
     })
     @Published var previewURL: URL?
-    @Published var syncLabel = "Up to date"
+    @Published var syncLabel = L("Up to date")
     @Published var syncDetail = ""
     @Published var conflictActive = false
     /// True when a remote edit arrived while the user had unsaved local edits.
@@ -1532,7 +1532,7 @@ final class FilesViewModel: ObservableObject {
                     renderedText = content
                 }
             }
-            setSyncLabel("Up to date", revision: draftRevision)
+            setSyncLabel(L("Up to date"), revision: draftRevision)
         } catch {
             logFailure("open", error: error)
             errorText = String(describing: error)
@@ -1548,7 +1548,7 @@ final class FilesViewModel: ObservableObject {
         if let sessionPath {
             if isDirty { dirtyPaths.insert(sessionPath) } else { dirtyPaths.remove(sessionPath) }
         }
-        setSyncLabel(isDirty ? "Unsaved" : "Up to date", revision: draftRevision)
+        setSyncLabel(isDirty ? L("Unsaved") : L("Up to date"), revision: draftRevision)
         if value == lastSyncedText {
             editorDebounceTimer?.invalidate()
             editorDebounceTimer = nil
@@ -1659,7 +1659,7 @@ final class FilesViewModel: ObservableObject {
             ? absRoot
             : (absRoot as NSString).appendingPathComponent(destRelativePath)
         guard validateMove(src: absSrc, dstDir: absDst, workspaceRoot: absRoot) else {
-            errorText = "Cannot move a folder into itself or a descendant."
+            errorText = L("Cannot move a folder into itself or a descendant.")
             return
         }
         if selectedEntry?.id == entry.id {
@@ -1827,7 +1827,7 @@ final class FilesViewModel: ObservableObject {
             dirtyPaths = Self.dirtyPaths(from: state)
             if pendingDebounceText != nil, let sessionPath { dirtyPaths.insert(sessionPath) }
             isDirty = selectedPath.map { dirtyPaths.contains($0) } ?? isDirty
-            setSyncLabel(isDirty ? "Unsaved" : "Up to date", revision: state["revision"]?.intValue ?? 0)
+            setSyncLabel(isDirty ? L("Unsaved") : L("Up to date"), revision: state["revision"]?.intValue ?? 0)
             if payload["updated_by_device"]?.stringValue != "mac-local",
                let path = state["selected_path"]?.stringValue, !path.isEmpty, path != selectedPath {
                 reveal(relativePath: path)
@@ -1946,13 +1946,13 @@ final class FilesViewModel: ObservableObject {
             }
         }
         if remote && !remoteEditConflict {
-            setSyncLabel("Edited on another device", revision: draftRevision)
+            setSyncLabel(L("Edited on another device"), revision: draftRevision)
         } else if remote && remoteEditConflict {
-            setSyncLabel("Remote changes held -- local edits preserved", revision: draftRevision)
+            setSyncLabel(L("Remote changes held -- local edits preserved"), revision: draftRevision)
         } else if isDirty {
-            setSyncLabel("Unsaved", revision: draftRevision)
+            setSyncLabel(L("Unsaved"), revision: draftRevision)
         } else {
-            setSyncLabel("Saved", revision: draftRevision)
+            setSyncLabel(L("Saved"), revision: draftRevision)
         }
     }
 
@@ -1960,7 +1960,7 @@ final class FilesViewModel: ObservableObject {
     /// (UX-MAC_FILES-006).
     private func setSyncLabel(_ label: String, revision: Int) {
         syncLabel = label
-        syncDetail = "Revision \(revision)"
+        syncDetail = L("Revision %1$@", revision)
     }
 
     /// Record an operation failure with its RPC error code, file kind, and a coarse size bucket -
@@ -2018,7 +2018,7 @@ final class FilesViewModel: ObservableObject {
         lastSyncedText = snapshot.lastSyncedText
         pendingDebounceText = draftText == lastSyncedText ? nil : draftText
         renderedText = snapshot.draftText
-        setSyncLabel(isDirty ? "Unsaved" : "Up to date", revision: draftRevision)
+        setSyncLabel(isDirty ? L("Unsaved") : L("Up to date"), revision: draftRevision)
         // A paired device may have edited this inactive tab since the snapshot.
         // Only refresh when every local keystroke already reached the host.
         if snapshot.draftText == snapshot.lastSyncedText,
@@ -2096,10 +2096,10 @@ func languageDisplayName(_ language: String?) -> String {
     case "markdown": return "Markdown"
     case "html": return "HTML"
     case "css": return "CSS"
-    case "shell script", "shellscript", "shell", "bash", "zsh", "sh": return "Shell Script"
+    case "shell script", "shellscript", "shell", "bash", "zsh", "sh": return L("Shell Script")
     case "yaml", "yml": return "YAML"
-    case "", "text", "plaintext", "plain text": return "Plain Text"
-    default: return language.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? "Plain Text"
+    case "", "text", "plaintext", "plain text": return L("Plain Text")
+    default: return language.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? L("Plain Text")
     }
 }
 
@@ -2153,39 +2153,39 @@ struct FilesSurfaceRoot: View {
     private var editorMenuBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DS.Space.lg) {
-                Menu("File") {
-                    Button("New File…") { newItemDirectory = model.currentDirectory; newFileName = ""; showNewFileDialog = true }
-                    Button("New Folder…") { newItemDirectory = model.currentDirectory; newFolderName = ""; showNewFolderDialog = true }
+                Menu(L("File")) {
+                    Button(L("New File…")) { newItemDirectory = model.currentDirectory; newFileName = ""; showNewFileDialog = true }
+                    Button(L("New Folder…")) { newItemDirectory = model.currentDirectory; newFolderName = ""; showNewFolderDialog = true }
                     Divider()
-                    Button("Save") { model.save() }.disabled(!model.isDirty)
-                    Button("Discard Changes…") { confirmDiscard = true }.disabled(!model.isDirty)
-                    Button("Close File") { if let entry = model.selectedEntry { requestCloseFile(entry) } }
+                    Button(L("Save")) { model.save() }.disabled(!model.isDirty)
+                    Button(L("Discard Changes…")) { confirmDiscard = true }.disabled(!model.isDirty)
+                    Button(L("Close File")) { if let entry = model.selectedEntry { requestCloseFile(entry) } }
                         .disabled(model.openTabs.isEmpty)
                 }.accessibilityIdentifier("files.menu.file")
-                Menu("Edit") {
-                    Button("Undo") { edit { $0.undoManager?.undo() } }
+                Menu(L("Edit")) {
+                    Button(L("Undo")) { edit { $0.undoManager?.undo() } }
                         .disabled(model.editorTextView?.undoManager?.canUndo != true)
-                    Button("Redo") { edit { $0.undoManager?.redo() } }
+                    Button(L("Redo")) { edit { $0.undoManager?.redo() } }
                         .disabled(model.editorTextView?.undoManager?.canRedo != true)
                     Divider()
-                    Button("Cut") { edit { $0.cut(nil) } }
-                    Button("Copy") { edit { $0.copy(nil) } }
-                    Button("Paste") { edit { $0.paste(nil) } }
+                    Button(L("Cut")) { edit { $0.cut(nil) } }
+                    Button(L("Copy")) { edit { $0.copy(nil) } }
+                    Button(L("Paste")) { edit { $0.paste(nil) } }
                     Divider()
-                    Button("Find…") { edit { editor in
+                    Button(L("Find…")) { edit { editor in
                         let item = NSMenuItem(); item.tag = NSTextFinder.Action.showFindInterface.rawValue
                         editor.performTextFinderAction(item)
                     } }
-                    Button("Toggle Line Comment") { edit { $0.toggleLineComment() } }
+                    Button(L("Toggle Line Comment")) { edit { $0.toggleLineComment() } }
                 }.disabled(model.selectedEntry?.isEditable != true)
                     .accessibilityIdentifier("files.menu.edit")
-                Menu("Selection") {
-                    Button("Select All") { edit { $0.selectAll(nil) } }
-                    Button("Select Line") { edit { $0.selectLine(nil) } }
+                Menu(L("Selection")) {
+                    Button(L("Select All")) { edit { $0.selectAll(nil) } }
+                    Button(L("Select Line")) { edit { $0.selectLine(nil) } }
                 }.disabled(model.selectedEntry?.isEditable != true)
                     .accessibilityIdentifier("files.menu.selection")
-                Menu("View") {
-                    Button(sidebarVisible ? "Hide Explorer" : "Show Explorer") {
+                Menu(L("View")) {
+                    Button(sidebarVisible ? L("Hide Explorer") : L("Show Explorer")) {
                         sidebarVisible.toggle()
                         sidebarIntent = sidebarVisible ? .forcedVisible : .forcedHidden
                     }
@@ -2196,22 +2196,22 @@ struct FilesSurfaceRoot: View {
                         }
                     }
                 }.accessibilityIdentifier("files.menu.view")
-                Menu("Go") {
-                    Button("Go to Line…") { edit { $0.promptGoToLine() } }
+                Menu(L("Go")) {
+                    Button(L("Go to Line…")) { edit { $0.promptGoToLine() } }
                         .disabled(model.selectedEntry?.isEditable != true)
-                    Button("Next File") { activateAdjacentFile(1) }.disabled(model.openTabs.count < 2)
-                    Button("Previous File") { activateAdjacentFile(-1) }.disabled(model.openTabs.count < 2)
+                    Button(L("Next File")) { activateAdjacentFile(1) }.disabled(model.openTabs.count < 2)
+                    Button(L("Previous File")) { activateAdjacentFile(-1) }.disabled(model.openTabs.count < 2)
                 }.accessibilityIdentifier("files.menu.go")
-                Menu("AI") {
-                    Toggle("Inline Suggestions", isOn: $inlineSuggestionsEnabled)
-                    Button("Suggest Code") { edit { $0.onInlineCompletionRequest?() } }
+                Menu(L("AI")) {
+                    Toggle(L("Inline Suggestions"), isOn: $inlineSuggestionsEnabled)
+                    Button(L("Suggest Code")) { edit { $0.onInlineCompletionRequest?() } }
                         .disabled(model.selectedEntry?.isEditable != true)
-                    Button("Accept Suggestion") { edit { $0.acceptGhost() } }
+                    Button(L("Accept Suggestion")) { edit { $0.acceptGhost() } }
                         .disabled(model.inlineSuggestionState != .available)
-                    Button("Dismiss Suggestion") { edit { $0.clearGhost(); $0.onInlineCompletionCancel?() } }
+                    Button(L("Dismiss Suggestion")) { edit { $0.clearGhost(); $0.onInlineCompletionCancel?() } }
                     Divider()
                     if case .failed(let message) = model.inlineSuggestionState { Text(message) }
-                    Button("Accounts & Auto…") { model.openAISettings?() }
+                    Button(L("Accounts & Auto…")) { model.openAISettings?() }
                 }.accessibilityIdentifier("files.menu.ai")
             }
             .menuStyle(.borderlessButton)
@@ -2247,7 +2247,7 @@ struct FilesSurfaceRoot: View {
                 if sidebarVisible {
                     sidebar
                         .frame(width: sidebarWidth)
-                    DSResizeDivider(axis: .vertical, help: "Resize file list") { delta in
+                    DSResizeDivider(axis: .vertical, help: L("Resize file list")) { delta in
                         sidebarWidth = min(560, max(240, sidebarWidth + Double(delta)))
                     }
                 }
@@ -2266,60 +2266,60 @@ struct FilesSurfaceRoot: View {
         }
         .background(VSCodeTheme.editorBackground)
         .foregroundStyle(DS.Palette.text)
-        .alert("Discard unsaved changes?", isPresented: $confirmDiscard) {
-            Button("Discard Changes", role: .destructive) { model.discard() }
-            Button("Cancel", role: .cancel) {}
+        .alert(L("Discard unsaved changes?"), isPresented: $confirmDiscard) {
+            Button(L("Discard Changes"), role: .destructive) { model.discard() }
+            Button(L("Cancel"), role: .cancel) {}
         } message: {
-            Text("This reverts the current draft to the last saved version.")
+            Text(L("This reverts the current draft to the last saved version."))
         }
-        .alert("Save Changes Before Closing?", isPresented: $confirmCloseFile) {
-            Button("Save") {
+        .alert(L("Save Changes Before Closing?"), isPresented: $confirmCloseFile) {
+            Button(L("Save")) {
                 model.save()
                 if !model.isDirty, let closingFile { model.closeTab(closingFile) }
             }
-            Button("Don't Save", role: .destructive) {
+            Button(L("Don't Save"), role: .destructive) {
                 model.discard()
                 if !model.isDirty, let closingFile { model.closeTab(closingFile) }
             }
-            Button("Cancel", role: .cancel) { closingFile = nil }
+            Button(L("Cancel"), role: .cancel) { closingFile = nil }
         } message: {
-            Text("Save your changes to \(closingFile?.name ?? "this file") before closing it.")
+            Text(L("Save your changes to %1$@ before closing it.", closingFile?.name ?? L("this file")))
         }
-        .alert("New File", isPresented: $showNewFileDialog) {
-            TextField("File name", text: $newFileName)
+        .alert(L("New File"), isPresented: $showNewFileDialog) {
+            TextField(L("File name"), text: $newFileName)
                 .focused($newFileFieldFocused)
                 .onSubmit { createNewFile() }
                 .accessibilityIdentifier("files.newFile.field")
-            Button("Create") { createNewFile() }
+            Button(L("Create")) { createNewFile() }
                 .accessibilityIdentifier("files.newFile.create")
-            Button("Cancel", role: .cancel) {}
+            Button(L("Cancel"), role: .cancel) {}
         } message: {
-            Text((newItemDirectory ?? model.currentDirectory).isEmpty ? "Create in workspace root." : "Create in \(newItemDirectory ?? model.currentDirectory).")
+            Text((newItemDirectory ?? model.currentDirectory).isEmpty ? L("Create in workspace root.") : L("Create in %1$@.", newItemDirectory ?? model.currentDirectory))
         }
         // Focus the name field as soon as the New File dialog appears so keyboard users can
         // type immediately without clicking first (UX-MAC_FILES-001).
         .onChange(of: showNewFileDialog) { presented in
             if presented { newFileFieldFocused = true }
         }
-        .alert("New Folder", isPresented: $showNewFolderDialog) {
-            TextField("Folder name", text: $newFolderName)
+        .alert(L("New Folder"), isPresented: $showNewFolderDialog) {
+            TextField(L("Folder name"), text: $newFolderName)
                 .focused($newFolderFieldFocused)
                 .onSubmit { createNewFolder() }
                 .accessibilityIdentifier("files.newFolder.field")
-            Button("Create") { createNewFolder() }
+            Button(L("Create")) { createNewFolder() }
                 .accessibilityIdentifier("files.newFolder.create")
-            Button("Cancel", role: .cancel) {}
+            Button(L("Cancel"), role: .cancel) {}
         } message: {
-            Text((newItemDirectory ?? model.currentDirectory).isEmpty ? "Create in workspace root." : "Create in \(newItemDirectory ?? model.currentDirectory).")
+            Text((newItemDirectory ?? model.currentDirectory).isEmpty ? L("Create in workspace root.") : L("Create in %1$@.", newItemDirectory ?? model.currentDirectory))
         }
         .onChange(of: showNewFolderDialog) { presented in
             if presented { newFolderFieldFocused = true }
         }
         .alert(deleteTitle, isPresented: $confirmDelete) {
-            Button("Move to Trash", role: .destructive) { commitDelete() }
-            Button("Cancel", role: .cancel) {}
+            Button(L("Move to Trash"), role: .destructive) { commitDelete() }
+            Button(L("Cancel"), role: .cancel) {}
         } message: {
-            Text(deleteTargets.count == 1 ? deleteTargets[0].relativePath : "\(deleteTargets.count) selected items will be moved to the Trash.")
+            Text(deleteTargets.count == 1 ? deleteTargets[0].relativePath : L("%1$@ selected items will be moved to the Trash.", deleteTargets.count))
         }
         // Seed cachedPreviewHTML immediately on first appear so the initial render
         // is not blank. Subsequent changes go through the debounce path.
@@ -2352,17 +2352,17 @@ struct FilesSurfaceRoot: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 4) {
-                Text("EXPLORER")
+                Text(L("EXPLORER"))
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(0.5)
                     .foregroundStyle(VSCodeTheme.inactiveForeground)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Menu {
-                    Toggle("Show Hidden Files", isOn: $showHidden)
+                    Toggle(L("Show Hidden Files"), isOn: $showHidden)
                         .accessibilityIdentifier("files.showHidden.toggle")
                     Divider()
-                    Button("Hide file sidebar") {
+                    Button(L("Hide file sidebar")) {
                         sidebarIntent = .forcedHidden
                         sidebarVisible = false
                     }
@@ -2376,8 +2376,8 @@ struct FilesSurfaceRoot: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help("More actions")
-                .accessibilityLabel("More actions")
+                .help(L("More actions"))
+                .accessibilityLabel(L("More actions"))
             }
             .padding(.horizontal, 10)
             .frame(height: 35)
@@ -2390,20 +2390,20 @@ struct FilesSurfaceRoot: View {
                     .truncationMode(.middle)
                 Spacer(minLength: 4)
                 if explorerHovered {
-                    explorerAction("doc.badge.plus", label: "New file", id: "files.newFile.button") {
+                    explorerAction("doc.badge.plus", label: L("New file"), id: "files.newFile.button") {
                         newItemDirectory = model.explorerTargetDirectory(for: model.selectedEntry)
                         newFileName = ""
                         showNewFileDialog = true
                     }
-                    explorerAction("folder.badge.plus", label: "New folder", id: "files.newFolder.button") {
+                    explorerAction("folder.badge.plus", label: L("New folder"), id: "files.newFolder.button") {
                         newItemDirectory = model.explorerTargetDirectory(for: model.selectedEntry)
                         newFolderName = ""
                         showNewFolderDialog = true
                     }
-                    explorerAction("arrow.clockwise", label: "Refresh", id: "files.refresh.button") {
+                    explorerAction("arrow.clockwise", label: L("Refresh"), id: "files.refresh.button") {
                         model.refreshTree()
                     }
-                    explorerAction("rectangle.compress.vertical", label: "Collapse folders", id: "files.collapseAll.button") {
+                    explorerAction("rectangle.compress.vertical", label: L("Collapse folders"), id: "files.collapseAll.button") {
                         model.collapseAll()
                     }
                 }
@@ -2484,22 +2484,22 @@ struct FilesSurfaceRoot: View {
     private static func friendlyError(_ raw: String) -> (title: String, symbol: String, detail: String, offerRoot: Bool) {
         let lower = raw.lowercased()
         if lower.contains("escapes workspace") {
-            return ("Outside the workspace", "lock.shield", "That path is outside this workspace. Files stay scoped to the workspace root.", true)
+            return (L("Outside the workspace"), "lock.shield", L("That path is outside this workspace. Files stay scoped to the workspace root."), true)
         }
         if lower.contains("workspace root not found") {
-            return ("Workspace unavailable", "folder.badge.questionmark", "The workspace folder could not be found. It may have been moved or deleted.", false)
+            return (L("Workspace unavailable"), "folder.badge.questionmark", L("The workspace folder could not be found. It may have been moved or deleted."), false)
         }
         if lower.contains("not found") {
-            return ("Not found", "questionmark.folder", "This path no longer exists in the workspace.", true)
+            return (L("Not found"), "questionmark.folder", L("This path no longer exists in the workspace."), true)
         }
         if lower.contains("permission") || lower.contains("not permitted") {
-            return ("Permission denied", "hand.raised", "MacCode can't access this path.", true)
+            return (L("Permission denied"), "hand.raised", L("MacCode can't access this path."), true)
         }
-        return ("Files error", "exclamationmark.triangle", raw, true)
+        return (L("Files error"), "exclamationmark.triangle", raw, true)
     }
 
     private var deleteTitle: String {
-        deleteTargets.count == 1 ? "Move \(deleteTargets[0].name) to Trash?" : "Move \(deleteTargets.count) items to Trash?"
+        deleteTargets.count == 1 ? L("Move %1$@ to Trash?", deleteTargets[0].name) : L("Move %1$@ items to Trash?", deleteTargets.count)
     }
 
     private func createNewFile() {
@@ -2543,14 +2543,14 @@ struct FilesSurfaceRoot: View {
                     let mapped = Self.friendlyError(error)
                     FilesEmptyState(title: mapped.title, symbol: mapped.symbol, detail: mapped.detail) {
                         if mapped.offerRoot {
-                            Button("Go to Workspace Root") { model.loadDirectory("") }
+                            Button(L("Go to Workspace Root")) { model.loadDirectory("") }
                                 .accessibilityIdentifier("files.error.goRoot")
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityIdentifier("files.emptyState.error")
                 } else if model.selectedEntry == nil {
-                    FilesEmptyState(title: "Select a file", symbol: "doc.text.magnifyingglass", detail: "Workspace files stay scoped to this root.")
+                    FilesEmptyState(title: L("Select a file"), symbol: "doc.text.magnifyingglass", detail: L("Workspace files stay scoped to this root."))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .accessibilityIdentifier("files.emptyState.select")
                 } else {
@@ -2572,7 +2572,7 @@ struct FilesSurfaceRoot: View {
                     ZStack {
                         RoundedRectangle(cornerRadius: DS.Radius.control)
                             .stroke(DS.Palette.accent, lineWidth: 2)
-                        Text("Drop to split")
+                        Text(L("Drop to split"))
                             .font(DS.Font.captionStrong)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
@@ -2597,19 +2597,19 @@ struct FilesSurfaceRoot: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(DS.Palette.warning)
             VStack(alignment: .leading, spacing: 1) {
-                Text("File changed outside MacCode")
+                Text(L("File changed outside MacCode"))
                     .font(DS.Font.bodyStrong)
-                Text("Saving is blocked until you reload. Reloading replaces your draft with the on-disk version.")
+                Text(L("Saving is blocked until you reload. Reloading replaces your draft with the on-disk version."))
                     .font(DS.Font.caption)
                     .foregroundStyle(DS.Palette.textSecondary)
                     .lineLimit(2)
             }
             Spacer(minLength: 8)
-            Button("Keep Editing") { model.conflictActive = false }
-                .help("Dismiss this notice and keep your unsaved draft")
+            Button(L("Keep Editing")) { model.conflictActive = false }
+                .help(L("Dismiss this notice and keep your unsaved draft"))
                 .accessibilityIdentifier("files.conflict.keepEditing")
-            Button("Reload from Disk") { model.discard() }
-                .help("Replace your draft with the current file on disk")
+            Button(L("Reload from Disk")) { model.discard() }
+                .help(L("Replace your draft with the current file on disk"))
                 .accessibilityIdentifier("files.conflict.reload")
         }
         .padding(.horizontal, 12)
@@ -2625,19 +2625,19 @@ struct FilesSurfaceRoot: View {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .foregroundStyle(DS.Palette.warning)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Remote changes arrived")
+                Text(L("Remote changes arrived"))
                     .font(DS.Font.bodyStrong)
-                Text("Your local edits are preserved. Load the remote version to review it, or keep editing.")
+                Text(L("Your local edits are preserved. Load the remote version to review it, or keep editing."))
                     .font(DS.Font.caption)
                     .foregroundStyle(DS.Palette.textSecondary)
                     .lineLimit(2)
             }
             Spacer(minLength: 8)
-            Button("Keep Editing") { model.dismissRemoteEditConflict() }
-                .help("Dismiss this notice and continue with your local draft")
+            Button(L("Keep Editing")) { model.dismissRemoteEditConflict() }
+                .help(L("Dismiss this notice and continue with your local draft"))
                 .accessibilityIdentifier("files.remoteConflict.keepEditing")
-            Button("Load Remote") { model.loadRemoteEdit() }
-                .help("Replace your local draft with the incoming remote version")
+            Button(L("Load Remote")) { model.loadRemoteEdit() }
+                .help(L("Replace your local draft with the incoming remote version"))
                 .accessibilityIdentifier("files.remoteConflict.loadRemote")
         }
         .padding(.horizontal, 12)
@@ -2654,7 +2654,7 @@ struct FilesSurfaceRoot: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(DS.Palette.danger)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Save failed")
+                Text(L("Save failed"))
                     .font(DS.Font.bodyStrong)
                 Text(mapped.detail)
                     .font(DS.Font.caption)
@@ -2662,11 +2662,11 @@ struct FilesSurfaceRoot: View {
                     .lineLimit(2)
             }
             Spacer(minLength: 8)
-            Button("Dismiss") { model.dismissSaveError() }
-                .help("Dismiss this error")
+            Button(L("Dismiss")) { model.dismissSaveError() }
+                .help(L("Dismiss this error"))
                 .accessibilityIdentifier("files.saveError.dismiss")
-            Button("Retry") { model.save() }
-                .help("Try saving again")
+            Button(L("Retry")) { model.save() }
+                .help(L("Try saving again"))
                 .accessibilityIdentifier("files.saveError.retry")
         }
         .padding(.horizontal, 12)
@@ -2680,11 +2680,11 @@ struct FilesSurfaceRoot: View {
     private var openTabBar: some View {
         HStack(spacing: 0) {
             if !sidebarVisible {
-                DSIconButton("sidebar.left", help: "Show file sidebar") {
+                DSIconButton("sidebar.left", help: L("Show file sidebar")) {
                     sidebarIntent = .forcedVisible
                     sidebarVisible = true
                 }
-                .accessibilityLabel("Show file sidebar")
+                .accessibilityLabel(L("Show file sidebar"))
                 .padding(.horizontal, 6)
             }
             ScrollView(.horizontal, showsIndicators: false) {
@@ -2737,9 +2737,9 @@ struct FilesSurfaceRoot: View {
                 }
                 if hasModes {
                     HStack(spacing: 0) {
-                        ForEach([("source", "chevron.left.forwardslash.chevron.right", "Source"),
-                                 ("split", "rectangle.split.2x1", "Split"),
-                                 ("preview", "eye", "Preview")], id: \.0) { mode, symbol, title in
+                        ForEach([("source", "chevron.left.forwardslash.chevron.right", L("Source")),
+                                 ("split", "rectangle.split.2x1", L("Split")),
+                                 ("preview", "eye", L("Preview"))], id: \.0) { mode, symbol, title in
                             Button { model.readerMode = mode; model.setReaderMode(mode) } label: {
                                 Image(systemName: symbol)
                                     .font(.system(size: 12))
@@ -2759,13 +2759,13 @@ struct FilesSurfaceRoot: View {
                     .accessibilityIdentifier("files.readerMode.picker")
                 }
                 if canEdit {
-                    readerActionButton("square.and.arrow.down", help: "Save (Command-S)", enabled: model.isDirty) { model.save() }
+                    readerActionButton("square.and.arrow.down", help: L("Save (Command-S)"), enabled: model.isDirty) { model.save() }
                         .keyboardShortcut("s", modifiers: .command)
-                        .accessibilityLabel("Save file")
+                        .accessibilityLabel(L("Save file"))
                         .accessibilityIdentifier("files.save.button")
-                    readerActionButton("arrow.uturn.backward", help: "Discard unsaved changes (Command-Delete)", enabled: model.isDirty) { confirmDiscard = true }
+                    readerActionButton("arrow.uturn.backward", help: L("Discard unsaved changes (Command-Delete)"), enabled: model.isDirty) { confirmDiscard = true }
                         .keyboardShortcut(.delete, modifiers: .command)
-                        .accessibilityLabel("Discard unsaved changes")
+                        .accessibilityLabel(L("Discard unsaved changes"))
                         .accessibilityIdentifier("files.discard.button")
                 }
             }
@@ -2817,8 +2817,8 @@ struct FilesSurfaceRoot: View {
                     hoveredCloseTabID = nil
                 }
             }
-            .help("Close \(entry.name)")
-            .accessibilityLabel(isDirty ? "Close \(entry.name), Unsaved changes" : "Close \(entry.name)")
+            .help(L("Close %1$@", entry.name))
+            .accessibilityLabel(isDirty ? L("Close %1$@, Unsaved changes", entry.name) : L("Close %1$@", entry.name))
             .accessibilityIdentifier("files.tab.close.\(entry.relativePath)")
         }
         .padding(.leading, 10) // vscode: tab padding-left 10
@@ -2876,7 +2876,7 @@ struct FilesSurfaceRoot: View {
                         let target = segments[0...index].joined(separator: "/")
                         model.reveal(relativePath: target)
                     }
-                    .help(isLast ? segment : "Reveal \(segment) in the explorer")
+                    .help(isLast ? segment : L("Reveal %1$@ in the explorer", segment))
                     .accessibilityAddTraits(.isButton)
                 }
             }
@@ -3017,9 +3017,9 @@ struct FilesSurfaceRoot: View {
             }
             Spacer(minLength: 8)
             if isText {
-                Text("Ln \(model.caretLine), Col \(model.caretColumn)")
+                Text(L("Ln %1$@, Col %2$@", model.caretLine, model.caretColumn))
                     .accessibilityIdentifier("files.status.cursor")
-                Text("Spaces: 4")
+                Text(L("Spaces: 4"))
                 Text(model.encodingLabel)
                     .accessibilityIdentifier("files.status.encoding")
                 Text(model.lineEnding)
@@ -3028,7 +3028,7 @@ struct FilesSurfaceRoot: View {
                     .accessibilityIdentifier("files.status.language")
                 HStack(spacing: 3) {
                     Image(systemName: "sparkles")
-                    Text(inlineSuggestionsEnabled ? model.inlineSuggestionState.label : "AI Off")
+                    Text(inlineSuggestionsEnabled ? model.inlineSuggestionState.label : L("AI Off"))
                 }
                 .foregroundStyle(model.inlineCompletionProvider != nil ? VSCodeTheme.statusBarForeground : VSCodeTheme.statusBarForeground.opacity(0.5))
                 .accessibilityIdentifier("files.status.ai")
@@ -3063,19 +3063,19 @@ private struct LargeMediaGuard<Content: View>: View {
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 28))
                     .foregroundStyle(DS.Palette.textTertiary)
-                Text("Large file")
+                Text(L("Large file"))
                     .font(DS.Font.title3)
-                Text("\(ByteCountFormatter.string(fromByteCount: Int64(entry.size), countStyle: .file)) - loading it in MacCode may be slow.")
+                Text(L("%1$@ - loading it in MacCode may be slow.", ByteCountFormatter.string(fromByteCount: Int64(entry.size), countStyle: .file)))
                     .font(DS.Font.bodyDense)
                     .foregroundStyle(DS.Palette.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 360)
                 HStack(spacing: 8) {
-                    Button("Open Externally") {
+                    Button(L("Open Externally")) {
                         if let url { NSWorkspace.shared.open(url) }
                     }
                     .accessibilityIdentifier("files.largeMedia.openExternal")
-                    Button("Load Anyway") { loadAnyway = true }
+                    Button(L("Load Anyway")) { loadAnyway = true }
                         .accessibilityIdentifier("files.largeMedia.loadAnyway")
                 }
             }
@@ -3103,7 +3103,7 @@ private struct ImagePreview: View {
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .background(DS.Palette.bg)
             } else if failed {
-                FilesEmptyState(title: "Image unavailable", symbol: "photo", detail: "")
+                FilesEmptyState(title: L("Image unavailable"), symbol: "photo", detail: "")
             } else {
                 ProgressView()
                     .controlSize(.small)
@@ -3149,7 +3149,7 @@ private struct DisketteIcon: View {
             .frame(width: rect.width, height: rect.height)
             .position(x: rect.midX, y: rect.midY)
         }
-        .accessibilityLabel("Save")
+        .accessibilityLabel(L("Save"))
     }
 }
 
@@ -3203,7 +3203,7 @@ private struct VideoPreview: View {
                 VideoPlayer(player: holder.player)
                     .background(DS.Palette.bg)
             } else {
-                FilesEmptyState(title: "Video unavailable", symbol: "play.rectangle", detail: "")
+                FilesEmptyState(title: L("Video unavailable"), symbol: "play.rectangle", detail: "")
             }
         }
         // Reuse a single AVPlayer across layout passes and swap its item only when the URL
@@ -3291,11 +3291,11 @@ private struct BinaryMetadataView: View {
             }
             // Escape hatch to the real file for binaries RemoteCode can't render (UX-MAC_FILES-009).
             HStack(spacing: 8) {
-                Button("Reveal in Finder") {
+                Button(L("Reveal in Finder")) {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: entry.path)])
                 }
                 .accessibilityIdentifier("files.binary.reveal")
-                Button("Open with Default App") {
+                Button(L("Open with Default App")) {
                     NSWorkspace.shared.open(URL(fileURLWithPath: entry.path))
                 }
                 .accessibilityIdentifier("files.binary.openExternal")
@@ -4492,13 +4492,13 @@ final class CodeEditorTextView: NSTextView {
     /// Ctrl+G — small prompt for a line number.
     func promptGoToLine() {
         let alert = NSAlert()
-        alert.messageText = "Go to Line"
-        alert.informativeText = "Enter a line number."
+        alert.messageText = L("Go to Line")
+        alert.informativeText = L("Enter a line number.")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        field.placeholderString = "Line"
+        field.placeholderString = L("Line")
         alert.accessoryView = field
-        alert.addButton(withTitle: "Go")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L("Go"))
+        alert.addButton(withTitle: L("Cancel"))
         alert.window.initialFirstResponder = field
         let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard response == .alertFirstButtonReturn, let line = Int(field.stringValue.trimmingCharacters(in: .whitespaces)) else { return }
