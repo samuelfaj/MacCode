@@ -116,7 +116,7 @@ enum FileCompletionEngine {
             return [
                 FileCompletionItem("guard let", insert: "guard let ", kind: .snippet, detail: L("Snippet")),
                 FileCompletionItem("if let", insert: "if let ", kind: .snippet, detail: L("Snippet")),
-                FileCompletionItem("DispatchQueue.main.async", insert: "DispatchQueue.main.async { }", kind: .snippet, detail: "Snippet"),
+                FileCompletionItem("DispatchQueue.main.async", insert: "DispatchQueue.main.async { }", kind: .snippet, detail: L("Snippet")),
             ]
         case "typescript", "javascript":
             return [

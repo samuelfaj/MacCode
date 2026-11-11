@@ -1099,7 +1099,7 @@ struct ActivityRootView: View {
                 Spacer(minLength: DS.Space.md)
                 // Fixed slot: the spinner must not move the header when it appears.
                 ZStack {
-                    if model.loading || model.batchRunning { DSBusySpinner(label: "Updating activity", identifier: "activity.busy") }
+                    if model.loading || model.batchRunning { DSBusySpinner(label: L("Updating activity"), identifier: "activity.busy") }
                 }.frame(width: 16, height: 16)
                 bulkActions
             }
@@ -1128,7 +1128,7 @@ struct ActivityRootView: View {
     private var filterMenus: some View {
         filterMenu(
             icon: "folder", title: workspaces.first { $0.id == model.workspaceID }?.name ?? L("All workspaces"),
-            active: !model.workspaceID.isEmpty, label: "Workspace", identifier: "activity.filter.workspace"
+            active: !model.workspaceID.isEmpty, label: L("Workspace"), identifier: "activity.filter.workspace"
         ) {
             menuOption(L("All workspaces"), selected: model.workspaceID.isEmpty) { model.workspaceID = "" }
             Divider()
@@ -1136,14 +1136,14 @@ struct ActivityRootView: View {
                 menuOption(workspace.name, selected: model.workspaceID == workspace.id) { model.workspaceID = workspace.id }
             }
         }
-        filterMenu(icon: "clock", title: model.period.title, active: model.period != .all, label: "Period", identifier: "activity.filter.period") {
+        filterMenu(icon: "clock", title: model.period.title, active: model.period != .all, label: L("Period"), identifier: "activity.filter.period") {
             ForEach(ActivityViewModel.Period.allCases) { period in
                 menuOption(period.title, selected: model.period == period) { model.period = period }
             }
         }
         if model.tab == .finished {
             filterMenu(icon: "line.3.horizontal.decrease", title: Self.outcomeTitle(model.outcome), active: !model.outcome.isEmpty,
-                       label: "Outcome", identifier: "activity.filter.outcome") {
+                       label: L("Outcome"), identifier: "activity.filter.outcome") {
                 ForEach(Self.outcomes, id: \.value) { outcome in
                     menuOption(outcome.title, selected: model.outcome == outcome.value) { model.outcome = outcome.value }
                 }
@@ -1728,7 +1728,7 @@ extension ActivityViewModel {
             buckets[key, default: []].append(item)
         }
         var sections = order.map { ItemSection(id: $0, title: names[$0] ?? L("Workspace"), items: buckets[$0] ?? []) }
-        if !unassigned.isEmpty { sections.append(ItemSection(id: "", title: "No workspace", items: unassigned)) }
+        if !unassigned.isEmpty { sections.append(ItemSection(id: "", title: L("No workspace"), items: unassigned)) }
         return sections
     }
 

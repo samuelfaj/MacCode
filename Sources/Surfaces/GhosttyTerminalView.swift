@@ -2510,7 +2510,7 @@ final class GhosttyTerminalView: NSView {
     /// Human-readable HUD text for a zoom delta. Pure, nonisolated for tests.
     nonisolated static func fontZoomHUDText(for delta: Int) -> String {
         if delta == 0 { return "Font: Base" }
-        return delta > 0 ? "Font: +\(delta)pt" : "Font: \(delta)pt"
+        return delta > 0 ? L("Font: +%1$@pt", delta) : L("Font: %1$@pt", delta)
     }
 
     private func makeFontZoomHUD() -> NSTextField {

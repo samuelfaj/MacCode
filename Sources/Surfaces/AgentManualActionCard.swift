@@ -196,7 +196,7 @@ struct AgentManualActionCard: View {
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
             }
-            Text(request.reason)
+            Text(request.reason == ManualActionRequest.defaultReason ? L("The bot asked you to take over") : request.reason)
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.text)
             if let ref = request.screenshotRef, FileManager.default.fileExists(atPath: ref),

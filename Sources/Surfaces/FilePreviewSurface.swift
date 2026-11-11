@@ -459,12 +459,12 @@ public final class FilePreviewSurface: NSObject, Surface {
         let clipped = Data(data.prefix(limit))
         if var content = String(data: clipped, encoding: .utf8) {
             if data.count > limit {
-                content += "\n\n[preview truncated after \(limit) bytes]"
+                content += "\n\n" + L("[preview truncated after %1$@ bytes]", limit)
             }
             return content
         }
         let suffix = data.count > limit ? "at least " : ""
-        return "[binary file, \(suffix)\(data.count) bytes]"
+        return L("[binary file, %1$@%2$@ bytes]", suffix, data.count)
     }
 
     private func renderQuickLook(path: String) {

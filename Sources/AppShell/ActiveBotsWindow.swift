@@ -72,7 +72,7 @@ public struct FinishedBotScreenItem: Identifiable, Equatable, Sendable {
         self.runID = run.id
         self.botID = bot.id
         let safeTitle = bot.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.title = safeTitle.isEmpty ? "Bot" : safeTitle
+        self.title = safeTitle.isEmpty ? L("Bot") : safeTitle
         let provider = PetActiveThreadProjector.providerLabel(run.provider)
         let model = run.model.isEmpty ? provider : "\(provider) · \(run.model)"
         let convo = conversationTitle.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -146,7 +146,7 @@ struct ChromeExtensionSettingsSection: View {
                 VStack(alignment: .leading, spacing: DS.Space.xl) {
                     Divider().overlay(DS.Palette.line)
                     instruction("1", title: L("Prepare the extension"), detail: L("Click Set Up Chrome Extension. MacCode prepares the files and opens Finder and Chrome's extensions page."))
-                    instruction("2", title: L("Enable Developer mode"), detail: "In Chrome, choose the profile you want to connect. Turn on Developer mode at the top right of chrome://extensions.")
+                    instruction("2", title: L("Enable Developer mode"), detail: L("In Chrome, choose the profile you want to connect. Turn on Developer mode at the top right of chrome://extensions."))
                     instruction("3", title: L("Choose Load unpacked"), detail: L("Select the extension folder shown in Finder, not a file inside it. Confirm MacCode Computer Use is enabled and review any Chrome permission prompts."))
                     instruction("4", title: L("Check the connection"), detail: L("Return to MacCode and click Check Connection. If disconnected, click MacCode Computer Use in Chrome's Extensions menu once, then check again. Continue becomes available when Chrome replies."))
                 }

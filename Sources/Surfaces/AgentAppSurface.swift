@@ -13331,7 +13331,7 @@ public struct AgentAppView: View {
         L("Send a prompt to start a Distill thread.")
 
     static func attachmentRemovalAccessibilityLabel(path: String) -> String {
-        "Remove attachment \((path as NSString).lastPathComponent)"
+        L("Remove attachment %1$@", (path as NSString).lastPathComponent)
     }
 
     /// Pure seam: checkpoint revert always needs a destructive confirmation.
@@ -16334,7 +16334,7 @@ public struct AgentAppView: View {
 
     static func newThreadFAB(layout: AgentAppViewLayout, vm: AgentAppViewModel) -> AgentChatNewThreadFAB? {
         guard layout == .standard else { return nil }
-        return AgentChatNewThreadFAB(help: "New thread (⌘N)", identifier: "agent.thread.new.fab") {
+        return AgentChatNewThreadFAB(help: L("New thread (⌘N)"), identifier: "agent.thread.new.fab") {
             vm.createThread(title: "New thread")
         }
     }

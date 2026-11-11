@@ -2400,7 +2400,7 @@ struct FilesSurfaceRoot: View {
                         newFolderName = ""
                         showNewFolderDialog = true
                     }
-                    explorerAction("arrow.clockwise", label: "Refresh", id: "files.refresh.button") {
+                    explorerAction("arrow.clockwise", label: L("Refresh"), id: "files.refresh.button") {
                         model.refreshTree()
                     }
                     explorerAction("rectangle.compress.vertical", label: L("Collapse folders"), id: "files.collapseAll.button") {

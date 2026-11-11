@@ -1807,7 +1807,7 @@ public enum AgentThreadTitle {
 
     public static func display(_ title: String, limit: Int = displayLimit) -> String {
         // The stored placeholder stays English (other code matches on it); show it translated.
-        let title = isPlaceholder(title) && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? L(defaultTitle) : title
+        let title = isPlaceholder(title) && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? L("New thread") : title
         guard title.count > limit else { return title }
         return String(title.prefix(max(0, limit))) + "..."
     }

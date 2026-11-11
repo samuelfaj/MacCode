@@ -2235,7 +2235,7 @@ private final class OrphanWindowAttachHandler: NSObject {
             btn.addItem(withTitle: L("Attach Workspace..."))
             btn.item(at: 0)?.isEnabled = false
             for ws in workspaces {
-                let item = NSMenuItem(title: ws.name.isEmpty ? "Untitled" : ws.name, action: nil, keyEquivalent: "")
+                let item = NSMenuItem(title: ws.name.isEmpty ? L("Untitled") : ws.name, action: nil, keyEquivalent: "")
                 item.representedObject = ws.id
                 btn.menu?.addItem(item)
             }

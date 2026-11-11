@@ -332,14 +332,14 @@ public final class CommandPalette: NSObject, NSWindowDelegate, NSTableViewDataSo
             let scriptCap = 12
             let scripts = cachedScripts(cwd: router.context?.state.workspaces[wid]?.cwd ?? "")
             for (i, s) in scripts.enumerated() {
-                cmds.append(PaletteCommand(id: "project.run.\(s.name)", title: "Run: \(s.name)", subtitle: "\(s.command) · \(s.source)", keywords: ["run", "script", "task", s.name], defaultHidden: i >= scriptCap, category: .project, iconName: "play.circle") {
+                cmds.append(PaletteCommand(id: "project.run.\(s.name)", title: L("Run: %1$@", s.name), subtitle: "\(s.command) · \(s.source)", keywords: ["run", "script", "task", s.name], defaultHidden: i >= scriptCap, category: .project, iconName: "play.circle") {
                     _ = try? router.projectRunScript(workspace: wid, name: s.name)
                 })
             }
             // UX-005: when the default view hides scripts, show an overflow row
             // that reveals the rest (typing reaches them anyway via UX-006).
-            appendOverflowRow(&cmds, hiddenCount: scripts.count - scriptCap, id: "project.run.more", noun: "scripts", category: .project)
-            cmds.append(PaletteCommand(id: "project.open_in_editor", title: "Open Workspace in Editor", subtitle: "Cursor / VS Code / Zed / Xcode", keywords: ["open", "editor", "code", "cursor", "zed"], category: .project, iconName: "chevron.left.forwardslash.chevron.right") {
+            appendOverflowRow(&cmds, hiddenCount: scripts.count - scriptCap, id: "project.run.more", noun: L("scripts"), category: .project)
+            cmds.append(PaletteCommand(id: "project.open_in_editor", title: L("Open Workspace in Editor"), subtitle: "Cursor / VS Code / Zed / Xcode", keywords: ["open", "editor", "code", "cursor", "zed"], category: .project, iconName: "chevron.left.forwardslash.chevron.right") {
                 _ = try? router.projectOpenInEditor(workspace: wid)
             })
 
@@ -368,32 +368,32 @@ public final class CommandPalette: NSObject, NSWindowDelegate, NSTableViewDataSo
                 // UX-006: add the full catalog; cap only the default view.
                 let modelCap = 12
                 for (i, m) in vm.availableModels.enumerated() {
-                    cmds.append(PaletteCommand(id: "agent.model.\(m.id)", title: "Agent: Model → \(m.label)", subtitle: Self.currentSubtitle(m.provider.rawValue, isCurrent: m.id == currentModel), keywords: ["model", "switch", m.id, m.label.lowercased()], defaultHidden: i >= modelCap, category: .agent, iconName: "cube") {
+                    cmds.append(PaletteCommand(id: "agent.model.\(m.id)", title: L("Agent: Model → %1$@", m.label), subtitle: Self.currentSubtitle(m.provider.rawValue, isCurrent: m.id == currentModel), keywords: ["model", "switch", m.id, m.label.lowercased()], defaultHidden: i >= modelCap, category: .agent, iconName: "cube") {
                         vm.model = m.id
                     })
                 }
-                appendOverflowRow(&cmds, hiddenCount: vm.availableModels.count - modelCap, id: "agent.model.more", noun: "models", category: .agent)
+                appendOverflowRow(&cmds, hiddenCount: vm.availableModels.count - modelCap, id: "agent.model.more", noun: L("models"), category: .agent)
                 let threadCap = 9
                 for (i, t) in vm.threads.enumerated() {
                     let n = i + 1
-                    cmds.append(PaletteCommand(id: "agent.thread.jump.\(n)", title: "Agent: Jump to \(t.title)", subtitle: Self.currentSubtitle("Thread \(n) · \(t.provider.rawValue)", isCurrent: t.id == currentThread), keywords: ["thread", "jump", "\(n)"], defaultHidden: i >= threadCap, category: .agent, iconName: "bubble.left.and.bubble.right") {
+                    cmds.append(PaletteCommand(id: "agent.thread.jump.\(n)", title: L("Agent: Jump to %1$@", AgentThreadTitle.display(t.title)), subtitle: Self.currentSubtitle(L("Thread %1$@ · %2$@", n, t.provider.rawValue), isCurrent: t.id == currentThread), keywords: ["thread", "jump", "\(n)"], defaultHidden: i >= threadCap, category: .agent, iconName: "bubble.left.and.bubble.right") {
                         vm.selectThread(t.id)
                     })
                 }
-                appendOverflowRow(&cmds, hiddenCount: vm.threads.count - threadCap, id: "agent.thread.more", noun: "threads", category: .agent)
+                appendOverflowRow(&cmds, hiddenCount: vm.threads.count - threadCap, id: "agent.thread.more", noun: L("threads"), category: .agent)
             }
         }
         // Jump to any workspace (sidebar navigation parity).
         if let ctx = router.context {
             for ws in ctx.state.window.workspaces.compactMap({ ctx.state.workspaces[$0] }) {
-                cmds.append(PaletteCommand(id: "workspace.jump.\(ws.id.value.uuidString)", title: "Switch to: \(ws.name)", subtitle: "Workspace · \(ws.cwd)", keywords: ["workspace", "switch", "jump", ws.name.lowercased()], category: .navigation, iconName: "arrow.right.circle") {
+                cmds.append(PaletteCommand(id: "workspace.jump.\(ws.id.value.uuidString)", title: L("Switch to: %1$@", ws.name), subtitle: L("Workspace · %1$@", ws.cwd), keywords: ["workspace", "switch", "jump", ws.name.lowercased()], category: .navigation, iconName: "arrow.right.circle") {
                     try? router.selectWorkspace(ws.id)
                 })
             }
         }
-        cmds.append(PaletteCommand(id: "session.save", title: "Save Session Snapshot", keywords: ["snapshot", "session"], category: .app, iconName: "camera") { router.context?.saveSnapshot() })
+        cmds.append(PaletteCommand(id: "session.save", title: L("Save Session Snapshot"), keywords: ["snapshot", "session"], category: .app, iconName: "camera") { router.context?.saveSnapshot() })
         // UX-011: Quit is destructive - red tint + de-prioritized in ranking.
-        cmds.append(PaletteCommand(id: "app.quit", title: "Quit MacCode", keywords: ["exit", "quit"], shortcut: "⌘Q", category: .app, iconName: "power", destructive: true) { NSApp.terminate(nil) })
+        cmds.append(PaletteCommand(id: "app.quit", title: L("Quit MacCode"), keywords: ["exit", "quit"], shortcut: "⌘Q", category: .app, iconName: "power", destructive: true) { NSApp.terminate(nil) })
         self.all = cmds
         applyFilter(currentQuery)
     }

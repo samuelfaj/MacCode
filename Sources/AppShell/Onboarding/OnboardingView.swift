@@ -219,7 +219,7 @@ struct OnboardingStepper: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(step.index > reachable.index)
-                .accessibilityLabel(L("Step %1$@ of %2$@, %3$@%4$@", step.index + 1, OnboardingStep.allCases.count, step.title, isDone ? ", done" : ""))
+                .accessibilityLabel(L("Step %1$@ of %2$@, %3$@%4$@", step.index + 1, OnboardingStep.allCases.count, step.title, isDone ? L(", done") : ""))
                 .accessibilityAddTraits(isCurrent ? .isSelected : [])
                 if step != OnboardingStep.allCases.last {
                     Capsule()

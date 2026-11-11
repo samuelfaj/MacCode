@@ -38,7 +38,7 @@ public enum DistillLoopPresentation {
 
     public static func pausedText(_ loop: DistillLoopState) -> String {
         guard let reason = loop.pausedReason, !reason.isEmpty else { return L("Paused") }
-        return L("Paused · %1$@", reason)
+        return L("Paused · %1$@", reason == DistillLoopReducer.shutdownPausedReason ? L("MacCode restarted the agent; resuming…") : reason)
     }
 
     public static func accessibilityLabel(_ loop: DistillLoopState, now: Date) -> String {

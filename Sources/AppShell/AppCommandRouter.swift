@@ -1456,7 +1456,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         case .pane(var p):
             p.surfaces = p.surfaces.map { d in
                 let new = idMap[d.id] ?? d.id
-                return SurfaceDescriptor(id: new, type: d.type, title: d.type == .files ? "Files" : d.title, iconName: d.iconName,
+                return SurfaceDescriptor(id: new, type: d.type, title: d.type == .files ? L("Files") : d.title, iconName: d.iconName,
                                           isDirty: d.isDirty, hasUnreadActivity: d.hasUnreadActivity, metadata: d.metadata)
             }
             if let sel = p.selectedSurfaceID { p.selectedSurfaceID = idMap[sel] ?? sel }
@@ -2095,7 +2095,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             workspace: workspace,
             type: .terminal,
             paneID: nil,
-            title: "Sign in: \(provider.rawValue.capitalized)"
+            title: L("Sign in: %1$@", provider.rawValue.capitalized)
         )
         try focusSurface(workspace: workspace, surface: descriptor.id)
         let input = Self.providerSignInTerminalInput(for: provider)
@@ -2382,7 +2382,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
            let listed = try? WorkspaceFileService().list(root: cwd, path: path).objectValue,
            let relativePath = listed["relative_path"]?.stringValue {
             let title = (relativePath as NSString).lastPathComponent
-            return (relativePath, title.isEmpty ? "Files" : title)
+            return (relativePath, title.isEmpty ? L("Files") : title)
         }
         guard let cwd = try? workspaceCwd(workspace) else { return nil }
         let root = (cwd as NSString).standardizingPath
@@ -2393,7 +2393,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         guard target.hasPrefix(root + "/") else { return nil }
         let relativePath = String(target.dropFirst(root.count + 1))
         let title = (relativePath as NSString).lastPathComponent
-        return (relativePath, title.isEmpty ? "Files" : title)
+        return (relativePath, title.isEmpty ? L("Files") : title)
     }
 
     /// Layout-descriptor mutation (title/metadata) for an existing surface,
@@ -9163,7 +9163,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             throw JSONRPCError(code: -32602, message: "file path unavailable", data: .string(path))
         }
         let title = (relativePath as NSString).lastPathComponent
-        return (relativePath, title.isEmpty ? "Files" : title)
+        return (relativePath, title.isEmpty ? L("Files") : title)
     }
 
     public func gitStatus(workspace: WorkspaceID) throws -> GitSummary {

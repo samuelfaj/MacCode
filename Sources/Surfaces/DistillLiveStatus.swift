@@ -71,7 +71,7 @@ public struct DistillLiveStatus: Equatable, Sendable {
         public var isActive: Bool { status == "active" }
 
         /// "Goal: <objective> — <phase>"
-        public var headline: String { "Goal: \(objective) — \(phase)" }
+        public var headline: String { L("Goal: %1$@ — %2$@", objective, phase) }
 
         /// "12k / 100k" or "12k" without a budget.
         public var tokensText: String {
@@ -258,7 +258,7 @@ public struct DistillLiveStatus: Equatable, Sendable {
             case "loading_configuration": label = L("Loading configuration")
             case "preparing_session": label = L("Preparing conversation")
             case "waiting_model": label = L("Waiting for model")
-            case "executing_tool": label = "Running tool"
+            case "executing_tool": label = L("Running tool")
             case "waiting_authorization": label = L("Waiting for authorization")
             default: return
             }

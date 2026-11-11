@@ -19,7 +19,7 @@ public enum OnboardingStep: String, Codable, CaseIterable, Sendable {
     public var index: Int { Self.allCases.firstIndex(of: self) ?? 0 }
     public var next: OnboardingStep? { Self.allCases.dropFirst(index + 1).first }
     public var previous: OnboardingStep? { index == 0 ? nil : Self.allCases[index - 1] }
-    public var eyebrow: String { "Step \(index + 1) of \(Self.allCases.count)" }
+    public var eyebrow: String { L("Step %1$@ of %2$@", index + 1, Self.allCases.count) }
 
     /// Version 3 steps, folded into the current ones. A current step counts as
     /// done only when every legacy step it replaced was done.

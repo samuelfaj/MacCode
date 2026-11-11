@@ -14950,7 +14950,7 @@ public struct BotsRootView: View {
                             attentionBadge(vm.activityState(for: bot))
                                 .layoutPriority(1)
                             if vm.liveRosterBotIDs.contains(bot.id) {
-                                DSBusySpinner(label: "Running", identifier: "bots.desk.running")
+                                DSBusySpinner(label: L("Running"), identifier: "bots.desk.running")
                             }
                         }
                         HStack(spacing: DS.Space.sm) {
