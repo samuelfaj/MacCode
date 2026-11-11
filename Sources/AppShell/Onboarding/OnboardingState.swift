@@ -4,10 +4,11 @@ import Persistence
 
 /// The first-run setup steps, in order.
 public enum OnboardingStep: String, Codable, CaseIterable, Sendable {
-    case setup, permissions, chrome, accounts, project
+    case signIn, setup, permissions, chrome, accounts, project
 
     public var title: String {
         switch self {
+        case .signIn: return L("Sign in")
         case .setup: return L("Setup")
         case .permissions: return L("Permissions")
         case .chrome: return L("Chrome")
@@ -24,6 +25,8 @@ public enum OnboardingStep: String, Codable, CaseIterable, Sendable {
     /// Version 3 steps, folded into the current ones. A current step counts as
     /// done only when every legacy step it replaced was done.
     static let legacyGroups: [(OnboardingStep, [String])] = [
+        // Sign-in is never inherited from saved progress; the session decides it.
+        (.signIn, ["signIn"]),
         (.setup, ["distill", "tools"]),
         (.permissions, ["permissions"]),
         (.chrome, ["basics", "chrome"]),
@@ -61,7 +64,7 @@ public struct OnboardingState: Codable, Equatable, Sendable {
 
     public var version = 4
     public var status: Status = .inProgress
-    public var step: OnboardingStep = .setup
+    public var step: OnboardingStep = .signIn
     public var completedSteps: Set<OnboardingStep> = []
     public var skippedSteps: Set<OnboardingStep> = []
     public var createDeveloper = true
@@ -80,7 +83,7 @@ public struct OnboardingState: Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let saved = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
         status = try c.decodeIfPresent(Status.self, forKey: .status) ?? .inProgress
-        step = try c.decodeIfPresent(OnboardingStep.self, forKey: .step) ?? .setup
+        step = try c.decodeIfPresent(OnboardingStep.self, forKey: .step) ?? .signIn
         createDeveloper = try c.decodeIfPresent(Bool.self, forKey: .createDeveloper) ?? true
         developerName = try c.decodeIfPresent(String.self, forKey: .developerName) ?? OnboardingDeveloperTemplate.defaultName
         workspaceID = try c.decodeIfPresent(WorkspaceID.self, forKey: .workspaceID)
@@ -138,13 +141,14 @@ public final class OnboardingStateStore {
 public enum OnboardingGate {
     /// Only completion or an explicit Skip setup dismisses first-run setup.
     /// Existing projects/accounts do not prove the setup was handled.
+    /// MacCode never starts signed out: without a session setup always opens.
     public static func launchDecision(
         saved: OnboardingState?,
         hasWorkspaces: Bool,
         hasAccountSession: Bool
     ) -> (present: Bool, stateToSave: OnboardingState?) {
         if var saved {
-            if saved.status == .completed || saved.status == .skipped { return (false, nil) }
+            if saved.status == .completed || saved.status == .skipped { return (!hasAccountSession, nil) }
             if saved.status != .inProgress {
                 saved.status = .inProgress
                 return (true, saved)

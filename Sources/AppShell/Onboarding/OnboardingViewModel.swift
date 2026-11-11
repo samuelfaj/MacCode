@@ -64,9 +64,22 @@ public final class OnboardingViewModel: ObservableObject {
             state.completedSteps.remove(.project)
         }
         if let id = state.developerBotID, !services.botExists(id) { state.developerBotID = nil }
+        let email = services.signedInUser()?.email
+        // Sign-in is mandatory and always first: a session completes it, its absence reopens it.
+        if email != nil {
+            state.complete(.signIn)
+            if state.step == .signIn { state.step = .setup }
+        } else {
+            state.completedSteps.remove(.signIn)
+            state.skippedSteps.remove(.signIn)
+            state.step = .signIn
+        }
         self.state = state
-        signedInEmail = services.signedInUser()?.email
+        signedInEmail = email
+        if state != initial { _ = store.save(state) }
     }
+
+    public var isSignedIn: Bool { signedInEmail != nil }
 
     public var accounts: DistillAccountsController { services.accountsController }
 
@@ -90,6 +103,7 @@ public final class OnboardingViewModel: ObservableObject {
     }
 
     public func skip(_ step: OnboardingStep) {
+        guard step != .signIn else { return }
         direction = 1
         update {
             $0.skip(step)
@@ -110,6 +124,7 @@ public final class OnboardingViewModel: ObservableObject {
     }
 
     public func skipSetup() {
+        guard isSignedIn else { return }
         update { $0.status = .skipped }
         guard persistenceError == nil else { return }
         close()
@@ -172,6 +187,9 @@ public final class OnboardingViewModel: ObservableObject {
                 : try await services.signIn(email: trimmed, password: password)
             password = ""
             signedInEmail = user.email
+            if state.step == .signIn { advance(completing: .signIn) } else { update { $0.complete(.signIn) } }
+            // A finished setup reopened only for sign-in closes once signed in.
+            if state.status == .completed || state.status == .skipped { close() }
         } catch {
             accountError = Self.accountErrorMessage(error, creating: creatingAccount)
         }
@@ -300,6 +318,7 @@ public final class OnboardingViewModel: ObservableObject {
                 }
             }
             update { $0.complete(.project) }
+            services.openInBrowser(OnboardingFollow.url)
         } catch {
             finishError = L("Could not finish setup: %1$@", error.localizedDescription)
         }

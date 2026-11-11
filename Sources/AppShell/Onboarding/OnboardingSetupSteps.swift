@@ -66,8 +66,7 @@ struct OnboardingSetupStep: View {
 struct OnboardingPermissionsStep: View {
     @ObservedObject var vm: OnboardingViewModel
     @State private var permissions = ComputerUsePermissionBroker.snapshot()
-    @State private var folderResults: [HostFileAccessProbeResult] = []
-    @State private var checkingFolders = false
+    @State private var fullDiskAccess = HostFileAccessProber.hasFullDiskAccess()
 
     var body: some View {
         OnboardingStepLayout(
@@ -84,25 +83,10 @@ struct OnboardingPermissionsStep: View {
                     _ = ComputerUsePermissionBroker.Requesters.live.requestScreenCapture()
                     openPrivacy("Privacy_ScreenCapture")
                 }
-                VStack(alignment: .leading, spacing: DS.Space.md) {
-                    Text(L("Project folders & Full Disk Access")).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
-                    Text(L("Opening a project may ask for Desktop, Documents, Downloads or external volumes. Full Disk Access can reduce repeated prompts. A settings button does not grant access."))
-                        .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button(HostFileAccessCopy.openFullDiskAccessButton) {
-                        NSWorkspace.shared.open(HostFileAccessSystemSettings.fullDiskAccessSettingsURL)
-                    }.buttonStyle(DSSecondaryButtonStyle())
-                    Button(checkingFolders ? "Checking…" : HostFileAccessCopy.requestAccessButton) {
-                        checkingFolders = true
-                        Task {
-                            folderResults = await Task.detached { HostFileAccessProber.probeStandardTargets() }.value
-                            checkingFolders = false
-                        }
-                    }.buttonStyle(.link).disabled(checkingFolders)
-                    ForEach(folderResults, id: \.target) { result in
-                        Text(L("%1$@: %2$@", result.target.title, result.outcome.rawValue))
-                            .font(DS.Font.caption).foregroundColor(result.outcome == .denied ? DS.Palette.warning : DS.Palette.textSecondary)
-                    }
+                permission(L("Project folders & Full Disk Access"),
+                           detail: L("Opening a project may ask for Desktop, Documents, Downloads or external volumes. Full Disk Access avoids repeated prompts."),
+                           granted: fullDiskAccess) {
+                    NSWorkspace.shared.open(HostFileAccessSystemSettings.fullDiskAccessSettingsURL)
                 }
             }
         } illustration: {
@@ -124,7 +108,14 @@ struct OnboardingPermissionsStep: View {
                 .accessibilityHint(L("Continue after reviewing permissions. This does not grant access."))
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            permissions = ComputerUsePermissionBroker.snapshot()
+            refreshPermissions()
+        }
+        // Grants made in System Settings show up here without a button press.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                refreshPermissions()
+            }
         }
     }
 
@@ -144,7 +135,12 @@ struct OnboardingPermissionsStep: View {
 
     private func openPrivacy(_ pane: String) {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")!)
+        refreshPermissions()
+    }
+
+    private func refreshPermissions() {
         permissions = ComputerUsePermissionBroker.snapshot()
+        fullDiskAccess = HostFileAccessProber.hasFullDiskAccess()
     }
 }
 

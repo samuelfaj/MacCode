@@ -1086,6 +1086,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if let onboarding = onboardingController, !onboarding.viewModel.isSignedIn {
+            onboarding.show()
+            return false
+        }
         if !flag {
             windowController?.show()
         }

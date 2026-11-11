@@ -25,19 +25,7 @@ struct OnboardingChromeStep: View {
                 }
             }
         } illustration: {
-            OnboardingPanel {
-                VStack(alignment: .leading, spacing: DS.Space.xxl) {
-                    OnboardingTitioImage(size: 140)
-                    Text(L("Your profile. Your choice."))
-                        .font(DS.Font.title2).foregroundColor(DS.Palette.text)
-                    Text(L("Choose the Chrome profile with the website logins you want agents to use. Review Chrome's permission prompts before enabling the extension."))
-                        .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(L("Selecting an automated tab gives control back to you. You can disable the extension later in Chrome."))
-                        .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            OnboardingChromeGuideAnimation()
         } footer: {
             OnboardingBackButton(vm: vm)
             Spacer()

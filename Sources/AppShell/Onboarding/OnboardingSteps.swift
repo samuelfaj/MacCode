@@ -5,9 +5,43 @@ import CoreModel
 import DesignSystemKit
 import Surfaces
 
-// MARK: 4 · AI accounts
+// MARK: 1 · Sign in
 
-/// The optional MacCode account: links this Mac, the iPhone and settings.
+/// MacCode requires an account; this step cannot be skipped.
+struct OnboardingSignInStep: View {
+    @ObservedObject var vm: OnboardingViewModel
+
+    var body: some View {
+        OnboardingStepLayout(
+            eyebrow: OnboardingStep.signIn.eyebrow,
+            title: L("Sign in to MacCode."),
+            subtitle: L("A MacCode account links this Mac, your iPhone and your settings. You need one to use MacCode.")
+        ) {
+            OnboardingAccountSection(vm: vm)
+        } illustration: {
+            OnboardingPanel {
+                VStack(alignment: .leading, spacing: DS.Space.xl) {
+                    OnboardingTitioImage(size: 140)
+                    Text(L("One account, every device.")).font(DS.Font.title2).foregroundColor(DS.Palette.text)
+                    Text(L("Your account keeps this Mac, your iPhone and your settings together, and lets you reach your projects remotely."))
+                        .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } footer: {
+            Spacer()
+            if vm.isSignedIn {
+                OnboardingPrimaryButton(title: L("Continue")) { vm.advance(completing: .signIn) }
+            } else {
+                Text(L("Sign in or create an account to continue."))
+                    .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
+            }
+        }
+    }
+}
+
+// MARK: 5 · AI accounts
+
+/// The MacCode account form: links this Mac, the iPhone and settings.
 struct OnboardingAccountSection: View {
     @ObservedObject var vm: OnboardingViewModel
     @FocusState private var focused: Field?
@@ -16,11 +50,12 @@ struct OnboardingAccountSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                Text(L("MacCode account · optional")).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
-                Text(vm.signedInEmail.map { L("Signed in as %1$@. Switch accounts in Settings later.", $0) }
-                     ?? L("Links this Mac, your iPhone and your settings. Remote access needs one later."))
-                    .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(L("MacCode account")).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
+                if let email = vm.signedInEmail {
+                    Text(L("Signed in as %1$@. Switch accounts in Settings later.", email))
+                        .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             if vm.signedInEmail == nil { form }
         }
@@ -114,7 +149,6 @@ struct OnboardingAccountsStep: View {
                     Text(L("Sign-in happens in your browser. Fine-tune Auto or disconnect in Settings ▸ Accounts & Auto."))
                         .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                 }
-                OnboardingAccountSection(vm: vm)
             }
         } illustration: {
             OnboardingHubIllustration(connected: providers.map(\.0).filter { accounts.onboardingRowState($0) == .connected })
@@ -124,7 +158,7 @@ struct OnboardingAccountsStep: View {
             if let note = vm.routingNote {
                 Text(note).font(DS.Font.caption).foregroundColor(DS.Palette.warning).lineLimit(2)
             }
-            if anyConnected || vm.signedInEmail != nil {
+            if anyConnected {
                 OnboardingPrimaryButton(title: L("Continue"), busy: saving) {
                     saving = true
                     Task { await vm.finishAccounts(); saving = false }
@@ -184,7 +218,7 @@ struct OnboardingHubIllustration: View {
     }
 }
 
-// MARK: 5 · Project
+// MARK: 6 · Project
 
 struct OnboardingProjectStep: View {
     @ObservedObject var vm: OnboardingViewModel

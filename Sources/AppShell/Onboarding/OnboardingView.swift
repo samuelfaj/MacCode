@@ -23,8 +23,10 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             HStack(spacing: DS.Space.xl) {
                 OnboardingStepper(current: vm.state.step, done: vm.state.completedSteps, reachable: vm.isLocked ? vm.state.step : vm.furthestReachable) { vm.jump(to: $0) }
-                Button(L("Skip setup")) { vm.skipSetup() }.buttonStyle(.link)
-                    .accessibilityHint(L("Stop showing setup automatically. Reopen it from the MacCode menu."))
+                if vm.isSignedIn {
+                    Button(L("Skip setup")) { vm.skipSetup() }.buttonStyle(.link)
+                        .accessibilityHint(L("Stop showing setup automatically. Reopen it from the MacCode menu."))
+                }
             }
                 .padding(.horizontal, 40)
                 .padding(.top, DS.Space.xxxl)
@@ -63,6 +65,7 @@ struct OnboardingView: View {
 
     @ViewBuilder private var stepContent: some View {
         switch vm.state.step {
+        case .signIn: OnboardingSignInStep(vm: vm)
         case .setup: OnboardingSetupStep(vm: vm, setup: setup)
         case .permissions: OnboardingPermissionsStep(vm: vm)
         case .chrome: OnboardingChromeStep(vm: vm, setup: setup)

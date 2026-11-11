@@ -59,7 +59,7 @@ final class OnboardingSignupE2ETests: XCTestCase {
     }
 
     private func makeViewModel(_ services: HTTPServices, email: String, password: String) throws -> OnboardingViewModel {
-        var state = OnboardingState(); state.step = .accounts
+        var state = OnboardingState(); state.step = .signIn
         let vm = OnboardingViewModel(services: services, store: try makeStore(), initial: state)
         vm.creatingAccount = true
         vm.email = email
@@ -91,7 +91,7 @@ final class OnboardingSignupE2ETests: XCTestCase {
         let vm = try makeViewModel(HTTPServices(api: api), email: "taken@example.com", password: "supersecret")
         await vm.submitAccount()
         XCTAssertEqual(vm.accountError, "An account with this email already exists. Sign in instead.")
-        XCTAssertEqual(vm.state.step, .accounts)
+        XCTAssertEqual(vm.state.step, .signIn, "A failed sign-up stays on the sign-in step")
     }
 
     // The production bug: a 409 that is not a duplicate email must never tell a
@@ -101,7 +101,7 @@ final class OnboardingSignupE2ETests: XCTestCase {
         let vm = try makeViewModel(HTTPServices(api: api), email: "new@example.com", password: "supersecret")
         await vm.submitAccount()
         XCTAssertEqual(vm.accountError, "Account could not be created right now. Try again shortly.")
-        XCTAssertEqual(vm.state.step, .accounts)
+        XCTAssertEqual(vm.state.step, .signIn)
     }
 
     // MARK: Real backend (RC_PRIVATE_BACKEND_URL)

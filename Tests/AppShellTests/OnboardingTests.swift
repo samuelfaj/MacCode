@@ -47,7 +47,9 @@ final class OnboardingTests: XCTestCase {
             return user!
         }
         func register(email: String, password: String) async throws -> PrivateAccountUser { try await signIn(email: email, password: password) }
-        func signedInUser() -> PrivateAccountUser? { nil }
+        /// Most tests start past the mandatory sign-in step.
+        var session: PrivateAccountUser? = PrivateAccountUser(daysRemaing: nil, daysRemaining: 30, email: "dev@example.com", id: "u1", subscribed: true)
+        func signedInUser() -> PrivateAccountUser? { session }
         func workspaceExists(_ id: WorkspaceID) -> Bool { workspaces.contains(id) }
         func botExists(_ id: BotID) -> Bool { bots.contains(id) }
         func openWorkspace(folder: URL) throws -> WorkspaceID {
@@ -83,6 +85,46 @@ final class OnboardingTests: XCTestCase {
     // The sidebar Sign in button is the natural door into setup for anyone
     // who never finished it, including upgraders recorded as existing users.
     // After setup is done, or once signed in, it must stay a plain sign-in.
+    // MacCode cannot be used signed out: sign-in is step 1, cannot be skipped,
+    // and losing the session sends the user back to it.
+    func test_signInIsMandatoryFirstAndCannotBeSkipped() async throws {
+        let services = Services(accounts: Accounts())
+        services.session = nil
+        services.user = PrivateAccountUser(daysRemaing: nil, daysRemaining: 30, email: "new@example.com", id: "u2", subscribed: false)
+        var resumed = OnboardingState(); resumed.step = .chrome; resumed.complete(.signIn); resumed.complete(.setup)
+        let store = try makeStore()
+        let vm = OnboardingViewModel(services: services, store: store, initial: resumed)
+        XCTAssertEqual(vm.state.step, .signIn, "A missing session reopens sign-in first")
+        XCTAssertFalse(vm.state.completedSteps.contains(.signIn))
+        vm.skip(.signIn)
+        XCTAssertEqual(vm.state.step, .signIn)
+        XCTAssertFalse(vm.state.skippedSteps.contains(.signIn))
+        vm.skipSetup()
+        XCTAssertEqual(vm.state.status, .inProgress, "Skip setup is unavailable while signed out")
+        vm.jump(to: .setup)
+        XCTAssertEqual(vm.state.step, .signIn, "The stepper cannot move past sign-in")
+        vm.email = "new@example.com"; vm.password = "correct-horse"
+        await vm.submitAccount()
+        XCTAssertTrue(vm.isSignedIn)
+        XCTAssertEqual(vm.state.step, .setup)
+        XCTAssertTrue(vm.state.completedSteps.contains(.signIn))
+        XCTAssertEqual(store.load()?.step, .setup)
+    }
+
+    func test_existingSessionSkipsPastSignIn() throws {
+        let vm = OnboardingViewModel(services: Services(accounts: Accounts()), store: try makeStore(), initial: OnboardingState())
+        XCTAssertEqual(vm.state.step, .setup)
+        XCTAssertTrue(vm.state.completedSteps.contains(.signIn))
+    }
+
+    func test_fullDiskAccessIsDetectedFromTheTCCDatabase() {
+        let home = URL(fileURLWithPath: "/Users/someone")
+        var asked: URL?
+        XCTAssertTrue(HostFileAccessProber.hasFullDiskAccess(home: home) { asked = $0; return true })
+        XCTAssertEqual(asked?.path, "/Users/someone/Library/Application Support/com.apple.TCC/TCC.db")
+        XCTAssertFalse(HostFileAccessProber.hasFullDiskAccess(home: home) { _ in false })
+    }
+
     func test_signInButtonOpensSetupOnlyUntilSetupIsFinished() {
         XCTAssertTrue(OnboardingGate.signInOpensSetup(saved: nil, signedIn: false))
         var existing = OnboardingState(); existing.status = .existingUser
@@ -96,6 +138,11 @@ final class OnboardingTests: XCTestCase {
 
     func test_launchResumesUntilCompletedOrExplicitlySkipped() {
         XCTAssertTrue(OnboardingGate.launchDecision(saved: nil, hasWorkspaces: false, hasAccountSession: false).present)
+        // Finished or skipped setup still opens when signed out: MacCode never starts without an account.
+        var finished = OnboardingState(); finished.status = .completed
+        XCTAssertTrue(OnboardingGate.launchDecision(saved: finished, hasWorkspaces: true, hasAccountSession: false).present)
+        var skippedOut = OnboardingState(); skippedOut.status = .skipped
+        XCTAssertTrue(OnboardingGate.launchDecision(saved: skippedOut, hasWorkspaces: true, hasAccountSession: false).present)
         let upgraded = OnboardingGate.launchDecision(saved: nil, hasWorkspaces: true, hasAccountSession: false)
         XCTAssertTrue(upgraded.present)
         XCTAssertEqual(upgraded.stateToSave?.status, .inProgress)
@@ -103,7 +150,7 @@ final class OnboardingTests: XCTestCase {
         var dismissed = OnboardingState(); dismissed.status = .dismissed
         XCTAssertTrue(OnboardingGate.launchDecision(saved: dismissed, hasWorkspaces: false, hasAccountSession: false).present)
         var skipped = OnboardingState(); skipped.status = .skipped
-        XCTAssertFalse(OnboardingGate.launchDecision(saved: skipped, hasWorkspaces: false, hasAccountSession: false).present)
+        XCTAssertFalse(OnboardingGate.launchDecision(saved: skipped, hasWorkspaces: false, hasAccountSession: true).present)
         var completed = OnboardingState(); completed.status = .completed
         XCTAssertFalse(OnboardingGate.launchDecision(saved: completed, hasWorkspaces: true, hasAccountSession: true).present)
     }
@@ -172,9 +219,9 @@ final class OnboardingTests: XCTestCase {
         XCTAssertEqual(old.completedSteps, [.setup, .permissions])
         XCTAssertEqual(old.skippedSteps, [.chrome], "A skipped Chrome step is not a completed one")
         XCTAssertFalse(old.createDeveloper)
-        XCTAssertEqual(Array(OnboardingStep.allCases), [.setup, .permissions, .chrome, .accounts, .project])
-        XCTAssertEqual(OnboardingStep.chrome.index, 2, "Chrome is the third step")
-        XCTAssertEqual(OnboardingStep.allCases.count, 5)
+        XCTAssertEqual(Array(OnboardingStep.allCases), [.signIn, .setup, .permissions, .chrome, .accounts, .project])
+        XCTAssertEqual(OnboardingStep.signIn.index, 0, "Sign-in is step 1")
+        XCTAssertEqual(OnboardingStep.allCases.count, 6)
     }
 
     func test_halfFinishedLegacyGroupIsNotMarkedDone() throws {
@@ -288,7 +335,7 @@ final class OnboardingTests: XCTestCase {
         XCTAssertEqual(services.openCalls, 1, "Retry must reuse the workspace")
         XCTAssertEqual(services.createCalls, 2)
         XCTAssertTrue(vm.state.completedSteps.contains(.project))
-        XCTAssertTrue(services.opened.isEmpty, "The X profile is a footer link; it never opens by itself")
+        XCTAssertEqual(services.opened, [OnboardingFollow.url], "Choosing the folder opens the maker's X profile once")
         XCTAssertTrue(services.handOffs.isEmpty, "The project opens only when setup finishes")
         vm.done()
         XCTAssertEqual(vm.state.status, .completed)

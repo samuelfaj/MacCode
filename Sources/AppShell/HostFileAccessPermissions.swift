@@ -218,6 +218,15 @@ public struct HostFileAccessProbeResult: Equatable, Sendable {
 /// denial (Apple returns false both ways). Directory listing error codes are
 /// used when available; otherwise outcome is best-effort.
 public enum HostFileAccessProber {
+    /// Full Disk Access is the only grant that lets an app open the user's TCC
+    /// database, so a successful open proves it without prompting.
+    public static func hasFullDiskAccess(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        canOpen: (URL) -> Bool = { (try? FileHandle(forReadingFrom: $0))?.closeFile() != nil }
+    ) -> Bool {
+        canOpen(home.appendingPathComponent("Library/Application Support/com.apple.TCC/TCC.db"))
+    }
+
     public static func probe(
         _ target: HostFileAccessProbeTarget,
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
