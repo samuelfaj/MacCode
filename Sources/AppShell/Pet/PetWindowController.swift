@@ -499,8 +499,8 @@ private struct PetAttentionPopoverView: View {
                 .accessibilityLabel(L("Option Space opens Titio from anywhere"))
             }
             Spacer(minLength: 4)
-            footerButton("Activity", systemImage: "tray.full", identifier: "pet.openActivity", action: onOpenApp)
-            footerButton("Open Chat", systemImage: "bubble.left.and.bubble.right", identifier: "pet.openTitio", action: onOpenTitio)
+            footerButton(L("Activity"), systemImage: "tray.full", identifier: "pet.openActivity", action: onOpenApp)
+            footerButton(L("Open Chat"), systemImage: "bubble.left.and.bubble.right", identifier: "pet.openTitio", action: onOpenTitio)
         }
     }
 
@@ -523,7 +523,7 @@ private struct PetAttentionPopoverView: View {
     @ViewBuilder
     private func activeGroupedSection(_ items: [PetActiveThreadItem]) -> some View {
         if !items.isEmpty {
-            sectionHeader("Active", identifier: "pet.section.active")
+            sectionHeader(L("Active"), identifier: "pet.section.active")
             let groups = PetPopoverGrouping.active(items)
             let showWorkspaceHeaders = groups.count > 1
                 || groups.first?.name != PetPopoverGrouping.unknownWorkspaceName

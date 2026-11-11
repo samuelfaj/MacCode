@@ -167,7 +167,7 @@ public enum BotsChrome {
 
     public static func statusTitle(for state: BotAttentionState) -> String {
         switch state {
-        case .working: return "Working"
+        case .working: return L("Working")
         case .needsAttention: return L("Needs you")
         case .unreadActivity: return L("Unread")
         case .none: return L("Online")

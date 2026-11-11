@@ -303,7 +303,7 @@ public final class BrowserSurface: NSObject, Surface, WKNavigationDelegate, WKUI
         for v in [toolbar, wv] { v.translatesAutoresizingMaskIntoConstraints = false }
         securityIndicator.isBordered = false
         securityIndicator.bezelStyle = .inline
-        securityIndicator.image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "Secure")
+        securityIndicator.image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: L("Secure"))
         securityIndicator.contentTintColor = DS.NS.textSecondary
         securityIndicator.imageScaling = .scaleProportionallyDown
         securityIndicator.toolTip = L("Secure")
@@ -418,7 +418,7 @@ public final class BrowserSurface: NSObject, Surface, WKNavigationDelegate, WKUI
         errorOverlay.setAccessibilityIdentifier("browser.error-overlay")
         errorOverlay.translatesAutoresizingMaskIntoConstraints = false
         let errorIcon = NSImageView()
-        errorIcon.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: "Error")
+        errorIcon.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: L("Error"))
         errorIcon.contentTintColor = DS.NS.textSecondary
         errorIcon.translatesAutoresizingMaskIntoConstraints = false
         errorLabel.alignment = .center
@@ -573,12 +573,12 @@ public final class BrowserSurface: NSObject, Surface, WKNavigationDelegate, WKUI
     private func updateLoadingChrome(isLoading: Bool) {
         if isLoading {
             progressBar.isHidden = false
-            reloadButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Stop")
+            reloadButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: L("Stop"))
             reloadButton.toolTip = L("Stop")
         } else {
             progressBar.isHidden = true
             progressBar.doubleValue = 0
-            reloadButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Reload")
+            reloadButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: L("Reload"))
             reloadButton.toolTip = L("Reload")
         }
         updateNavigationButtons()

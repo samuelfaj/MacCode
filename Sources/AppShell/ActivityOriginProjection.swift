@@ -37,7 +37,7 @@ enum ActivityOriginProjection {
             return rows
         }
         for (runID, title) in taskRuns {
-            if let id = UUID(uuidString: runID) { labels[id.uuidString] = L("Scheduled task: %1$@", PetAttentionRedactor.safeContextLabel(title) ?? "Task") }
+            if let id = UUID(uuidString: runID) { labels[id.uuidString] = L("Scheduled task: %1$@", PetAttentionRedactor.safeContextLabel(title) ?? L("Task")) }
         }
 
         let botStore = BotStore(db: db)

@@ -864,7 +864,7 @@ struct BotTeamsManagerSheet: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(group.title)
-        .accessibilityValue(L("%1$@%2$@", group.hidden ? "Hidden. " : "", members.map(\.name).joined(separator: ", ")))
+        .accessibilityValue(L("%1$@%2$@", group.hidden ? L("Hidden. ") : "", members.map(\.name).joined(separator: ", ")))
         .accessibilityIdentifier("bots.groups.row.\(key)")
         .contextMenu {
             Button(group.pinned ? L("Unpin") : L("Pin")) { teamsGroups.setPinned(!group.pinned, groupID: group.id) }

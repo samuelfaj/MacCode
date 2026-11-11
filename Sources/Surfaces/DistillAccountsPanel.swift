@@ -261,7 +261,7 @@ public struct DistillAccountsPanel: View {
                 .font(DS.Font.body).foregroundStyle(DS.Palette.text)
                 .background(DS.Palette.bg)
         }
-        .confirmationDialog("\(removing ? "Remove" : "Disconnect") \(confirmation?.label ?? "account")?",
+        .confirmationDialog(removing ? L("Remove %1$@?", confirmation?.label ?? L("account")) : L("Disconnect %1$@?", confirmation?.label ?? L("account")),
                             isPresented: Binding(get: { confirmation != nil }, set: { if !$0 { confirmation = nil } }), titleVisibility: .visible) {
             Button(removing ? L("Remove account") : L("Disconnect account"), role: .destructive) {
                 if let account = confirmation { if removing { remove(account.id) } else { disconnectAccount(account.id) } }
@@ -441,7 +441,7 @@ public struct DistillAccountsPanel: View {
             Divider()
             HStack(spacing: DS.Space.lg) {
                 Text(!presentation.routingLoaded ? L("Loading saved profile…") :
-                     (hasChanges ? L("Unsaved changes") : L("Saved profile · %1$@", presentation.routing.enabled ? "Enabled" : "Disabled")))
+                     (hasChanges ? L("Unsaved changes") : L("Saved profile · %1$@", presentation.routing.enabled ? L("Enabled") : L("Disabled"))))
                     .foregroundStyle(hasChanges ? DS.Palette.warning : DS.Palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)

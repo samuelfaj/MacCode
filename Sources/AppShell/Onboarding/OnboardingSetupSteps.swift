@@ -133,7 +133,7 @@ struct OnboardingPermissionsStep: View {
             HStack {
                 Text(title).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text)
                 Spacer()
-                Label(granted ? "Allowed" : "Not allowed", systemImage: granted ? "checkmark.circle.fill" : "circle")
+                Label(granted ? L("Allowed") : L("Not allowed"), systemImage: granted ? "checkmark.circle.fill" : "circle")
                     .font(DS.Font.caption).foregroundColor(granted ? DS.Palette.success : DS.Palette.warning)
             }
             Text(detail).font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)

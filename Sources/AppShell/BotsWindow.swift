@@ -5578,7 +5578,7 @@ public final class BotsViewModel: ObservableObject {
     }
 
     private func refreshPinnedContextLabel() {
-        guard let conversation = selectedConversation else { selectedPinnedContextLabel = "Legacy"; return }
+        guard let conversation = selectedConversation else { selectedPinnedContextLabel = L("Legacy"); return }
         do {
             guard let pin = try botStore.conversationContextPin(conversationID: conversation.id) else {
                 selectedPinnedContextLabel = L("Legacy")
@@ -6542,7 +6542,7 @@ public final class BotsViewModel: ObservableObject {
     }
 
     public var deskRunIsLive: Bool {
-        deskWorkLog.contains { $0.statusLabel == "Working" }
+        deskWorkLog.contains { $0.statusLabel == L("Working") }
     }
 
     public var deskShowsLoading: Bool {
@@ -6558,7 +6558,7 @@ public final class BotsViewModel: ObservableObject {
     }
 
     public func deskWorkingStartedAt() -> Date? {
-        if let started = deskWorkLog.first(where: { $0.statusLabel == "Working" })?.createdAt {
+        if let started = deskWorkLog.first(where: { $0.statusLabel == L("Working") })?.createdAt {
             return started
         }
         if let turn = deskLiveTimeline.turns.last(where: { !$0.finished }) {
@@ -7634,7 +7634,7 @@ public final class BotsViewModel: ObservableObject {
 
     public var studioWorkspaceLabel: String {
         let name = advertisedWorkspace?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return name.isEmpty ? "None" : name
+        return name.isEmpty ? L("None") : name
     }
 
     /// Same last website tools persist. Compile URL + title so first-chat
@@ -8746,7 +8746,7 @@ public final class BotsViewModel: ObservableObject {
     /// A Bot with no name still needs a label in the roster, the Desk header
     /// and VoiceOver. Same fallback as iOS.
     static func displayName(_ name: String) -> String {
-        name.isEmpty ? "Untitled" : name
+        name.isEmpty ? L("Untitled") : name
     }
 
     /// One placeholder for the Desk composer before and after the thread is
@@ -11652,7 +11652,7 @@ public final class BotsViewModel: ObservableObject {
     private func liveBotForWorkspaceRun(_ botID: BotID) throws -> BotDefinition {
         let stored = try? botStore.get(id: botID)
         guard let bot = stored ?? nil, bot.deletedAt == nil else {
-            let label = (stored ?? nil).map { "Bot \($0.name)" } ?? L("Bot")
+            let label = (stored ?? nil).map { L("Bot %1$@", $0.name) } ?? L("Bot")
             throw BotDeskSendRefused(reason: L("%1$@ has been deleted. Use \"Continue without bot\".", label))
         }
         return bot
@@ -14246,7 +14246,7 @@ public struct BotsRootView: View {
                         DSPill(L("Draft"), tone: .warning)
                     }
                 }
-                Text(vm.studioDraft.name.isEmpty ? "New Bot" : vm.studioDraft.name)
+                Text(vm.studioDraft.name.isEmpty ? L("New Bot") : vm.studioDraft.name)
                     .font(DS.Font.title2.weight(.semibold))
                     .foregroundColor(DS.Palette.text)
                     .lineLimit(2)
@@ -14435,7 +14435,7 @@ public struct BotsRootView: View {
     private var studioTitioFactoryReset: some View {
         HStack(alignment: .center, spacing: DS.Space.xl) {
             studioSectionHeader(
-                "Factory Settings",
+                L("Factory Settings"),
                 caption: L("Put Titio's name, role, description and instructions back to the built-in defaults. Conversations, files and scheduled tasks stay.")
             )
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -14779,7 +14779,7 @@ public struct BotsRootView: View {
                             .accessibilityIdentifier("bots.studio.secrets.name")
                         }
                         labeledField(
-                            "Value",
+                            L("Value"),
                             caption: vm.studioState.editingSecretName == nil
                                 ? L("The value is cleared after save.")
                                 : L("Enter the replacement value.")
@@ -15910,7 +15910,7 @@ public final class BotGuestDesktopWindowController: NSWindowController, NSWindow
             backing: .buffered,
             defer: false
         )
-        let title = L("%1$@ Desktop", (vm.selectedBot?.name ?? "Bot"))
+        let title = L("%1$@ Desktop", (vm.selectedBot?.name ?? L("Bot")))
         window.title = title
         window.minSize = NSSize(width: 640, height: 420)
         window.backgroundColor = DS.NS.bg

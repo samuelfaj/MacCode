@@ -1188,7 +1188,7 @@ public struct ScheduledTasksRootView: View {
                 metaCell(L("Model"), task.model)
                 metaCell(L("Reasoning"), task.reasoningEffort.displayName)
                 metaCell(L("Schedule"), task.recurrence.detailSummary)
-                metaCell("Time zone", task.timeZoneIdentifier)
+                metaCell(L("Time zone"), task.timeZoneIdentifier)
             }
             HStack(spacing: DS.Space.sm) {
                 Image(systemName: "clock")
@@ -1600,7 +1600,7 @@ private struct ScheduledTaskEditorView: View {
             onBack: onBack,
             onSave: { confirmAndSave() },
             content: {
-                ScheduleEditorSection("Task", identifier: "editorSection.Task") {
+                ScheduleEditorSection(L("Task"), identifier: "editorSection.Task") {
                     VStack(alignment: .leading, spacing: DS.Space.md) {
                         ScheduleEditorTextField(
                             placeholder: L("Title, e.g. Daily dependency scan"),

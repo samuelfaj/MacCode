@@ -58,7 +58,7 @@ struct ActivityWireItem: Codable, Identifiable, Equatable, Sendable {
     var occurredDate: Date? { ActivityViewModel.parseDate(occurred_at) }
     var displayTitle: String {
         let collapsed = title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        return collapsed.isEmpty ? "Untitled" : collapsed
+        return collapsed.isEmpty ? L("Untitled") : collapsed
     }
     /// Host placeholder for a terminal run without a summary; honest in the detail, noise in a list.
     static let missingSummary = "No summary available for this run"
@@ -1529,8 +1529,8 @@ struct ActivityRootView: View {
     }
 
     private func openLabel(_ item: ActivityWireItem) -> String {
-        if item.id.hasPrefix("scheduled-occurrence:") { return "Open Schedule Tasks" }
-        if item.state == "waiting_answer" { return "Reply" }
+        if item.id.hasPrefix("scheduled-occurrence:") { return L("Open Schedule Tasks") }
+        if item.state == "waiting_answer" { return L("Reply") }
         if item.state == "waiting_approval" { return L("Review request") }
         if item.bot_id != nil { return L("Open bot") }
         if item.thread_id != nil { return L("Open conversation") }

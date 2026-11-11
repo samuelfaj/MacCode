@@ -43,7 +43,7 @@ public final class PaneTabsView: NSObject {
         b.isBordered = false
         b.bezelStyle = .inline
         b.imagePosition = .imageOnly
-        b.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "All tabs")
+        b.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: L("All tabs"))
         b.symbolConfiguration = .init(pointSize: 11, weight: .regular)
         b.contentTintColor = DS.NS.textSecondary
         b.toolTip = L("All tabs")
@@ -1446,7 +1446,7 @@ final class PaneTabButton: NSView {
         close.isBordered = false
         close.bezelStyle = .inline
         close.imagePosition = .imageOnly
-        close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close tab")
+        close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: L("Close tab"))
         close.symbolConfiguration = .init(pointSize: 9, weight: .semibold)
         close.contentTintColor = DS.NS.textTertiary
         close.translatesAutoresizingMaskIntoConstraints = false

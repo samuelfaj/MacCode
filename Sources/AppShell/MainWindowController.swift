@@ -2470,7 +2470,7 @@ private final class WorkspaceWindowController: NSObject, NSWindowDelegate, PaneK
         backButton.isBordered = false
         backButton.bezelStyle = .inline
         backButton.imagePosition = .imageOnly
-        backButton.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Back to sidebar")
+        backButton.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: L("Back to sidebar"))
         backButton.symbolConfiguration = .init(pointSize: 13, weight: .regular)
         backButton.contentTintColor = DS.NS.textSecondary
         backButton.toolTip = L("Back to sidebar")

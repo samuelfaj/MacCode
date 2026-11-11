@@ -126,7 +126,7 @@ enum BotsDeskFollowThrough {
     static func workLogStatusLabel(for status: AgentRunStatus) -> String {
         switch status {
         case .pending, .running:
-            return "Working"
+            return L("Working")
         case .completed:
             return L("Done")
         case .failed:

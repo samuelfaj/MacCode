@@ -2253,7 +2253,7 @@ fileprivate final class SSHSurfaceViewModel: ObservableObject {
     @Published var transferLocalPath = ""
     @Published var transferRemotePath = ""
     @Published var transferStatus = L("Ready")
-    @Published var transferLogs: [String] = ["Ready"]
+    @Published var transferLogs: [String] = [L("Ready")]
     @Published var queueItems: [SSHTransferQueueItem] = []
     @Published var selectedQueueState: SSHTransferState = .queued
 
@@ -3634,7 +3634,7 @@ private struct SSHHostFormSheet: View {
                 .accessibilityIdentifier("ssh.form.close")
                 .help(L("Cancel"))
             }
-            formField(L("Host"), requirement: "Required") {
+            formField(L("Host"), requirement: L("Required")) {
                 TextField(L("user@host or ssh-config alias"), text: $vm.draft.destination)
                     .textFieldStyle(.roundedBorder)
                     .focused($hostFieldFocused)

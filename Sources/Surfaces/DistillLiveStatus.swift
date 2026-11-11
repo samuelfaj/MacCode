@@ -35,9 +35,9 @@ public struct DistillLiveStatus: Equatable, Sendable {
         public var phaseText: String {
             switch finishedStatus {
             case nil: return isCompacting ? L("Compacting") : L("Running")
-            case "completed": return "Done"
-            case "failed": return "Failed"
-            case "cancelled": return "Cancelled"
+            case "completed": return L("Done")
+            case "failed": return L("Failed")
+            case "cancelled": return L("Cancelled")
             default: return L("Done")
             }
         }

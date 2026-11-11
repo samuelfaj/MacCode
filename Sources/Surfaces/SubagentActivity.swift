@@ -83,7 +83,7 @@ public struct SubagentActivityItem: Identifiable, Sendable, Equatable {
     /// Secondary line: phase label; model is available for expanded detail.
     public var statusLabel: String {
         switch phase {
-        case .working: return "Working"
+        case .working: return L("Working")
         case .completed: return L("Done")
         case .failed: return L("Failed")
         case .cancelled: return L("Cancelled")

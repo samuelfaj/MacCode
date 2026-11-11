@@ -1428,7 +1428,7 @@ struct PairingCodeCountdownPresentation: Equatable {
 
     var expired: Bool { remaining <= 0 }
     var label: String {
-        expired ? "Expired" : String(format: "Expires in %d:%02d", remaining / 60, remaining % 60)
+        expired ? L("Expired") : L("Expires in %1$@", String(format: "%d:%02d", remaining / 60, remaining % 60))
     }
 
     /// The QR encodes the same pairing URL the user can type, so it has to
@@ -2772,7 +2772,7 @@ extension SettingsView {
                 if updating {
                     ProgressView().controlSize(.small).scaleEffect(0.6)
                 }
-                Button(updating ? L("Updating...") : "Update") {
+                Button(updating ? L("Updating...") : L("Update")) {
                     Task { await vm.updateProvider(provider) }
                 }
                 .buttonStyle(DSSecondaryButtonStyle())

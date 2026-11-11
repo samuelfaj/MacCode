@@ -42,7 +42,7 @@ public enum DistillLoopPresentation {
     }
 
     public static func accessibilityLabel(_ loop: DistillLoopState, now: Date) -> String {
-        var parts = ["Loop \(loop.humanSchedule)"]
+        var parts = [L("Loop %1$@", loop.humanSchedule)]
         switch loop.state {
         case .paused: parts.append(pausedText(loop))
         case .expired, .stopped: parts.append(expiredText)

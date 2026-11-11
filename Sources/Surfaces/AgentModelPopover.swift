@@ -160,7 +160,7 @@ public enum AgentDistillModelCatalog {
     }
 
     public static func effortOptionLabels(_ efforts: [AgentReasoningEffort]) -> [String] {
-        ["Auto"] + efforts.map(\.displayName)
+        [L("Auto")] + efforts.map(\.displayName)
     }
 
     public static func configuredWorker(homePath: String?) -> (worker: String, effort: String) {
@@ -899,7 +899,7 @@ private struct AgentDistillChoiceGrid: View {
             }
             if !customMatches.isEmpty {
                 VStack(alignment: .leading, spacing: DS.Space.md) {
-                    AgentChoiceSectionHeader("Custom")
+                    AgentChoiceSectionHeader(L("Custom"))
                     LazyVGrid(columns: columns, alignment: .leading, spacing: DS.Space.md) {
                         ForEach(customMatches, id: \.self) { model in
                             AgentChoiceCard(

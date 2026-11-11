@@ -1443,7 +1443,7 @@ public struct AgentChatWorkingStatusStrip: View {
     private func goalLoopLine(_ distill: DistillLiveStatus) -> some View {
         var parts: [String] = []
         if let goal = distill.goal {
-            parts.append("Goal \(goal.status.replacingOccurrences(of: "_", with: " ")) · \(goal.tokensText) tokens")
+            parts.append(L("Goal %1$@ · %2$@ tokens", goal.status.replacingOccurrences(of: "_", with: " "), goal.tokensText))
         }
         if !distill.scheduledTasks.isEmpty {
             parts.append(L("Loops %1$@", distill.scheduledTasks.count))

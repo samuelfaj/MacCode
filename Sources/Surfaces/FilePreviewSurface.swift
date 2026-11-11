@@ -217,7 +217,7 @@ public final class FilePreviewSurface: NSObject, Surface {
         guard isVisible else { return }
         for sub in containerStack.subviews { sub.removeFromSuperview() }
         guard let p = path else {
-            let label = NSTextField(labelWithString: "No file selected")
+            let label = NSTextField(labelWithString: L("No file selected"))
             label.translatesAutoresizingMaskIntoConstraints = false
             label.textColor = .secondaryLabelColor
             // a11y identifier so UI automation and VoiceOver can locate the
@@ -330,7 +330,7 @@ public final class FilePreviewSurface: NSObject, Surface {
 
     /// Overlay a simple error label on `pdfView` when the PDF fails to load.
     private func showPDFError(over pdfView: NSView) {
-        let label = NSTextField(labelWithString: "Unable to load PDF")
+        let label = NSTextField(labelWithString: L("Unable to load PDF"))
         label.textColor = .secondaryLabelColor
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false

@@ -605,7 +605,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
                 workspaceId = nil
                 title = PetLiveActivityCopy.runningTitle(count: count)
                 if let surface {
-                    statusLine = surface.statusLine.isEmpty ? "Running" : surface.statusLine
+                    statusLine = surface.statusLine.isEmpty ? L("Running") : surface.statusLine
                     preview = surface.preview.isEmpty ? title : surface.preview
                 } else {
                     statusLine = L("Running")

@@ -537,7 +537,7 @@ struct BotScheduleTaskEditorView: View {
             onBack: onBack,
             onSave: { onSave(draft) },
             content: {
-                ScheduleEditorSection("Task", identifier: "bots.scheduleTasks.editorSection.Task") {
+                ScheduleEditorSection(L("Task"), identifier: "bots.scheduleTasks.editorSection.Task") {
                     ScheduleEditorRow(L("Bot"), showsDivider: false) {
                         Picker("", selection: $draft.botID) {
                             ForEach(bots, id: \.id) { bot in
@@ -568,7 +568,7 @@ struct BotScheduleTaskEditorView: View {
                     providers: providers,
                     providersLoading: providersLoading
                 )
-                ScheduleEditorSection("Run options", identifier: "bots.scheduleTasks.editorSection.Run options") {
+                ScheduleEditorSection(L("Run options"), identifier: "bots.scheduleTasks.editorSection.Run options") {
                     ScheduledRunOptionsEditor(
                         showsExecutionMode: draft.spec.provider == .distill,
                         executionMode: Binding(
@@ -607,7 +607,7 @@ struct BotScheduleTaskEditorView: View {
                         .padding(DS.Space.lg)
                     }
                 }
-                ScheduleEditorSection("Status", identifier: "bots.scheduleTasks.editorSection.Status") {
+                ScheduleEditorSection(L("Status"), identifier: "bots.scheduleTasks.editorSection.Status") {
                     ScheduleEditorRow(L("Active"), hint: L("Paused tasks keep their schedule but do not run"), showsDivider: false) {
                         Toggle(L("Active"), isOn: $draft.isEnabled)
                             .labelsHidden()
@@ -979,7 +979,7 @@ struct BotScheduleTaskEditorScreen: View {
 /// "Last run" text shared by the Agent and Bot schedule cards.
 enum ScheduleLastRunLabel {
     static func text(date: Date?, failed: Bool) -> String {
-        guard let date else { return "Never" }
+        guard let date else { return L("Never") }
         let when = date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
         return failed ? "Failed · \(when)" : when
     }
@@ -1102,11 +1102,11 @@ struct BotScheduleTaskDetailScreen: View {
                     .accessibilityHidden(true)
                 metaCell(L("Workspace"), workspace)
                 metaCell(L("Bot"), "\(item.botName) · @\(item.botHandle)")
-                metaCell("Provider", spec?.provider.rawValue.capitalized ?? "—")
+                metaCell(L("Provider"), spec?.provider.rawValue.capitalized ?? "—")
                 metaCell(L("Model"), model)
                 metaCell(L("Reasoning"), spec?.reasoningEffort.displayName ?? "—")
-                metaCell("Schedule", item.scheduleNote.isEmpty ? "—" : item.scheduleNote)
-                metaCell("Time zone", spec?.timeZoneIdentifier ?? "—")
+                metaCell(L("Schedule"), item.scheduleNote.isEmpty ? "—" : item.scheduleNote)
+                metaCell(L("Time zone"), spec?.timeZoneIdentifier ?? "—")
             }
             HStack(spacing: DS.Space.sm) {
                 Image(systemName: "clock")

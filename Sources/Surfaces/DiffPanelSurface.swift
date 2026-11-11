@@ -2173,7 +2173,7 @@ public struct DiffPanelView: View {
                     .foregroundColor(DS.Palette.textTertiary)
             }
             Spacer(minLength: DS.Space.lg)
-            wsToggle("Wrap", $vm.wordWrap,
+            wsToggle(L("Wrap"), $vm.wordWrap,
                      icon: vm.wordWrap ? "arrow.turn.down.left" : "arrow.left.and.right",
                      identifier: "diff.toggle.wrap")
             wsToggle(L("Ignore WS"), $vm.ignoreWhitespace,

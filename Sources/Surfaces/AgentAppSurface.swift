@@ -6350,7 +6350,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         guard selectedThreadBotUnavailable,
               let id = selectedThreadId,
               case .bot(let botID) = threads.first(where: { $0.id == id })?.actor else { return false }
-        let label = botNameProvider(botID).map { "Bot \($0)" } ?? L("Bot")
+        let label = botNameProvider(botID).map { L("Bot %1$@", $0) } ?? L("Bot")
         statusMessage = L("%1$@ has been deleted. Use \"Continue without bot\".", label)
         return true
     }
@@ -19814,7 +19814,7 @@ public struct AgentAppView: View {
     }
 
     private var currentModelMenuLabelParts: [String] {
-        if vm.routingMode == .auto { return ["Auto"] }
+        if vm.routingMode == .auto { return [L("Auto")] }
         var parts = [modelLabel]
         if vm.supportsReasoningForSelectedModel { parts.append(effortLabel) }
         if vm.serviceTier == .fast { parts.append(serviceTierLabel) }

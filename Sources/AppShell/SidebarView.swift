@@ -2350,7 +2350,7 @@ public final class SidebarViewModel: ObservableObject {
         busySurfaceTitles: [String]
     ) -> String? {
         if let first = runningThreadTitles.first {
-            let display = first.isEmpty ? "Untitled" : first
+            let display = first.isEmpty ? L("Untitled") : first
             return L("Agent run in thread \"%1$@\"", display)
         }
         if let first = busySurfaceTitles.first {
@@ -3256,7 +3256,7 @@ public struct SidebarRootView: View {
     /// WHY separate: the test can verify the label logic without a running VM or
     /// wall-clock dependency -- tests pass an explicit `now`.
     nonisolated public static func lastUpdatedLabel(_ date: Date?, now: Date) -> String {
-        guard let date else { return "Never" }
+        guard let date else { return L("Never") }
         let elapsed = now.timeIntervalSince(date)
         guard elapsed >= 0 else { return L("Updated just now") }
         if elapsed < 60 { return L("Updated just now") }
@@ -3273,13 +3273,14 @@ public struct SidebarRootView: View {
         _ date: Date?,
         now: Date
     ) -> String {
-        let label = lastUpdatedLabel(date, now: now)
-        guard label != "Never" else { return L("Account usage not refreshed") }
-        return label.replacingOccurrences(
-            of: L("Updated"),
-            with: L("Account usage updated"),
-            options: [.anchored]
-        )
+        guard let date else { return L("Account usage not refreshed") }
+        let elapsed = now.timeIntervalSince(date)
+        if elapsed < 60 { return L("Account usage updated just now") }
+        let mins = Int(elapsed / 60)
+        if mins < 60 { return L("Account usage updated %1$@m ago", mins) }
+        let hours = mins / 60
+        if hours < 24 { return L("Account usage updated %1$@h ago", hours) }
+        return L("Account usage updated 24h+ ago")
     }
 
     /// P2-SIDEBAR-SEPARATOR: thin rule + "Pinned" caption rendered between
@@ -3669,9 +3670,9 @@ public struct SidebarRootView: View {
             return NSItemProvider(object: row.botID.value.uuidString as NSString)
         }
         .onDrop(of: [.text], delegate: BotDropDelegate(vm: vm, target: row.botID))
-        .help(searchHelp(type: "General Bot", location: "General", name: row.name))
+        .help(searchHelp(type: L("General Bot"), location: L("General"), name: row.name))
         .accessibilityLabel(BotsViewModel.displayName(row.name))
-        .accessibilityValue(L("%1$@%2$@%3$@%4$@General Bot", running ? "Running. " : "", unread > 0 ? "\(unread) unread. " : "", row.pinned ? "Pinned. " : "", row.hidden ? "Hidden. " : ""))
+        .accessibilityValue((running ? L("Running. ") : "") + (unread > 0 ? L("%1$@ unread. ", unread) : "") + (row.pinned ? L("Pinned. ") : "") + (row.hidden ? L("Hidden. ") : "") + L("General Bot"))
         .accessibilityIdentifier("sidebar.generalBot.\(row.handle)")
         .contextMenu {
             Button(row.pinned ? L("Unpin") : L("Pin")) { vm.setBotPinned(row.botID, !row.pinned) }
@@ -3921,7 +3922,7 @@ public struct SidebarRootView: View {
     @ViewBuilder
     private func workspaceChildRows(_ ws: Workspace) -> some View {
         if case let tabs = vm.openTabRows(ws.id), !tabs.isEmpty {
-            workspaceSectionHeader("Open Tabs", id: "sidebar.workspaceOpenTabs.\(ws.id.value.uuidString)")
+            workspaceSectionHeader(L("Open Tabs"), id: "sidebar.workspaceOpenTabs.\(ws.id.value.uuidString)")
             let visible = vm.visibleTab(in: ws)?.id
             ForEach(tabs) {
                 activeSurfaceRow($0, selected: $0.surfaceID == visible)
@@ -4135,7 +4136,7 @@ public struct SidebarRootView: View {
             .sidebarRowChrome(selected: selected)
         }
         .buttonStyle(.plain)
-        .help(searchHelp(type: "Conversation", location: workspace.name, name: row.title))
+        .help(searchHelp(type: L("Conversation"), location: workspace.name, name: AgentThreadTitle.display(row.title)))
         .accessibilityLabel("\(workspace.name), \(row.title)\(age.map { ", " + L("updated %1$@", $0) } ?? "")")
         .accessibilityValue(running ? L("Running") : "")
         .accessibilityIdentifier("sidebar.conversation.\(row.id)")
@@ -4278,7 +4279,7 @@ public struct SidebarRootView: View {
             } else {
                 // Single-row context menu: per-workspace actions.
                 Button { vm.setWorkspacePinned(ws, !pinned) } label: {
-                    Label(pinned ? "Unpin" : "Pin", systemImage: pinned ? "pin.slash" : "pin")
+                    Label(pinned ? L("Unpin") : L("Pin"), systemImage: pinned ? "pin.slash" : "pin")
                 }
                 Divider()
                 Button { vm.openWorkspaceInNewWindow(ws) } label: {
