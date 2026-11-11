@@ -3620,7 +3620,7 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertTrue(source.contains("row.pinned"))
         XCTAssertTrue(source.contains("pin.fill"))
         XCTAssertTrue(
-            source.contains("row.pinned ? \"Pinned. \""),
+            source.contains("row.pinned ? L(\"Pinned. \")"),
             "VoiceOver must hear Pinned so Pin is not sort-only"
         )
     }
@@ -3639,7 +3639,7 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertTrue(source.contains("row.hidden"))
         XCTAssertTrue(source.contains("eye.slash"))
         XCTAssertTrue(
-            source.contains("row.hidden ? \"Hidden. \""),
+            source.contains("row.hidden ? L(\"Hidden. \")"),
             "VoiceOver must hear Hidden so Show hidden is not a silent list"
         )
     }
