@@ -141,21 +141,20 @@ final class ManualActionCardTests: XCTestCase {
         XCTAssertEqual(f.vm.statusLabel, "Waiting for you")
     }
 
-    /// WHY: the handoff card and the bot VM banners are product UI and must always read in English,
-    /// whatever language the bot or the user writes in. There is no localization table, so the
-    /// literals are the copy.
+    /// WHY: the handoff card and the bot VM banners are product UI: their English source copy
+    /// goes through L() and never carries Portuguese, whatever language the bot writes in.
     func test_handoffCardAndBotVMBannersAreEnglish() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let card = try String(contentsOf: root.appendingPathComponent("Sources/Surfaces/AgentManualActionCard.swift"), encoding: .utf8)
         for copy in [
-            "is waiting for you\")", "\"Note for the bot (optional)\"", "\"Control taken\" : \"Take control\"",
-            "Button(\"Ready, continue\")", "Button(\"Decline\")", "\"declined\" : \"continued\"", "\"You took over for ",
+            "is waiting for you\"", "L(\"Note for the bot (optional)\")", "L(\"Control taken\") : L(\"Take control\")",
+            "Button(L(\"Ready, continue\"))", "Button(L(\"Decline\"))", "L(\"declined\") : L(\"continued\")", "L(\"You took over for ",
         ] {
             XCTAssertTrue(card.contains(copy), copy)
         }
         let banners = try String(contentsOf: root.appendingPathComponent("Sources/Surfaces/BotVMBanners.swift"), encoding: .utf8)
-        for copy in ["\"The bot asked to run on the Mac: ", "Button(\"Approve\")", "Button(\"Start VM\")", "Button(\"Run this thread on the Mac\")"] {
+        for copy in ["L(\"The bot asked to run on the Mac: ", "Button(L(\"Approve\"))", "Button(L(\"Start VM\"))", "Button(L(\"Run this thread on the Mac\"))"] {
             XCTAssertTrue(banners.contains(copy), copy)
         }
         for portuguese in ["aguarda", "Pronto", "Recusar", "Assumir", "Nota para", "Aprovar", "Iniciar", "Rodar"] {

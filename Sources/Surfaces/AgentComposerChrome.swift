@@ -239,7 +239,7 @@ public struct AgentModelSearchField: View {
                         .foregroundColor(DS.Palette.textTertiary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Clear filter")
+                .accessibilityLabel(L("Clear filter"))
             }
         }
         .padding(.horizontal, DS.Space.sm)
@@ -324,7 +324,7 @@ public struct AgentSourceCapsule: View {
         }
         .buttonStyle(.plain)
         .help(helpText)
-        .accessibilityLabel("Account \(label)")
+        .accessibilityLabel(L("Account %1$@", label))
         .accessibilityHint(AgentSourceCapsulePresentation.switchHint(canSwitch: canSwitch, helpText: helpText))
         .accessibilityIdentifier(accessibilityIdentifier)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
@@ -347,7 +347,7 @@ public struct AgentSourceCapsule: View {
                     .fixedSize(horizontal: notice.wraps ? false : true, vertical: notice.wraps)
                     .frame(maxWidth: notice.wraps ? rowWidth : nil, alignment: .leading)
             }
-            AgentCompactMenuSection("Account")
+            AgentCompactMenuSection(L("Account"))
             if entries.isEmpty {
                 Text(L("No accounts loaded"))
                     .font(DS.Font.caption)
@@ -388,7 +388,7 @@ public struct AgentPermissionCapsule: View {
         modes: [AgentPermissionMode],
         unavailableReason: @escaping (AgentPermissionMode) -> String? = { _ in nil },
         disabled: Bool,
-        help: String = "Permission mode",
+        help: String = L("Permission mode"),
         accessibilityIdentifier: String,
         onSelect: @escaping (AgentPermissionMode) -> Void
     ) {
@@ -417,7 +417,7 @@ public struct AgentPermissionCapsule: View {
         .fixedSize()
         .disabled(disabled)
         .help(help)
-        .accessibilityLabel("Permission \(selected.displayName)")
+        .accessibilityLabel(L("Permission %1$@", selected.displayName))
         .accessibilityIdentifier(accessibilityIdentifier)
         .sheet(isPresented: $isPresented) { sheet }
     }
@@ -425,8 +425,8 @@ public struct AgentPermissionCapsule: View {
     private var sheet: some View {
         AgentChoiceSheet(
             icon: "lock.shield",
-            title: "Permissions",
-            subtitle: "How much the agent can do before asking you.",
+            title: L("Permissions"),
+            subtitle: L("How much the agent can do before asking you."),
             width: 460,
             accessibilityIdentifier: "agent.permission.sheet",
             onClose: { isPresented = false }
@@ -453,7 +453,7 @@ public struct AgentPermissionCapsule: View {
                 AgentChoiceCallout(
                     icon: "exclamationmark.triangle.fill",
                     tint: DS.Palette.warning,
-                    text: "Full access runs commands and edits files without asking. Use it only in trusted projects."
+                    text: L("Full access runs commands and edits files without asking. Use it only in trusted projects.")
                 )
             }
         }
@@ -476,9 +476,9 @@ public struct AgentPermissionCapsule: View {
 // MARK: - Run as
 
 public enum AgentRunAsUserPresentation {
-    public static let noBotLabel = "No Bot"
-    public static let continueWithoutBotLabel = "Continue without bot"
-    public static let handoffToBotSection = "New thread with another bot…"
+    public static let noBotLabel = L("No Bot")
+    public static let continueWithoutBotLabel = L("Continue without bot")
+    public static let handoffToBotSection = L("New thread with another bot…")
     public static let botActorIcon = "cpu"
 
     public static func isInteractive(userCount: Int, identityLocked: Bool, runLocked: Bool) -> Bool {
@@ -509,7 +509,7 @@ public enum AgentRunAsUserPresentation {
     }
 
     public static func targetBadge(_ target: ExecutionTarget) -> String {
-        target == .vm ? "VM" : "Mac"
+        target == .vm ? "VM" : L("Mac")
     }
 
     public static func actorTitle(botName: String, target: ExecutionTarget) -> String {
@@ -522,8 +522,8 @@ public enum AgentRunAsUserPresentation {
 
     public static func actorAccessibilityLabel(botName: String, target: ExecutionTarget, identityLocked: Bool) -> String {
         identityLocked
-            ? "Locked to bot \(botName)"
-            : "Run as bot \(botName) on \(targetBadge(target))"
+            ? L("Locked to bot %1$@", botName)
+            : L("Run as bot %1$@ on %2$@", botName, targetBadge(target))
     }
 
     public static func helpText(
@@ -532,14 +532,14 @@ public enum AgentRunAsUserPresentation {
         identityLocked: Bool,
         runLocked: Bool
     ) -> String {
-        if runLocked { return "macOS user is fixed while a run is active" }
+        if runLocked { return L("macOS user is fixed while a run is active") }
         if identityLocked {
-            return "macOS user is fixed after the first message. Start a new thread to run as a different user."
+            return L("macOS user is fixed after the first message. Start a new thread to run as a different user.")
         }
         if !interactive {
-            return "Provider processes run as macOS user \(selected.shortName)"
+            return L("Provider processes run as macOS user %1$@", selected.shortName)
         }
-        return "Choose which macOS user runs Distill (through the shared helper)"
+        return L("Choose which macOS user runs Distill (through the shared helper)")
     }
 }
 
@@ -632,7 +632,7 @@ public struct AgentRunAsUserCapsule: View {
     }
 
     private var botID: BotID? { actor.botID }
-    private var botName: String { actorName ?? "Bot" }
+    private var botName: String { actorName ?? L("Bot") }
 
     private var interactive: Bool {
         if identityLocked && !canContinueWithoutBot { return false }
@@ -646,7 +646,7 @@ public struct AgentRunAsUserCapsule: View {
     }
 
     private var accessibilityText: String {
-        guard let botID else { return "Run as macOS user \(selected.shortName)" }
+        guard let botID else { return L("Run as macOS user %1$@", selected.shortName) }
         return AgentRunAsUserPresentation.actorAccessibilityLabel(
             botName: botName,
             target: executionTarget(botID),
@@ -692,8 +692,8 @@ public struct AgentRunAsUserCapsule: View {
     private var sheet: some View {
         AgentChoiceSheet(
             icon: "person.crop.circle.badge.checkmark",
-            title: "Who runs this conversation?",
-            subtitle: "Pick a Bot to give it its own identity, memory and tools, or run as yourself.",
+            title: L("Who runs this conversation?"),
+            subtitle: L("Pick a Bot to give it its own identity, memory and tools, or run as yourself."),
             width: 540,
             accessibilityIdentifier: "agent.runAsUser.sheet",
             onClose: { isPresented = false }
@@ -716,7 +716,7 @@ public struct AgentRunAsUserCapsule: View {
         if botsProvider != nil {
             AgentChoiceCard(
                 title: AgentRunAsUserPresentation.noBotLabel,
-                subtitle: "Run as yourself with your own settings",
+                subtitle: L("Run as yourself with your own settings"),
                 selected: actor == .none,
                 accessibilityIdentifier: "agent.runAsUser.sheet.noBot",
                 action: {
@@ -733,32 +733,32 @@ public struct AgentRunAsUserCapsule: View {
                 if bots.count > 6 {
                     AgentChoiceSearchField(
                         query: $botQuery,
-                        placeholder: "Search bots",
+                        placeholder: L("Search bots"),
                         accessibilityIdentifier: "agent.runAsUser.sheet.botSearch"
                     )
                 }
                 botsSection(
-                    title: "Workspace bots",
+                    title: L("Workspace bots"),
                     list: workspaceBots,
                     searchable: true,
                     showsSearchField: false,
-                    emptyText: "No bots in this workspace yet.",
+                    emptyText: L("No bots in this workspace yet."),
                     isSelected: { actor == .bot($0) },
                     onPick: pickBot
                 )
                 Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
                 botsSection(
-                    title: "General bots",
+                    title: L("General bots"),
                     list: generalBots,
                     searchable: true,
                     showsSearchField: false,
-                    emptyText: "No general bots yet.",
+                    emptyText: L("No general bots yet."),
                     isSelected: { actor == .bot($0) },
                     onPick: pickBot
                 )
             } else {
                 botsSection(
-                    title: "Bots",
+                    title: L("Bots"),
                     list: bots,
                     searchable: true,
                     isSelected: { actor == .bot($0) },
@@ -767,8 +767,8 @@ public struct AgentRunAsUserCapsule: View {
             }
             if let onNewBot {
                 AgentChoiceCard(
-                    title: "New bot…",
-                    subtitle: workspaceID == nil ? "Create a Bot" : "Create a Bot for this workspace",
+                    title: L("New bot…"),
+                    subtitle: workspaceID == nil ? L("Create a Bot") : L("Create a Bot for this workspace"),
                     selected: false,
                     accessibilityIdentifier: "agent.runAsUser.sheet.newBot",
                     action: {
@@ -782,7 +782,7 @@ public struct AgentRunAsUserCapsule: View {
         }
         if users.count > 1 {
             VStack(alignment: .leading, spacing: DS.Space.md) {
-                AgentChoiceSectionHeader("macOS user")
+                AgentChoiceSectionHeader(L("macOS user"))
                 ForEach(users, id: \.id) { user in
                     AgentChoiceCard(
                         title: user.shortName,
@@ -841,7 +841,7 @@ public struct AgentRunAsUserCapsule: View {
         list: [BotDefinition],
         searchable: Bool,
         showsSearchField: Bool = true,
-        emptyText: String = "No bots in this workspace yet.",
+        emptyText: String = L("No bots in this workspace yet."),
         isSelected: @escaping (BotID) -> Bool,
         onPick: @escaping (BotDefinition) -> Void
     ) -> some View {
@@ -855,7 +855,7 @@ public struct AgentRunAsUserCapsule: View {
             if searchable && showsSearchField && list.count > 6 {
                 AgentChoiceSearchField(
                     query: $botQuery,
-                    placeholder: "Search bots",
+                    placeholder: L("Search bots"),
                     accessibilityIdentifier: "agent.runAsUser.sheet.botSearch"
                 )
             }
@@ -950,12 +950,12 @@ public struct AgentModelPillPresentation: Equatable {
 
     public var accessibilityLabel: String {
         if isAuto {
-            return loading ? "Auto model routing, loading" : "Auto model routing"
+            return loading ? L("Auto model routing, loading") : L("Auto model routing")
         }
-        let subject = prefix.map { "\($0) model \(title)" } ?? "Model \(title)"
+        let subject = prefix.map { "\($0) model \(title)" } ?? L("Model %1$@", title)
         var parts = [subject]
-        if let effort { parts.append("effort \(effort)") }
-        if let serviceTier { parts.append("tier \(serviceTier)") }
+        if let effort { parts.append(L("effort %1$@", effort)) }
+        if let serviceTier { parts.append(L("tier %1$@", serviceTier)) }
         if warning { parts.append("unavailable") }
         return parts.joined(separator: ", ")
     }

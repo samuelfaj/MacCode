@@ -30,8 +30,8 @@ final class ActiveThreadsWindowTests: XCTestCase {
         XCTAssertTrue(source.contains("vm.activityCounts"))
         XCTAssertTrue(source.contains("vm.activeBotCount"), "running Bots count with the Activity subtitle")
         XCTAssertTrue(source.contains("SidebarViewModel.activitySubtitle(vm.activityCounts, activeBots: vm.activeBotCount)"))
-        XCTAssertTrue(source.contains("\\(counts.running) running · \\(counts.needsYou) need you"))
-        XCTAssertTrue(source.contains("\"Activity, \" + SidebarViewModel.activitySubtitle"))
+        XCTAssertTrue(source.contains("L(\"%1$@ running · %2$@ need you\", counts.running, counts.needsYou)"))
+        XCTAssertTrue(source.contains("L(\"Activity, \") + SidebarViewModel.activitySubtitle"))
         XCTAssertFalse(source.contains("PetActiveThreadCountFormatter.badgeText(count: vm.activeThreadCount)"))
     }
 
@@ -44,7 +44,7 @@ final class ActiveThreadsWindowTests: XCTestCase {
                       "main shell must install ActiveThreadsRootView into workspaceContent")
         XCTAssertTrue(main.contains("case activeThreads"),
                       "ShellContentMode must include activeThreads")
-        XCTAssertTrue(main.contains("visibleWorkspaceLabel.stringValue = \"Active Threads\""),
+        XCTAssertTrue(main.contains("visibleWorkspaceLabel.stringValue = L(\"Active Threads\")"),
                       "title bar must read Active Threads while that shell destination is active")
         XCTAssertTrue(sidebar.contains("onPresentActiveThreads"),
                       "sidebar must route Active Threads to the main shell presenter")

@@ -10,8 +10,8 @@ struct OnboardingChromeStep: View {
     var body: some View {
         OnboardingStepLayout(
             eyebrow: OnboardingStep.chrome.eyebrow,
-            title: "Connect the browser you already use.",
-            subtitle: "Install the Chrome extension once to let agents work in background tabs using the profile you choose."
+            title: L("Connect the browser you already use."),
+            subtitle: L("Install the Chrome extension once to let agents work in background tabs using the profile you choose.")
         ) {
             VStack(alignment: .leading, spacing: DS.Space.xl) {
                 OnboardingToolRow(tool: .chrome, state: setup.state(.chrome)) {
@@ -46,10 +46,10 @@ struct OnboardingChromeStep: View {
                     .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
             }
             Button(L("Skip for now")) { vm.skip(.chrome) }.buttonStyle(.link)
-                .accessibilityHint("Continue without Chrome automation. Set it up later in Settings.")
-            OnboardingPrimaryButton(title: "Continue") { vm.advance(completing: .chrome) }
+                .accessibilityHint(L("Continue without Chrome automation. Set it up later in Settings."))
+            OnboardingPrimaryButton(title: L("Continue")) { vm.advance(completing: .chrome) }
                 .disabled(connection.state != .connected)
-                .accessibilityHint("Available after Check Connection confirms Chrome is connected.")
+                .accessibilityHint(L("Available after Check Connection confirms Chrome is connected."))
                 .accessibilityIdentifier("onboarding.chrome.continue")
         }
         .task { await setup.refresh(.chrome) }

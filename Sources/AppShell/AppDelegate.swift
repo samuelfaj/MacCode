@@ -206,8 +206,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                 supportDir: supportDir,
                 errorDescription: error.localizedDescription
             )
-            alert.addButton(withTitle: "Quit")
-            alert.addButton(withTitle: "Show in Finder")
+            alert.addButton(withTitle: L("Quit"))
+            alert.addButton(withTitle: L("Show in Finder"))
             let response = alert.runModal()
             if response == .alertSecondButtonReturn {
                 NSWorkspace.shared.activateFileViewerSelecting(
@@ -238,8 +238,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
 
                     Workspaces, settings, and history from this session will be saved normally.
                     """
-                alert.addButton(withTitle: "OK")
-                alert.addButton(withTitle: "Show in Finder")
+                alert.addButton(withTitle: L("OK"))
+                alert.addButton(withTitle: L("Show in Finder"))
                 if alert.runModal() == .alertSecondButtonReturn {
                     let dir = URL(fileURLWithPath: self.context.bootstrapReport.path)
                         .deletingLastPathComponent()
@@ -774,14 +774,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         let gate = ManagedProviderAdmissionGate()
         // Resource accounting stays best-effort; pin authorization fails closed.
         context.coordinator.providerAdmissionCheck = { [weak self] provider, threadId in
-            guard let self else { throw NSError(domain: "RemoteCode.BotContext", code: 2, userInfo: [NSLocalizedDescriptionKey: "Bot context authority is unavailable."]) }
+            guard let self else { throw NSError(domain: "RemoteCode.BotContext", code: 2, userInfo: [NSLocalizedDescriptionKey: L("Bot context authority is unavailable.")]) }
             let pin = try await MainActor.run { try self.context.botStore.conversationContextPin(linkedTo: threadId) }
             if pin != nil {
                 let authorized = try await MainActor.run {
                     guard let conversation = try self.context.botStore.conversationLinked(to: threadId) else { return false }
                     return try self.context.botStore.authorizesConversation(conversation, hostID: self.context.liveActivityHostIdentity.serverId, action: .send)
                 }
-                guard authorized else { throw NSError(domain: "RemoteCode.BotContext", code: 1, userInfo: [NSLocalizedDescriptionKey: "Bot conversation context is no longer authorized."]) }
+                guard authorized else { throw NSError(domain: "RemoteCode.BotContext", code: 1, userInfo: [NSLocalizedDescriptionKey: L("Bot conversation context is no longer authorized.")]) }
             }
             guard requiresResourceAdmission else { return }
             guard let store = ProviderProcessOwnership.shared.store() else { return }
@@ -1504,7 +1504,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // File menu
         let fileMenuItem = NSMenuItem()
         mainMenu.addItem(fileMenuItem)
-        let fileMenu = NSMenu(title: "File")
+        let fileMenu = NSMenu(title: L("File"))
         let newWS = NSMenuItem(title: L("New Workspace…"), action: #selector(newWorkspace), keyEquivalent: "n")
         newWS.target = self
         fileMenu.addItem(newWS)
@@ -1512,7 +1512,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // by AppKit from noteNewRecentDocumentURL; selections route through
         // application(_:open:) which opens the folder as a workspace.
         let openRecent = NSMenuItem(title: L("Open Recent"), action: nil, keyEquivalent: "")
-        let openRecentMenu = NSMenu(title: "Open Recent")
+        let openRecentMenu = NSMenu(title: L("Open Recent"))
         let clearRecent = NSMenuItem(title: L("Clear Menu"), action: Selector(("clearRecentDocuments:")), keyEquivalent: "")
         openRecentMenu.addItem(clearRecent)
         openRecent.submenu = openRecentMenu
@@ -1535,7 +1535,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // Edit
         let editMenuItem = NSMenuItem()
         mainMenu.addItem(editMenuItem)
-        let editMenu = NSMenu(title: "Edit")
+        let editMenu = NSMenu(title: L("Edit"))
         // UX-MAC_SHELL_WINDOW-008: Undo/Redo route through the responder chain
         // to the first-responder's NSUndoManager (rename fields, description
         // editors, prompt composer). Without these items ⌘Z produces no result.
@@ -1553,7 +1553,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // View
         let viewItem = NSMenuItem()
         mainMenu.addItem(viewItem)
-        let viewMenu = NSMenu(title: "View")
+        let viewMenu = NSMenu(title: L("View"))
         let paletteItem = NSMenuItem(title: L("Show Command Palette"), action: #selector(togglePalette), keyEquivalent: "k")
         paletteItem.keyEquivalentModifierMask = [.command]
         paletteItem.target = self
@@ -1562,7 +1562,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         keybindableMenuItems = [(item: paletteItem, command: "commandPalette.toggle")]
         viewMenu.addItem(paletteItem)
         let petItem = NSMenuItem(
-            title: "Open Titio",
+            title: L("Open Titio"),
             action: #selector(togglePetPopoverFromMenu),
             keyEquivalent: "p"
         )
@@ -1578,7 +1578,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // Surface
         let surfaceItem = NSMenuItem()
         mainMenu.addItem(surfaceItem)
-        let surfaceMenu = NSMenu(title: "Surface")
+        let surfaceMenu = NSMenu(title: L("Surface"))
         let term = NSMenuItem(title: L("New Terminal Surface"), action: #selector(newTerminal), keyEquivalent: "t")
         term.target = self
         let browser = NSMenuItem(title: L("New Browser Surface"), action: #selector(newBrowser), keyEquivalent: "b")
@@ -1604,7 +1604,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // UX-MAC_SHELL_WINDOW-002: keyboard navigation for the tab strip.
         let tabItem = NSMenuItem()
         mainMenu.addItem(tabItem)
-        let tabMenu = NSMenu(title: "Tab")
+        let tabMenu = NSMenu(title: L("Tab"))
         let nextTab = NSMenuItem(title: L("Next Tab"), action: #selector(selectNextTab), keyEquivalent: "]")
         nextTab.keyEquivalentModifierMask = [.command, .shift]
         nextTab.target = self
@@ -1631,7 +1631,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // Window
         let windowItem = NSMenuItem()
         mainMenu.addItem(windowItem)
-        let windowMenu = NSMenu(title: "Window")
+        let windowMenu = NSMenu(title: L("Window"))
         windowMenu.addItem(NSMenuItem(title: L("Minimize"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
         windowItem.submenu = windowMenu
         NSApp.windowsMenu = windowMenu
@@ -1705,7 +1705,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     }()
 
     static func configurePairingPanel(_ panel: NSPanel) {
-        panel.title = "Pairing Request"
+        panel.title = L("Pairing Request")
         panel.isMovableByWindowBackground = true
         panel.level = .modalPanel
         panel.collectionBehavior.insert(.moveToActiveSpace)
@@ -1747,7 +1747,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 290))
 
         // Device name label
-        let heading = NSTextField(labelWithString: "Allow \"\(prompt.deviceName)\" to connect?")
+        let heading = NSTextField(labelWithString: L("Allow \"%1$@\" to connect?", prompt.deviceName))
         heading.font = NSFont.boldSystemFont(ofSize: 14)
         heading.alignment = .center
         heading.frame = NSRect(x: 20, y: 240, width: 360, height: 20)
@@ -1758,9 +1758,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // the "check the code" prompt that was previously replaced by the IP.
         let infoText: String
         if let ip = prompt.sourceIP {
-            infoText = "Confirm this code matches the device (from \(ip)):"
+            infoText = L("Confirm this code matches the device (from %1$@):", ip)
         } else {
-            infoText = "Confirm this code matches the device:"
+            infoText = L("Confirm this code matches the device:")
         }
         let info = NSTextField(labelWithString: infoText)
         info.alignment = .center
@@ -1778,7 +1778,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         content.addSubview(codeField)
 
         // Created-at detail — DateFormatter is expensive; reuse one.
-        let createdLabel = NSTextField(labelWithString: "Requested at \(Self.pairingCreatedAtFormatter.string(from: prompt.createdAt))")
+        let createdLabel = NSTextField(labelWithString: L("Requested at %1$@", Self.pairingCreatedAtFormatter.string(from: prompt.createdAt)))
         createdLabel.alignment = .center
         createdLabel.font = NSFont.systemFont(ofSize: 11)
         createdLabel.textColor = .secondaryLabelColor
@@ -1795,22 +1795,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         pairingCountdownLabel = countdown
 
         if prompt.clientDeviceID != nil {
-            let alwaysAllow = NSButton(checkboxWithTitle: "Always allow this device", target: nil, action: nil)
+            let alwaysAllow = NSButton(checkboxWithTitle: L("Always allow this device"), target: nil, action: nil)
             alwaysAllow.frame = NSRect(x: 20, y: 70, width: 360, height: 22)
-            alwaysAllow.toolTip = "Future pairing requests from this same device will be approved automatically until you turn this off in Settings."
+            alwaysAllow.toolTip = L("Future pairing requests from this same device will be approved automatically until you turn this off in Settings.")
             alwaysAllow.setAccessibilityIdentifier("pairing.alwaysAllow")
             content.addSubview(alwaysAllow)
             pairingAlwaysAllowCheckbox = alwaysAllow
         }
 
         // Approve button
-        let approveBtn = NSButton(title: "Approve", target: self, action: #selector(pairingApprove))
+        let approveBtn = NSButton(title: L("Approve"), target: self, action: #selector(pairingApprove))
         approveBtn.keyEquivalent = "\r"
         approveBtn.frame = NSRect(x: 220, y: 16, width: 160, height: 44)
         content.addSubview(approveBtn)
 
         // Deny button
-        let denyBtn = NSButton(title: "Deny", target: self, action: #selector(pairingDeny))
+        let denyBtn = NSButton(title: L("Deny"), target: self, action: #selector(pairingDeny))
         denyBtn.frame = NSRect(x: 20, y: 16, width: 160, height: 44)
         content.addSubview(denyBtn)
 
@@ -1855,7 +1855,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     private func updatePairingCountdown(prompt: PairingPrompt, ttl: TimeInterval) {
         let secs = PairingCountdown.remainingSecs(createdAt: prompt.createdAt, ttl: ttl, now: Date())
         let intSecs = Int(secs.rounded(.up))
-        pairingCountdownLabel?.stringValue = "Expires in \(intSecs)s"
+        pairingCountdownLabel?.stringValue = L("Expires in %1$@s", intSecs)
     }
 
     @objc private func pairingApprove() {
@@ -2249,7 +2249,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                 return
             case .unavailable:
                 NSLog("RemoteCode notification route unavailable thread=%@", threadId.value.uuidString)
-                reportNotificationRouteFailure("This notification's conversation is no longer available.")
+                reportNotificationRouteFailure(L("This notification's conversation is no longer available."))
                 return
             case .workspace:
                 break
@@ -2279,7 +2279,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                         }
                         NSLog("RemoteCode notification target missing thread=%@ message=%@ error=%@",
                               threadId.value.uuidString, messageID.description, error.localizedDescription)
-                        self.reportNotificationRouteFailure("The message from this notification could not be found.")
+                        self.reportNotificationRouteFailure(L("The message from this notification could not be found."))
                         return
                     }
                 }
@@ -2287,7 +2287,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         } catch {
             NSLog("RemoteCode notification route failed thread=%@ error=%@",
                   threadId.value.uuidString, error.localizedDescription)
-            reportNotificationRouteFailure("Could not open this notification: \(error.localizedDescription)")
+            reportNotificationRouteFailure(L("Could not open this notification: %1$@", error.localizedDescription))
         }
     }
 
@@ -2309,7 +2309,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             alert.messageText = L("Could not open notification")
             alert.informativeText = message
             alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: L("OK"))
             alert.runModal()
         }
     }
@@ -2323,7 +2323,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         } catch {
             NSLog("RemoteCode notification bot route failed bot=%@ conversation=%@ error=%@",
                   bot.botId.value.uuidString, bot.conversationId.value.uuidString, error.localizedDescription)
-            reportNotificationRouteFailure("Could not open this notification: \(error.localizedDescription)")
+            reportNotificationRouteFailure(L("Could not open this notification: %1$@", error.localizedDescription))
             return
         }
         guard let messageID = bot.messageId else { return }
@@ -2341,14 +2341,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                     do {
                         try await vm.revealMessage(id: messageID, expectedThreadID: threadID)
                     } catch {
-                        self.reportNotificationRouteFailure("The message from this notification could not be found.")
+                        self.reportNotificationRouteFailure(L("The message from this notification could not be found."))
                     }
                     return
                 }
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
             guard self?.notificationRouteGeneration == generation else { return }
-            self?.reportNotificationRouteFailure("The bot desk did not open the message from this notification.")
+            self?.reportNotificationRouteFailure(L("The bot desk did not open the message from this notification."))
         }
     }
 
@@ -2570,7 +2570,7 @@ extension AppDelegate {
     /// WHY extracted: testable without any @MainActor or AppKit dependency.
     nonisolated public static func pairingCodeAccessibilityLabel(_ code: String) -> String {
         let spaced = code.map { String($0) }.joined(separator: " ")
-        return "Pairing code: \(spaced)"
+        return L("Pairing code: %1$@", spaced)
     }
 }
 
@@ -2602,14 +2602,14 @@ extension SurfaceType {
     /// Human-facing label, mirrors cmux terminology.
     public var displayLabel: String {
         switch self {
-        case .terminal: return "Terminal"
+        case .terminal: return L("Terminal")
         case .ssh: return "SSH"
-        case .browser: return "Browser"
-        case .agentApp: return "Agent App"
-        case .files: return "Files"
-        case .markdown: return "Markdown"
-        case .filePreview: return "File Preview"
-        case .rightSidebarTool: return "Right Sidebar Tool"
+        case .browser: return L("Browser")
+        case .agentApp: return L("Agent App")
+        case .files: return L("Files")
+        case .markdown: return L("Markdown")
+        case .filePreview: return L("File Preview")
+        case .rightSidebarTool: return L("Right Sidebar Tool")
         }
     }
 }

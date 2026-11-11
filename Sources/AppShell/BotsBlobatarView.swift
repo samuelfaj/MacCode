@@ -15,7 +15,7 @@ struct BotBlobatarEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.xl) {
-            section("Shape") {
+            section(L("Shape")) {
                 LazyVGrid(
                     columns: [GridItem(.adaptive(minimum: 64), spacing: DS.Space.sm)],
                     spacing: DS.Space.md
@@ -32,7 +32,7 @@ struct BotBlobatarEditor: View {
                     }
                 }
             }
-            section("Color") {
+            section(L("Color")) {
                 hueRow
             }
         }
@@ -101,7 +101,7 @@ struct BotBlobatarEditor: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Automatic color")
+            .accessibilityLabel(L("Automatic color"))
             .accessibilityAddTraits(autoSelected ? .isSelected : [])
             .accessibilityIdentifier("bots.studio.avatar.hue.auto")
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 32), spacing: DS.Space.sm)], alignment: .leading, spacing: DS.Space.sm) {

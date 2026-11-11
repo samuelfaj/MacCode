@@ -328,8 +328,8 @@ private struct PetSpeechBubbleCard: View {
             withAnimation(PetSpeechMotion.enterAnimation(reduceMotion: reduce)) { appeared = true }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Titio: \(speech.text)")
-        .accessibilityHint("Opens Titio's Notifications at this message")
+        .accessibilityLabel(L("Titio: %1$@", speech.text))
+        .accessibilityHint(L("Opens Titio's Notifications at this message"))
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onActivate() }
         .accessibilityIdentifier("pet.speech")
@@ -563,7 +563,7 @@ final class PetSpeechController {
             element: app,
             notification: .announcementRequested,
             userInfo: [
-                .announcement: "Titio: \(speech.text)",
+                .announcement: L("Titio: %1$@", speech.text),
                 .priority: priority.rawValue,
             ]
         )

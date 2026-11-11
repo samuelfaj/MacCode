@@ -39,7 +39,7 @@ enum HostScopedSessionBackup {
 
     private static func exists(_ name: String, in directory: PrivateDirectory) throws -> Bool {
         guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.utf8.contains(0) else {
-            throw failure("invalid scoped restore component")
+            throw failure(L("invalid scoped restore component"))
         }
         return try PrivateDirectoryTree.childNames(directory).contains(name)
     }
@@ -58,20 +58,20 @@ enum HostScopedSessionBackup {
         let before = try PrivateDirectoryTree.inventory(sourceDirectory)
         let copied = try PrivateDirectoryTree.copy(from: sourceDirectory, to: destinationDirectory)
         guard before == copied, before == (try PrivateDirectoryTree.inventory(sourceDirectory)) else {
-            throw failure("scoped archive changed during staging")
+            throw failure(L("scoped archive changed during staging"))
         }
     }
 
     private static func snapshot(from source: URL, to destination: URL) throws {
         _ = try HostDatabaseRestore.inspect(backupURL: source)
         let fd = open(destination.path, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { throw failure("cannot create exclusive SQLite snapshot: \(destination.path)") }
+        guard fd >= 0 else { throw failure(L("cannot create exclusive SQLite snapshot: %1$@", destination.path)) }
         close(fd)
         try writeSnapshot(from: source, to: destination)
         let result = open(destination.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
-        guard result >= 0 else { throw failure("cannot open completed SQLite snapshot") }
+        guard result >= 0 else { throw failure(L("cannot open completed SQLite snapshot")) }
         defer { close(result) }
-        guard fsync(result) == 0 else { throw failure("cannot sync SQLite snapshot") }
+        guard fsync(result) == 0 else { throw failure(L("cannot sync SQLite snapshot")) }
         let parent = try PrivateDirectory(destination.deletingLastPathComponent(), create: false)
         defer { parent.close() }
         try parent.synchronize()
@@ -90,7 +90,7 @@ enum HostScopedSessionBackup {
         defer { parent.close() }
         let companion = HostScopedSessionArchive.companionURL(for: backupURL)
         guard try !exists(backupURL.lastPathComponent, in: parent), try !exists(companion.lastPathComponent, in: parent) else {
-            throw failure("backup destination already exists")
+            throw failure(L("backup destination already exists"))
         }
         let name = ".scoped-backup-\(UUID().uuidString.lowercased())"
         let stage = try child(name, in: parent, create: true)
@@ -135,11 +135,11 @@ enum HostScopedSessionBackup {
     static func restore(backupURL: URL, currentURL: URL, appSupport: URL, reviewToken: String?, quarantineOrphans: Bool = false) throws -> URL {
         let review = try inspect(backupURL: backupURL)
         if review.requiresConfirmation && reviewToken != review.fingerprint {
-            throw failure("database restore requires the exact inspected review fingerprint")
+            throw failure(L("database restore requires the exact inspected review fingerprint"))
         }
         let support = try PrivateDirectory(appSupport, create: false)
         defer { support.close() }
-        guard try !exists(journalName, in: support) else { throw failure("interrupted scoped restore requires recovery") }
+        guard try !exists(journalName, in: support) else { throw failure(L("interrupted scoped restore requires recovery")) }
         let sourceParent = try PrivateDirectory(backupURL.deletingLastPathComponent(), create: false)
         defer { sourceParent.close() }
         let companion = HostScopedSessionArchive.companionURL(for: backupURL)
@@ -150,7 +150,7 @@ enum HostScopedSessionBackup {
                     let manifest = try HostScopedSessionArchive.capture(databaseURL: recovery, appSupport: appSupport,
                         destination: HostScopedSessionArchive.companionURL(for: recovery))
                     guard manifest.sessions.isEmpty else {
-                        throw failure("database-only restore cannot replace scoped native history")
+                        throw failure(L("database-only restore cannot replace scoped native history"))
                     }
                 })
         }
@@ -168,7 +168,7 @@ enum HostScopedSessionBackup {
             try copyDirectory(from: companion, to: incomingURL)
             let incoming = try HostScopedSessionArchive.validate(databaseURL: incomingDB, archiveURL: incomingURL)
             guard try inspectStaged(databaseURL: incomingDB, archiveURL: incomingURL) == review.fingerprint else {
-                throw failure("backup changed after review")
+                throw failure(L("backup changed after review"))
             }
             _ = try childAndClose("undo", in: stage)
             let recovery = try HostDatabaseRestore.restore(backupURL: incomingDB, currentURL: currentURL,
@@ -194,19 +194,19 @@ enum HostScopedSessionBackup {
                     journal!.filesReady = true
                     try save(journal!, in: support)
                 }, didCommit: { committed = true })
-            guard let record = journal else { throw failure("scoped restore did not prepare native files") }
+            guard let record = journal else { throw failure(L("scoped restore did not prepare native files")) }
             try finish(record, currentURL: currentURL, appSupport: appSupport, support: support, stage: stage, committed: true)
             return recovery
         } catch {
             let originalError = error
             if committed {
-                throw failure("database restore committed; scoped cleanup incomplete: \(originalError)")
+                throw failure(L("database restore committed; scoped cleanup incomplete: %1$@", originalError))
             }
             if let record = journal, try exists(journalName, in: support) {
                 do {
                     try finish(record, currentURL: currentURL, appSupport: appSupport, support: support, stage: stage, committed: false)
                 } catch {
-                    throw failure("scoped restore incomplete; recovery retained: \(error); original error: \(originalError)")
+                    throw failure(L("scoped restore incomplete; recovery retained: %1$@; original error: %2$@", error, originalError))
                 }
             } else {
                 try PrivateDirectoryTree.removeChild(stageName, from: support)
@@ -281,7 +281,7 @@ enum HostScopedSessionBackup {
                 defer { undoScope.close() }
                 try PrivateDirectoryTree.renameChild(name, from: live, to: undoScope, as: session.conversationID.value.uuidString.lowercased())
             } else if try exists(name, in: live) {
-                throw failure("unindexed native history appeared during restore")
+                throw failure(L("unindexed native history appeared during restore"))
             }
             if incomingSessions[key(session)]?.hasHistoryHome == true {
                 let source = try scope(session, root: histories, create: false)
@@ -299,7 +299,7 @@ enum HostScopedSessionBackup {
         let directory = try parent.child(historyName(session), create: false)
         defer { directory.close() }
         guard try PrivateDirectoryTree.inventory(directory, excludingRootNames: excludedHomeNames) == session.history else {
-            throw failure("native history changed during scoped restore")
+            throw failure(L("native history changed during scoped restore"))
         }
     }
 
@@ -309,7 +309,7 @@ enum HostScopedSessionBackup {
         let expected = try archive.child("bindings", create: false)
         defer { expected.close() }
         guard try PrivateDirectoryTree.inventory(directory) == PrivateDirectoryTree.inventory(expected) else {
-            throw failure("scoped binding tree changed during restore")
+            throw failure(L("scoped binding tree changed during restore"))
         }
     }
 
@@ -323,7 +323,7 @@ enum HostScopedSessionBackup {
         guard try HostScopedSessionArchive.manifestDigest(archiveURL: incomingURL) == journal.incomingDigest,
               try HostScopedSessionArchive.manifestDigest(archiveURL: originalURL) == journal.recoveryDigest,
               try HostScopedSessionArchive.manifestDigest(archiveURL: recoveryArchive) == journal.recoveryDigest else {
-            throw failure("scoped restore recovery manifest changed")
+            throw failure(L("scoped restore recovery manifest changed"))
         }
         if !committed {
             var rollback = journal
@@ -342,11 +342,11 @@ enum HostScopedSessionBackup {
         guard incoming.version == 1,
               Set(incoming.sessions.map { key($0) }).count == incoming.sessions.count,
               incoming.databaseFingerprint == (try HostDatabaseRestore.inspect(backupURL: incomingDatabase).fingerprint) else {
-            throw failure("invalid staged incoming manifest")
+            throw failure(L("invalid staged incoming manifest"))
         }
         try HostScopedSessionArchive.validateBindings(incoming, databaseURL: incomingDatabase)
         guard try HostDatabaseRestore.inspect(backupURL: currentURL).fingerprint == (committed ? journal.stagedFingerprint : journal.recoveryFingerprint) else {
-            throw failure("SQLite state changed during scoped restore recovery")
+            throw failure(L("SQLite state changed during scoped restore recovery"))
         }
         let undo = try stage.child("undo", create: false)
         defer { undo.close() }
@@ -359,7 +359,7 @@ enum HostScopedSessionBackup {
             if committed {
                 if let expected = incomingSessions[key(session)], expected.hasHistoryHome {
                     try verifyHistory(expected, in: live)
-                } else if try exists(name, in: live) { throw failure("unexpected native home after restore commit") }
+                } else if try exists(name, in: live) { throw failure(L("unexpected native home after restore commit")) }
                 try live.synchronize()
                 continue
             }
@@ -367,9 +367,9 @@ enum HostScopedSessionBackup {
             defer { undoScope.close() }
             let cid = session.conversationID.value.uuidString.lowercased()
             if try exists(cid, in: undoScope) {
-                guard originals[key(session)]?.hasHistoryHome == true else { throw failure("unexpected restore undo home") }
+                guard originals[key(session)]?.hasHistoryHome == true else { throw failure(L("unexpected restore undo home")) }
                 if try exists(name, in: live) {
-                    guard let expected = incomingSessions[key(session)], expected.hasHistoryHome else { throw failure("unexpected installed home") }
+                    guard let expected = incomingSessions[key(session)], expected.hasHistoryHome else { throw failure(L("unexpected installed home")) }
                     try verifyHistory(expected, in: live)
                     try PrivateDirectoryTree.renameChild(name, from: live, to: undoScope, as: "discard-" + cid)
                 }
@@ -378,7 +378,7 @@ enum HostScopedSessionBackup {
             } else if let expected = originals[key(session)], expected.hasHistoryHome {
                 try verifyHistory(expected, in: live)
             } else if try exists(name, in: live) {
-                guard let expected = incomingSessions[key(session)], expected.hasHistoryHome else { throw failure("unexpected new native home") }
+                guard let expected = incomingSessions[key(session)], expected.hasHistoryHome else { throw failure(L("unexpected new native home")) }
                 try verifyHistory(expected, in: live)
                 try PrivateDirectoryTree.renameChild(name, from: live, to: undoScope, as: "discard-" + cid)
             }
@@ -422,12 +422,12 @@ enum HostScopedSessionBackup {
             let name = session.conversationID.value.uuidString.lowercased() + ".json"
             let bytes = try PrivateDirectoryTree.readFile(name, in: directory, maximumBytes: 1_024 * 1_024)
             let hash = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
-            guard hash == session.bindingSHA256 else { throw failure("installed binding changed") }
+            guard hash == session.bindingSHA256 else { throw failure(L("installed binding changed")) }
             expected.append(.init(path: sid + "/" + name, isDirectory: false, byteCount: Int64(bytes.count), sha256: hash))
         }
         expected += scopes.map { .init(path: $0, isDirectory: true, byteCount: 0, sha256: nil) }
         guard try PrivateDirectoryTree.inventory(root) == expected.sorted(by: { $0.path < $1.path }) else {
-            throw failure("unexpected installed binding entries")
+            throw failure(L("unexpected installed binding entries"))
         }
     }
 
@@ -444,12 +444,12 @@ enum HostScopedSessionBackup {
               journal.recoveryName == ".restore-recovery-" + recoveryToken + ".sqlite",
               UUID(uuidString: recoveryToken) != nil,
               journal.currentPath == currentURL.standardizedFileURL.path else {
-            throw failure("invalid scoped restore recovery journal")
+            throw failure(L("invalid scoped restore recovery journal"))
         }
         let fingerprint = try HostDatabaseRestore.inspect(backupURL: currentURL).fingerprint
         let committed = journal.filesReady && fingerprint == journal.stagedFingerprint
         guard committed || fingerprint == journal.recoveryFingerprint else {
-            throw failure("unknown SQLite state; scoped restore recovery retained")
+            throw failure(L("unknown SQLite state; scoped restore recovery retained"))
         }
         let stage = try support.child(journal.stageName, create: false)
         defer { stage.close() }

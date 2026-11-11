@@ -159,17 +159,17 @@ public struct PetTerminalNotificationRecorder {
               case .object(let payload) = event.payload,
               let summary = activitySummary(for: kind) else { return nil }
         guard let exitCode = payload["exit_code"]?.intValue else { return summary }
-        return "\(summary) (exit code \(exitCode))"
+        return L("%1$@ (exit code %2$@)", summary, exitCode)
     }
 
     private static func activitySummary(for kind: PetTerminalNotificationKind) -> String? {
         switch kind {
-        case .gitDelivery(.succeeded): return "Git delivery succeeded"
-        case .gitDelivery(.failed): return "Git delivery failed"
-        case .projectScript(.succeeded): return "Project script succeeded"
-        case .projectScript(.failed): return "Project script failed"
-        case .sshTransfer(.succeeded): return "SSH transfer completed"
-        case .sshTransfer(.failed): return "SSH transfer failed"
+        case .gitDelivery(.succeeded): return L("Git delivery succeeded")
+        case .gitDelivery(.failed): return L("Git delivery failed")
+        case .projectScript(.succeeded): return L("Project script succeeded")
+        case .projectScript(.failed): return L("Project script failed")
+        case .sshTransfer(.succeeded): return L("SSH transfer completed")
+        case .sshTransfer(.failed): return L("SSH transfer failed")
         default: return nil
         }
     }

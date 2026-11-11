@@ -6211,7 +6211,7 @@ final class AgentAppViewModelTests: XCTestCase {
         )
         let stripStart = try XCTUnwrap(chrome.range(of: "public struct AgentChatErrorStrip"))
         let dismissLabel = try XCTUnwrap(chrome.range(
-            of: ".accessibilityLabel(\"Dismiss error\")",
+            of: ".accessibilityLabel(L(\"Dismiss error\"))",
             range: stripStart.upperBound..<chrome.endIndex
         ))
         let strip = String(chrome[stripStart.lowerBound..<dismissLabel.lowerBound])
@@ -6270,8 +6270,8 @@ final class AgentAppViewModelTests: XCTestCase {
         let shared = try XCTUnwrap(view.range(of: "AgentNewConversationEmptyState("))
         XCTAssertLessThan(sideChat.lowerBound, shared.lowerBound, "a side chat is asked first")
         XCTAssertTrue(view.contains("sideChatEmptyConversation"))
-        XCTAssertTrue(view.contains("title: vm.embedding?.emptyConversationTitle ?? \"No messages\""))
-        XCTAssertTrue(view.contains("subtitle: vm.embedding?.emptyConversationSubtitle ?? \"Start a new agent run.\""))
+        XCTAssertTrue(view.contains("title: vm.embedding?.emptyConversationTitle ?? L(\"No messages\")"))
+        XCTAssertTrue(view.contains("subtitle: vm.embedding?.emptyConversationSubtitle ?? L(\"Start a new agent run.\")"))
         // WHY: the side chat subtitle is the only place that says a side chat
         // is temporary. Hand-drawn it was textTertiary (4.06:1 on bg, see
         // DSContrastTests); the shared component keeps it at textSecondary.
@@ -6285,7 +6285,7 @@ final class AgentAppViewModelTests: XCTestCase {
         XCTAssertFalse(sideChatBody.contains("textTertiary"))
         // "Parent thread running / idle" is status the owner reads, not decoration.
         let statusStart = try XCTUnwrap(source.range(
-            of: "Text(running ? \"Parent thread running\" : \"Parent thread idle\")",
+            of: "Text(running ? L(\"Parent thread running\") : L(\"Parent thread idle\"))",
             range: stripStart.upperBound..<source.endIndex
         ))
         let statusEnd = try XCTUnwrap(source.range(
@@ -6324,14 +6324,14 @@ final class AgentAppViewModelTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/Surfaces/AgentAppSurface.swift")
         let source = try String(contentsOf: url, encoding: .utf8)
-        let branchStart = try XCTUnwrap(source.range(of: "Text(vm.gitBranch ?? \"no branch\")"))
+        let branchStart = try XCTUnwrap(source.range(of: "Text(vm.gitBranch ?? L(\"no branch\"))"))
         let branchEnd = try XCTUnwrap(source.range(
             of: "if let context = vm.contextHealthMessage",
             range: branchStart.upperBound..<source.endIndex
         ))
         let branch = String(source[branchStart.lowerBound..<branchEnd.lowerBound])
         XCTAssertTrue(branch.contains(".truncationMode(.middle)"))
-        XCTAssertTrue(branch.contains(".help(vm.gitBranch ?? \"no branch\")"))
+        XCTAssertTrue(branch.contains(".help(vm.gitBranch ?? L(\"no branch\"))"))
 
         let revealStart = try XCTUnwrap(source.range(of: "Text(Self.hiddenTranscriptRevealLabel("))
         let revealEnd = try XCTUnwrap(source.range(of: ".lineLimit(1)", range: revealStart.upperBound..<source.endIndex))

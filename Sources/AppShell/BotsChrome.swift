@@ -7,40 +7,40 @@ import DesignSystemKit
 /// only per-bot avatar identity colors are local to Bots.
 public enum BotsChrome {
     public enum Label {
-        public static let agentic = "Workspaces"
-        public static let bots = "Bots"
-        public static let newBot = "New Bot"
-        public static let activeBots = "Active Bots"
-        public static let scheduleTasks = "Schedule Tasks"
-        public static let myBots = "My Bots"
-        public static let botRoster = "BOT ROSTER"
-        public static let search = "Search bots..."
-        public static let openChat = "Open Chat"
-        public static let saveBot = "Save Bot"
-        public static let unsavedNewBotConfirmTitle = "Don't save this Bot?"
-        public static let unsavedNewBotConfirmMessage = "This teammate has not been saved."
-        public static let unsavedNewBotDontSave = "Don't Save"
-        public static let currentGoal = "Current Goal"
-        public static let todaysActivity = "Today's Activity"
-        public static let nextRoutine = "Next Routine"
-        public static let files = "Files"
-        public static let routines = "Schedule Tasks"
-        public static let approvals = "Approvals"
-        public static let roleAndIdentity = "Role & Identity"
-        public static let description = "Description"
+        public static let agentic = L("Workspaces")
+        public static let bots = L("Bots")
+        public static let newBot = L("New Bot")
+        public static let activeBots = L("Active Bots")
+        public static let scheduleTasks = L("Schedule Tasks")
+        public static let myBots = L("My Bots")
+        public static let botRoster = L("BOT ROSTER")
+        public static let search = L("Search bots...")
+        public static let openChat = L("Open Chat")
+        public static let saveBot = L("Save Bot")
+        public static let unsavedNewBotConfirmTitle = L("Don't save this Bot?")
+        public static let unsavedNewBotConfirmMessage = L("This teammate has not been saved.")
+        public static let unsavedNewBotDontSave = L("Don't Save")
+        public static let currentGoal = L("Current Goal")
+        public static let todaysActivity = L("Today's Activity")
+        public static let nextRoutine = L("Next Routine")
+        public static let files = L("Files")
+        public static let routines = L("Schedule Tasks")
+        public static let approvals = L("Approvals")
+        public static let roleAndIdentity = L("Role & Identity")
+        public static let description = L("Description")
         public static let descriptionCaption =
-            "Who this teammate is. A short about line. Empty stays out of the prompt."
-        public static let instructions = "Instructions"
+            L("Who this teammate is. A short about line. Empty stays out of the prompt.")
+        public static let instructions = L("Instructions")
         public static let instructionsCaption =
-            "How this teammate should work. Always sent. Empty uses the built-in teammate default. Write your own to replace it."
-        public static let security = "Security"
-        public static let notifications = "Notifications"
-        public static let desktop = "Desktop"
-        public static let brain = "Brain"
-        public static let source = "Source"
-        public static let effective = "Effective"
-        public static let brainPreviewHonesty = "Local compile. This is not a model call."
-        public static let brainReceiptHonesty = "Receipt from the last compiled send."
+            L("How this teammate should work. Always sent. Empty uses the built-in teammate default. Write your own to replace it.")
+        public static let security = L("Security")
+        public static let notifications = L("Notifications")
+        public static let desktop = L("Desktop")
+        public static let brain = L("Brain")
+        public static let source = L("Source")
+        public static let effective = L("Effective")
+        public static let brainPreviewHonesty = L("Local compile. This is not a model call.")
+        public static let brainReceiptHonesty = L("Receipt from the last compiled send.")
         public static let honesty = BotDesktopKind.logicalExecutionSpaceHonestyLabel
     }
 
@@ -168,9 +168,9 @@ public enum BotsChrome {
     public static func statusTitle(for state: BotAttentionState) -> String {
         switch state {
         case .working: return "Working"
-        case .needsAttention: return "Needs you"
-        case .unreadActivity: return "Unread"
-        case .none: return "Online"
+        case .needsAttention: return L("Needs you")
+        case .unreadActivity: return L("Unread")
+        case .none: return L("Online")
         }
     }
 

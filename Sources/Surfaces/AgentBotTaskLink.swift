@@ -42,8 +42,8 @@ public struct AgentBotTaskLink: View {
             .overlay(Capsule().strokeBorder(DS.Palette.line, lineWidth: DS.Border.hairline))
         }
         .buttonStyle(.plain)
-        .help("\(statusLabel). Open conversation alongside this chat.")
-        .accessibilityLabel("\(task.title). \(statusLabel). Open parallel conversation")
+        .help(L("%1$@. Open conversation alongside this chat.", statusLabel))
+        .accessibilityLabel(L("%1$@. %2$@. Open parallel conversation", task.title, statusLabel))
         .accessibilityIdentifier("agent.botTask.\(task.runID.value.uuidString.lowercased())")
         .task(id: task.runID) {
             while !Task.isCancelled {
@@ -73,15 +73,15 @@ public struct AgentBotTaskLink: View {
     }
 
     private var statusLabel: String {
-        if unavailable { return "Status unavailable" }
+        if unavailable { return L("Status unavailable") }
         switch status {
-        case .completed: return "Completed"
-        case .failed: return "Failed"
-        case .cancelled: return "Cancelled"
-        case .interrupted: return "Interrupted"
-        case .running: return "Running"
-        case .pending: return "Queued"
-        case nil: return "Checking status"
+        case .completed: return L("Completed")
+        case .failed: return L("Failed")
+        case .cancelled: return L("Cancelled")
+        case .interrupted: return L("Interrupted")
+        case .running: return L("Running")
+        case .pending: return L("Queued")
+        case nil: return L("Checking status")
         }
     }
 }

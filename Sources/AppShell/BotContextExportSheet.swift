@@ -81,9 +81,9 @@ final class BotContextExportModel: ObservableObject, Identifiable {
         self.currentSource = currentSource
         self.copy = copy
         if targets.isEmpty {
-            unavailableMessage = "No active send destination is available for this Bot."
+            unavailableMessage = L("No active send destination is available for this Bot.")
         } else if rows.isEmpty {
-            unavailableMessage = "No saved user or assistant excerpts are available."
+            unavailableMessage = L("No saved user or assistant excerpts are available.")
         }
     }
 
@@ -99,7 +99,7 @@ final class BotContextExportModel: ObservableObject, Identifiable {
         } else if selectedIDs.count < 32 {
             selectedIDs.insert(row.id)
         } else {
-            errorMessage = "Select no more than 32 excerpts."
+            errorMessage = L("Select no more than 32 excerpts.")
         }
     }
 
@@ -114,8 +114,8 @@ final class BotContextExportModel: ObservableObject, Identifiable {
         guard validateSource() else { return }
         guard (1...32).contains(selectedIDs.count), let target = selectedTarget else {
             errorMessage = selectedIDs.isEmpty || selectedIDs.count > 32
-                ? "Select between 1 and 32 excerpts."
-                : "Choose a destination."
+                ? L("Select between 1 and 32 excerpts.")
+                : L("Choose a destination.")
             return
         }
         var params = origin.parameters
@@ -129,7 +129,7 @@ final class BotContextExportModel: ObservableObject, Identifiable {
                   let summary = response["summary"]?.stringValue, !summary.isEmpty,
                   self.responseMatches(response, target: target),
                   self.responseMessageIDs(response) == params["message_ids"]?.arrayValue?.compactMap(\.stringValue) else {
-                self.errorMessage = "The export preview did not match the selected source and destination."
+                self.errorMessage = L("The export preview did not match the selected source and destination.")
                 return
             }
             self.review = Review(request: params, digest: digest, summary: summary, targetLabel: target.label)
@@ -160,7 +160,7 @@ final class BotContextExportModel: ObservableObject, Identifiable {
                   response["summary"]?.stringValue == review.summary,
                   self.responseMessageIDs(response) == review.request["message_ids"]?.arrayValue?.compactMap(\.stringValue) else {
                 self.review = nil
-                self.errorMessage = "Export was not confirmed. Nothing was copied."
+                self.errorMessage = L("Export was not confirmed. Nothing was copied.")
                 return
             }
             self.copy(review.summary)
@@ -177,7 +177,7 @@ final class BotContextExportModel: ObservableObject, Identifiable {
             "client_request_id": .string(UUID().uuidString.lowercased()),
             "host_id": origin.parameters["host_id"] ?? .string(origin.hostID),
             "bot_id": .string(origin.botID),
-            "title": .string("Continued from \(origin.sourceLabel)"),
+            "title": .string(L("Continued from %1$@", origin.sourceLabel)),
             "context_key": .string(target.key),
             "context_version": .number(Double(origin.contextVersion)),
             "policy_revision": .number(Double(target.revision)),
@@ -188,7 +188,7 @@ final class BotContextExportModel: ObservableObject, Identifiable {
                   let conversationID = readback["conversation_id"]?.stringValue,
                   readback["context_key"] == .string(target.key),
                   readback["policy_revision"] == .number(Double(target.revision)) else {
-                self.errorMessage = "The destination conversation could not be confirmed. Nothing was queued."
+                self.errorMessage = L("The destination conversation could not be confirmed. Nothing was queued.")
                 return
             }
             var queue = create
@@ -202,7 +202,7 @@ final class BotContextExportModel: ObservableObject, Identifiable {
                       readback["enqueued"]?.boolValue == true,
                       readback["requires_user_send"]?.boolValue == true,
                       readback["conversation_id"] == .string(conversationID) else {
-                    self.errorMessage = "The approved summary was not queued in the destination."
+                    self.errorMessage = L("The approved summary was not queued in the destination.")
                     return
                 }
                 self.continuedConversationID = conversationID
@@ -227,7 +227,7 @@ final class BotContextExportModel: ObservableObject, Identifiable {
         review = nil
         selectedIDs = []
         targetKey = nil
-        errorMessage = "The source conversation changed. Close this sheet and reopen export."
+        errorMessage = L("The source conversation changed. Close this sheet and reopen export.")
     }
 
     private func validateSource() -> Bool {
@@ -258,7 +258,7 @@ final class BotContextExportModel: ObservableObject, Identifiable {
                     return
                 }
                 guard let object = response.objectValue else {
-                    self.errorMessage = "The export service returned an invalid response."
+                    self.errorMessage = L("The export service returned an invalid response.")
                     return
                 }
                 completion(object, owner)
@@ -298,22 +298,22 @@ struct BotContextExportSheet: View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Text(L("Export selected excerpts"))
                 .font(DS.Font.title2)
-            metadata("Host", model.origin.hostLabel)
-            metadata("Bot", model.origin.botLabel)
-            metadata("Source", model.origin.sourceLabel)
+            metadata(L("Host"), model.origin.hostLabel)
+            metadata(L("Bot"), model.origin.botLabel)
+            metadata(L("Source"), model.origin.sourceLabel)
             if let unavailable = model.unavailableMessage {
                 Text(unavailable).foregroundStyle(.secondary)
             } else if !model.sourceIsCurrent {
                 Text(L("Source access is unavailable or has changed.")).foregroundStyle(.secondary)
             } else if let review = model.review {
-                metadata("Destination", review.targetLabel)
+                metadata(L("Destination"), review.targetLabel)
                 ScrollView {
                     Text(review.summary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.disabled)
                         .padding(DS.Space.sm)
                 }
-                .accessibilityLabel("Export preview")
+                .accessibilityLabel(L("Export preview"))
                 HStack {
                     Button(L("Back")) { model.back() }
                     Spacer()
@@ -341,7 +341,7 @@ struct BotContextExportSheet: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("\(row.role): \(row.text)")
-                    .accessibilityValue(model.selectedIDs.contains(row.id) ? "Selected" : "Not selected")
+                    .accessibilityValue(model.selectedIDs.contains(row.id) ? L("Selected") : L("Not selected"))
                     .accessibilityIdentifier("bots.desk.export.message.\(row.id)")
                     .overlay(alignment: .trailing) {
                         if model.selectedIDs.contains(row.id) { Image(systemName: "checkmark.circle.fill") }
@@ -359,7 +359,7 @@ struct BotContextExportSheet: View {
                         .disabled(model.isBusy || model.selectionCount == 0 || model.selectedTarget == nil || !model.sourceIsCurrent)
                 }
             }
-            if model.isBusy { ProgressView("Preparing export…") }
+            if model.isBusy { ProgressView(L("Preparing export…")) }
             if let error = model.errorMessage { Text(error).foregroundStyle(DS.Palette.danger).accessibilityIdentifier("bots.desk.export.error") }
             if model.copied { Text(L("Copied.")).foregroundStyle(.secondary) }
             if model.copied, model.review != nil {

@@ -331,7 +331,7 @@ public enum TerminalFontSizeSetting {
 
     public nonisolated static func displayLabel(_ size: Double) -> String {
         let normalized = normalized(size)
-        guard normalized != defaultSize else { return "Ghostty default" }
+        guard normalized != defaultSize else { return L("Ghostty default") }
         return "\(Int(normalized)) pt"
     }
 }
@@ -358,9 +358,9 @@ enum ScrollbackPositionLabel {
         if safeTotal > 0 {
             let pct = Int(Double(safeOffset) / Double(safeTotal) * 100.0)
             let clamped = min(100, max(1, pct))
-            return "\(clamped)% from bottom"
+            return L("%1$@% from bottom", clamped)
         }
-        return "\(safeOffset) lines from bottom"
+        return L("%1$@ lines from bottom", safeOffset)
     }
 }
 
@@ -2257,7 +2257,7 @@ final class GhosttyTerminalView: NSView {
         label.layer?.cornerRadius = 4
         label.translatesAutoresizingMaskIntoConstraints = false
         label.setAccessibilityIdentifier("terminal.scrollback-indicator")
-        label.setAccessibilityLabel("Scrollback position")
+        label.setAccessibilityLabel(L("Scrollback position"))
         addSubview(label)
         return label
     }
@@ -2369,13 +2369,13 @@ final class GhosttyTerminalView: NSView {
         bar.translatesAutoresizingMaskIntoConstraints = false
 
         let field = NSTextField()
-        field.placeholderString = "Find in terminal"
+        field.placeholderString = L("Find in terminal")
         field.bezelStyle = .roundedBezel
         field.focusRingType = .none
         field.target = self
         field.action = #selector(findFieldChanged(_:))
         field.setAccessibilityIdentifier("terminal.find-field")
-        field.setAccessibilityLabel("Find in terminal")
+        field.setAccessibilityLabel(L("Find in terminal"))
         field.translatesAutoresizingMaskIntoConstraints = false
         findField = field
 
@@ -2386,11 +2386,11 @@ final class GhosttyTerminalView: NSView {
         count.translatesAutoresizingMaskIntoConstraints = false
         findCountLabel = count
 
-        let prev = makeFindButton("chevron.up", help: "Previous match",
+        let prev = makeFindButton("chevron.up", help: L("Previous match"),
                                   axID: "terminal.find-prev", action: #selector(findPrev(_:)))
-        let next = makeFindButton("chevron.down", help: "Next match",
+        let next = makeFindButton("chevron.down", help: L("Next match"),
                                   axID: "terminal.find-next", action: #selector(findNext(_:)))
-        let close = makeFindButton("xmark", help: "Close find",
+        let close = makeFindButton("xmark", help: L("Close find"),
                                    axID: "terminal.find-close", action: #selector(findClose(_:)))
 
         let stack = NSStackView(views: [field, count, prev, next, close])
@@ -2524,7 +2524,7 @@ final class GhosttyTerminalView: NSView {
         label.layer?.cornerRadius = 4
         label.translatesAutoresizingMaskIntoConstraints = false
         label.setAccessibilityIdentifier("terminal.font-zoom-hud")
-        label.setAccessibilityLabel("Font zoom level")
+        label.setAccessibilityLabel(L("Font zoom level"))
         addSubview(label)
         return label
     }

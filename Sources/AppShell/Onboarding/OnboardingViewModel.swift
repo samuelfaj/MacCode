@@ -148,7 +148,7 @@ public final class OnboardingViewModel: ObservableObject {
         var next = state
         change(&next)
         state = next
-        persistenceError = store.save(next) ? nil : "Progress could not be saved. Your choices still apply in this window."
+        persistenceError = store.save(next) ? nil : L("Progress could not be saved. Your choices still apply in this window.")
     }
 
     // MARK: Account
@@ -181,22 +181,22 @@ public final class OnboardingViewModel: ObservableObject {
         if let error = error as? OnboardingAccountError { return error.message }
         if let api = error as? PrivateAccountAPIError, case .conflict(let code) = api {
             return code == "email_already_registered"
-                ? "An account with this email already exists. Sign in instead."
-                : "Account could not be created right now. Try again shortly."
+                ? L("An account with this email already exists. Sign in instead.")
+                : L("Account could not be created right now. Try again shortly.")
         }
         if let api = error as? PrivateAccountAPIError, case .http(let code) = api {
             switch code {
-            case 400: return creating ? "Check the email address and use at least 8 characters for the password." : "Check the email address and password."
-            case 401, 403: return "Email or password is incorrect."
-            case 429: return "Too many attempts. Wait a minute and try again."
-            case 500...599: return "The service is unavailable. Try again shortly."
-            default: return "Something went wrong. Try again."
+            case 400: return creating ? L("Check the email address and use at least 8 characters for the password.") : L("Check the email address and password.")
+            case 401, 403: return L("Email or password is incorrect.")
+            case 429: return L("Too many attempts. Wait a minute and try again.")
+            case 500...599: return L("The service is unavailable. Try again shortly.")
+            default: return L("Something went wrong. Try again.")
             }
         }
         if let url = error as? URLError, [.notConnectedToInternet, .networkConnectionLost, .dataNotAllowed].contains(url.code) {
-            return "No internet connection."
+            return L("No internet connection.")
         }
-        return "Something went wrong. Try again."
+        return L("Something went wrong. Try again.")
     }
 
     // MARK: Auto
@@ -224,7 +224,7 @@ public final class OnboardingViewModel: ObservableObject {
         let chosen = strategy ?? routingDraft.strategy
         routingDraft = Self.recommendedRouting(accounts: accounts.statuses, models: models, strategy: chosen)
         routingNote = routingDraft.options.isEmpty
-            ? "Connect ChatGPT, Claude or Grok to use Auto. You can also choose a model per conversation."
+            ? L("Connect ChatGPT, Claude or Grok to use Auto. You can also choose a model per conversation.")
             : nil
     }
 
@@ -252,7 +252,7 @@ public final class OnboardingViewModel: ObservableObject {
         if await accounts.saveRoutingAndWait(routingDraft) {
             advance(completing: .accounts)
         } else {
-            routingNote = accounts.lastError ?? "Auto was not saved. Try again."
+            routingNote = accounts.lastError ?? L("Auto was not saved. Try again.")
         }
     }
 
@@ -276,7 +276,7 @@ public final class OnboardingViewModel: ObservableObject {
     /// mutation, so a retry resumes at the first missing resource.
     public func finish() {
         guard !finishing, !state.completedSteps.contains(.project) else { return }
-        guard let folder else { finishError = "Choose a project folder first."; return }
+        guard let folder else { finishError = L("Choose a project folder first."); return }
         finishing = true
         finishError = nil
         defer { finishing = false }
@@ -301,7 +301,7 @@ public final class OnboardingViewModel: ObservableObject {
             }
             update { $0.complete(.project) }
         } catch {
-            finishError = "Could not finish setup: \(error.localizedDescription)"
+            finishError = L("Could not finish setup: %1$@", error.localizedDescription)
         }
     }
 }

@@ -1,6 +1,7 @@
 import AppKit
 import Persistence
 import SwiftUI
+import CoreModel
 
 /// The sprite frame lives apart from PetViewModel so a 2-7 fps animation tick redraws
 /// only the image, not the attention dot, accessibility value or popover that observe the model.
@@ -46,10 +47,10 @@ public final class PetViewModel: ObservableObject {
     }
 
     public var accessibilityValue: String {
-        guard activityCounts.isAvailable else { return "Activity status unavailable" }
-        let running = activityCounts.running == 1 ? "1 running" : "\(activityCounts.running) running"
+        guard activityCounts.isAvailable else { return L("Activity status unavailable") }
+        let running = activityCounts.running == 1 ? L("1 running") : L("%1$@ running", activityCounts.running)
         let needsYou = PetAttentionCountFormatter.accessibilityValue(count: activityCounts.needsYou)
-        return "Activity: \(running), \(needsYou)"
+        return L("Activity: %1$@, %2$@", running, needsYou)
     }
 
     public var isPopoverEmpty: Bool {

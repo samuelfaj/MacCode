@@ -15,10 +15,10 @@ public enum AgentModelPopoverTransition: Equatable {
 }
 
 public struct AgentModelPopoverPresentation: Equatable {
-    public static let autoDisclaimer = "MacCode will automatically orchestrate the model to maximize quality while using the fewest tokens."
-    public static let autoStatus = "Orchestration active"
-    public static let autoAccessibilityLabel = "Automatic model routing"
-    public static let autoAccessibilityHint = "Turns automatic model routing on or off."
+    public static let autoDisclaimer = L("MacCode will automatically orchestrate the model to maximize quality while using the fewest tokens.")
+    public static let autoStatus = L("Orchestration active")
+    public static let autoAccessibilityLabel = L("Automatic model routing")
+    public static let autoAccessibilityHint = L("Turns automatic model routing on or off.")
 
     public let mode: AgentRoutingMode
     public let reduceMotion: Bool
@@ -48,7 +48,7 @@ public struct AgentModelPopoverPresentation: Equatable {
         reduceMotion ? .none : .fadeAndSlide
     }
     public var accessibilityLabel: String { Self.autoAccessibilityLabel }
-    public var accessibilityValue: String { mode == .auto ? "On" : "Off" }
+    public var accessibilityValue: String { mode == .auto ? "On" : L("Off") }
     public var accessibilityHint: String { Self.autoAccessibilityHint }
     public var disclaimer: String { Self.autoDisclaimer }
 }
@@ -124,7 +124,7 @@ public enum AgentDistillModelCatalog {
     }
 
     public static func mainPillTitle(model: String, models: [AgentModelDescriptor]) -> String {
-        guard !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "Select model" }
+        guard !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return L("Select model") }
         return shortLabel(models.first(where: { $0.id == model })?.label ?? model)
     }
 
@@ -133,9 +133,9 @@ public enum AgentDistillModelCatalog {
     }
 
     public static func workerPillTitle(reasoningModel: String?, models: [AgentModelDescriptor], supportsSessionWorker: Bool, homePath: String?, mainModel: String? = nil) -> String {
-        if mainModel == "auto" { return "Auto profile" }
-        guard supportsSessionWorker else { return "\(configuredWorker(homePath: homePath).worker) (config)" }
-        guard let reasoningModel, !reasoningModel.isEmpty else { return "Off" }
+        if mainModel == "auto" { return L("Auto profile") }
+        guard supportsSessionWorker else { return L("%1$@ (config)", configuredWorker(homePath: homePath).worker) }
+        guard let reasoningModel, !reasoningModel.isEmpty else { return L("Off") }
         return shortLabel(models.first(where: { $0.id == reasoningModel })?.label ?? reasoningModel)
     }
 
@@ -166,12 +166,12 @@ public enum AgentDistillModelCatalog {
     public static func configuredWorker(homePath: String?) -> (worker: String, effort: String) {
         let home = DistillProvisioner.homeURL(instanceHomePath: homePath)
         let config = DistillModelsConfig.read(home: home)
-        return (config.worker.map(shortLabel) ?? "Off", config.workerEffort ?? "Auto")
+        return (config.worker.map(shortLabel) ?? L("Off"), config.workerEffort ?? L("Auto"))
     }
 
     public static func configWorkerSummary(homePath: String?) -> String {
         let config = configuredWorker(homePath: homePath)
-        return "From Distill config: \(config.worker) · \(config.effort)"
+        return L("From Distill config: %1$@ · %2$@", config.worker, config.effort)
     }
 
     public static func providerGroups(_ models: [AgentModelDescriptor]) -> [(String, [AgentModelDescriptor])] {
@@ -211,7 +211,7 @@ public struct AgentEffortChipRow: View {
 
     public var body: some View {
         HStack(spacing: DS.Space.xs) {
-            chip("Auto", selected: selection.isAutomatic) { onSelect(.automatic) }
+            chip(L("Auto"), selected: selection.isAutomatic) { onSelect(.automatic) }
             ForEach(Self.ordered(efforts), id: \.self) { effort in
                 chip(effort.displayName, selected: selection.effort == effort) { onSelect(.fixed(effort)) }
             }
@@ -263,7 +263,7 @@ public struct AgentDistillMainModelSection<Footer: View>: View {
         supportsMainEffortAuto: Bool = false,
         width: CGFloat? = nil,
         isDisabled: Bool,
-        emptyListTitle: String = "No models yet. Connect an account on the start screen.",
+        emptyListTitle: String = L("No models yet. Connect an account on the start screen."),
         onSelectMainModel: @escaping (String) -> Void,
         onSelectCustomMainModel: @escaping (String) -> Void,
         onSelectMainEffort: @escaping (AgentEffortSelection) -> Void = { _ in },
@@ -298,7 +298,7 @@ public struct AgentDistillMainModelSection<Footer: View>: View {
             : customMainModels
         return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                AgentCompactMenuSection("Main model")
+                AgentCompactMenuSection(L("Main model"))
                 Text(L("Leads the conversation: plans, reviews, answers."))
                     .font(DS.Font.caption2)
                     .foregroundColor(DS.Palette.textSecondary)
@@ -339,7 +339,7 @@ public struct AgentDistillMainModelSection<Footer: View>: View {
                 footer
             }
             AgentCompactMenuDivider(width: rowWidth)
-            AgentCompactMenuSection("Main effort")
+            AgentCompactMenuSection(L("Main effort"))
                 .accessibilityIdentifier("agent.distill.mainEffort.section")
             AgentEffortChipRow(selection: mainEffortSelection, efforts: mainEfforts, disabled: isDisabled, onSelect: onSelectMainEffort)
             if let effort = mainEffortSelection.effort, !mainEfforts.isEmpty, !mainEfforts.contains(effort) {
@@ -348,7 +348,7 @@ public struct AgentDistillMainModelSection<Footer: View>: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Main model selection")
+        .accessibilityLabel(L("Main model selection"))
         .accessibilityIdentifier("agent.distill.mainModel")
     }
 
@@ -424,7 +424,7 @@ public struct AgentDistillReasoningModelSection: View {
         configWorkerSummary: String? = nil,
         width: CGFloat? = nil,
         isDisabled: Bool,
-        emptyListTitle: String = "No models yet. Connect an account on the start screen.",
+        emptyListTitle: String = L("No models yet. Connect an account on the start screen."),
         onSelectReasoningModel: @escaping (String?) -> Void,
         onSelectReasoningEffort: @escaping (AgentEffortSelection) -> Void = { _ in }
     ) {
@@ -455,7 +455,7 @@ public struct AgentDistillReasoningModelSection: View {
             : eligible
         return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: DS.Space.xs) {
-                AgentCompactMenuSection("Worker model")
+                AgentCompactMenuSection(L("Worker model"))
                 Text(L("Runs the tasks Main delegates."))
                     .font(DS.Font.caption2)
                     .foregroundColor(DS.Palette.textSecondary)
@@ -484,11 +484,11 @@ public struct AgentDistillReasoningModelSection: View {
                     .frame(width: rowWidth, alignment: .leading)
                     .padding(.bottom, DS.Space.xs)
             }
-            AgentCompactMenuRow("Off", detail: "Main does all the work", selected: reasoningModel == nil, width: rowWidth) {
+            AgentCompactMenuRow(L("Off"), detail: L("Main does all the work"), selected: reasoningModel == nil, width: rowWidth) {
                 onSelectReasoningModel(nil)
             }
             .disabled(isDisabled)
-            .help("Run without a separate reasoning model")
+            .help(L("Run without a separate reasoning model"))
             if eligible.isEmpty {
                 Text(emptyListTitle)
                     .font(DS.Font.caption)
@@ -509,7 +509,7 @@ public struct AgentDistillReasoningModelSection: View {
             }
             if reasoningModel != nil {
                 AgentCompactMenuDivider(width: rowWidth)
-                AgentCompactMenuSection("Worker effort")
+                AgentCompactMenuSection(L("Worker effort"))
                     .accessibilityIdentifier("agent.distill.reasoningEffort.section")
                 if supportsReasoningModelEffort {
                     AgentEffortChipRow(selection: reasoningEffortSelection, efforts: reasoningEfforts, disabled: isDisabled, onSelect: onSelectReasoningEffort)
@@ -533,7 +533,7 @@ public struct AgentDistillReasoningModelSection: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Worker model selection")
+        .accessibilityLabel(L("Worker model selection"))
         .accessibilityIdentifier("agent.distill.reasoningModel")
     }
 
@@ -542,7 +542,7 @@ public struct AgentDistillReasoningModelSection: View {
     private func reasoningWarning(in selectable: [AgentModelDescriptor]) -> String? {
         guard let reasoningModel else { return nil }
         if !selectable.contains(where: { $0.id == reasoningModel }) {
-            return "Selected Worker model unavailable: \(reasoningModel). Choose Off or a model below."
+            return L("Selected Worker model unavailable: %1$@. Choose Off or a model below.", reasoningModel)
         }
         return nil
     }
@@ -719,7 +719,7 @@ public struct AgentDistillModelPills<StatusHeader: View, MainFooter: View>: View
             title: mainTitle,
             effort: mainEffortSelection.pickerDisplayName,
             serviceTier: serviceTierLabel,
-            prefix: "Main",
+            prefix: L("Main"),
             warning: mainUnavailable && mainModel != "auto"
         )
     }
@@ -729,13 +729,13 @@ public struct AgentDistillModelPills<StatusHeader: View, MainFooter: View>: View
             title: workerTitle,
             effort: mainModel != "auto" && supportsReasoningModelEffort && reasoningModel != nil
                 ? reasoningEffortSelection.pickerDisplayName : nil,
-            prefix: "Worker",
+            prefix: L("Worker"),
             warning: mainModel != "auto" && AgentDistillModelCatalog.workerUnavailable(reasoningModel: reasoningModel, models: reasoningModels)
         )
     }
 
     private var mainPill: some View {
-        let label = (["Main", mainTitle, mainEffortSelection.pickerDisplayName] + [serviceTierLabel].compactMap { $0 })
+        let label = ([L("Main"), mainTitle, mainEffortSelection.pickerDisplayName] + [serviceTierLabel].compactMap { $0 })
             .joined(separator: " · ")
         return Button {
             mainPresentedBinding.wrappedValue.toggle()
@@ -745,7 +745,7 @@ public struct AgentDistillModelPills<StatusHeader: View, MainFooter: View>: View
         .buttonStyle(.plain)
         .accessibilityLabel(mainPresentation.accessibilityLabel)
         .accessibilityIdentifier(mainIdentifier)
-        .help("Main model · main effort")
+        .help(L("Main model · main effort"))
         .sheet(isPresented: mainPresentedBinding) {
             AgentDistillMainModelSheet(
                 mainModel: mainModel,
@@ -782,13 +782,13 @@ public struct AgentDistillModelPills<StatusHeader: View, MainFooter: View>: View
         } label: {
             AgentModelPillLabel(
                 presentation: workerPresentation,
-                width: AgentDistillModelCatalog.pillWidth("Worker · \(workerTitle)", cap: 200)
+                width: AgentDistillModelCatalog.pillWidth(L("Worker · %1$@", workerTitle), cap: 200)
             )
         }
         .buttonStyle(.plain)
         .accessibilityLabel(workerPresentation.accessibilityLabel)
         .accessibilityIdentifier(workerIdentifier)
-        .help("Worker model · Worker effort")
+        .help(L("Worker model · Worker effort"))
         .sheet(isPresented: $showingWorker) {
             AgentDistillWorkerModelSheet(
                 mainModel: mainModel,
@@ -817,7 +817,7 @@ public struct AgentDistillModelPills<StatusHeader: View, MainFooter: View>: View
 }
 
 private func agentDistillDisabledReason(_ isDisabled: Bool) -> String? {
-    isDisabled ? "Unavailable right now." : nil
+    isDisabled ? L("Unavailable right now.") : nil
 }
 
 private func agentDistillProviderIcon(_ provider: String) -> String {
@@ -832,7 +832,7 @@ private func agentDistillProviderIcon(_ provider: String) -> String {
 }
 
 private func agentDistillEffortOptions(_ efforts: [AgentReasoningEffort], includesAuto: Bool = true) -> [(value: AgentEffortSelection, title: String, help: String?)] {
-    (includesAuto ? [(value: AgentEffortSelection.automatic, title: "Auto", help: nil)] : []) + AgentEffortChipRow.ordered(efforts).map {
+    (includesAuto ? [(value: AgentEffortSelection.automatic, title: L("Auto"), help: nil)] : []) + AgentEffortChipRow.ordered(efforts).map {
         (value: AgentEffortSelection.fixed($0), title: $0.displayName, help: $0.pickerHelpText)
     }
 }
@@ -904,7 +904,7 @@ private struct AgentDistillChoiceGrid: View {
                         ForEach(customMatches, id: \.self) { model in
                             AgentChoiceCard(
                                 title: model,
-                                subtitle: "Custom model",
+                                subtitle: L("Custom model"),
                                 selected: model == selectedId,
                                 disabledReason: disabledReason,
                                 action: { onSelectCustomModel(model) }
@@ -942,7 +942,7 @@ private struct AgentDistillEffortStep: View {
             ForEach(agentDistillEffortOptions(efforts, includesAuto: includesAuto), id: \.title) { option in
                 AgentChoiceCard(
                     title: option.title,
-                    subtitle: option.value.isAutomatic ? "Let the model decide how long to think." : option.help,
+                    subtitle: option.value.isAutomatic ? L("Let the model decide how long to think.") : option.help,
                     selected: option.value == selection,
                     tint: option.value.effort.map(tint) ?? DS.Palette.ultracode,
                     disabledReason: agentDistillDisabledReason(isDisabled),
@@ -957,7 +957,7 @@ private struct AgentDistillEffortStep: View {
                 AgentChoiceCallout(
                     icon: "exclamationmark.triangle.fill",
                     tint: DS.Palette.warning,
-                    text: "Selected effort \(effort.displayName) is unavailable for this model. Choose Auto or a supported level."
+                    text: L("Selected effort %1$@ is unavailable for this model. Choose Auto or a supported level.", effort.displayName)
                 )
             }
         }
@@ -1015,9 +1015,9 @@ private struct AgentDistillMainModelSheet<StatusHeader: View, MainFooter: View>:
         AgentChoiceSheet(
             icon: showingAutoGuide ? "sparkles" : (effortTarget != nil ? "speedometer" : "cpu"),
             tint: showingAutoGuide ? DS.Palette.ultracode : DS.Palette.accent,
-            title: showingAutoGuide ? AgentAutoGuide.title : (effortTarget != nil ? "Main effort" : "Main model"),
+            title: showingAutoGuide ? AgentAutoGuide.title : (effortTarget != nil ? L("Main effort") : L("Main model")),
             subtitle: showingAutoGuide ? AgentAutoGuide.subtitle
-                : (effortTarget.map { "\($0.modelTitle) · how much it thinks before answering." } ?? "Leads the conversation: plans, reviews and answers."),
+                : (effortTarget.map { L("%1$@ · how much it thinks before answering.", $0.modelTitle) } ?? L("Leads the conversation: plans, reviews and answers.")),
             width: 600,
             accessibilityIdentifier: identifier,
             onClose: close
@@ -1038,7 +1038,7 @@ private struct AgentDistillMainModelSheet<StatusHeader: View, MainFooter: View>:
                 )
             } else {
                 if isRunning {
-                    AgentChoiceCallout(icon: "info.circle", tint: DS.Palette.textSecondary, text: "Read-only while a run is active.")
+                    AgentChoiceCallout(icon: "info.circle", tint: DS.Palette.textSecondary, text: L("Read-only while a run is active."))
                 }
                 statusHeader
                 if hasAutoOption {
@@ -1048,7 +1048,7 @@ private struct AgentDistillMainModelSheet<StatusHeader: View, MainFooter: View>:
                     AgentChoiceCallout(
                         icon: "exclamationmark.triangle.fill",
                         tint: DS.Palette.warning,
-                        text: "Selected Main model unavailable: \(mainModel). Choose a model below or add it as Custom."
+                        text: L("Selected Main model unavailable: %1$@. Choose a model below or add it as Custom.", mainModel)
                     )
                 }
                 modelsSection
@@ -1072,11 +1072,11 @@ private struct AgentDistillMainModelSheet<StatusHeader: View, MainFooter: View>:
     private var autoCard: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             AgentChoiceCard(
-                title: "Auto",
+                title: L("Auto"),
                 subtitle: catalogAdvertisesAuto
-                    ? "Picks the best account and model for each turn from your Auto profile."
-                    : "Set up a profile before choosing Auto for this conversation.",
-                badge: catalogAdvertisesAuto ? "Recommended" : "Set up",
+                    ? L("Picks the best account and model for each turn from your Auto profile.")
+                    : L("Set up a profile before choosing Auto for this conversation."),
+                badge: catalogAdvertisesAuto ? L("Recommended") : L("Set up"),
                 selected: mainModel == "auto",
                 tint: DS.Palette.ultracode,
                 disabledReason: agentDistillDisabledReason(isDisabled),
@@ -1098,7 +1098,7 @@ private struct AgentDistillMainModelSheet<StatusHeader: View, MainFooter: View>:
 
     @ViewBuilder
     private var modelsSection: some View {
-        AgentChoiceSectionHeader("Models") {
+        AgentChoiceSectionHeader(L("Models")) {
             Text(L("%1$@", models.count + customMainModels.count))
                 .font(DS.Font.caption2)
                 .foregroundStyle(DS.Palette.textSecondary)
@@ -1145,10 +1145,10 @@ private struct AgentDistillMainModelSheet<StatusHeader: View, MainFooter: View>:
 
     private var effortSummaryRow: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            AgentChoiceSectionHeader("Effort")
+            AgentChoiceSectionHeader(L("Effort"))
             AgentChoiceCard(
-                title: "Main effort",
-                subtitle: "Change how much the selected model thinks.",
+                title: L("Main effort"),
+                subtitle: L("Change how much the selected model thinks."),
                 badge: mainEffortSelection.pickerDisplayName,
                 selected: false,
                 disabledReason: agentDistillDisabledReason(isDisabled),
@@ -1221,9 +1221,9 @@ private struct AgentDistillWorkerModelSheet<StatusHeader: View>: View {
         AgentChoiceSheet(
             icon: showingAutoGuide ? "sparkles" : (effortTarget != nil ? "speedometer" : "person.2.wave.2"),
             tint: showingAutoGuide ? DS.Palette.ultracode : DS.Palette.accent,
-            title: showingAutoGuide ? AgentAutoGuide.title : (effortTarget != nil ? "Worker effort" : "Worker model"),
+            title: showingAutoGuide ? AgentAutoGuide.title : (effortTarget != nil ? L("Worker effort") : L("Worker model")),
             subtitle: showingAutoGuide ? AgentAutoGuide.subtitle
-                : (effortTarget.map { "\($0.modelTitle) · how much it thinks before answering." } ?? "Runs the tasks Main delegates."),
+                : (effortTarget.map { L("%1$@ · how much it thinks before answering.", $0.modelTitle) } ?? L("Runs the tasks Main delegates.")),
             width: 600,
             accessibilityIdentifier: identifier,
             onClose: close
@@ -1244,7 +1244,7 @@ private struct AgentDistillWorkerModelSheet<StatusHeader: View>: View {
                 )
             } else {
                 if isRunning {
-                    AgentChoiceCallout(icon: "info.circle", tint: DS.Palette.textSecondary, text: "Read-only while a run is active.")
+                    AgentChoiceCallout(icon: "info.circle", tint: DS.Palette.textSecondary, text: L("Read-only while a run is active."))
                 }
                 statusHeader
                 if mainModel == "auto" {
@@ -1279,7 +1279,7 @@ private struct AgentDistillWorkerModelSheet<StatusHeader: View>: View {
         AgentChoiceCallout(
             icon: "sparkles",
             tint: DS.Palette.ultracode,
-            text: "Worker follows your Auto profile. Each Auto option pairs a Main and a Worker model."
+            text: L("Worker follows your Auto profile. Each Auto option pairs a Main and a Worker model.")
         )
         if AgentAutoGuide.makeGuide != nil {
             Button(L("Open Auto guide")) { showingAutoGuide = true }
@@ -1293,12 +1293,12 @@ private struct AgentDistillWorkerModelSheet<StatusHeader: View>: View {
             AgentChoiceCallout(
                 icon: "exclamationmark.triangle.fill",
                 tint: DS.Palette.warning,
-                text: "Selected Worker model unavailable: \(reasoningModel). Choose Off or a model below."
+                text: L("Selected Worker model unavailable: %1$@. Choose Off or a model below.", reasoningModel)
             )
         }
         AgentChoiceCard(
-            title: "Off",
-            subtitle: "Main does all the work",
+            title: L("Off"),
+            subtitle: L("Main does all the work"),
             selected: reasoningModel == nil,
             disabledReason: agentDistillDisabledReason(isDisabled),
             action: {
@@ -1308,8 +1308,8 @@ private struct AgentDistillWorkerModelSheet<StatusHeader: View>: View {
         ) {
             AgentChoiceIconTile(systemName: "minus.circle", tint: DS.Palette.textSecondary, size: 34)
         }
-        .help("Run without a separate reasoning model")
-        AgentChoiceSectionHeader("Models") {
+        .help(L("Run without a separate reasoning model"))
+        AgentChoiceSectionHeader(L("Models")) {
             Text(L("%1$@", models.count))
                 .font(DS.Font.caption2)
                 .foregroundStyle(DS.Palette.textSecondary)
@@ -1337,10 +1337,10 @@ private struct AgentDistillWorkerModelSheet<StatusHeader: View>: View {
             onSelectCustomModel: { _ in }
         )
         if supportsReasoningModelEffort, let reasoningModel, !reasoningEfforts.isEmpty {
-            AgentChoiceSectionHeader("Effort")
+            AgentChoiceSectionHeader(L("Effort"))
             AgentChoiceCard(
-                title: "Worker effort",
-                subtitle: "Change how much the selected Worker thinks.",
+                title: L("Worker effort"),
+                subtitle: L("Change how much the selected Worker thinks."),
                 badge: reasoningEffortSelection.pickerDisplayName,
                 selected: false,
                 disabledReason: agentDistillDisabledReason(isDisabled),
@@ -1475,7 +1475,7 @@ public struct AgentModelPopoverChrome<ManualContent: View>: View {
         autoEnabled: Binding<Bool>,
         toggleDisabled: Bool,
         showsAutoRouting: Bool = true,
-        title: String = "Model",
+        title: String = L("Model"),
         @ViewBuilder manualContent: () -> ManualContent
     ) {
         self.presentation = presentation
@@ -1529,7 +1529,7 @@ public struct AgentModelPopoverChrome<ManualContent: View>: View {
             if presentation.showsAutoLoadingIndicator {
                 ProgressView()
                     .controlSize(.small)
-                    .accessibilityLabel("Loading automatic routing")
+                    .accessibilityLabel(L("Loading automatic routing"))
                     .accessibilityIdentifier("agent.model.auto.loading")
             }
             Toggle("", isOn: autoEnabled)

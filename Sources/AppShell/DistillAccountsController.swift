@@ -149,7 +149,7 @@ public final class DistillAccountsController: ObservableObject {
                 await didChange(nil, true)
                 refresh()
             case .failure(let error):
-                installState = .failed("Could not install Distill: \(error). Run in Terminal: \(DistillProvisioner.installPlan().commandLine)")
+                installState = .failed(L("Could not install Distill: %1$@. Run in Terminal: %2$@", error, DistillProvisioner.installPlan().commandLine))
             }
         }
     }
@@ -217,7 +217,7 @@ public final class DistillAccountsController: ObservableObject {
             if succeeded {
                 usageLastUpdated = now
             } else {
-                usageRefreshError = "Some usage could not be refreshed. Check the account connection in Accounts & Auto routing."
+                usageRefreshError = L("Some usage could not be refreshed. Check the account connection in Accounts & Auto routing.")
             }
         }
         return succeeded
@@ -267,7 +267,7 @@ public final class DistillAccountsController: ObservableObject {
                          action: @escaping @MainActor (any DistillAccountManaging) async throws -> Void) {
         guard !isBusy else { return }
         if let accountID, provider == nil, !statuses.contains(where: { $0.id == accountID }) {
-            lastError = "Unknown Distill account. Refresh Accounts and try again."
+            lastError = L("Unknown Distill account. Refresh Accounts and try again.")
             return
         }
         refreshGeneration &+= 1

@@ -320,7 +320,7 @@ public final class PetController {
                 projectionWatermark = stored
                 let durableLastSequence = try context.eventLog.lastSeq()
                 guard durableLastSequence <= capturedCursor else {
-                    return "Ready-item recovery is waiting for the event log."
+                    return L("Ready-item recovery is waiting for the event log.")
                 }
                 try persistProjectionWatermark(capturedCursor)
                 return nil
@@ -353,7 +353,7 @@ public final class PetController {
                             }
                         } catch {
                             NSLog("Remote Code pet attention recovery failed at seq %lld: %@", row.seq, String(describing: error))
-                            return "A ready item could not be restored."
+                            return L("A ready item could not be restored.")
                         }
                     }
                     scanCursor = row.seq
@@ -368,7 +368,7 @@ public final class PetController {
             return nil
         } catch {
             NSLog("Remote Code pet projection watermark failed: %@", String(describing: error))
-            return "Ready-item recovery could not be initialized."
+            return L("Ready-item recovery could not be initialized.")
         }
     }
 
@@ -439,7 +439,7 @@ public final class PetController {
             projectionErrorMessage = nil
         } catch {
             projectionRecoveryBlocked = true
-            projectionErrorMessage = "Ready-item recovery could not be updated."
+            projectionErrorMessage = L("Ready-item recovery could not be updated.")
             model.routeError = projectionErrorMessage
             NSLog("Remote Code pet projection watermark write failed at seq %lld: %@", sequence, String(describing: error))
         }
@@ -474,7 +474,7 @@ public final class PetController {
             windowController?.animationFrameDidChange()
         }
         animationController.onError = { [weak model] _ in
-            model?.routeError = "Pet artwork could not be loaded."
+            model?.routeError = L("Pet artwork could not be loaded.")
         }
         windowController.onOpenItem = { [weak self] item in self?.open(item) }
         windowController.onOpenActiveThread = { [weak self] item in self?.openActive(item) }
@@ -620,7 +620,7 @@ public final class PetController {
                 } catch {
                     projectionFailed = true
                     projectionRecoveryBlocked = true
-                    projectionErrorMessage = "A ready item could not be saved."
+                    projectionErrorMessage = L("A ready item could not be saved.")
                     NSLog("Remote Code pet attention projection failed at seq %lld: %@", event.seq, String(describing: error))
                 }
             } else {
@@ -689,7 +689,7 @@ public final class PetController {
         case "agent.turn.completed":
             preview = Self.turnCompletedPreview(payload: payload)
         case "agent.run.started":
-            preview = "Working…"
+            preview = L("Working…")
         case "agent.run.finished", "agent.run.completed", "agent.run.failed", "agent.run.cancelled":
             lastUpdatePreviewByThread.removeValue(forKey: threadID)
             return true
@@ -779,11 +779,11 @@ public final class PetController {
         let type = item["type"]?.stringValue ?? "tool"
         if type == "reasoning" {
             if let body = friendlyPreview(nonempty(item["body"])) { return body }
-            return "Thinking…"
+            return L("Thinking…")
         }
         if type == "assistantMessage" {
             if let body = friendlyPreview(nonempty(item["body"])) { return body }
-            return "Writing…"
+            return L("Writing…")
         }
         if type == "plan" {
             return friendlyPreview(nonempty(item["summary"]) ?? nonempty(item["body"]))
@@ -796,7 +796,7 @@ public final class PetController {
                 return nil
             }
             if let friendly = friendlyPreview(summary) {
-                return "Running: \(friendly)"
+                return L("Running: %1$@", friendly)
             }
         }
         let label = activityLabel(type: type, summary: nil, body: nonempty(item["body"]))
@@ -807,16 +807,16 @@ public final class PetController {
         if friendly == type || friendly == "tool" || friendly == "command" {
             if nonempty(item["body"]) == nil { return nil }
         }
-        return "Running: \(friendly)"
+        return L("Running: %1$@", friendly)
     }
 
     nonisolated static func itemCompletedPreview(payload: [String: JSONValue]) -> String? {
         if let summary = friendlyPreview(nonempty(payload["summary"])) {
-            return "Ran: \(summary)"
+            return L("Ran: %1$@", summary)
         }
         // completed often carries only item_id; keep prior cache if no text.
         if let state = payload["state"]?.stringValue, state == "failed" {
-            return "Failed: tool"
+            return L("Failed: tool")
         }
         return nil
     }
@@ -842,7 +842,7 @@ public final class PetController {
         }
         // Tools: only surface when body looks human (not dotted method ids).
         if isProviderRuntimeNoise(friendly) { return nil }
-        return "Running: \(friendly)"
+        return L("Running: %1$@", friendly)
     }
 
     nonisolated static func turnCompletedPreview(payload: [String: JSONValue]) -> String? {
@@ -887,8 +887,8 @@ public final class PetController {
         }
         switch type {
         case "commandExecution": return "command"
-        case "fileChange": return "file edit"
-        case "webSearch": return "search"
+        case "fileChange": return L("file edit")
+        case "webSearch": return L("search")
         case "mcpToolCall", "dynamicToolCall", "collabToolCall", "tool": return "tool"
         default: return type
         }
@@ -922,7 +922,7 @@ public final class PetController {
                 try animationController?.setState(nextState, derivedTerminalState: derived)
                 model.routeError = projectionErrorMessage
             } catch {
-                model.routeError = "Pet animation is unavailable."
+                model.routeError = L("Pet animation is unavailable.")
             }
         }
         scheduleCompanionBehavior()
@@ -995,7 +995,7 @@ public final class PetController {
             if snapshot.count == 0 { scheduleIdleTimeout() }
             publishLiveActivitySurface()
         } catch {
-            model.routeError = "Ready items could not be loaded."
+            model.routeError = L("Ready items could not be loaded.")
         }
     }
 
@@ -1092,12 +1092,12 @@ public final class PetController {
                 windowController?.closePopover(restoringPreviousKeyWindow: false)
                 refreshAttentionNow()
             case .routeRejected:
-                model.routeError = "The exact destination could not be opened. The item was kept."
+                model.routeError = L("The exact destination could not be opened. The item was kept.")
             case .notFound:
-                model.routeError = "Item no longer exists."
+                model.routeError = L("Item no longer exists.")
             }
         } catch {
-            model.routeError = "The exact destination could not be opened. The item was kept."
+            model.routeError = L("The exact destination could not be opened. The item was kept.")
         }
     }
 
@@ -1115,10 +1115,10 @@ public final class PetController {
                 model.routeError = nil
                 windowController?.closePopover(restoringPreviousKeyWindow: false)
             } else {
-                model.routeError = "The exact destination could not be opened. The item was kept."
+                model.routeError = L("The exact destination could not be opened. The item was kept.")
             }
         } catch {
-            model.routeError = "The exact destination could not be opened. The item was kept."
+            model.routeError = L("The exact destination could not be opened. The item was kept.")
         }
     }
 
@@ -1267,7 +1267,7 @@ public final class PetController {
             }
             let chrome = CachedActiveThreadChrome(
                 workspaceID: nil,
-                workspaceName: "Bots",
+                workspaceName: L("Bots"),
                 providerName: nil,
                 threadTitle: link.name,
                 route: .botsDesk(botID: link.botID)
@@ -1276,7 +1276,7 @@ public final class PetController {
             return PetActiveThreadItem(
                 threadID: item.threadID,
                 workspaceID: nil,
-                workspaceName: "Bots",
+                workspaceName: L("Bots"),
                 threadTitle: link.name,
                 startedAt: startedAtByThread[item.threadID],
                 lastUpdatePreview: item.lastUpdatePreview,
@@ -1472,7 +1472,7 @@ public final class PetController {
         do {
             try router.openTitio()
         } catch {
-            model.routeError = "Titio could not be opened."
+            model.routeError = L("Titio could not be opened.")
         }
     }
 
@@ -1482,7 +1482,7 @@ public final class PetController {
         guard !trimmed.isEmpty else { return }
         windowController?.closePopover(restoringPreviousKeyWindow: false)
         if router.sendTitioQuickMessage(trimmed) == nil {
-            model.routeError = "Titio could not be reached."
+            model.routeError = L("Titio could not be reached.")
         }
     }
 
@@ -1538,7 +1538,7 @@ public final class PetController {
                     playCompanionCue(cue)
                 }
             } catch {
-                model.routeError = "Pet animation is unavailable."
+                model.routeError = L("Pet animation is unavailable.")
             }
             scheduleIdleTimeout()
             scheduleCompanionBehavior()

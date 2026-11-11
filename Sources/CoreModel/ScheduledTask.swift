@@ -175,40 +175,40 @@ public struct ScheduledTask: Codable, Sendable, Equatable, Identifiable {
         var errors: [String] = []
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedTitle.isEmpty { errors.append("Title is required.") }
-        if trimmedTitle.count > 120 { errors.append("Title must be at most 120 characters.") }
-        if trimmedPrompt.isEmpty { errors.append("Prompt is required.") }
-        if trimmedPrompt.utf8.count > 65_536 { errors.append("Prompt must be at most 64 KiB.") }
-        if workspacePathSnapshot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("Workspace path is required.") }
-        if runAsUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("System user is required.") }
-        if runAsUID < 500 || runAsUID == UInt32.max { errors.append("System user must be an eligible non-root account.") }
+        if trimmedTitle.isEmpty { errors.append(L("Title is required.")) }
+        if trimmedTitle.count > 120 { errors.append(L("Title must be at most 120 characters.")) }
+        if trimmedPrompt.isEmpty { errors.append(L("Prompt is required.")) }
+        if trimmedPrompt.utf8.count > 65_536 { errors.append(L("Prompt must be at most 64 KiB.")) }
+        if workspacePathSnapshot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append(L("Workspace path is required.")) }
+        if runAsUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append(L("System user is required.")) }
+        if runAsUID < 500 || runAsUID == UInt32.max { errors.append(L("System user must be an eligible non-root account.")) }
         // Provider/Source is always user-chosen (Agent App parity). Auto only
         // selects the model within that host — never the provider itself.
         if providerInstanceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            errors.append("Provider is required.")
+            errors.append(L("Provider is required."))
         }
         if effectiveRoutingMode == .manual,
            model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            errors.append("Model is required.")
+            errors.append(L("Model is required."))
         }
         if executionMode == .worktree,
            (baseBranch ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            errors.append("Worktree runs need a base branch.")
+            errors.append(L("Worktree runs need a base branch."))
         }
         if TimeZone(identifier: timeZoneIdentifier) == nil { errors.append("Time zone must be a valid IANA identifier.") }
         if case .multiple(let rules) = recurrence {
-            if rules.count > ScheduledTaskRecurrence.maxRules { errors.append("At most 24 frequencies.") }
+            if rules.count > ScheduledTaskRecurrence.maxRules { errors.append(L("At most 24 frequencies.")) }
             let hasNested = rules.contains { if case .multiple = $0 { return true } else { return false } }
-            if hasNested || Set(rules).count != rules.count { errors.append("Frequencies must be unique.") }
+            if hasNested || Set(rules).count != rules.count { errors.append(L("Frequencies must be unique.")) }
         }
         for rule in recurrence.rules {
             switch rule {
             case .hourly(_, let interval) where !ScheduledTaskRecurrence.isValidHourlyInterval(interval):
-                errors.append("Hourly interval must be between 1 and 24.")
+                errors.append(L("Hourly interval must be between 1 and 24."))
             case .weekly(let days, _) where !ScheduledTaskRecurrence.isValidWeeklyDays(days):
-                errors.append("Weekly schedules require unique weekdays.")
+                errors.append(L("Weekly schedules require unique weekdays."))
             case .monthly(let day, _) where !ScheduledTaskRecurrence.isValidMonthlyDay(day):
-                errors.append("Monthly day must be between 1 and 28.")
+                errors.append(L("Monthly day must be between 1 and 28."))
             default:
                 break
             }

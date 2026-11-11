@@ -71,8 +71,9 @@ public enum AppLocalization {
     private static let tables: [String: [String: String]] = loadTables()
 
     private static func loadTables() -> [String: [String: String]] {
-        guard let url = Bundle.module.url(forResource: "strings", withExtension: "json", subdirectory: "Localization")
-                ?? Bundle.module.url(forResource: "strings", withExtension: "json"),
+        let bundle = PackagedResourceBundle.bundle(target: "CoreModel")
+        guard let url = bundle?.url(forResource: "strings", withExtension: "json", subdirectory: "Localization")
+                ?? bundle?.url(forResource: "strings", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let decoded = try? JSONDecoder().decode([String: [String: String]].self, from: data) else {
             return [:]

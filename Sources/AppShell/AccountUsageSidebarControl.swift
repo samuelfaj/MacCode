@@ -41,8 +41,8 @@ public struct AccountUsageEntry: Equatable, Identifiable, Sendable {
 
 /// Pure copy for the sidebar's account-usage control. No UI state.
 public enum AccountUsageDisplay {
-    static let signedOutPrompt = "Sign in to track account usage"
-    static let noAccountsPrompt = "Log in to an account in Settings › Accounts & Auto"
+    static let signedOutPrompt = L("Sign in to track account usage")
+    static let noAccountsPrompt = L("Log in to an account in Settings › Accounts & Auto")
 
     /// Ring fill (0...1); nil means never loaded and must never draw as 0%.
     /// A stale entry keeps its last known value; the ring paints it faded, like the bars.
@@ -56,13 +56,13 @@ public enum AccountUsageDisplay {
 
     /// "Claude session 12%", "ChatGPT week 42%" or "Grok no usage data".
     static func ringCaption(_ entry: AccountUsageEntry) -> String {
-        guard !entry.usageIsStale else { return "\(entry.label) usage unavailable" }
+        guard !entry.usageIsStale else { return L("%1$@ usage unavailable", entry.label) }
         if let weekly = entry.usage?.weeklyUsedPercent, weekly > (entry.usage?.sessionUsedPercent ?? -1) {
-            return "\(entry.label) week \(formatPercent(weekly / 100))"
+            return L("%1$@ week %2$@", entry.label, formatPercent(weekly / 100))
         }
-        if let session = entry.usage?.sessionUsedPercent { return "\(entry.label) session \(formatPercent(session / 100))" }
-        if let weekly = entry.usage?.weeklyUsedPercent { return "\(entry.label) week \(formatPercent(weekly / 100))" }
-        return "\(entry.label) no usage data"
+        if let session = entry.usage?.sessionUsedPercent { return L("%1$@ session %2$@", entry.label, formatPercent(session / 100)) }
+        if let weekly = entry.usage?.weeklyUsedPercent { return L("%1$@ week %2$@", entry.label, formatPercent(weekly / 100)) }
+        return L("%1$@ no usage data", entry.label)
     }
 
     public static func ringsAccessibilityValue(signedIn: Bool, entries: [AccountUsageEntry]) -> String {
@@ -74,17 +74,17 @@ public enum AccountUsageDisplay {
     public static func ringsHelp(signedIn: Bool, entries: [AccountUsageEntry]) -> String {
         guard signedIn else { return signedOutPrompt }
         guard !entries.isEmpty else { return noAccountsPrompt }
-        return (["Account usage"] + entries.map(ringCaption) + ["Click for details"]).joined(separator: "\n")
+        return ([L("Account usage")] + entries.map(ringCaption) + [L("Click for details")]).joined(separator: "\n")
     }
 
     public static func sessionCaption(_ usage: DistillAccountUsage?) -> String {
-        guard let session = usage?.sessionUsedPercent else { return "Session: no data" }
-        return "Session used \(formatPercent(session / 100))"
+        guard let session = usage?.sessionUsedPercent else { return L("Session: no data") }
+        return L("Session used %1$@", formatPercent(session / 100))
     }
 
     public static func weeklyCaption(_ usage: DistillAccountUsage?) -> String {
-        guard let weekly = usage?.weeklyUsedPercent else { return "Week: no data" }
-        return "Week used \(formatPercent(weekly / 100))"
+        guard let weekly = usage?.weeklyUsedPercent else { return L("Week: no data") }
+        return L("Week used %1$@", formatPercent(weekly / 100))
     }
 
     static func formatPercent(_ progress: Double) -> String {
@@ -119,9 +119,9 @@ struct AccountUsageSidebarControl: View {
         .buttonStyle(.plain)
         .help(AccountUsageDisplay.ringsHelp(signedIn: signedIn, entries: entries))
         .popover(isPresented: $showsDetails, arrowEdge: .bottom) { details }
-        .accessibilityLabel("Account usage")
+        .accessibilityLabel(L("Account usage"))
         .accessibilityValue(AccountUsageDisplay.ringsAccessibilityValue(signedIn: signedIn, entries: entries))
-        .accessibilityHint(signedIn ? "Shows session and weekly limits for every subscription account" : "Opens your account")
+        .accessibilityHint(signedIn ? L("Shows session and weekly limits for every subscription account") : L("Opens your account"))
         .accessibilityIdentifier("sidebar.accountUsage")
     }
 
@@ -137,13 +137,13 @@ struct AccountUsageSidebarControl: View {
                         .controlSize(.mini)
                         .scaleEffect(0.75)
                         .frame(width: 12, height: 12)
-                        .accessibilityLabel("Refreshing usage data")
+                        .accessibilityLabel(L("Refreshing usage data"))
                         .accessibilityIdentifier("sidebar.accountUsage.refreshSpinner")
                 }
                 TimelineView(.periodic(from: .now, by: 60)) { timeline in
                     Text(vm.accountUsageRefreshError == nil
                          ? SidebarRootView.accountUsageLastUpdatedLabel(vm.accountUsageLastUpdated, now: timeline.date)
-                         : "Usage refresh incomplete")
+                         : L("Usage refresh incomplete"))
                         .font(DS.Font.caption2)
                         .foregroundColor(DS.Palette.textTertiary)
                         .lineLimit(1)
@@ -198,7 +198,7 @@ struct AccountUsageSidebarControl: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(DSSecondaryButtonStyle())
-            .accessibilityLabel("Accounts & Auto routing")
+            .accessibilityLabel(L("Accounts & Auto routing"))
             .accessibilityIdentifier("sidebar.accountUsage.settings")
         }
         .padding(DS.Space.lg)
@@ -226,12 +226,12 @@ struct AccountUsageSidebarControl: View {
                     .padding(.leading, 12)
             }
             if entry.usageIsStale {
-                Text(entry.connectionError ?? (entry.usage == nil ? "Usage unavailable" : "Usage unavailable. Last known values:"))
+                Text(entry.connectionError ?? (entry.usage == nil ? L("Usage unavailable") : L("Usage unavailable. Last known values:")))
                     .font(DS.Font.caption2).foregroundColor(DS.Palette.textTertiary)
             }
-            usageBar("Session", percent: entry.usage?.sessionUsedPercent, color: color, stale: entry.usageIsStale)
+            usageBar(L("Session"), percent: entry.usage?.sessionUsedPercent, color: color, stale: entry.usageIsStale)
                 .accessibilityLabel(AccountUsageDisplay.sessionCaption(entry.usage))
-            usageBar("Week", percent: entry.usage?.weeklyUsedPercent, color: color, stale: entry.usageIsStale)
+            usageBar(L("Week"), percent: entry.usage?.weeklyUsedPercent, color: color, stale: entry.usageIsStale)
                 .accessibilityLabel(AccountUsageDisplay.weeklyCaption(entry.usage))
         }
         .frame(maxWidth: .infinity, alignment: .leading)

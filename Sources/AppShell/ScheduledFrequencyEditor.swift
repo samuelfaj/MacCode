@@ -19,7 +19,7 @@ struct ScheduledFrequencyEditor: View {
             ruleRows(index)
         }
         addRow
-        formRow("Time zone") {
+        formRow(L("Time zone")) {
             Picker(L("Time zone"), selection: $timeZoneIdentifier) {
                 ForEach(Self.commonTimeZones, id: \.self) {
                     Text($0.replacingOccurrences(of: "_", with: " ")).tag($0)
@@ -71,8 +71,8 @@ struct ScheduledFrequencyEditor: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
-                .help("Remove frequency \(index + 1)")
-                .accessibilityLabel("Remove frequency \(index + 1)")
+                .help(L("Remove frequency %1$@", index + 1))
+                .accessibilityLabel(L("Remove frequency %1$@", index + 1))
                 .accessibilityIdentifier("\(identifierPrefix).frequency.remove.\(index + 1)")
             }
             .padding(.horizontal, DS.Space.lg)
@@ -92,7 +92,7 @@ struct ScheduledFrequencyEditor: View {
                 .buttonStyle(.borderless)
                 .foregroundColor(DS.Palette.accent)
                 .disabled(rules.count >= ScheduledTaskRecurrence.maxRules)
-                .help("Up to \(ScheduledTaskRecurrence.maxRules) frequencies")
+                .help(L("Up to %1$@ frequencies", ScheduledTaskRecurrence.maxRules))
                 .accessibilityIdentifier("\(identifierPrefix).frequency.add")
                 Spacer(minLength: 0)
             }
@@ -104,7 +104,7 @@ struct ScheduledFrequencyEditor: View {
     @ViewBuilder
     private func ruleRows(_ index: Int) -> some View {
         let rule = ruleBinding(index)
-        formRow("Repeat") {
+        formRow(L("Repeat")) {
             Picker(L("Frequency"), selection: rule.frequency) {
                 ForEach(ScheduledTaskFrequency.allCases) { Text($0.displayName).tag($0) }
             }
@@ -114,20 +114,20 @@ struct ScheduledFrequencyEditor: View {
         switch rule.wrappedValue.frequency {
         case .once:
             formRow("At") {
-                DatePicker("Run at", selection: rule.scheduledDate)
+                DatePicker(L("Run at"), selection: rule.scheduledDate)
                     .labelsHidden()
                     .datePickerStyle(.compact)
             }
         case .hourly:
-            formRow("Interval") {
-                Stepper("Every \(rule.wrappedValue.intervalHours)h", value: rule.intervalHours, in: 1...24)
+            formRow(L("Interval")) {
+                Stepper(L("Every %1$@h", rule.wrappedValue.intervalHours), value: rule.intervalHours, in: 1...24)
                     .foregroundColor(DS.Palette.text)
             }
         case .daily, .weekdays:
             timeRow(rule)
         case .weekly:
             timeRow(rule)
-            formRow("Days") {
+            formRow(L("Days")) {
                 HStack(spacing: DS.Space.xs) {
                     ForEach(ScheduledWeekday.allCases, id: \.self) { day in
                         Toggle(dayLabel(day), isOn: Binding(
@@ -144,8 +144,8 @@ struct ScheduledFrequencyEditor: View {
                 }
             }
         case .monthly:
-            formRow("Day") {
-                Stepper("Day \(rule.wrappedValue.monthlyDay)", value: rule.monthlyDay, in: 1...28)
+            formRow(L("Day")) {
+                Stepper(L("Day %1$@", rule.wrappedValue.monthlyDay), value: rule.monthlyDay, in: 1...28)
                     .foregroundColor(DS.Palette.text)
             }
             timeRow(rule)
@@ -155,7 +155,7 @@ struct ScheduledFrequencyEditor: View {
     private func timeRow(_ rule: Binding<ScheduledFrequencyRule>) -> some View {
         let tz = timeZone
         return formRow("At") {
-            DatePicker("Local time", selection: Binding(
+            DatePicker(L("Local time"), selection: Binding(
                 get: { rule.wrappedValue.localTime(in: tz) },
                 set: { rule.wrappedValue.setLocalTime($0, in: tz) }
             ), displayedComponents: .hourAndMinute)

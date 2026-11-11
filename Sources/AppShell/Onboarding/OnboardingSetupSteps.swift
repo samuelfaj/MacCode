@@ -14,8 +14,8 @@ struct OnboardingSetupStep: View {
     var body: some View {
         OnboardingStepLayout(
             eyebrow: OnboardingStep.setup.eyebrow,
-            title: "Getting your Mac ready.",
-            subtitle: "MacCode installs what it needs in your home folder, with no Terminal. Keep this window open while it downloads."
+            title: L("Getting your Mac ready."),
+            subtitle: L("MacCode installs what it needs in your home folder, with no Terminal. Keep this window open while it downloads.")
         ) {
             VStack(alignment: .leading, spacing: DS.Space.lg) {
                 ForEach(required, id: \.self) { tool in
@@ -34,7 +34,7 @@ struct OnboardingSetupStep: View {
             OnboardingPanel {
                 VStack(alignment: .leading, spacing: DS.Space.xl) {
                     OnboardingTitioImage(size: 140)
-                    Text(ready ? "Your Mac is ready." : "Getting this Mac ready.")
+                    Text(ready ? L("Your Mac is ready.") : L("Getting this Mac ready."))
                         .font(DS.Font.title2).foregroundColor(DS.Palette.text)
                     Text(L("Downloads come from the official releases. MacCode checks checksums or macOS signatures before installing. Existing Chrome, Docker, OrbStack and Node installations are reused when compatible."))
                         .font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
@@ -45,8 +45,8 @@ struct OnboardingSetupStep: View {
         } footer: {
             Spacer()
             Button(L("Skip for now")) { vm.skip(.setup) }.buttonStyle(.link)
-                .accessibilityHint("AI conversations need Distill. You can install it later from setup.")
-            OnboardingPrimaryButton(title: "Continue", busy: !ready && (setup.state(.distill).isBusy || setup.states.values.contains { $0.isBusy })) {
+                .accessibilityHint(L("AI conversations need Distill. You can install it later from setup."))
+            OnboardingPrimaryButton(title: L("Continue"), busy: !ready && (setup.state(.distill).isBusy || setup.states.values.contains { $0.isBusy })) {
                 vm.advance(completing: .setup)
             }.disabled(!ready)
         }
@@ -72,15 +72,15 @@ struct OnboardingPermissionsStep: View {
     var body: some View {
         OnboardingStepLayout(
             eyebrow: OnboardingStep.permissions.eyebrow,
-            title: "Your Mac, your permissions.",
-            subtitle: "macOS asks you to approve access. MacCode can open the right settings, but only you can grant permission."
+            title: L("Your Mac, your permissions."),
+            subtitle: L("macOS asks you to approve access. MacCode can open the right settings, but only you can grant permission.")
         ) {
             VStack(alignment: .leading, spacing: DS.Space.xl) {
-                permission("Accessibility", detail: "Lets computer automation use apps and controls.", granted: permissions.accessibility) {
+                permission(L("Accessibility"), detail: L("Lets computer automation use apps and controls."), granted: permissions.accessibility) {
                     _ = ComputerUsePermissionBroker.Requesters.live.requestAccessibility()
                     openPrivacy("Privacy_Accessibility")
                 }
-                permission("Screen Recording", detail: "Lets computer automation see the screen.", granted: permissions.screenCapture) {
+                permission(L("Screen Recording"), detail: L("Lets computer automation see the screen."), granted: permissions.screenCapture) {
                     _ = ComputerUsePermissionBroker.Requesters.live.requestScreenCapture()
                     openPrivacy("Privacy_ScreenCapture")
                 }
@@ -120,8 +120,8 @@ struct OnboardingPermissionsStep: View {
             OnboardingBackButton(vm: vm)
             Spacer()
             Button(L("Skip for now")) { vm.skip(.permissions) }.buttonStyle(.link)
-            OnboardingPrimaryButton(title: "Continue") { vm.advance(completing: .permissions) }
-                .accessibilityHint("Continue after reviewing permissions. This does not grant access.")
+            OnboardingPrimaryButton(title: L("Continue")) { vm.advance(completing: .permissions) }
+                .accessibilityHint(L("Continue after reviewing permissions. This does not grant access."))
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             permissions = ComputerUsePermissionBroker.snapshot()
@@ -137,8 +137,8 @@ struct OnboardingPermissionsStep: View {
                     .font(DS.Font.caption).foregroundColor(granted ? DS.Palette.success : DS.Palette.warning)
             }
             Text(detail).font(DS.Font.body).foregroundColor(DS.Palette.textSecondary)
-            Button(granted ? "Review settings" : "Open settings", action: action).buttonStyle(DSSecondaryButtonStyle())
-                .accessibilityLabel("\(title) settings")
+            Button(granted ? L("Review settings") : L("Open settings"), action: action).buttonStyle(DSSecondaryButtonStyle())
+                .accessibilityLabel(L("%1$@ settings", title))
         }
     }
 
@@ -196,10 +196,10 @@ struct OnboardingToolRow: View {
             if state.isBusy { ProgressView().controlSize(.small).padding(.top, DS.Space.xs) }
             else if state.isReady {
                 Image(systemName: "checkmark.circle.fill").foregroundColor(DS.Palette.success)
-                    .padding(.top, DS.Space.xs).accessibilityLabel("Ready")
+                    .padding(.top, DS.Space.xs).accessibilityLabel(L("Ready"))
             } else {
-                Button(state == .missing ? "Install" : "Try again", action: install)
-                    .buttonStyle(DSSecondaryButtonStyle()).accessibilityLabel("Install or retry \(tool.title)")
+                Button(state == .missing ? L("Install") : L("Try again"), action: install)
+                    .buttonStyle(DSSecondaryButtonStyle()).accessibilityLabel(L("Install or retry %1$@", tool.title))
             }
         }
         .padding(DS.Space.xl)

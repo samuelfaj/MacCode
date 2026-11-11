@@ -243,7 +243,7 @@ final class AgentChatHoverMotionChromeTests: XCTestCase {
         let approvalCopy = try chatChromeSlice(
             surface,
             from: "AgentChatCopyButton(text: detail)",
-            to: ".help(\"Copy command\")"
+            to: ".help(L(\"Copy command\"))"
         )
         XCTAssertTrue(approvalCopy.contains(".frame(width: 22, height: 22)"))
         XCTAssertTrue(approvalCopy.contains(".contentShape(Rectangle())"))
@@ -264,7 +264,7 @@ final class AgentChatHoverMotionChromeTests: XCTestCase {
         )
         let running = try chatChromeSlice(row, from: "case .running:", to: "case .unread:")
         XCTAssertTrue(running.contains("DSBusySpinner("))
-        XCTAssertTrue(running.contains("label: \"Running\""))
+        XCTAssertTrue(running.contains("label: L(\"Running\")"))
         XCTAssertTrue(
             running.contains("identifier: runningIdentifier ?? \"\\(identifier).running\""),
             "UI tests find the running mark by this identifier"

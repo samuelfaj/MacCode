@@ -1,6 +1,7 @@
 import AppKit
 import DesignSystemKit
 import SwiftUI
+import CoreModel
 
 /// Shared Agent App / Desk transcript history layout.
 ///
@@ -153,9 +154,9 @@ public struct AgentChatTimelineScrollContainer<Content: View, FollowOverlay: Vie
                                     .shadow(color: .black.opacity(0.25), radius: 10, x: 0, y: 4)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("Scroll to latest message")
+                            .accessibilityLabel(L("Scroll to latest message"))
                             .accessibilityIdentifier(scrollToBottomIdentifier)
-                            .help("Scroll to latest message")
+                            .help(L("Scroll to latest message"))
                             .transition(AgentChatMotion.transition(.fadeAndScale, reduceMotion: reduceMotion))
                         }
                         if let trailingAccessory {

@@ -12,7 +12,7 @@ import SwiftUI
 enum WorkspaceTool: String, CaseIterable {
     case bots, vms
 
-    var title: String { self == .bots ? "Bots" : "VMs" }
+    var title: String { self == .bots ? L("Bots") : L("VMs") }
     var symbol: String { self == .bots ? "person.2" : "desktopcomputer" }
 
     /// The tool a `rightSidebarTool` descriptor or menu title names; nil for Git/Diff and Feed.
@@ -135,7 +135,7 @@ struct WorkspaceBotsView: View {
                 Spacer()
                 Button { model.newBot() } label: { Label(L("New bot"), systemImage: "plus") }
                     .buttonStyle(DSPrimaryButtonStyle())
-                    .help("Create a Bot exclusive to this workspace")
+                    .help(L("Create a Bot exclusive to this workspace"))
                     .accessibilityIdentifier("workspaceBots.new")
             }
             Text(L("Bots that work in this workspace. Open one to chat in its Desk."))
@@ -143,7 +143,7 @@ struct WorkspaceBotsView: View {
             if model.rows.isEmpty {
                 Spacer()
                 if model.loaded {
-                    DSEmptyState(icon: "person.2", title: "No bots yet", subtitle: "Create a Bot to give this workspace a teammate.") {
+                    DSEmptyState(icon: "person.2", title: L("No bots yet"), subtitle: L("Create a Bot to give this workspace a teammate.")) {
                         EmptyView()
                     }
                     .frame(maxWidth: .infinity)
@@ -172,7 +172,7 @@ struct WorkspaceBotsView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .help("Open \(row.botName)'s Desk")
+                            .help(L("Open %1$@'s Desk", row.botName))
                             .accessibilityLabel("\(row.botName), \(row.title)")
                             .accessibilityIdentifier("workspaceBots.bot.\(row.botID.value.uuidString)")
                         }

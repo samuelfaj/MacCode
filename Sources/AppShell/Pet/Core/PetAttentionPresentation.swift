@@ -88,27 +88,27 @@ public struct PetAttentionPresentation: Sendable, Equatable {
 
         let title: String
         switch kind {
-        case .agentOutcome(.completed): title = "Agent run completed"
-        case .agentOutcome(.failed): title = "Agent run failed"
-        case .agentOutcome(.interrupted): title = "Agent run interrupted"
-        case .agentRunning: title = "Agent run in progress"
+        case .agentOutcome(.completed): title = L("Agent run completed")
+        case .agentOutcome(.failed): title = L("Agent run failed")
+        case .agentOutcome(.interrupted): title = L("Agent run interrupted")
+        case .agentRunning: title = L("Agent run in progress")
         case .approval:
             if let action = PetAttentionRedactor.safeContextLabel(context.actionLabel) {
-                title = "Approve: \(action)"
+                title = L("Approve: %1$@", action)
             } else {
-                title = "Approval required"
+                title = L("Approval required")
             }
-        case .question(isSecret: false): title = "Input requested"
-        case .question(isSecret: true): title = "Secret input requested"
-        case .fileConflict: title = "File conflict needs review"
-        case .gitDelivery(.succeeded): title = "Git delivery completed"
-        case .gitDelivery(.failed): title = "Git delivery failed"
-        case .projectScript(.succeeded): title = "Project script completed"
-        case .projectScript(.failed): title = "Project script failed"
-        case .sshTransfer(.succeeded): title = "SSH transfer completed"
-        case .sshTransfer(.failed): title = "SSH transfer failed"
-        case .providerUpdateFailed: title = "Provider update failed"
-        case .serverListenerFailed: title = "Restore remote access"
+        case .question(isSecret: false): title = L("Input requested")
+        case .question(isSecret: true): title = L("Secret input requested")
+        case .fileConflict: title = L("File conflict needs review")
+        case .gitDelivery(.succeeded): title = L("Git delivery completed")
+        case .gitDelivery(.failed): title = L("Git delivery failed")
+        case .projectScript(.succeeded): title = L("Project script completed")
+        case .projectScript(.failed): title = L("Project script failed")
+        case .sshTransfer(.succeeded): title = L("SSH transfer completed")
+        case .sshTransfer(.failed): title = L("SSH transfer failed")
+        case .providerUpdateFailed: title = L("Provider update failed")
+        case .serverListenerFailed: title = L("Restore remote access")
         }
 
         let displayThreadTitle = Self.safeThreadTitle(context.threadTitle)
@@ -136,13 +136,13 @@ public enum PetApprovalActionLabel {
     /// Fixed copy for pending-request kinds. Never returns command text or paths.
     public static func label(for kind: AssistantRequestKind) -> String {
         switch kind {
-        case .commandExecution, .exec: return "Run command"
-        case .applyPatch: return "Apply patch"
-        case .fileChange: return "Edit file"
-        case .fileRead: return "Read file"
-        case .toolUserInput: return "Tool input"
-        case .authTokensRefresh: return "Refresh auth"
-        case .dynamic: return "Tool"
+        case .commandExecution, .exec: return L("Run command")
+        case .applyPatch: return L("Apply patch")
+        case .fileChange: return L("Edit file")
+        case .fileRead: return L("Read file")
+        case .toolUserInput: return L("Tool input")
+        case .authTokensRefresh: return L("Refresh auth")
+        case .dynamic: return L("Tool")
         }
     }
 }
@@ -173,14 +173,14 @@ public enum PetAttentionCountFormatter {
 
     /// "1 needs you" / "3 need you" / "99+ need you" from a badge text.
     public static func needYouText(badgeText: String) -> String {
-        badgeText == "1" ? "1 needs you" : "\(badgeText) need you"
+        badgeText == "1" ? L("1 needs you") : L("%1$@ need you", badgeText)
     }
 
     public static func accessibilityValue(count: Int) -> String {
         switch max(0, count) {
-        case 0: return "No items need attention"
-        case 1: return "1 item needs attention"
-        case let count: return "\(count) items need attention"
+        case 0: return L("No items need attention")
+        case 1: return L("1 item needs attention")
+        case let count: return L("%1$@ items need attention", count)
         }
     }
 }
@@ -194,18 +194,18 @@ public enum PetActiveThreadCountFormatter {
 
     public static func accessibilityValue(count: Int) -> String {
         switch max(0, count) {
-        case 0: return "No active agent threads"
-        case 1: return "1 active agent thread"
-        case let count: return "\(count) active agent threads"
+        case 0: return L("No active agent threads")
+        case 1: return L("1 active agent thread")
+        case let count: return L("%1$@ active agent threads", count)
         }
     }
 
     /// Sidebar/Active Threads count also includes busy terminals.
     public static func activeItemsAccessibilityValue(count: Int) -> String {
         switch max(0, count) {
-        case 0: return "Nothing running"
-        case 1: return "1 item running"
-        case let count: return "\(count) items running"
+        case 0: return L("Nothing running")
+        case 1: return L("1 item running")
+        case let count: return L("%1$@ items running", count)
         }
     }
 

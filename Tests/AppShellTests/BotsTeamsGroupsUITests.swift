@@ -465,7 +465,7 @@ final class BotsTeamsGroupsUITests: XCTestCase {
         // WHY: the sidebar may be collapsed while the room is open; the
         // inspector's Edit… must not latch a sheet nobody presents.
         let groupsView = try source("Sources/AppShell/BotsTeamsGroups.swift")
-        XCTAssertTrue(groupsView.contains("Button(\"Edit…\") { teamsGroups.roomSheet = .editGroup(group.id) }"))
+        XCTAssertTrue(groupsView.contains("Button(L(\"Edit…\")) { teamsGroups.roomSheet = .editGroup(group.id) }"))
         let room = try XCTUnwrap(groupsView.range(of: "struct BotGroupRoomScreen"))
         let inspector = try XCTUnwrap(groupsView.range(of: "struct BotGroupInspector"))
         XCTAssertTrue(groupsView[room.lowerBound..<inspector.lowerBound].contains(".sheet(item: $teamsGroups.roomSheet)"))

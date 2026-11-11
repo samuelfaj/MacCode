@@ -5,7 +5,7 @@ import SwiftUI
 /// Pure text and ordering rules for the Distill `/loop` strip and sidebar glyph.
 public enum DistillLoopPresentation {
     public static let maxVisibleRows = 3
-    public static let expiredText = "Expired after 7 days"
+    public static let expiredText = L("Expired after 7 days")
     public static let sidebarSymbol = "arrow.clockwise"
 
     public static func title(_ loop: DistillLoopState) -> String {
@@ -16,8 +16,8 @@ public enum DistillLoopPresentation {
     public static func countdownText(nextFireAt: Date?, now: Date) -> String? {
         guard let nextFireAt else { return nil }
         let remaining = Int(nextFireAt.timeIntervalSince(now).rounded(.up))
-        guard remaining > 0 else { return "due now" }
-        return "next in \(compactDuration(remaining))"
+        guard remaining > 0 else { return L("due now") }
+        return L("next in %1$@", compactDuration(remaining))
     }
 
     public static func compactDuration(_ seconds: Int) -> String {
@@ -29,16 +29,16 @@ public enum DistillLoopPresentation {
 
     public static func runsText(_ loop: DistillLoopState) -> String? {
         guard loop.iterations > 0 else { return nil }
-        return loop.iterations == 1 ? "1 run" : "\(loop.iterations) runs"
+        return loop.iterations == 1 ? L("1 run") : L("%1$@ runs", loop.iterations)
     }
 
     public static func runningText(_ loop: DistillLoopState) -> String? {
-        loop.runningSubagentID == nil ? nil : "Running iteration \(loop.iterations + 1)"
+        loop.runningSubagentID == nil ? nil : L("Running iteration %1$@", loop.iterations + 1)
     }
 
     public static func pausedText(_ loop: DistillLoopState) -> String {
-        guard let reason = loop.pausedReason, !reason.isEmpty else { return "Paused" }
-        return "Paused · \(reason)"
+        guard let reason = loop.pausedReason, !reason.isEmpty else { return L("Paused") }
+        return L("Paused · %1$@", reason)
     }
 
     public static func accessibilityLabel(_ loop: DistillLoopState, now: Date) -> String {
@@ -51,7 +51,7 @@ public enum DistillLoopPresentation {
                 parts.append(running)
             } else if let next = loop.nextFireAt {
                 let remaining = Int(next.timeIntervalSince(now).rounded(.up))
-                parts.append(remaining > 0 ? "next run in \(spokenDuration(remaining))" : "next run due now")
+                parts.append(remaining > 0 ? L("next run in %1$@", spokenDuration(remaining)) : L("next run due now"))
             }
         }
         if let runs = runsText(loop) { parts.append(runs) }
@@ -59,10 +59,9 @@ public enum DistillLoopPresentation {
     }
 
     public static func spokenDuration(_ seconds: Int) -> String {
-        func unit(_ n: Int, _ word: String) -> String { "\(n) \(word)\(n == 1 ? "" : "s")" }
-        if seconds >= 3600 { return unit(seconds / 3600, "hour") }
-        if seconds >= 60 { return unit(seconds / 60, "minute") }
-        return unit(seconds, "second")
+        if seconds >= 3600 { let n = seconds / 3600; return n == 1 ? L("%1$@ hour", n) : L("%1$@ hours", n) }
+        if seconds >= 60 { let n = seconds / 60; return n == 1 ? L("%1$@ minute", n) : L("%1$@ minutes", n) }
+        return seconds == 1 ? L("%1$@ second", seconds) : L("%1$@ seconds", seconds)
     }
 
     /// First rows up to the cap, plus how many were folded into "+N more".
@@ -78,7 +77,7 @@ public enum DistillLoopPresentation {
 
     public static func sidebarAccessibilityLabel(_ loops: [DistillLoopState]) -> String? {
         guard let first = activeLoops(loops).first else { return nil }
-        return "Loop active, \(first.humanSchedule)"
+        return L("Loop active, %1$@", first.humanSchedule)
     }
 
     public static func durationText(ms: Int) -> String {
@@ -88,7 +87,7 @@ public enum DistillLoopPresentation {
     public static func iterationSummary(_ it: DistillLoopIteration) -> String {
         var parts = [it.status.rawValue.capitalized]
         if let ms = it.durationMs { parts.append(durationText(ms: ms)) }
-        if let tokens = it.tokensUsed { parts.append("\(tokens) tokens") }
+        if let tokens = it.tokensUsed { parts.append(L("%1$@ tokens", tokens)) }
         return parts.joined(separator: " · ")
     }
 }
@@ -246,8 +245,8 @@ struct DistillLoopRow: View {
                     .foregroundColor(DS.Palette.textSecondary)
             }
             .buttonStyle(.plain)
-            .help("Details")
-            .accessibilityLabel("Details")
+            .help(L("Details"))
+            .accessibilityLabel(L("Details"))
             .accessibilityIdentifier("agent.loop.details")
             .popover(isPresented: $showDetails, arrowEdge: .top) { details }
             if loop.state == .expired {
@@ -259,7 +258,7 @@ struct DistillLoopRow: View {
             } else {
                 if loop.state == .paused, onResume != nil {
                     Button { resume() } label: {
-                        Text(resuming ? "Resuming…" : "Resume")
+                        Text(resuming ? L("Resuming…") : L("Resume"))
                             .font(DS.Font.caption.weight(.semibold))
                             .foregroundColor(resuming ? DS.Palette.textTertiary : DS.Palette.accent)
                     }
@@ -268,7 +267,7 @@ struct DistillLoopRow: View {
                     .accessibilityIdentifier("agent.loop.resume")
                 }
                 Button { stop() } label: {
-                    Text(stopping ? "Stopping…" : "Stop")
+                    Text(stopping ? L("Stopping…") : L("Stop"))
                         .font(DS.Font.caption.weight(.semibold))
                         .foregroundColor(stopping ? DS.Palette.textTertiary : DS.Palette.danger)
                 }
@@ -316,7 +315,7 @@ struct DistillLoopRow: View {
                 try await onStop(id)
             } catch {
                 stopping = false
-                stopError = "Couldn't stop loop: \(error.localizedDescription)"
+                stopError = L("Couldn't stop loop: %1$@", error.localizedDescription)
             }
         }
     }
@@ -330,7 +329,7 @@ struct DistillLoopRow: View {
             do {
                 try await onResume(id)
             } catch {
-                resumeError = "Couldn't resume loop: \(error.localizedDescription)"
+                resumeError = L("Couldn't resume loop: %1$@", error.localizedDescription)
             }
             resuming = false
         }

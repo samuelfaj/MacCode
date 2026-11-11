@@ -177,9 +177,9 @@ final class ScheduledTasksWindowTests: XCTestCase {
 
     func test_sidebarReportBugOpensMailtoToMaintainer_becauseBugReportsMustReachSupport() throws {
         let source = try String(contentsOf: sourceURL("Sources/AppShell/SidebarView.swift"), encoding: .utf8)
-        XCTAssertTrue(source.contains("accessibilityLabel(\"Report Bug\")"),
+        XCTAssertTrue(source.contains("accessibilityLabel(L(\"Report Bug\"))"),
                       "sidebar must expose Report Bug as a header icon")
-        XCTAssertTrue(source.contains(".help(\"Report a bug via email\")"),
+        XCTAssertTrue(source.contains(".help(L(\"Report a bug via email\"))"),
                       "the header ladybug must keep a tooltip")
         XCTAssertTrue(source.contains("samuelfajreldines@gmail.com"),
                       "Report Bug must address the maintainer mailbox")
@@ -200,7 +200,7 @@ final class ScheduledTasksWindowTests: XCTestCase {
                       "sidebar must route Schedule Tasks to the main shell presenter")
         XCTAssertTrue(sidebar.contains("onWorkspaceContentActivated"),
                       "selecting a workspace must leave the Schedule Tasks shell destination")
-        XCTAssertTrue(main.contains("visibleWorkspaceLabel.stringValue = \"Schedule Tasks\""),
+        XCTAssertTrue(main.contains("visibleWorkspaceLabel.stringValue = L(\"Schedule Tasks\")"),
                       "title bar must read Schedule Tasks while that shell destination is active")
         XCTAssertTrue(sidebar.contains("isScheduledTasksSelected"),
                       "sidebar must track Schedule Tasks selection so workspace rows can fully deselect")
@@ -278,7 +278,7 @@ final class ScheduledTasksWindowTests: XCTestCase {
         // WHY: Run Now used to wait for the XPC claim before any badge change,
         // so the overview card stayed Active until the agent replied.
         XCTAssertTrue(source.contains("activeRunStatuses[task.id] = .queued"))
-        XCTAssertTrue(source.contains("DSPill(\"Queued\""))
+        XCTAssertTrue(source.contains("DSPill(L(\"Queued\")"))
         XCTAssertTrue(source.contains("activeRunStatus: vm.activeRunStatus(for: task.id)"))
         XCTAssertTrue(source.contains("ensureActiveRunPolling"))
     }
@@ -700,8 +700,8 @@ final class ScheduledTasksWindowTests: XCTestCase {
         // Plan-faithful chrome: full-width card list + full-page editor groups.
         XCTAssertTrue(source.contains("ScheduledTaskCard("))
         XCTAssertTrue(source.contains("Automate recurring agent work"))
-        XCTAssertTrue(source.contains("editorGroup(\"Details\")"))
-        XCTAssertTrue(source.contains("editorGroup(\"Frequency\")"))
+        XCTAssertTrue(source.contains("editorGroup(L(\"Details\"))"))
+        XCTAssertTrue(source.contains("editorGroup(L(\"Frequency\"))"))
         XCTAssertTrue(source.contains("Run History"))
         XCTAssertTrue(source.contains("Save Task"))
         XCTAssertFalse(source.contains("HSplitView"),
@@ -761,7 +761,7 @@ final class ScheduledTasksWindowTests: XCTestCase {
         XCTAssertLessThan(providerPicker.lowerBound, autoBranch.lowerBound,
                           "Provider picker must render before the Auto-only model branch")
         // Labels must keep the chosen Source when Auto is on (not "Provider: Auto").
-        XCTAssertTrue(source.contains("\\(host) · Auto"))
+        XCTAssertTrue(source.contains("L(\"%1$@ · Auto\", host)"))
         XCTAssertTrue(source.contains("\\(task.provider.rawValue.capitalized) · Auto"))
         // Auto → Manual must restore model from the selected provider instance.
         XCTAssertTrue(source.contains("$0.id == draft.providerInstanceID && $0.provider == draft.provider"))

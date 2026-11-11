@@ -196,7 +196,7 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
         progress: @escaping @Sendable (DistillGuestStage) -> Void
     ) async throws -> DistillGuestLaunchPlan {
         let unavailable = DistillGuestLaunchError.unavailable(
-            "Contextual execution is unavailable until runtime isolation is verified."
+            L("Contextual execution is unavailable until runtime isolation is verified.")
         )
         guard deps.hostsGuestRuns else { throw unavailable }
         try await deps.barrier.wait()
@@ -216,14 +216,14 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
         }
         let identity = try deps.botStore.contextRuntimeIdentity(pin: admission.pin, threadID: request.threadId)
         guard !BotComputerControl.shared.isControlledByUser(admission.pin.botID, resourceID: identity.storageBotID) else {
-            throw DistillGuestLaunchError.unavailable("You are controlling this VM. Return control before starting a conversation.")
+            throw DistillGuestLaunchError.unavailable(L("You are controlling this VM. Return control before starting a conversation."))
         }
         let claim = BotVMRunRegistry.Entry(threadID: request.threadId, runID: request.runId,
-            title: (try deps.threadRepo.get(id: request.threadId))?.title ?? "Conversation", workspace: request.cwd)
+            title: (try deps.threadRepo.get(id: request.threadId))?.title ?? L("Conversation"), workspace: request.cwd)
         if let holder = deps.registry.tryBegin(botID: admission.pin.botID, entry: claim, resourceID: identity.storageBotID,
                                               allowsSameThreadExclusive: false,
                                               parentRunID: deps.delegatedParentRun(request.runId, request.threadId)) {
-            throw DistillGuestLaunchError.busy("The VM is busy in \(holder.title)")
+            throw DistillGuestLaunchError.busy(L("The VM is busy in %1$@", holder.title))
         }
         let lease = try await deps.leases.acquire(Self.contextLeaseKey(identity: identity, runID: request.runId))
         var resources: BotContextGuestResources?
@@ -300,21 +300,21 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
     ) async throws -> DistillGuestLaunchPlan {
         guard placement.guestRuntime == BotGuestRuntime.distillV1 else {
             throw DistillGuestLaunchError.unavailable(
-                "this conversation was set up by a newer MacCode; update MacCode to run it."
+                L("this conversation was set up by a newer MacCode; update MacCode to run it.")
             )
         }
         guard deps.hostsGuestRuns else {
-            throw DistillGuestLaunchError.unavailable("bot Linux VM runs only start from the MacCode app.")
+            throw DistillGuestLaunchError.unavailable(L("bot Linux VM runs only start from the MacCode app."))
         }
         // The guest gets the app user's own sign-ins; a run meant for another
         // macOS user must not run with them.
         if let runAsUser = request.runAsUser, runAsUser.uid != getuid() {
             throw DistillGuestLaunchError.unavailable(
-                "this conversation runs as the macOS user \(runAsUser.shortName); bot Linux VM runs use only your own accounts."
+                L("this conversation runs as the macOS user %1$@; bot Linux VM runs use only your own accounts.", runAsUser.shortName)
             )
         }
         guard let thread = try deps.threadRepo.get(id: request.threadId) else {
-            throw DistillGuestLaunchError.unavailable("the conversation no longer exists.")
+            throw DistillGuestLaunchError.unavailable(L("the conversation no longer exists."))
         }
         let botID = try dockerBot(of: thread)
         let destination = try deps.botStore.threadExecutionDestination(thread.id)
@@ -325,11 +325,11 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
         )
         let machine = try destination.virtualMachineID.flatMap { try deps.botStore.virtualMachine(id: $0) }
         if let workspaceID = machine?.workspaceID, await deps.workspaces()[workspaceID] == nil {
-            throw DistillGuestLaunchError.unavailable("This VM's workspace is no longer available.")
+            throw DistillGuestLaunchError.unavailable(L("This VM's workspace is no longer available."))
         }
         let resourceID = try deps.botStore.guestResourceID(botID: botID, threadID: thread.id)
         guard !BotComputerControl.shared.isControlledByUser(botID, resourceID: resourceID) else {
-            throw DistillGuestLaunchError.unavailable("You are controlling this VM. Return control before starting a conversation.")
+            throw DistillGuestLaunchError.unavailable(L("You are controlling this VM. Return control before starting a conversation."))
         }
         try await deps.barrier.wait()
 
@@ -340,7 +340,7 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
         if let holder = deps.registry.tryBegin(botID: botID, entry: claim, resourceID: resourceID,
                                               allowsSameThreadExclusive: false,
                                               parentRunID: deps.delegatedParentRun(request.runId, request.threadId)) {
-            throw DistillGuestLaunchError.busy("The VM is busy in \(holder.title)")
+            throw DistillGuestLaunchError.busy(L("The VM is busy in %1$@", holder.title))
         }
         // Failed preparation leaves release to the coordinator. A prepared
         // delegated run shares the VM and keeps its claim until guest
@@ -468,7 +468,7 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
             )
             if let reason = rendered.droppedModels[request.model] {
                 throw DistillGuestLaunchError.unavailable(
-                    "the model \(request.model) cannot run in the bot's Linux VM: \(reason)"
+                    L("the model %1$@ cannot run in the bot's Linux VM: %2$@", request.model, reason)
                 )
             }
             let envFile = try DistillGuestEnvironment.writeRunFiles(
@@ -567,12 +567,12 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
         let linked = thread.actor.botID ?? (try? deps.botStore.conversationLinked(to: thread.id))??.botID
         guard let botID = linked,
               let bot = try deps.botStore.get(id: botID), bot.deletedAt == nil else {
-            throw DistillGuestLaunchError.unavailable("the bot of this conversation no longer exists.")
+            throw DistillGuestLaunchError.unavailable(L("the bot of this conversation no longer exists."))
         }
         let revision = try bot.currentRevisionID.flatMap { try deps.botStore.getRevision(id: $0) }
         let pinned = try deps.botStore.threadExecutionDestination(thread.id)
         guard pinned?.target == .vm || revision?.desktopKind == .dockerDesktop else {
-            throw DistillGuestLaunchError.unavailable("this bot no longer has a Docker desktop.")
+            throw DistillGuestLaunchError.unavailable(L("this bot no longer has a Docker desktop."))
         }
         return botID
     }
@@ -582,7 +582,7 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
     private func workspaceRoot(of thread: AgentThread) async throws -> String? {
         guard let workspaceID = thread.workspaceId else { return nil }
         guard let root = await deps.workspaces()[workspaceID] else {
-            throw DistillGuestLaunchError.unavailable("this conversation's workspace is no longer open in MacCode.")
+            throw DistillGuestLaunchError.unavailable(L("this conversation's workspace is no longer open in MacCode."))
         }
         return root
     }
@@ -597,12 +597,12 @@ final class BotGuestRunResolver: DistillGuestLaunchResolving, @unchecked Sendabl
         let cwd = URL(fileURLWithPath: requestCwd).resolvingSymlinksInPath().standardizedFileURL.path
         guard let mount = mountContaining(cwd, mounted) else {
             throw DistillGuestLaunchError.unavailable(
-                "this conversation's folder \(cwd) is not inside a folder mounted in the bot's Linux VM."
+                L("this conversation's folder %1$@ is not inside a folder mounted in the bot's Linux VM.", cwd)
             )
         }
         if let gitDir = linkedGitDir(from: cwd, upTo: mount), mountContaining(gitDir, mounted) == nil {
             throw DistillGuestLaunchError.unavailable(
-                "this conversation's git worktree belongs to a repository at \(gitDir), which is not mounted in the bot's Linux VM."
+                L("this conversation's git worktree belongs to a repository at %1$@, which is not mounted in the bot's Linux VM.", gitDir)
             )
         }
         return cwd
@@ -913,7 +913,7 @@ final class BotGuestDockerVM: BotGuestVMPreparing, @unchecked Sendable {
     private func dockerArchitecture() throws -> String {
         let info = try docker.info()
         guard let arch = DistillGuestBinaryProvisioner.dockerArchitecture(fromInfo: info) else {
-            throw DistillGuestLaunchError.unavailable("Docker did not report its CPU architecture.")
+            throw DistillGuestLaunchError.unavailable(L("Docker did not report its CPU architecture."))
         }
         return arch
     }
@@ -940,7 +940,7 @@ final class BotGuestDockerVM: BotGuestVMPreparing, @unchecked Sendable {
         guard missing.isEmpty else {
             throw DistillGuestLaunchError.unavailable(
                 "the bot's Linux image lacks \(missing.joined(separator: ", ")). "
-                    + "Add them to the bot's Dockerfile, or restore the default one, and rebuild."
+                    + L("Add them to the bot's Dockerfile, or restore the default one, and rebuild.")
             )
         }
         lock.withLock { probedImages[container] = image }
@@ -1045,7 +1045,7 @@ extension AppContext {
             prepareContextRuntime: { [weak self] request, parentRunID, providerConfiguration, persistentSession in
                 guard let context = self else {
                     throw DistillGuestLaunchError.unavailable(
-                        "Contextual execution is unavailable until runtime isolation is verified."
+                        L("Contextual execution is unavailable until runtime isolation is verified.")
                     )
                 }
                 let pin = try await BotGuestRunResolver.blocking {
@@ -1082,7 +1082,7 @@ extension AppContext {
             contextDockerArchitecture: {
                 let info = try docker.info()
                 guard let architecture = DistillGuestBinaryProvisioner.dockerArchitecture(fromInfo: info) else {
-                    throw DistillGuestLaunchError.unavailable("Docker did not report its CPU architecture.")
+                    throw DistillGuestLaunchError.unavailable(L("Docker did not report its CPU architecture."))
                 }
                 return architecture
             },

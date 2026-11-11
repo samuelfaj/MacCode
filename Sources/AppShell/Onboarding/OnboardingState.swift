@@ -8,11 +8,11 @@ public enum OnboardingStep: String, Codable, CaseIterable, Sendable {
 
     public var title: String {
         switch self {
-        case .setup: return "Setup"
-        case .permissions: return "Permissions"
-        case .chrome: return "Chrome"
-        case .accounts: return "AI accounts"
-        case .project: return "Project"
+        case .setup: return L("Setup")
+        case .permissions: return L("Permissions")
+        case .chrome: return L("Chrome")
+        case .accounts: return L("AI accounts")
+        case .project: return L("Project")
         }
     }
 
@@ -164,9 +164,9 @@ public enum OnboardingGate {
 
 /// The example Bot offered by setup.
 public enum OnboardingDeveloperTemplate {
-    public static let defaultName = "Developer"
-    public static let title = "Software engineer"
-    public static let description = "Understands the project, plans changes and reviews code."
+    public static let defaultName = L("Developer")
+    public static let title = L("Software engineer")
+    public static let description = L("Understands the project, plans changes and reviews code.")
     public static let firstPrompt = "Analyze this project's structure and propose next steps. Do not change files or run commands yet."
 
     public static func soul(name: String) -> String {

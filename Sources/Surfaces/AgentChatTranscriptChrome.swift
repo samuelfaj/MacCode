@@ -39,7 +39,7 @@ public enum AgentChatTranscriptChrome {
     }
 
     public static func composerPlaceholder(providerDisplayName: String) -> String {
-        "Ask \(providerDisplayName) for changes…"
+        L("Ask %1$@ for changes…", providerDisplayName)
     }
 
     /// User-visible transcript line. Image attachments always render as
@@ -174,7 +174,7 @@ public enum AgentChatTranscriptChrome {
     }
 
     public static func relativeTimestamp(_ date: Date, now: Date = Date()) -> String {
-        if now.timeIntervalSince(date) < 60 { return "just now" }
+        if now.timeIntervalSince(date) < 60 { return L("just now") }
         return relativeFormatter.localizedString(for: date, relativeTo: now)
     }
 
@@ -335,9 +335,9 @@ public struct AgentChatUserBubble: View, Equatable {
                             .contentShape(Rectangle())
                     }
                     .foregroundColor(DS.Palette.textTertiary)
-                    .accessibilityLabel("Copy message")
+                    .accessibilityLabel(L("Copy message"))
                     .accessibilityIdentifier(copyIdentifier ?? "agent.userMessage.copy")
-                    .help("Copy message")
+                    .help(L("Copy message"))
                     Text(AgentChatTranscriptChrome.relativeTimestamp(createdAt, now: now ?? Date()))
                         .font(DS.Font.caption2)
                         .foregroundColor(DS.Palette.textSecondary)
@@ -425,16 +425,16 @@ public struct AgentChatReplyQuoteStrip: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(DS.Palette.textTertiary)
-                .accessibilityLabel("Cancel reply")
+                .accessibilityLabel(L("Cancel reply"))
                 .accessibilityIdentifier("agent.composer.reply.cancel")
-                .help("Cancel reply")
+                .help(L("Cancel reply"))
             }
         }
         .padding(.horizontal, onCancel == nil ? 0 : DS.Space.md)
         .padding(.vertical, onCancel == nil ? 0 : DS.Space.sm)
         .frame(maxWidth: onCancel == nil ? nil : .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Replying to \(excerpt)")
+        .accessibilityLabel(L("Replying to %1$@", excerpt))
         .accessibilityIdentifier(onCancel == nil ? "agent.userMessage.replyQuote" : "agent.composer.reply")
     }
 }
@@ -536,9 +536,9 @@ public struct AgentChatAssistantReply: View, Equatable {
                         .contentShape(Rectangle())
                 }
                 .foregroundColor(DS.Palette.textTertiary)
-                .accessibilityLabel("Copy message")
+                .accessibilityLabel(L("Copy message"))
                 .accessibilityIdentifier(copyIdentifier ?? "agent.assistantMessage.copy")
-                .help("Copy message")
+                .help(L("Copy message"))
                 if let onBranch {
                     Button(action: onBranch) {
                         Image(systemName: "arrow.triangle.branch")
@@ -548,9 +548,9 @@ public struct AgentChatAssistantReply: View, Equatable {
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(DS.Palette.textTertiary)
-                    .accessibilityLabel("Branch in new chat")
+                    .accessibilityLabel(L("Branch in new chat"))
                     .accessibilityIdentifier(branchIdentifier ?? "agent.assistantMessage.branch")
-                    .help("Branch in new chat")
+                    .help(L("Branch in new chat"))
                 }
                 if let onReply {
                     Button(action: onReply) {
@@ -561,9 +561,9 @@ public struct AgentChatAssistantReply: View, Equatable {
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(DS.Palette.textTertiary)
-                    .accessibilityLabel("Reply")
+                    .accessibilityLabel(L("Reply"))
                     .accessibilityIdentifier("agent.assistantMessage.reply")
-                    .help("Reply")
+                    .help(L("Reply"))
                 }
                 if let onClear {
                     Spacer(minLength: DS.Space.xs)
@@ -575,9 +575,9 @@ public struct AgentChatAssistantReply: View, Equatable {
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(DS.Palette.textTertiary)
-                    .accessibilityLabel("Clear notification")
+                    .accessibilityLabel(L("Clear notification"))
                     .accessibilityIdentifier("agent.assistantMessage.clear")
-                    .help("Clear notification")
+                    .help(L("Clear notification"))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -807,8 +807,8 @@ public struct AgentChatComposerBar: View {
                     .buttonStyle(.plain)
                     .disabled(!attachEnabled)
                     .foregroundColor(DS.Palette.textSecondary)
-                    .help(attachEnabled ? "Attach files" : (attachUnavailableReason ?? "Attach files"))
-                    .accessibilityLabel("Attach files")
+                    .help(attachEnabled ? L("Attach files") : (attachUnavailableReason ?? L("Attach files")))
+                    .accessibilityLabel(L("Attach files"))
                     .accessibilityHint(attachEnabled ? "" : (attachUnavailableReason ?? ""))
                     .accessibilityIdentifier("agent.attach")
                 }
@@ -887,9 +887,9 @@ public struct AgentChatComposerBar: View {
         .buttonStyle(.plain)
         .disabled(!sendEnabled)
         .keyboardShortcut(.return, modifiers: [.command])
-        .accessibilityLabel(runActive ? "Queue message" : "Send")
+        .accessibilityLabel(runActive ? L("Queue message") : L("Send"))
         .accessibilityIdentifier(sendIdentifier)
-        .help(runActive ? "Queue message for this thread" : "Send prompt")
+        .help(runActive ? L("Queue message for this thread") : L("Send prompt"))
     }
 
     private var stopButton: some View {
@@ -918,11 +918,11 @@ public struct AgentChatComposerBar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(isStopping ? "Force stop running agent" : "Stop running agent")
+        .accessibilityLabel(isStopping ? L("Force stop running agent") : L("Stop running agent"))
         .accessibilityIdentifier("agent.composer.stop")
         .help(isStopping
-              ? "Still stopping — click again to force-stop the provider"
-              : "Stop running agent")
+              ? L("Still stopping — click again to force-stop the provider")
+              : L("Stop running agent"))
     }
 
     private func applyHighlightedSuggestion() {

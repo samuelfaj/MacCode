@@ -42,7 +42,7 @@ final class OnboardingLiveServices: OnboardingServices {
         let user = try await api.currentUser(accessToken: session.accessToken)
         let verified = PrivateAccountSession(accessToken: session.accessToken, refreshToken: session.refreshToken, user: user)
         guard sessionStore.save(verified) else {
-            throw OnboardingAccountError(message: "Signed in, but the session could not be saved on this Mac. Try again.")
+            throw OnboardingAccountError(message: L("Signed in, but the session could not be saved on this Mac. Try again."))
         }
         return user
     }

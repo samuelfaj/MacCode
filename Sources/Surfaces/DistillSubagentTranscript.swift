@@ -195,8 +195,8 @@ struct DistillSubagentTranscriptPane: View {
                     .contentShape(Rectangle())
             }
                 .buttonStyle(.plain)
-                .help("Close subagent view")
-                .accessibilityLabel("Close subagent view")
+                .help(L("Close subagent view"))
+                .accessibilityLabel(L("Close subagent view"))
                 .accessibilityIdentifier("agent.subagentPane.close")
         }
         .padding(DS.Space.md)
@@ -213,7 +213,7 @@ struct DistillSubagentTranscriptPane: View {
                 .foregroundColor(DS.Palette.textSecondary)
                 .lineLimit(promptExpanded ? nil : 4)
                 .textSelection(.enabled)
-            Button(promptExpanded ? "Show less" : "Show full task") { promptExpanded.toggle() }
+            Button(promptExpanded ? L("Show less") : L("Show full task")) { promptExpanded.toggle() }
                 .buttonStyle(.plain)
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.accent)

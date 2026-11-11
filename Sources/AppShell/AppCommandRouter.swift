@@ -437,7 +437,7 @@ enum PendingCallbackSnapshotMapper {
                         id: callback.requestId,
                         turnId: nil,
                         kind: .dynamic,
-                        title: "Approval request",
+                        title: L("Approval request"),
                         detail: Self.unreadablePayloadDetail,
                         createdAtMs: Int64(callback.createdAt.timeIntervalSince1970 * 1000)
                     )
@@ -474,8 +474,8 @@ enum PendingCallbackSnapshotMapper {
 
     // English product copy, same as the rest of the callback surfaces. Never
     // carries payload text or paths.
-    static let unreadablePayloadDetail = "Stored request payload could not be read; approve or decline to unblock the run."
-    static let unreadableUserInputPrompt = "Input requested (stored payload could not be read)"
+    static let unreadablePayloadDetail = L("Stored request payload could not be read; approve or decline to unblock the run.")
+    static let unreadableUserInputPrompt = L("Input requested (stored payload could not be read)")
 
     private static func reportUnreadable(_ callback: ProviderPendingCallback) {
         appRouterLog.error(
@@ -494,7 +494,7 @@ struct ClaudeProviderRuntimePresentation: Equatable {
         guard !agentSDKEnabled else {
             return Self(advisory: probeAdvisory, interactionModes: nil, permissionModes: nil, capabilities: nil)
         }
-        let degraded = "Degraded text-only fallback: Claude Agent SDK is disabled."
+        let degraded = L("Degraded text-only fallback: Claude Agent SDK is disabled.")
         let advisory: String
         if let probeAdvisory, !probeAdvisory.isEmpty {
             advisory = "\(degraded) \(probeAdvisory)"
@@ -773,7 +773,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             requestId: request.id.uuidString,
             facts: TitioRequestFacts(
                 kind: .manualAction,
-                legacyActionTitle: "Waiting for you",
+                legacyActionTitle: L("Waiting for you"),
                 detail: reason.isEmpty ? nil : reason,
                 botName: ((try? ctx.botStore.get(id: request.botID)) ?? nil)?.name
             )
@@ -1239,7 +1239,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                             return try self.prepareAgentThreadForPullRequest(workspace: wid, url: url, provider: provider, model: model, permissionMode: permission, reasoningEffort: reasoning, serviceTier: serviceTier, modelSelection: modelSelection, providerInstanceId: providerInstanceId)
                         }
                         agent.viewModel.onReviewRequested = { [weak self] in
-                            _ = try? self?.createSurface(workspace: wid, type: .rightSidebarTool, paneID: nil, title: "Git")
+                            _ = try? self?.createSurface(workspace: wid, type: .rightSidebarTool, paneID: nil, title: L("Git"))
                         }
                         // UX-MAC_AGENT-OPEN-SPLIT: clicked file mentions / links open
                         // (or reuse) a split panel to the right of this agent surface.
@@ -1258,7 +1258,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                                     let child = try await self.forkAgentThread(sourceThreadId: source, messageID: messageID)
                                     agent.viewModel.selectThread(child.id)
                                 } catch {
-                                    agent.viewModel.statusMessage = "Could not fork thread: \(error)"
+                                    agent.viewModel.statusMessage = L("Could not fork thread: %1$@", error)
                                 }
                             }
                         }
@@ -1269,7 +1269,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                                     let child = try await self.sideAgentThread(sourceThreadId: source, text: text.isEmpty ? nil : text)
                                     self.openSideChatSplit(workspace: wid, sourceSurface: agent.descriptor.id, threadId: child.id, seed: text.isEmpty ? nil : text)
                                 } catch {
-                                    agent.viewModel.statusMessage = "Could not open side chat: \(error)"
+                                    agent.viewModel.statusMessage = L("Could not open side chat: %1$@", error)
                                 }
                             }
                         }
@@ -1280,7 +1280,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                                     let answer = try await self.btwAgentThread(threadId: source, question: question)
                                     agent.viewModel.appendBtwNote(question: question, answer: answer)
                                 } catch {
-                                    agent.viewModel.statusMessage = "Could not get side answer: \(error)"
+                                    agent.viewModel.statusMessage = L("Could not get side answer: %1$@", error)
                                 }
                             }
                         }
@@ -1427,7 +1427,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         forEachSurface(in: ws.layout) { if $0.type == .files { files.append($0) } }
         let focused = ws.focusedPaneID.flatMap { ws.layout.find(paneID: $0)?.selectedSurfaceID }
         guard var kept = files.first(where: { $0.id == focused }) ?? files.first else { return }
-        kept.title = "Files"
+        kept.title = L("Files")
         if files.count > 1 {
             var state = Self.decodeFilesState(kept.metadata["files_state"]) ?? [:]
             var seen = Set<String>()
@@ -2149,7 +2149,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         }
         let descriptor = makeSurface(
             type: .rightSidebarTool,
-            title: "Git",
+            title: L("Git"),
             workspace: workspace,
             cwd: workspaceState.cwd
         )
@@ -2190,7 +2190,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         if let existing = try reuseFilesSurface(workspace: workspace, path: info.relativePath) {
             return existing
         }
-        let desc = makeFilesSurface(workspace: workspace, cwd: ws.cwd, title: "Files", selectedPath: info.relativePath)
+        let desc = makeFilesSurface(workspace: workspace, cwd: ws.cwd, title: L("Files"), selectedPath: info.relativePath)
         try ctx.apply(.addSurface(workspace, paneID: targetPane, descriptor: desc))
         windowController?.refreshFromState()
         reconcileSurfaceVisibility()
@@ -2328,7 +2328,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
            let agent = SurfaceRegistry.shared.surface(agentDesc.id) as? AgentAppSurface {
             agent.viewModel.selectThread(threadId)
             updateSurfaceDescriptor(workspace: workspace, surface: agentDesc.id) { descriptor in
-                descriptor.title = "Side chat"
+                descriptor.title = L("Side chat")
                 descriptor.iconName = "plus.circle"
                 descriptor.metadata["selected_thread"] = threadId.value.uuidString
                 descriptor.metadata["side_thread"] = threadId.value.uuidString
@@ -2340,7 +2340,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             seedSideSurface(agent, seed: seed)
             return
         }
-        var desc = makeSurface(type: .agentApp, title: "Side chat", workspace: workspace, cwd: ws.cwd, sideThreadId: threadId)
+        var desc = makeSurface(type: .agentApp, title: L("Side chat"), workspace: workspace, cwd: ws.cwd, sideThreadId: threadId)
         desc.iconName = "plus.circle"
         desc.metadata["side_thread"] = threadId.value.uuidString
         guard let targetPane = sourcePane ?? ws.focusedPaneID ?? ws.layout.paneIDs().first else { return }
@@ -2388,7 +2388,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         let root = (cwd as NSString).standardizingPath
         let target = (path as NSString).standardizingPath
         if target == root {
-            return ("", "Files")
+            return ("", L("Files"))
         }
         guard target.hasPrefix(root + "/") else { return nil }
         let relativePath = String(target.dropFirst(root.count + 1))
@@ -3088,7 +3088,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     }
 
     public func openAgentApp(workspace: WorkspaceID) throws -> SurfaceDescriptor {
-        try createSurface(workspace: workspace, type: .agentApp, paneID: nil, title: "Agent App")
+        try createSurface(workspace: workspace, type: .agentApp, paneID: nil, title: L("Agent App"))
     }
 
     /// Legacy helper: open + focus an Agent App tab for a workspace.
@@ -3510,7 +3510,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             return try self.prepareAgentThreadForPullRequest(workspace: workspace, url: url, provider: provider, model: model, permissionMode: permission, reasoningEffort: reasoning, serviceTier: serviceTier, modelSelection: modelSelection, providerInstanceId: providerInstanceId)
         }
         agent.viewModel.onReviewRequested = { [weak self] in
-            _ = try? self?.createSurface(workspace: workspace, type: .rightSidebarTool, paneID: nil, title: "Git")
+            _ = try? self?.createSurface(workspace: workspace, type: .rightSidebarTool, paneID: nil, title: L("Git"))
         }
         // UX-MAC_AGENT-OPEN-SPLIT: clicked file mentions / links open
         // (or reuse) a split panel to the right of this agent surface.
@@ -3529,7 +3529,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                     let child = try await self.forkAgentThread(sourceThreadId: source, messageID: messageID)
                     agent.viewModel.selectThread(child.id)
                 } catch {
-                    agent.viewModel.statusMessage = "Could not fork thread: \(error)"
+                    agent.viewModel.statusMessage = L("Could not fork thread: %1$@", error)
                 }
             }
         }
@@ -3540,7 +3540,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                     let child = try await self.sideAgentThread(sourceThreadId: source, text: text.isEmpty ? nil : text)
                     self.openSideChatSplit(workspace: workspace, sourceSurface: agent.descriptor.id, threadId: child.id, seed: text.isEmpty ? nil : text)
                 } catch {
-                    agent.viewModel.statusMessage = "Could not open side chat: \(error)"
+                    agent.viewModel.statusMessage = L("Could not open side chat: %1$@", error)
                 }
             }
         }
@@ -3551,7 +3551,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                     let answer = try await self.btwAgentThread(threadId: source, question: question)
                     agent.viewModel.appendBtwNote(question: question, answer: answer)
                 } catch {
-                    agent.viewModel.statusMessage = "Could not get side answer: \(error)"
+                    agent.viewModel.statusMessage = L("Could not get side answer: %1$@", error)
                 }
             }
         }
@@ -3715,7 +3715,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     }
 
     private struct BotWorkspaceRunUnavailable: LocalizedError {
-        var errorDescription: String? { "Bot unavailable." }
+        var errorDescription: String? { L("Bot unavailable.") }
     }
 
     private var hostCatalogCreatedBots: [AgentRunID: Set<BotID>] = [:]
@@ -5000,7 +5000,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
               let service = botsViewModel?.computerGuestService else {
             var readback = Self.guestFailureReadback(
                 context: context,
-                message: "Could not start the Linux desktop."
+                message: L("Could not start the Linux desktop.")
             )
             readback["last_request_id"] = requestID
             settlePairedBot(
@@ -5584,7 +5584,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             let coordinator = ctx.coordinator
             Task { await coordinator.reconcileForkIntentsOnLaunch() }
             throw AgentProviderAdapterError.forkRejected(
-                "an earlier fork of this thread is still finishing; it will appear in the list shortly"
+                L("an earlier fork of this thread is still finishing; it will appear in the list shortly")
             )
         }
         EventBus.shared.publish(kind: .agentThreadCreated, payload: agentThreadPayload(forked))
@@ -5598,7 +5598,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         guard let source = try ctx.threadRepo.get(id: sourceThreadId) else {
             throw LayoutError.workspaceNotFound
         }
-        let child = makeForkChild(source: source, ephemeral: true, title: "Side · \(source.title)")
+        let child = makeForkChild(source: source, ephemeral: true, title: L("Side · %1$@", source.title))
         return try await ctx.coordinator.forkThread(sourceThreadId: sourceThreadId, childThread: child)
     }
 
@@ -6039,7 +6039,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             if !cleanup.ok {
                 throw JSONRPCError(
                     code: -32051,
-                    message: "PR thread commit failed: \(error.localizedDescription) Worktree cleanup also failed: \(cleanup.message)"
+                    message: L("PR thread commit failed: %1$@ Worktree cleanup also failed: %2$@", error.localizedDescription, cleanup.message)
                 )
             }
             throw error
@@ -6232,7 +6232,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     /// iOS shows a bare "Invalid params" as an app/host version mismatch; name the real cause.
     static let queuedMessageGone = JSONRPCError(
         code: JSONRPCError.invalidParams.code,
-        message: "This message already left the queue. Refresh the queue and try again."
+        message: L("This message already left the queue. Refresh the queue and try again.")
     )
 
     public func cancelAgentQueuedMessage(id: AgentQueuedMessageID) throws -> AgentQueuedMessage {
@@ -6274,7 +6274,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                 ) else {
                     throw JSONRPCError(
                         code: -32000,
-                        message: "Queued message acknowledgement is already being recovered."
+                        message: L("Queued message acknowledgement is already being recovered.")
                     )
                 }
                 try promoteDeferredQueueMessage(
@@ -6665,14 +6665,14 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             guard routing.mode == currentMode else {
                 throw DefiniteMutationRejection(JSONRPCError(
                     code: -32020,
-                    message: "Model routing mode changed on the host. Refresh the thread and try again.",
+                    message: L("Model routing mode changed on the host. Refresh the thread and try again."),
                     data: .object(["domain": .string("routing"), "kind": .string("mode_conflict")])
                 ))
             }
         } else if storedRouting?.mode == .auto {
             throw DefiniteMutationRejection(JSONRPCError(
                 code: -32020,
-                message: "This thread requires an Auto routing revision. Refresh the thread and try again.",
+                message: L("This thread requires an Auto routing revision. Refresh the thread and try again."),
                 data: .object(["domain": .string("routing"), "kind": .string("routing_required")])
             ))
         }
@@ -6981,7 +6981,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                   t.worktreePath == parentThread.worktreePath else {
                 throw JSONRPCError(
                     code: -32020,
-                    message: "Nested Agent App child scope does not match its parent.",
+                    message: L("Nested Agent App child scope does not match its parent."),
                     data: .object([
                         "domain": .string("orchestration"),
                         "kind": .string("invalid_child_scope")
@@ -7035,7 +7035,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             } catch {
                 throw JSONRPCError(
                     code: -32020,
-                    message: "Nested Agent App receipt could not be persisted.",
+                    message: L("Nested Agent App receipt could not be persisted."),
                     data: .object([
                         "domain": .string("orchestration"),
                         "kind": .string("receipt_persistence_failed")
@@ -7319,7 +7319,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         }
         throw JSONRPCError(
             code: -32000,
-            message: "Provider started; queue acknowledgement needs recovery."
+            message: L("Provider started; queue acknowledgement needs recovery.")
         )
     }
 
@@ -7442,7 +7442,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     private func unconfirmedQueuedMessageStartError() -> JSONRPCError {
         JSONRPCError(
             code: -32000,
-            message: "Provider start is unconfirmed. The message remains queued to prevent loss or duplicate execution."
+            message: L("Provider start is unconfirmed. The message remains queued to prevent loss or duplicate execution.")
         )
     }
 
@@ -7494,7 +7494,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                   FileManager.default.fileExists(atPath: path) else {
                 throw JSONRPCError(
                     code: -32013,
-                    message: "Agent worktree is unavailable."
+                    message: L("Agent worktree is unavailable.")
                 )
             }
             return path
@@ -7553,7 +7553,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         if newThread {
             implementationThread = try createAgentThread(
                 workspace: source.workspaceId,
-                title: "Implement plan",
+                title: L("Implement plan"),
                 provider: provider ?? source.provider,
                 model: model ?? source.model,
                 permissionMode: permissionMode ?? source.permissionMode,
@@ -7801,7 +7801,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                 publishAgentThreadUpdated(updated)
             }
         } catch {
-            let reason = "Provider approval response failed: \(error)"
+            let reason = L("Provider approval response failed: %1$@", error)
             try? ctx.providerPendingCallbackRepo.markStale(threadId: thread, requestId: requestId, kind: .approval, reason: reason)
             EventBus.shared.publish(kind: .agentRequestResolved, payload: .object([
                 "thread_id": .string(thread.value.uuidString),
@@ -7824,7 +7824,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                 "answer": .string(text)
             ]))
         } catch {
-            let reason = "Provider user-input response failed: \(error)"
+            let reason = L("Provider user-input response failed: %1$@", error)
             try? ctx.providerPendingCallbackRepo.markStale(threadId: thread, requestId: requestId, kind: .userInput, reason: reason)
             EventBus.shared.publish(kind: .agentUserInputResolved, payload: .object([
                 "thread_id": .string(thread.value.uuidString),
@@ -9422,7 +9422,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             throw JSONRPCError(code: -32602, message: "no such script: \(name)")
         }
         // Run it in a fresh terminal surface (t3code ProjectScriptsControl).
-        let desc = try createSurface(workspace: workspace, type: .terminal, paneID: nil, title: "Run: \(name)")
+        let desc = try createSurface(workspace: workspace, type: .terminal, paneID: nil, title: L("Run: %1$@", name))
         guard let context, let terminal = SurfaceRegistry.shared.surface(desc.id) as? TerminalSurface else {
             throw LayoutError.surfaceNotFound
         }
@@ -9671,7 +9671,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         return {
             let resource = resourceID ?? botID
             if let holder = BotVMRunRegistry.shared.blocker(botID: resource, threadID: threadID) {
-                throw BotComputerError.invalid("The VM is busy in \(holder.title)")
+                throw BotComputerError.invalid(L("The VM is busy in %1$@", holder.title))
             }
             // Runs share the VM: never recreate the container under them.
             if BotVMRunRegistry.shared.active(botID: resource) != nil, service.isContainerRunning(botID: resource) { return }
@@ -9782,12 +9782,12 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         action: BotBrowserPendingAction
     ) async throws -> String {
         guard let ctx = context else {
-            throw BotBrowserError.invalid("Bot browser is not available. Keep the MacCode app running and try again.")
+            throw BotBrowserError.invalid(L("Bot browser is not available. Keep the MacCode app running and try again."))
         }
         let threadID = action.threadID.flatMap(UUID.init(uuidString:)).map(AgentThreadID.init)
         let resourceID = try ctx.botStore.guestResourceID(botID: botID, threadID: threadID)
         if let holder = BotVMRunRegistry.shared.blocker(botID: resourceID, threadID: threadID) {
-            throw BotBrowserError.invalid("The VM is busy in \(holder.title)")
+            throw BotBrowserError.invalid(L("The VM is busy in %1$@", holder.title))
         }
         if action.kind == BotBrowserCatalog.act, botComputerControl.isControlledByUser(botID, resourceID: resourceID) {
             return Self.botBrowserRefusalPayload
@@ -10132,7 +10132,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         }
         let published = try publishAssistantImage(
             threadID: callerThread, data: data, displayName: "mac-browser-screenshot.png",
-            mimeType: "image/png", content: "Mac browser: \(reason)"
+            mimeType: "image/png", content: L("Mac browser: %1$@", reason)
         )
         return .object([
             "thread_id": .string(callerThread.value.uuidString),
@@ -10993,7 +10993,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         } catch {
             throw JSONRPCError(
                 code: JSONRPCError.internalError.code,
-                message: "The saved SSH hosts for this workspace could not be read, so MacCode left them untouched. The stored entry has to be repaired before hosts can be edited."
+                message: L("The saved SSH hosts for this workspace could not be read, so MacCode left them untouched. The stored entry has to be repaired before hosts can be edited.")
             )
         }
     }
@@ -11076,10 +11076,10 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                 ? SSHCommandBuilder.scpUploadArguments(profile: profile, localPath: localPath, remotePath: remotePath)
                 : SSHCommandBuilder.scpDownloadArguments(profile: profile, remotePath: remotePath, localPath: localPath)
             lease = try reserveTransferOutput(for: surface)
-            appendOutput("\n[ssh \(kind) started]\n")
+            appendOutput(L("\n[ssh %1$@ started]\n", kind))
             let result = try runCommand(executable: "/usr/bin/scp", arguments: args, password: profile.password)
             let ok = result.exitCode == 0
-            deliverTransferOutput(lease, appendOutput, result.output, "[ssh \(kind) \(ok ? "completed" : "failed")]\n")
+            deliverTransferOutput(lease, appendOutput, result.output, L("[ssh %1$@ %2$@]\n", kind, ok ? "completed" : "failed"))
             finishSSHTransfer(lifecycle, exitCode: result.exitCode)
             return .object([
                 "ok": .bool(ok),
@@ -11154,14 +11154,14 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                 ? SSHCommandBuilder.scpUploadArguments(profile: profile, localPath: localPath, remotePath: remotePath)
                 : SSHCommandBuilder.scpDownloadArguments(profile: profile, remotePath: remotePath, localPath: localPath)
             lease = try await reserveTransferOutputAwaiting(for: surface)
-            appendOutput("\n[ssh \(kind) started]\n")
+            appendOutput(L("\n[ssh %1$@ started]\n", kind))
             let password = profile.password
             let commandRunner = sshCommandRunner
             let result = try await ProviderCLIProbe.runOffCooperativePool {
                 Result { try commandRunner("/usr/bin/scp", args, password) }
             }.get()
             let ok = result.exitCode == 0
-            deliverTransferOutput(lease, appendOutput, result.output, "[ssh \(kind) \(ok ? "completed" : "failed")]\n")
+            deliverTransferOutput(lease, appendOutput, result.output, L("[ssh %1$@ %2$@]\n", kind, ok ? "completed" : "failed"))
             finishSSHTransfer(lifecycle, exitCode: result.exitCode)
             return .object([
                 "ok": .bool(ok),
@@ -11329,7 +11329,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             "path": .string((path as NSString).deletingLastPathComponent),
             "kind": .string("directory"),
             "size": .string(""),
-            "file_type": .string("File folder"),
+            "file_type": .string(L("File folder")),
             "modified": .string("")
         ])
     }
@@ -11339,7 +11339,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         let isDirectory = values?.isDirectory == true
         let size = isDirectory ? "" : "\(values?.fileSize ?? 0)"
         let modified = values?.contentModificationDate.map(Self.shortDateFormatter.string(from:)) ?? ""
-        let type = isDirectory ? "File folder" : fileType(for: url.lastPathComponent)
+        let type = isDirectory ? L("File folder") : fileType(for: url.lastPathComponent)
         return .object([
             "name": .string(url.lastPathComponent),
             "path": .string(url.path),
@@ -11356,7 +11356,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         let size = entry.isDirectory ? "" : "\(entry.fileSize ?? 0)"
         let modified = entry.contentModificationDate.map(Self.shortDateFormatter.string(from:)) ?? ""
         let type = entry.isDirectory
-            ? (entry.isNetworkVolume ? "Network volume" : "File folder")
+            ? (entry.isNetworkVolume ? L("Network volume") : L("File folder"))
             : fileType(for: entry.name)
         return .object([
             "name": .string(entry.name),
@@ -11389,7 +11389,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                 "path": .string(child),
                 "kind": .string(kind),
                 "size": .string(parts[2]),
-                "file_type": .string(kind == "directory" ? "File folder" : fileType(for: name)),
+                "file_type": .string(kind == "directory" ? L("File folder") : fileType(for: name)),
                 "modified": .string(parts[3])
             ])
         }.sorted(by: sortSSHEntries)
@@ -11439,9 +11439,9 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         guard let lastDot,
               lastDot != componentStart,
               utf8.index(after: lastDot) != utf8.endIndex else {
-            return "File"
+            return L("File")
         }
-        return "\(name[utf8.index(after: lastDot)...].uppercased()) File"
+        return L("%1$@ File", name[utf8.index(after: lastDot)...].uppercased())
     }
 
     private static let shortDateFormatter: DateFormatter = {

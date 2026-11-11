@@ -365,40 +365,40 @@ struct FileExplorerOutline: NSViewRepresentable {
             let targets = clicked == nil ? [] : (selectedEntries.count > 1 ? selectedEntries : [clicked!])
             let menu = NSMenu()
             let directory = model.explorerTargetDirectory(for: clicked)
-            menu.addItem(ExplorerMenuItem("New File…") { [weak self] in self?.parent?.onNewFile(directory) })
-            menu.addItem(ExplorerMenuItem("New Folder…") { [weak self] in self?.parent?.onNewFolder(directory) })
+            menu.addItem(ExplorerMenuItem(L("New File…")) { [weak self] in self?.parent?.onNewFile(directory) })
+            menu.addItem(ExplorerMenuItem(L("New Folder…")) { [weak self] in self?.parent?.onNewFolder(directory) })
             guard !targets.isEmpty else { return menu }
             menu.addItem(.separator())
             if targets.count == 1, let entry = targets.first {
                 if !entry.isDirectory {
-                    menu.addItem(ExplorerMenuItem("Open in New Tab") { model.openInNewTab(entry) })
-                    menu.addItem(ExplorerMenuItem("Open with Default App") {
+                    menu.addItem(ExplorerMenuItem(L("Open in New Tab")) { model.openInNewTab(entry) })
+                    menu.addItem(ExplorerMenuItem(L("Open with Default App")) {
                         NSWorkspace.shared.open(URL(fileURLWithPath: entry.path))
                     })
                 }
-                menu.addItem(ExplorerMenuItem("Reveal in Finder") {
+                menu.addItem(ExplorerMenuItem(L("Reveal in Finder")) {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: entry.path)])
                 })
                 menu.addItem(.separator())
-                menu.addItem(ExplorerMenuItem("Copy Path") { Self.copy(entry.path) })
-                menu.addItem(ExplorerMenuItem("Copy Relative Path") { Self.copy(entry.relativePath) })
+                menu.addItem(ExplorerMenuItem(L("Copy Path")) { Self.copy(entry.path) })
+                menu.addItem(ExplorerMenuItem(L("Copy Relative Path")) { Self.copy(entry.relativePath) })
                 menu.addItem(.separator())
-                menu.addItem(ExplorerMenuItem("Rename…") { [weak self] in self?.beginRename(entry) })
-                menu.addItem(ExplorerMenuItem("Move to Trash") { [weak self] in self?.parent?.onRequestDelete(targets) })
+                menu.addItem(ExplorerMenuItem(L("Rename…")) { [weak self] in self?.beginRename(entry) })
+                menu.addItem(ExplorerMenuItem(L("Move to Trash")) { [weak self] in self?.parent?.onRequestDelete(targets) })
             } else {
-                let item = ExplorerMenuItem("Open \(targets.count) Files in New Tabs") {
+                let item = ExplorerMenuItem(L("Open %1$@ Files in New Tabs", targets.count)) {
                     targets.filter { !$0.isDirectory }.forEach { model.openInNewTab($0) }
                 }
                 item.setAccessibilityIdentifier("files.contextMenu.openAllInTabs")
                 menu.addItem(item)
-                let reveal = ExplorerMenuItem("Reveal in Finder") {
+                let reveal = ExplorerMenuItem(L("Reveal in Finder")) {
                     NSWorkspace.shared.activateFileViewerSelecting(targets.map { URL(fileURLWithPath: $0.path) })
                 }
                 reveal.setAccessibilityIdentifier("files.contextMenu.revealAll")
                 menu.addItem(reveal)
-                menu.addItem(ExplorerMenuItem("Copy Paths") { Self.copy(targets.map(\.path).joined(separator: "\n")) })
+                menu.addItem(ExplorerMenuItem(L("Copy Paths")) { Self.copy(targets.map(\.path).joined(separator: "\n")) })
                 menu.addItem(.separator())
-                menu.addItem(ExplorerMenuItem("Move \(targets.count) Items to Trash") { [weak self] in self?.parent?.onRequestDelete(targets) })
+                menu.addItem(ExplorerMenuItem(L("Move %1$@ Items to Trash", targets.count)) { [weak self] in self?.parent?.onRequestDelete(targets) })
             }
             return menu
         }

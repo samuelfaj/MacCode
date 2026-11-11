@@ -197,7 +197,7 @@ extension AppContext {
         let runs = AgentRunRepository(db: db)
         @Sendable func router() async throws -> AppCommandRouter {
             guard let router = await MainActor.run(body: { box.context?.router }) else {
-                throw TitioNoticeActionError(reason: "MacCode is not ready")
+                throw TitioNoticeActionError(reason: L("MacCode is not ready"))
             }
             return router
         }
@@ -229,7 +229,7 @@ extension AppContext {
                 let router = try await router()
                 try await MainActor.run {
                     guard let vm = router.botsViewModel else {
-                        throw TitioNoticeActionError(reason: "the Bot runtime is unavailable")
+                        throw TitioNoticeActionError(reason: L("the Bot runtime is unavailable"))
                     }
                     _ = try vm.enqueueHostMessage(botID: bot, text: text, conversationID: conversation)
                 }
@@ -249,7 +249,7 @@ extension AppContext {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                     Task { @MainActor in
                         guard let scheduler = router.scheduledTaskScheduler else {
-                            continuation.resume(throwing: TitioNoticeActionError(reason: "scheduled tasks are not running"))
+                            continuation.resume(throwing: TitioNoticeActionError(reason: L("scheduled tasks are not running")))
                             return
                         }
                         scheduler.runNow(taskID: task) { continuation.resume(with: $0) }
@@ -604,7 +604,7 @@ extension AppContext {
             let active = try? runRepo.latestActive(for: thread), active.id == run else { return true }
         let facts: TitioRequestFacts
         if approval {
-            facts = TitioRequestFacts(kind: .approval, legacyActionTitle: "Approval requested",
+            facts = TitioRequestFacts(kind: .approval, legacyActionTitle: L("Approval requested"),
                 requestTitle: payload["title"]?.stringValue, detail: payload["detail"]?.stringValue,
                 allowsSessionApproval: payload["allows_session_approval"]?.boolValue ?? true,
                 requestKind: payload["kind"]?.stringValue)
@@ -620,7 +620,7 @@ extension AppContext {
             let prompt = payload["prompt"]?.stringValue
             let secret = payload["is_secret"]?.boolValue == true
             facts = TitioRequestFacts(kind: .userInput,
-                legacyActionTitle: secret ? "Secret input requested" : "Input requested",
+                legacyActionTitle: secret ? L("Secret input requested") : L("Input requested"),
                 prompt: prompt?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? prompt : single?["prompt"]?.stringValue,
                 options: multiple ? nil : options, isSecret: secret, questionCount: questions.count)
         }

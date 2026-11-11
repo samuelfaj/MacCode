@@ -81,8 +81,8 @@ public struct DistillAutoRoutingEditor: View {
             Text(L("Pick accounts")).font(DS.Font.captionStrong).foregroundColor(DS.Palette.textSecondary)
             AgentChoiceSegmented(
                 options: [
-                    (value: DistillAutoStrategy.orderedFirst, title: "In order", help: "Try connected accounts in the order below."),
-                    (value: DistillAutoStrategy.highestRemaining, title: "Most quota left", help: "Prefer the connected account with the highest known remaining quota.")
+                    (value: DistillAutoStrategy.orderedFirst, title: L("In order"), help: L("Try connected accounts in the order below.")),
+                    (value: DistillAutoStrategy.highestRemaining, title: L("Most quota left"), help: L("Prefer the connected account with the highest known remaining quota."))
                 ],
                 selection: draft.strategy,
                 onSelect: { strategy in
@@ -92,8 +92,8 @@ public struct DistillAutoRoutingEditor: View {
                 }
             )
             Text(draft.strategy == .orderedFirst
-                 ? "Uses the first available option below."
-                 : "Uses the option with the most quota left.")
+                 ? L("Uses the first available option below.")
+                 : L("Uses the option with the most quota left."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -113,10 +113,10 @@ public struct DistillAutoRoutingEditor: View {
             }
             if statuses.isEmpty {
                 AgentChoiceCallout(icon: "person.crop.circle.badge.exclamationmark", tint: DS.Palette.warning,
-                                   text: "Add an account on the left to use Auto.")
+                                   text: L("Add an account on the left to use Auto."))
             } else if draft.options.isEmpty {
                 AgentChoiceCallout(icon: "info.circle", tint: DS.Palette.accent,
-                                   text: "Add an option to choose an account and its models.")
+                                   text: L("Add an option to choose an account and its models."))
             }
             VStack(spacing: DS.Space.sm) {
                 ForEach(Array(draft.options.enumerated()), id: \.element.id) { index, option in
@@ -144,7 +144,7 @@ public struct DistillAutoRoutingEditor: View {
                 .strokeBorder(DS.Palette.lineStrong, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
         )
         .disabled(statuses.isEmpty)
-        .help("Add an option")
+        .help(L("Add an option"))
     }
 
     private func optionCard(_ option: DistillAutoOption, index: Int) -> some View {
@@ -157,7 +157,7 @@ public struct DistillAutoRoutingEditor: View {
                     .foregroundColor(DS.Palette.accent)
                     .frame(width: 22, height: 22)
                     .background(DS.Palette.accent.opacity(0.14), in: Circle())
-                    .accessibilityLabel("Option \(index + 1)")
+                    .accessibilityLabel(L("Option %1$@", index + 1))
                 accountField(option, account: account)
                 Menu {
                     Button(L("Move up")) { moveOption(option.id, offset: -1) }
@@ -176,7 +176,7 @@ public struct DistillAutoRoutingEditor: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .accessibilityLabel("Actions for option \(index + 1)")
+                .accessibilityLabel(L("Actions for option %1$@", index + 1))
             }
             .padding(.horizontal, DS.Space.md)
             .padding(.vertical, DS.Space.md)
@@ -202,13 +202,13 @@ public struct DistillAutoRoutingEditor: View {
 
     private func mainPicker(_ option: DistillAutoOption, eligible: [AgentModelDescriptor]) -> some View {
         modelField(
-            title: "Main", icon: "cpu", help: option.mainModel,
+            title: L("Main"), icon: "cpu", help: option.mainModel,
             display: eligible.first { $0.id == option.mainModel }?.label
-                ?? (option.mainModel.isEmpty ? "Choose model" : "Unavailable: \(option.mainModel)"),
+                ?? (option.mainModel.isEmpty ? L("Choose model") : L("Unavailable: %1$@", option.mainModel)),
             selection: Binding(get: { option.mainModel }, set: { model in editOption(option.id) { $0.mainModel = model } })
         ) {
             if !eligible.contains(where: { $0.id == option.mainModel }) {
-                Text(option.mainModel.isEmpty ? "Choose model" : "Unavailable: \(option.mainModel)").tag(option.mainModel)
+                Text(option.mainModel.isEmpty ? L("Choose model") : L("Unavailable: %1$@", option.mainModel)).tag(option.mainModel)
             }
             ForEach(eligible, id: \.id) { Text($0.label).tag($0.id) }
         }
@@ -217,9 +217,9 @@ public struct DistillAutoRoutingEditor: View {
     private func workerPicker(_ option: DistillAutoOption, eligible: [AgentModelDescriptor]) -> some View {
         let worker = option.workerModel ?? ""
         return modelField(
-            title: "Worker", icon: "bolt.horizontal", help: option.workerModel ?? "Same as Main",
-            display: worker.isEmpty ? "Same as Main"
-                : (eligible.first { $0.id == worker }?.label ?? "Unavailable: \(worker)"),
+            title: L("Worker"), icon: "bolt.horizontal", help: option.workerModel ?? L("Same as Main"),
+            display: worker.isEmpty ? L("Same as Main")
+                : (eligible.first { $0.id == worker }?.label ?? L("Unavailable: %1$@", worker)),
             selection: Binding(get: { worker }, set: { model in
                 editOption(option.id) { $0.workerModel = model.isEmpty ? nil : model }
             })
@@ -277,10 +277,10 @@ public struct DistillAutoRoutingEditor: View {
         let remaining = account.flatMap {
             DistillAccountsPanelPresentation.quotaPresentation($0.quota, connected: $0.connected, connectionError: $0.connectionError).remainingPercent
         }
-        let title = account.map { "\($0.provider.displayName) · \($0.label)" } ?? "Choose account"
+        let title = account.map { "\($0.provider.displayName) · \($0.label)" } ?? L("Choose account")
         let connected = account?.connected == true
         let status: String? = account == nil ? nil
-            : (!connected ? "Not connected" : remaining.map { "Connected · \(Int($0.rounded()))% remaining" } ?? "Connected")
+            : (!connected ? L("Not connected") : remaining.map { L("Connected · %1$@% remaining", Int($0.rounded())) } ?? L("Connected"))
         return Menu {
             Picker(L("Account"), selection: Binding(get: { option.accountID }, set: { id in
                 editOption(option.id) {
@@ -325,7 +325,7 @@ public struct DistillAutoRoutingEditor: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .help(title)
-        .accessibilityLabel("Account")
+        .accessibilityLabel(L("Account"))
         .accessibilityValue(title)
         .frame(maxWidth: .infinity, alignment: .leading)
     }

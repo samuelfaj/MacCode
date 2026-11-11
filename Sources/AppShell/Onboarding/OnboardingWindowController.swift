@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import DesignSystemKit
+import CoreModel
 
 /// Hosts first-run setup in its own titled window above the main window.
 @MainActor
@@ -14,7 +15,7 @@ public final class OnboardingWindowController: NSObject, NSWindowDelegate {
         self.onFinish = onFinish
         let host = NSHostingController(rootView: OnboardingView(vm: viewModel, setup: setup))
         let win = NSWindow(contentViewController: host)
-        win.title = "Set up MacCode"
+        win.title = L("Set up MacCode")
         win.styleMask = [.titled, .closable, .resizable, .fullSizeContentView]
         win.titlebarAppearsTransparent = true
         win.backgroundColor = DS.NS.bg

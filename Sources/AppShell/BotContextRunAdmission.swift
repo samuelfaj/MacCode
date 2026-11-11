@@ -167,14 +167,14 @@ extension AppContext {
               !key.contains("\n"), !key.contains("\r") else { throw BotStoreError.notFound }
         let resumeCursor: String?
         do { resumeCursor = try coordinator.resumeCursorForRun(request) }
-        catch { throw DistillGuestLaunchError.unavailable("The contextual provider session cannot be resumed safely.") }
+        catch { throw DistillGuestLaunchError.unavailable(L("The contextual provider session cannot be resumed safely.")) }
         let storedCursor = try threadRepo.providerThreadId(of: request.threadId)
         if let storedCursor, !storedCursor.isEmpty {
             guard resumeCursor == storedCursor else {
-                throw DistillGuestLaunchError.unavailable("The contextual provider session cannot be resumed safely.")
+                throw DistillGuestLaunchError.unavailable(L("The contextual provider session cannot be resumed safely."))
             }
         } else if resumeCursor != nil {
-            throw DistillGuestLaunchError.unavailable("The contextual provider session cannot be resumed safely.")
+            throw DistillGuestLaunchError.unavailable(L("The contextual provider session cannot be resumed safely."))
         }
         let validates: @Sendable () -> Bool = {
             guard authorizes(), let key = try? scopedSecrets.load(botID: pin.botID, name: "OPENROUTER_API_KEY"),
@@ -247,7 +247,7 @@ extension AppContext {
         }
         if let machineID = try botStore.executionDestination(botID: peerBotID).virtualMachineID,
            try botStore.contextRuntimeIdentity(pin: parentPin, threadID: parent.threadId).virtualMachineID == machineID {
-            throw DistillGuestLaunchError.unavailable("A bot cannot delegate to another bot while both use the same VM. Choose a different VM for the other bot.")
+            throw DistillGuestLaunchError.unavailable(L("A bot cannot delegate to another bot while both use the same VM. Choose a different VM for the other bot."))
         }
         let peerIdentity = try BotContextRuntimeIdentity(binding: binding)
         let scopedStore = BotContextSecretStore(identity: peerIdentity, store: contextualSecretStore, authorizes: { [botStore] in
@@ -258,7 +258,7 @@ extension AppContext {
               !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !key.contains("\n"), !key.contains("\r") else {
             throw BotStoreError.notFound
         }
-        let thread = AgentThread(workspaceId: parentThread.workspaceId, title: "Delegation to \(peer.name)",
+        let thread = AgentThread(workspaceId: parentThread.workspaceId, title: L("Delegation to %1$@", peer.name),
             provider: .distill, model: parentThread.model, permissionMode: parentThread.permissionMode,
             reasoningEffort: parentThread.reasoningEffort, serviceTier: parentThread.serviceTier)
         _ = try botStore.createContextualConversation(BotConversation(botID: peerBotID, title: thread.title,

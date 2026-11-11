@@ -30,12 +30,12 @@ struct DistillAccountsSettingsSection: View {
         let connected = statuses.filter(\.connected).count
         let accounts: String
         if statuses.isEmpty {
-            accounts = loaded ? "No accounts yet" : "Loading accounts…"
+            accounts = loaded ? L("No accounts yet") : L("Loading accounts…")
         } else {
-            accounts = "\(connected) of \(statuses.count) account\(statuses.count == 1 ? "" : "s") connected"
+            accounts = (statuses.count == 1 ? L("%1$@ of %2$@ account connected", connected, statuses.count) : L("%1$@ of %2$@ accounts connected", connected, statuses.count))
         }
         guard loaded else { return accounts }
-        return accounts + " · Auto " + (routing.enabled ? "on (\(routing.options.count) option\(routing.options.count == 1 ? "" : "s"))" : "off")
+        return accounts + L(" · Auto ") + (routing.enabled ? (routing.options.count == 1 ? L("on (%1$@ option)", routing.options.count) : L("on (%1$@ options)", routing.options.count)) : "off")
     }
 }
 
@@ -96,7 +96,7 @@ struct DistillAccountsInlineDisclosure: View {
                         .foregroundColor(DS.Palette.textSecondary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                         .animation(reduceMotion ? nil : DS.Motion.micro, value: expanded)
-                    Text(expanded ? "Hide" : "Show")
+                    Text(expanded ? L("Hide") : L("Show"))
                         .font(DS.Font.caption2)
                         .foregroundColor(DS.Palette.textSecondary)
                 }
@@ -110,9 +110,9 @@ struct DistillAccountsInlineDisclosure: View {
         .background(DS.Palette.surfaceRaised)
         .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous).stroke(DS.Palette.line, lineWidth: 0.5))
-        .accessibilityLabel("Accounts and Auto routing")
-        .accessibilityValue(expanded ? "Expanded" : "Collapsed")
-        .accessibilityHint("Shows or hides accounts and Auto routing")
+        .accessibilityLabel(L("Accounts and Auto routing"))
+        .accessibilityValue(expanded ? L("Expanded") : L("Collapsed"))
+        .accessibilityHint(L("Shows or hides accounts and Auto routing"))
         .accessibilityIdentifier("agent.accounts.inline.toggle")
     }
 }

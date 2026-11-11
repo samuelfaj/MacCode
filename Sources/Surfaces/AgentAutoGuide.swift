@@ -1,3 +1,4 @@
+import CoreModel
 import DesignSystemKit
 import SwiftUI
 
@@ -6,8 +7,8 @@ import SwiftUI
 /// AppShell installs the factory at launch and Surfaces only presents it.
 public enum AgentAutoGuide {
     /// Builds the guide sheet body. `onClose` dismisses the hosting sheet.
-    public static let title = "Auto profile"
-    public static let subtitle = "The global Auto profile affects all Auto conversations, Bots, and scheduled Auto runs."
+    public static let title = L("Auto profile")
+    public static let subtitle = L("The global Auto profile affects all Auto conversations, Bots, and scheduled Auto runs.")
 
     @MainActor public static var makeGuide: ((_ onClose: @escaping () -> Void) -> AnyView)?
     /// Turns the shared Auto profile on; false when it still needs setup in the guide.

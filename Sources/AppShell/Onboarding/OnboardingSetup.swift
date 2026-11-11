@@ -9,24 +9,24 @@ enum OnboardingTool: String, CaseIterable, Sendable {
     var title: String {
         switch self {
         case .distill: return "Distill"
-        case .git: return "Git & Command Line Tools"
+        case .git: return L("Git & Command Line Tools")
         case .node: return "Node.js & npm"
-        case .automation: return "Computer automation"
+        case .automation: return L("Computer automation")
         case .chrome: return "Google Chrome"
         case .docker: return "Docker Desktop"
-        case .helper: return "MacCode helper"
+        case .helper: return L("MacCode helper")
         }
     }
 
     var detail: String {
         switch self {
-        case .distill: return "Runs your AI accounts. No Homebrew or developer tools needed."
-        case .git: return "Project history, checkpoints, worktrees and coding tools. Apple confirms the installation."
-        case .node: return "Browser automation and the optional Claude SDK. Installs Node 24 LTS in your home folder."
-        case .automation: return "Installs mac-use and linux-use, and connects mac-use to Distill."
-        case .chrome: return "Optional · Use browser sessions and existing logins. Connect the extension below after installation."
-        case .docker: return "Optional · Linux computers for Bots. Open Docker to accept its terms and finish setup. Existing OrbStack also works."
-        case .helper: return "Optional · Run as another Mac user, scheduled tasks and Insomnia. macOS asks for your password once."
+        case .distill: return L("Runs your AI accounts. No Homebrew or developer tools needed.")
+        case .git: return L("Project history, checkpoints, worktrees and coding tools. Apple confirms the installation.")
+        case .node: return L("Browser automation and the optional Claude SDK. Installs Node 24 LTS in your home folder.")
+        case .automation: return L("Installs mac-use and linux-use, and connects mac-use to Distill.")
+        case .chrome: return L("Optional · Use browser sessions and existing logins. Connect the extension below after installation.")
+        case .docker: return L("Optional · Linux computers for Bots. Open Docker to accept its terms and finish setup. Existing OrbStack also works.")
+        case .helper: return L("Optional · Run as another Mac user, scheduled tasks and Insomnia. macOS asks for your password once.")
         }
     }
 }
@@ -37,9 +37,9 @@ enum OnboardingToolState: Equatable, Sendable {
     var isBusy: Bool { self == .checking || self == .installing }
     var message: String {
         switch self {
-        case .checking: return "Checking…"
-        case .missing: return "Not installed"
-        case .installing: return "Installing…"
+        case .checking: return L("Checking…")
+        case .missing: return L("Not installed")
+        case .installing: return L("Installing…")
         case .ready(let message), .needsAction(let message), .failed(let message): return message
         }
     }
@@ -88,7 +88,7 @@ final class OnboardingSetupController: ObservableObject {
             try await installAction(tool)
             let result = try await check(tool)
             states[tool] = tool == .git && result == .missing
-                ? .needsAction("Finish Apple's installation, then check again.") : result
+                ? .needsAction(L("Finish Apple's installation, then check again.")) : result
         } catch { states[tool] = .failed(String(describing: error)) }
     }
 
@@ -124,7 +124,7 @@ enum OnboardingToolInstaller {
         case .distill:
             guard let binary = DistillProvisioner.resolveInstalledBinary(override: distillOverride) else { return .missing }
             guard let version = ProviderCLIProbe.version(binaryPath: binary, timeoutSeconds: 10) else {
-                return .failed("Distill is present but cannot run. Retry installation, or review its path in Settings.")
+                return .failed(L("Distill is present but cannot run. Retry installation, or review its path in Settings."))
             }
             return .ready(version)
         case .git:
@@ -133,7 +133,7 @@ enum OnboardingToolInstaller {
                 return .missing
             }
             guard let version = ProviderCLIProbe.version(binaryPath: binary, timeoutSeconds: 10) else {
-                return .needsAction("Finish Apple's developer tools installation or accept the Xcode license, then check again.")
+                return .needsAction(L("Finish Apple's developer tools installation or accept the Xcode license, then check again."))
             }
             return .ready(version)
         case .node:
@@ -149,17 +149,17 @@ enum OnboardingToolInstaller {
             let macUse = versions.contains { fm.isExecutableFile(atPath: $0.appendingPathComponent("mac-use-mcp").path) }
             return fm.fileExists(atPath: marker.path) && macUse
                 && fm.fileExists(atPath: ManagedToolInstaller.linuxUseDirectory(appSupport: appSupport).appendingPathComponent("server.py").path)
-                ? .ready("mac-use & linux-use installed") : .missing
+                ? .ready(L("mac-use & linux-use installed")) : .missing
         case .chrome:
-            return ManagedChromeHostBrowserBridge.installedChromeExecutable() == nil ? .missing : .ready("Installed")
+            return ManagedChromeHostBrowserBridge.installedChromeExecutable() == nil ? .missing : .ready(L("Installed"))
         case .docker:
-            do { _ = try BotComputerDockerResolver().resolveHealthyExecutable(); return .ready("Docker is running") }
+            do { _ = try BotComputerDockerResolver().resolveHealthyExecutable(); return .ready(L("Docker is running")) }
             catch let error as BotComputerDockerError {
                 return error == .cliMissing && installedApp("Docker.app") == nil && installedApp("OrbStack.app") == nil
                     ? .missing : .needsAction(error.description)
             }
         case .helper:
-            return RunAsUserProcessBootstrap.isHelperReady ? .ready("Installed and verified") : .missing
+            return RunAsUserProcessBootstrap.isHelperReady ? .ready(L("Installed and verified")) : .missing
         }
     }
 
@@ -178,7 +178,7 @@ enum OnboardingToolInstaller {
         case .node: try await installNode()
         case .automation:
             guard let binary = DistillProvisioner.resolveInstalledBinary(override: distillOverride) else {
-                throw ManagedToolInstaller.Failure("Install Distill first, then retry computer automation.")
+                throw ManagedToolInstaller.Failure(L("Install Distill first, then retry computer automation."))
             }
             try await ManagedToolInstaller.installMacUse(distillBinary: binary, environment: ProcessInfo.processInfo.environment)
             try await ManagedToolInstaller.installLinuxUse(appSupport: appSupport)
@@ -220,7 +220,7 @@ enum OnboardingToolInstaller {
         #endif
         guard (response as? HTTPURLResponse)?.statusCode == 200,
               let asset = nodeAsset(sums: String(decoding: data, as: UTF8.self), arch: arch) else {
-            throw ManagedToolInstaller.Failure("Could not read the official Node.js LTS release. Check your connection and retry.")
+            throw ManagedToolInstaller.Failure(L("Could not read the official Node.js LTS release. Check your connection and retry."))
         }
         let version = String(asset.split(separator: "-")[1])
         let releaseBase = URL(string: "https://nodejs.org/dist/\(version)/")!
@@ -248,13 +248,13 @@ enum OnboardingToolInstaller {
         } else if let existing = installedApp(name) { return existing }
         let (file, response) = try await URLSession.shared.download(for: URLRequest(url: url, timeoutInterval: 600))
         defer { try? fm.removeItem(at: file) }
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw ManagedToolInstaller.Failure("Download failed for \(name). Check your connection and retry.") }
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw ManagedToolInstaller.Failure(L("Download failed for %1$@. Check your connection and retry.", name)) }
         return try await Task.detached(priority: .utility) {
             let mount = fm.temporaryDirectory.appendingPathComponent("maccode-setup-\(UUID().uuidString)")
             try fm.createDirectory(at: mount, withIntermediateDirectories: true)
             guard try ManagedToolInstaller.run("/usr/bin/hdiutil", ["attach", "-readonly", "-nobrowse", "-mountpoint", mount.path, file.path], environment: [:]) == 0 else {
                 try? fm.removeItem(at: mount)
-                throw ManagedToolInstaller.Failure("Could not open the \(name) installer.")
+                throw ManagedToolInstaller.Failure(L("Could not open the %1$@ installer.", name))
             }
             defer {
                 if (try? ManagedToolInstaller.run("/usr/bin/hdiutil", ["detach", mount.path], environment: [:])) == 0 {
@@ -263,13 +263,13 @@ enum OnboardingToolInstaller {
             }
             let source = mount.appendingPathComponent(name)
             guard Bundle(url: source)?.bundleIdentifier == bundleID else {
-                throw ManagedToolInstaller.Failure("The \(name) download does not contain the expected app. Nothing was installed.")
+                throw ManagedToolInstaller.Failure(L("The %1$@ download does not contain the expected app. Nothing was installed.", name))
             }
             // Gatekeeper validates the vendor signature and notarization.
             // Chrome's official DMG includes FinderInfo metadata that makes
             // codesign --strict reject an app Gatekeeper correctly accepts.
             guard try ManagedToolInstaller.run("/usr/sbin/spctl", ["--assess", "--type", "execute", source.path], environment: [:]) == 0 else {
-                throw ManagedToolInstaller.Failure("Gatekeeper could not approve \(name). Check your connection and try again.")
+                throw ManagedToolInstaller.Failure(L("Gatekeeper could not approve %1$@. Check your connection and try again.", name))
             }
             let applications = applicationsDirectory ?? (fm.isWritableFile(atPath: "/Applications") ? URL(fileURLWithPath: "/Applications")
                 : fm.homeDirectoryForCurrentUser.appendingPathComponent("Applications"))

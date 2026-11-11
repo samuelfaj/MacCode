@@ -81,9 +81,9 @@ public struct ScheduledTaskEditorDraft: Identifiable, Equatable {
     }
 
     public func makeTask(now: Date = Date()) throws -> ScheduledTask {
-        guard let workspaceID else { throw ScheduledTaskPreflightError.invalidTask("Workspace is required.") }
+        guard let workspaceID else { throw ScheduledTaskPreflightError.invalidTask(L("Workspace is required.")) }
         guard TimeZone(identifier: timeZoneIdentifier) != nil else {
-            throw ScheduledTaskPreflightError.invalidTask("Select a valid IANA time zone.")
+            throw ScheduledTaskPreflightError.invalidTask(L("Select a valid IANA time zone."))
         }
         let recurrence: ScheduledTaskRecurrence
         do {
@@ -164,7 +164,7 @@ public final class ScheduledTasksViewModel: ObservableObject {
     }
     @Published public var editorDraft: ScheduledTaskEditorDraft?
     @Published public var errorMessage: String?
-    @Published public private(set) var serviceStatus: String = "Runs inside MacCode while the app is open"
+    @Published public private(set) var serviceStatus: String = L("Runs inside MacCode while the app is open")
     @Published public private(set) var serviceRequiresApproval = false
     @Published public private(set) var isSavingEditor = false
     /// Global kill switch: when false, automatic scheduled occurrences do not claim/run.
@@ -423,17 +423,17 @@ public final class ScheduledTasksViewModel: ObservableObject {
     }
 
     private func reloadServiceStatus() {
-        serviceStatus = "Runs inside MacCode while the app is open"
+        serviceStatus = L("Runs inside MacCode while the app is open")
         serviceRequiresApproval = false
     }
 
     public func runNow(_ task: ScheduledTask) {
         guard activeRunStatuses[task.id] == nil else {
-            errorMessage = "This scheduled task already has an active run."
+            errorMessage = L("This scheduled task already has an active run.")
             return
         }
         guard let scheduler = router.scheduledTaskScheduler else {
-            errorMessage = "The in-app scheduler is not ready yet. Keep MacCode open and retry."
+            errorMessage = L("The in-app scheduler is not ready yet. Keep MacCode open and retry.")
             return
         }
         // Immediate feedback: claim is async, but the card should flip to Queued
@@ -467,8 +467,8 @@ public final class ScheduledTasksViewModel: ObservableObject {
         alert.alertStyle = .warning
         alert.messageText = L("Delete \"%1$@\"?", task.title)
         alert.informativeText = L("The schedule and its run history will be deleted. Agent threads created by prior runs are preserved.")
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L("Delete"))
+        alert.addButton(withTitle: L("Cancel"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         performDelete(task)
     }
@@ -508,7 +508,7 @@ public final class ScheduledTasksViewModel: ObservableObject {
         } catch {
             // openBotsDesk may have left already; show the failure where it was asked for.
             router.windowController?.presentScheduledTasksInMainContent()
-            errorMessage = "Could not open agent task: \(error.localizedDescription)"
+            errorMessage = L("Could not open agent task: %1$@", error.localizedDescription)
             return
         }
         guard !deferHydration else {
@@ -525,7 +525,7 @@ public final class ScheduledTasksViewModel: ObservableObject {
                 do { _ = try self.router.openAgentThread(thread: threadID, markRead: true) }
                 catch {
                     self.router.windowController?.presentScheduledTasksInMainContent()
-                    self.errorMessage = "Could not open agent task: \(error.localizedDescription)"
+                    self.errorMessage = L("Could not open agent task: %1$@", error.localizedDescription)
                 }
             }
             return
@@ -533,7 +533,7 @@ public final class ScheduledTasksViewModel: ObservableObject {
         do { _ = try router.openAgentThread(thread: threadID, markRead: true) }
         catch {
             router.windowController?.presentScheduledTasksInMainContent()
-            errorMessage = "Could not open agent task: \(error.localizedDescription)"
+            errorMessage = L("Could not open agent task: %1$@", error.localizedDescription)
         }
     }
 
@@ -687,7 +687,7 @@ public final class ScheduledTasksViewModel: ObservableObject {
     }
 
     public func workspaceName(for task: ScheduledTask) -> String {
-        workspaces.first { $0.id == task.workspaceID }?.name ?? "Missing workspace"
+        workspaces.first { $0.id == task.workspaceID }?.name ?? L("Missing workspace")
     }
 
     public func providerLabel(for task: ScheduledTask) -> String {
@@ -698,7 +698,7 @@ public final class ScheduledTasksViewModel: ObservableObject {
             host = task.provider.rawValue.capitalized
         }
         // Auto never replaces the Source — surface the chosen host plus routing mode.
-        if task.effectiveRoutingMode == .auto { return "\(host) · Auto" }
+        if task.effectiveRoutingMode == .auto { return L("%1$@ · Auto", host) }
         return host
     }
 
@@ -714,17 +714,17 @@ public final class ScheduledTasksViewModel: ObservableObject {
     public var footerTaskCountLine: String {
         let total = filterCounts.all
         let active = filterCounts.active
-        return "\(total) task\(total == 1 ? "" : "s") · \(active) active"
+        return (total == 1 ? L("%1$@ task · %2$@ active", total, active) : L("%1$@ tasks · %2$@ active", total, active))
     }
 
     public var footerStatsLine: String {
         let online: String
         if !schedulerActive {
-            online = "Scheduler paused"
+            online = L("Scheduler paused")
         } else if serviceRequiresApproval {
-            online = "Scheduler needs approval"
+            online = L("Scheduler needs approval")
         } else {
-            online = "Scheduler online"
+            online = L("Scheduler online")
         }
         return "\(footerTaskCountLine) · \(online)"
     }
@@ -875,7 +875,7 @@ public struct ScheduledTasksRootView: View {
     private var footerBar: some View {
         AgentListFooterBar(
             caption: vm.footerTaskCountLine,
-            pillTitle: vm.schedulerActive ? "Scheduler online" : "Scheduler paused",
+            pillTitle: vm.schedulerActive ? L("Scheduler online") : L("Scheduler paused"),
             pillTone: vm.schedulerActive ? .success : .warning
         )
         .accessibilityLabel(vm.footerStatsLine)
@@ -922,10 +922,10 @@ public struct ScheduledTasksRootView: View {
             if vm.tasks.isEmpty && (botsVM?.scheduleTaskItems.isEmpty ?? true) {
                 DSEmptyState(
                     icon: "calendar.badge.clock",
-                    title: vm.searchText.isEmpty ? "No scheduled tasks" : "No matching tasks",
+                    title: vm.searchText.isEmpty ? L("No scheduled tasks") : L("No matching tasks"),
                     subtitle: vm.searchText.isEmpty
-                        ? "Create a task to run an Agent automatically while MacCode is closed."
-                        : "Try another search or clear the status filter."
+                        ? L("Create a task to run an Agent automatically while MacCode is closed.")
+                        : L("Try another search or clear the status filter.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -986,8 +986,8 @@ public struct ScheduledTasksRootView: View {
                 .foregroundColor(DS.Palette.text)
                 .lineLimit(1)
             Text(vm.schedulerActive
-                 ? "Automate recurring agent work"
-                 : "Automatic runs paused — turn Active on when you're back")
+                 ? L("Automate recurring agent work")
+                 : L("Automatic runs paused — turn Active on when you're back"))
                 .font(DS.Font.body)
                 .foregroundColor(vm.schedulerActive ? DS.Palette.textSecondary : DS.Palette.warning)
                 .animation(DS.Motion.micro, value: vm.schedulerActive)
@@ -1014,7 +1014,7 @@ public struct ScheduledTasksRootView: View {
         AgentKillSwitchControl(
             isActive: vm.schedulerActive,
             identifier: "scheduledTasks.globalActive",
-            accessibilityLabel: vm.schedulerActive ? "Schedules active" : "Schedules paused",
+            accessibilityLabel: vm.schedulerActive ? L("Schedules active") : L("Schedules paused"),
             onChange: { vm.setSchedulerActive($0) }
         )
     }
@@ -1042,15 +1042,15 @@ public struct ScheduledTasksRootView: View {
         }
         .fixedSize()
         .accessibilityIdentifier("scheduledTasks.statusFilter")
-        .accessibilityLabel("Filter tasks by status")
+        .accessibilityLabel(L("Filter tasks by status"))
     }
 
     private var searchField: some View {
         AgentListSearchField(
             text: $vm.searchText,
-            placeholder: "Search tasks",
+            placeholder: L("Search tasks"),
             identifier: "scheduledTasks.search",
-            accessibilityLabel: "Search tasks",
+            accessibilityLabel: L("Search tasks"),
             autofocus: true
         )
     }
@@ -1107,7 +1107,7 @@ public struct ScheduledTasksRootView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Back to scheduled tasks")
+            .accessibilityLabel(L("Back to scheduled tasks"))
             .accessibilityIdentifier("scheduledTasks.back")
 
             HStack(spacing: DS.Space.md) {
@@ -1122,7 +1122,7 @@ public struct ScheduledTasksRootView: View {
                 Button(L("Run Now")) { vm.runNow(task) }
                     .buttonStyle(DSPrimaryButtonStyle())
                     .accessibilityIdentifier("scheduledTasks.runNow")
-                Button(task.isEnabled ? "Pause" : "Resume") { vm.toggle(task) }
+                Button(task.isEnabled ? L("Pause") : L("Resume")) { vm.toggle(task) }
                     .buttonStyle(DSSecondaryButtonStyle())
                     .accessibilityIdentifier("scheduledTasks.toggle")
                 Menu {
@@ -1148,7 +1148,7 @@ public struct ScheduledTasksRootView: View {
                         )
                 }
                 .menuStyle(.borderlessButton)
-                .accessibilityLabel("More actions")
+                .accessibilityLabel(L("More actions"))
             }
         }
     }
@@ -1158,16 +1158,16 @@ public struct ScheduledTasksRootView: View {
         if let status = vm.activeRunStatus(for: task.id) {
             switch status {
             case .queued:
-                DSPill(vm.activeRunPhase(for: task.id) ?? "Queued", tone: .warning)
+                DSPill(vm.activeRunPhase(for: task.id) ?? L("Queued"), tone: .warning)
             case .running:
-                DSPill("Running", tone: .warning)
+                DSPill(L("Running"), tone: .warning)
             default:
-                DSPill("Running", tone: .warning)
+                DSPill(L("Running"), tone: .warning)
             }
         } else if task.isEnabled {
-            DSPill("Active", tone: .success)
+            DSPill(L("Active"), tone: .success)
         } else {
-            DSPill("Paused", tone: .neutral)
+            DSPill(L("Paused"), tone: .neutral)
         }
     }
 
@@ -1182,12 +1182,12 @@ public struct ScheduledTasksRootView: View {
                     .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
                     .accessibilityHidden(true)
 
-                metaCell("Workspace", vm.workspaceName(for: task))
-                metaCell("Run as user", task.runAsUser)
-                metaCell("Provider", vm.providerLabel(for: task))
-                metaCell("Model", task.model)
-                metaCell("Reasoning", task.reasoningEffort.displayName)
-                metaCell("Schedule", task.recurrence.detailSummary)
+                metaCell(L("Workspace"), vm.workspaceName(for: task))
+                metaCell(L("Run as user"), task.runAsUser)
+                metaCell(L("Provider"), vm.providerLabel(for: task))
+                metaCell(L("Model"), task.model)
+                metaCell(L("Reasoning"), task.reasoningEffort.displayName)
+                metaCell(L("Schedule"), task.recurrence.detailSummary)
                 metaCell("Time zone", task.timeZoneIdentifier)
             }
             HStack(spacing: DS.Space.sm) {
@@ -1224,7 +1224,7 @@ public struct ScheduledTasksRootView: View {
     }
 
     private func nextRunLabel(_ task: ScheduledTask) -> String {
-        guard task.isEnabled else { return "Paused" }
+        guard task.isEnabled else { return L("Paused") }
         guard let next = task.nextRunAt ?? task.calculatedNextRun(after: Date()) else { return "—" }
         return next.formatted(.dateTime.month(.abbreviated).day().hour().minute())
     }
@@ -1306,8 +1306,8 @@ public struct ScheduledTasksRootView: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("scheduledTasks.history.openThread")
-                        .accessibilityLabel("Open agent task \(agentTaskTitle(task: task, run: run))")
-                        .accessibilityHint("Opens the agent thread created by this run")
+                        .accessibilityLabel(L("Open agent task %1$@", agentTaskTitle(task: task, run: run)))
+                        .accessibilityHint(L("Opens the agent thread created by this run"))
                     } else {
                         historyRowPrimaryContent(task: task, run: run, linkStyle: false)
                             .accessibilityElement(children: .combine)
@@ -1329,7 +1329,7 @@ public struct ScheduledTasksRootView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("scheduledTasks.history.toggleDetails")
-                    .accessibilityLabel(expanded ? "Hide run details" : "Show run details")
+                    .accessibilityLabel(expanded ? L("Hide run details") : L("Show run details"))
                 } else {
                     Color.clear.frame(width: 24, height: 24)
                         .accessibilityHidden(true)
@@ -1367,7 +1367,7 @@ public struct ScheduledTasksRootView: View {
                 )
                 .padding(.horizontal, DS.Space.lg)
                 .padding(.bottom, DS.Space.lg)
-                Button(expanded ? "Hide details" : "Show details") {
+                Button(expanded ? L("Hide details") : L("Show details")) {
                     if !expandedRunIDs.insert(run.id).inserted {
                         expandedRunIDs.remove(run.id)
                     }
@@ -1442,12 +1442,12 @@ public struct ScheduledTasksRootView: View {
 
     private func runStatusPill(_ status: ScheduledTaskRunStatus) -> some View {
         switch status {
-        case .completed: return AnyView(DSPill("Completed", tone: .success))
-        case .failed: return AnyView(DSPill("Failed", tone: .danger))
-        case .running: return AnyView(DSPill("Running", tone: .warning))
-        case .queued: return AnyView(DSPill("Queued", tone: .warning))
-        case .cancelled: return AnyView(DSPill("Cancelled", tone: .neutral))
-        case .skipped: return AnyView(DSPill("Skipped", tone: .neutral))
+        case .completed: return AnyView(DSPill(L("Completed"), tone: .success))
+        case .failed: return AnyView(DSPill(L("Failed"), tone: .danger))
+        case .running: return AnyView(DSPill(L("Running"), tone: .warning))
+        case .queued: return AnyView(DSPill(L("Queued"), tone: .warning))
+        case .cancelled: return AnyView(DSPill(L("Cancelled"), tone: .neutral))
+        case .skipped: return AnyView(DSPill(L("Skipped"), tone: .neutral))
         }
     }
 }
@@ -1484,21 +1484,21 @@ private struct ScheduledTaskCard: View {
             badge
         } meta: {
             HStack(alignment: .center, spacing: DS.Space.xl) {
-                AgentOverviewMetaColumn(title: "Schedule", value: task.recurrence.detailSummary)
+                AgentOverviewMetaColumn(title: L("Schedule"), value: task.recurrence.detailSummary)
                 AgentOverviewMetaColumn(
-                    title: isActiveRun ? "Status" : "Next run",
+                    title: isActiveRun ? L("Status") : L("Next run"),
                     value: statusOrNext,
                     valueColor: isActiveRun ? DS.Palette.warning : DS.Palette.text
                 )
                 AgentOverviewMetaColumn(
-                    title: "Last run",
+                    title: L("Last run"),
                     value: ScheduleLastRunLabel.text(
                         date: lastRun.map { $0.startedAt ?? $0.queuedAt },
                         failed: lastRun?.status == .failed
                     ),
                     valueColor: lastRun?.status == .failed ? DS.Palette.danger : DS.Palette.text,
                     action: lastRun?.threadID == nil ? nil : onOpenLastRun,
-                    actionHelp: "Open the conversation of this run"
+                    actionHelp: L("Open the conversation of this run")
                 )
                 HStack(spacing: DS.Space.xs) {
                     Image(systemName: "clock")
@@ -1510,11 +1510,11 @@ private struct ScheduledTaskCard: View {
                         .monospacedDigit()
                 }
                 .frame(width: 44, alignment: .trailing)
-                .accessibilityLabel("\(runCount) runs")
+                .accessibilityLabel(L("%1$@ runs", runCount))
             }
         } trailing: {
             Menu {
-                Button(task.isEnabled ? "Pause" : "Resume", action: onToggle)
+                Button(task.isEnabled ? L("Pause") : L("Resume"), action: onToggle)
                 Button(L("Run Now"), action: onRunNow)
                 Button(L("Edit"), action: onEdit)
                 Divider()
@@ -1527,37 +1527,37 @@ private struct ScheduledTaskCard: View {
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
-            .accessibilityLabel("Task actions")
+            .accessibilityLabel(L("Task actions"))
         }
     }
 
     @ViewBuilder
     private var badge: some View {
         if activeRunStatus == .queued {
-            DSPill(activeRunPhase ?? "Queued", tone: .warning)
+            DSPill(activeRunPhase ?? L("Queued"), tone: .warning)
         } else if activeRunStatus == .running {
-            DSPill("Running", tone: .warning)
+            DSPill(L("Running"), tone: .warning)
         } else if isActiveRun {
-            DSPill("Running", tone: .warning)
+            DSPill(L("Running"), tone: .warning)
         } else if task.isEnabled {
-            DSPill("Active", tone: .success)
+            DSPill(L("Active"), tone: .success)
         } else {
-            DSPill("Paused", tone: .neutral)
+            DSPill(L("Paused"), tone: .neutral)
         }
     }
 
     private var statusOrNext: String {
-        if activeRunStatus == .queued { return activeRunPhase ?? "Queued" }
-        if activeRunStatus == .running || isActiveRun { return "Running now" }
-        if !task.isEnabled { return "Paused" }
+        if activeRunStatus == .queued { return activeRunPhase ?? L("Queued") }
+        if activeRunStatus == .running || isActiveRun { return L("Running now") }
+        if !task.isEnabled { return L("Paused") }
         guard let next = task.nextRunAt ?? task.calculatedNextRun(after: Date()) else { return "—" }
         return next.formatted(.dateTime.month(.abbreviated).day().hour().minute())
     }
 
     private var accessibilityStatusValue: String {
-        if activeRunStatus == .queued { return activeRunPhase ?? "Queued" }
-        if activeRunStatus == .running || isActiveRun { return "Running" }
-        return task.isEnabled ? "Active" : "Paused"
+        if activeRunStatus == .queued { return activeRunPhase ?? L("Queued") }
+        if activeRunStatus == .running || isActiveRun { return L("Running") }
+        return task.isEnabled ? L("Active") : L("Paused")
     }
 }
 
@@ -1592,9 +1592,9 @@ private struct ScheduledTaskEditorView: View {
 
     var body: some View {
         ScheduleEditorPage(
-            title: isNew ? "New Scheduled Task" : "Edit Scheduled Task",
-            subtitle: "Run an agent prompt on a schedule, in a workspace, while MacCode is open.",
-            saveTitle: vm.isSavingEditor ? "Saving…" : "Save Task",
+            title: isNew ? L("New Scheduled Task") : L("Edit Scheduled Task"),
+            subtitle: L("Run an agent prompt on a schedule, in a workspace, while MacCode is open."),
+            saveTitle: vm.isSavingEditor ? L("Saving…") : L("Save Task"),
             saveIdentifier: "scheduledTasks.editor.save",
             isSaving: vm.isSavingEditor,
             onBack: onBack,
@@ -1603,16 +1603,16 @@ private struct ScheduledTaskEditorView: View {
                 ScheduleEditorSection("Task", identifier: "editorSection.Task") {
                     VStack(alignment: .leading, spacing: DS.Space.md) {
                         ScheduleEditorTextField(
-                            placeholder: "Title, e.g. Daily dependency scan",
+                            placeholder: L("Title, e.g. Daily dependency scan"),
                             text: $draft.title,
                             identifier: "scheduledTasks.editor.title",
-                            label: "Title"
+                            label: L("Title")
                         )
                         ScheduleEditorPromptBox(
-                            placeholder: "Describe what the agent should do",
+                            placeholder: L("Describe what the agent should do"),
                             text: $draft.prompt,
                             identifier: "scheduledTasks.editor.prompt",
-                            label: "Prompt"
+                            label: L("Prompt")
                         )
                     }
                     .padding(DS.Space.md)
@@ -1620,8 +1620,8 @@ private struct ScheduledTaskEditorView: View {
 
                 // Contract section names retained for chrome regression tests.
                 let _ = ["Basics", "Agent", "Schedule", "Prompt"] as [String]
-                editorGroup("Details") {
-                    formRow("Workspace", showsDivider: false) {
+                editorGroup(L("Details")) {
+                    formRow(L("Workspace"), showsDivider: false) {
                         Picker(L("Workspace"), selection: $draft.workspaceID) {
                             Text(L("Select a workspace")).tag(WorkspaceID?.none)
                             ForEach(vm.workspaces) { workspace in
@@ -1634,24 +1634,24 @@ private struct ScheduledTaskEditorView: View {
                             draft.workspacePathSnapshot = vm.workspaces.first { $0.id == id }?.cwd ?? ""
                         }
                     }
-                    formRow("Run as") {
+                    formRow(L("Run as")) {
                         editorRunAsCapsule
                     }
                     // Parity with Agent App: one Provider/Source capsule only. Instance id is
                     // derived from the selected provider's primary snapshot and stays in the model.
                     if AgentSourceCapsulePresentation.isVisible(entryCount: editorSourceEntries.count) {
-                        formRow("Provider") {
+                        formRow(L("Provider")) {
                             editorSourceCapsule
                                 .accessibilityIdentifier("scheduledTasks.editor.provider")
                         }
                     }
                     if draft.provider != .distill {
-                        formRow("Model routing") {
+                        formRow(L("Model routing")) {
                             HStack(spacing: DS.Space.sm) {
                                 if vm.providersLoading {
                                     ProgressView()
                                         .controlSize(.small)
-                                        .accessibilityLabel("Loading providers")
+                                        .accessibilityLabel(L("Loading providers"))
                                 }
                                 Toggle(L("Auto"), isOn: Binding(
                                     get: { draft.routingMode == .auto },
@@ -1666,7 +1666,7 @@ private struct ScheduledTaskEditorView: View {
                     // Parity with Agent App: Auto never picks the provider/Source,
                     // only the model within the selected host at run time.
                     if draft.routingMode == .auto {
-                        formRow("Model") {
+                        formRow(L("Model")) {
                             Text(L("Auto selects the best model for the selected provider at run time."))
                                 .font(DS.Font.caption)
                                 .foregroundColor(DS.Palette.textSecondary)
@@ -1675,9 +1675,9 @@ private struct ScheduledTaskEditorView: View {
                         }
                     } else if draft.provider == .distill {
                         // Same Main / Worker pills and modal sheets as the Agent App and Bot Desk composer.
-                        formRow("Model") { editorDistillModelPills }
+                        formRow(L("Model")) { editorDistillModelPills }
                     } else {
-                        formRow("Model") {
+                        formRow(L("Model")) {
                             Button {
                                 showModelOptions.toggle()
                             } label: {
@@ -1692,7 +1692,7 @@ private struct ScheduledTaskEditorView: View {
                     }
                 }
 
-                editorGroup("Run options") {
+                editorGroup(L("Run options")) {
                     ScheduledRunOptionsEditor(
                         showsExecutionMode: draft.provider == .distill,
                         executionMode: $draft.distillExecutionMode,
@@ -1705,7 +1705,7 @@ private struct ScheduledTaskEditorView: View {
                     )
                 }
 
-                editorGroup("Frequency") {
+                editorGroup(L("Frequency")) {
                     ScheduledFrequencyEditor(
                         rules: $draft.frequencyRules,
                         timeZoneIdentifier: $draft.timeZoneIdentifier,
@@ -1732,7 +1732,7 @@ private struct ScheduledTaskEditorView: View {
 
     private var previewNextRun: String {
         guard let task = try? draft.makeTask(), let next = task.nextRunAt else {
-            return draft.isEnabled ? "Not scheduled yet" : "Paused until enabled"
+            return draft.isEnabled ? L("Not scheduled yet") : L("Paused until enabled")
         }
         return next.formatted(.dateTime.month(.abbreviated).day().year().hour().minute())
     }
@@ -1817,9 +1817,9 @@ private struct ScheduledTaskEditorView: View {
             ? AgentDistillModelCatalog.selectableModels(models)
             : models
         let title = selectableModels.first(where: { $0.id == draft.model })?.label
-            ?? (draft.model.isEmpty ? (draft.provider == .distill ? "Select Main model" : "Model") : draft.model)
+            ?? (draft.model.isEmpty ? (draft.provider == .distill ? L("Select Main model") : L("Model")) : draft.model)
         let effort = draft.provider == .distill
-            ? (draft.distillMainEffortSelection ?? .fixed(draft.reasoningEffort)).effort?.displayName ?? "Auto"
+            ? (draft.distillMainEffortSelection ?? .fixed(draft.reasoningEffort)).effort?.displayName ?? L("Auto")
             : draft.reasoningEffort.displayName
         return AgentModelPillPresentation(title: title, effort: effort)
     }
@@ -1844,9 +1844,9 @@ private struct ScheduledTaskEditorView: View {
             mainUnavailable: mainUnavailable,
             isRunning: false,
             isDisabled: false,
-            emptyListTitle: vm.providersLoading ? "Loading models..." : "No models available",
+            emptyListTitle: vm.providersLoading ? L("Loading models...") : L("No models available"),
             workerEmptyListTitle: vm.providersLoading
-                ? "Loading models..." : "No models yet. Connect an account on the start screen.",
+                ? L("Loading models...") : L("No models yet. Connect an account on the start screen."),
             menuWidth: AgentModelMenuWidth.estimatedWidth(
                 titles: models.map(\.label), min: AgentModelMenuWidth.distillMin, max: AgentModelMenuWidth.distillMax
             ),
@@ -1919,7 +1919,7 @@ private struct ScheduledTaskEditorView: View {
                     mainFooter: { EmptyView() }
                 )
             } else {
-                AgentCompactMenuSection("Model")
+                AgentCompactMenuSection(L("Model"))
                 ForEach(AgentDistillModelCatalog.selectableModels(models), id: \.id) { model in
                     AgentCompactMenuRow(model.label, selected: model.id == draft.model) {
                         draft.model = model.id
@@ -1930,7 +1930,7 @@ private struct ScheduledTaskEditorView: View {
                     }
                 }
                 AgentCompactMenuDivider()
-                AgentCompactMenuSection("Reasoning")
+                AgentCompactMenuSection(L("Reasoning"))
                 ForEach(AgentReasoningEffort.allCases, id: \.self) { effort in
                     AgentCompactMenuRow(effort.displayName, selected: effort == draft.reasoningEffort) {
                         draft.reasoningEffort = effort
@@ -2004,8 +2004,8 @@ private struct ScheduledTaskEditorView: View {
         alert.alertStyle = .warning
         alert.messageText = L("Allow this task to run with Full Access?")
         alert.informativeText = L("Each occurrence starts a fresh Agent thread as %1$@ in the selected workspace. It may execute commands without further approval.", draft.runAsUser)
-        alert.addButton(withTitle: "Save Full-Access Task")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L("Save Full-Access Task"))
+        alert.addButton(withTitle: L("Cancel"))
         if alert.runModal() == .alertFirstButtonReturn { onSave(draft) }
     }
 
@@ -2041,7 +2041,7 @@ public final class ScheduledTasksWindowController: NSWindowController, NSWindowD
             backing: .buffered,
             defer: false
         )
-        window.title = "Scheduled Tasks"
+        window.title = L("Scheduled Tasks")
         window.minSize = NSSize(width: 980, height: 680)
         window.center()
         window.backgroundColor = DS.NS.bg
@@ -2064,15 +2064,15 @@ public final class ScheduledTasksWindowController: NSWindowController, NSWindowD
 extension ScheduledTaskRecurrence {
     var summaryLabel: String {
         switch self {
-        case .once: return "Once"
-        case .hourly(_, let hours): return hours == 1 ? "Hourly" : "Every \(hours)h"
-        case .daily: return "Daily"
-        case .weekdays: return "Weekdays"
-        case .weekly: return "Weekly"
-        case .monthly: return "Monthly"
+        case .once: return L("Once")
+        case .hourly(_, let hours): return hours == 1 ? L("Hourly") : L("Every %1$@h", hours)
+        case .daily: return L("Daily")
+        case .weekdays: return L("Weekdays")
+        case .weekly: return L("Weekly")
+        case .monthly: return L("Monthly")
         case .multiple(let rules):
             let labels = Set(rules.map(\.summaryLabel))
-            return labels.count == 1 ? labels.first! : "Multiple"
+            return labels.count == 1 ? labels.first! : L("Multiple")
         }
     }
 
@@ -2082,9 +2082,9 @@ extension ScheduledTaskRecurrence {
     var detailSummary: String {
         switch self {
         case .once(let at):
-            return "Once · " + at.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+            return L("Once · ") + at.formatted(.dateTime.month(.abbreviated).day().hour().minute())
         case .hourly(_, let hours):
-            return hours == 1 ? "Every hour" : "Every \(hours) hours"
+            return hours == 1 ? L("Every hour") : L("Every %1$@ hours", hours)
         case .multiple(let rules):
             var groups: [(pattern: String?, parts: [String])] = []
             for rule in rules {
@@ -2110,13 +2110,13 @@ extension ScheduledTaskRecurrence {
     private var timedPattern: (pattern: String, time: String)? {
         switch self {
         case .daily(let time):
-            return ("Daily", time.displayString)
+            return (L("Daily"), time.displayString)
         case .weekdays(let time):
-            return ("Weekdays", time.displayString)
+            return (L("Weekdays"), time.displayString)
         case .weekly(let days, let time):
-            return ("Weekly " + days.sorted().map(\.shortName).joined(separator: ", "), time.displayString)
+            return (L("Weekly ") + days.sorted().map(\.shortName).joined(separator: ", "), time.displayString)
         case .monthly(let day, let time):
-            return ("Monthly on day \(day)", time.displayString)
+            return (L("Monthly on day %1$@", day), time.displayString)
         case .once, .hourly, .multiple:
             return nil
         }
@@ -2137,13 +2137,13 @@ private extension ScheduledLocalTime {
 private extension ScheduledWeekday {
     var shortName: String {
         switch self {
-        case .sunday: return "Sun"
-        case .monday: return "Mon"
-        case .tuesday: return "Tue"
-        case .wednesday: return "Wed"
-        case .thursday: return "Thu"
-        case .friday: return "Fri"
-        case .saturday: return "Sat"
+        case .sunday: return L("Sun")
+        case .monday: return L("Mon")
+        case .tuesday: return L("Tue")
+        case .wednesday: return L("Wed")
+        case .thursday: return L("Thu")
+        case .friday: return L("Fri")
+        case .saturday: return L("Sat")
         }
     }
 }
@@ -2162,7 +2162,7 @@ struct ScheduleConcurrencyPicker: View {
         .labelsHidden()
         .pickerStyle(.menu)
         .fixedSize()
-        .accessibilityLabel("Concurrent runs")
+        .accessibilityLabel(L("Concurrent runs"))
     }
 }
 
@@ -2188,16 +2188,16 @@ struct ScheduledRunOptionsEditor: View {
 
     static func unattendedNotice(permission: AgentPermissionMode) -> String {
         switch permission {
-        case .fullAccess: return "Runs unattended with Full Access in the selected workspace."
-        case .autoAcceptEdits: return "Runs unattended; file edits are accepted automatically and other actions wait for approval."
-        case .supervised: return "Runs unattended; every action that needs approval waits for you."
+        case .fullAccess: return L("Runs unattended with Full Access in the selected workspace.")
+        case .autoAcceptEdits: return L("Runs unattended; file edits are accepted automatically and other actions wait for approval.")
+        case .supervised: return L("Runs unattended; every action that needs approval waits for you.")
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if showsExecutionMode {
-                ScheduleEditorRow("Mode", hint: "How Distill works on each run", showsDivider: false) {
+                ScheduleEditorRow(L("Mode"), hint: L("How Distill works on each run"), showsDivider: false) {
                     AgentExecutionModeCapsule(
                         selected: executionMode,
                         accessibilityIdentifier: "\(identifierPrefix).mode",
@@ -2206,7 +2206,7 @@ struct ScheduledRunOptionsEditor: View {
                 }
             }
             if let plan {
-                ScheduleEditorRow("Plan mode", hint: "Propose a plan first; runs supervised", showsDivider: showsExecutionMode) {
+                ScheduleEditorRow(L("Plan mode"), hint: L("Propose a plan first; runs supervised"), showsDivider: showsExecutionMode) {
                     Toggle(L("Plan mode"), isOn: plan)
                         .labelsHidden()
                         .toggleStyle(.switch)
@@ -2214,18 +2214,18 @@ struct ScheduledRunOptionsEditor: View {
                         .accessibilityIdentifier("\(identifierPrefix).planMode")
                 }
             }
-            ScheduleEditorRow("Permission", showsDivider: showsExecutionMode || plan != nil) {
+            ScheduleEditorRow(L("Permission"), showsDivider: showsExecutionMode || plan != nil) {
                 AgentPermissionCapsule(
                     selected: Self.effectivePermission(permission, plan: plan?.wrappedValue ?? false),
                     modes: AgentPermissionMode.allCases,
                     disabled: plan?.wrappedValue ?? false,
-                    help: (plan?.wrappedValue ?? false) ? "Plan mode runs supervised" : "Permission mode",
+                    help: (plan?.wrappedValue ?? false) ? L("Plan mode runs supervised") : L("Permission mode"),
                     accessibilityIdentifier: "\(identifierPrefix).permission",
                     onSelect: { permission = $0 }
                 )
             }
             if let execution {
-                ScheduleEditorRow("Execution", hint: "Local edits in place; Worktree uses a separate branch") {
+                ScheduleEditorRow(L("Execution"), hint: L("Local edits in place; Worktree uses a separate branch")) {
                     Picker(L("Execution"), selection: execution) {
                         Text(L("Local")).tag(AgentExecutionMode.local)
                         Text(L("Worktree")).tag(AgentExecutionMode.worktree)
@@ -2236,13 +2236,13 @@ struct ScheduledRunOptionsEditor: View {
                     .accessibilityIdentifier("\(identifierPrefix).execution")
                 }
                 if let concurrency {
-                    ScheduleEditorRow("Concurrent runs", hint: "How many runs of this task may be active at once") {
+                    ScheduleEditorRow(L("Concurrent runs"), hint: L("How many runs of this task may be active at once")) {
                         ScheduleConcurrencyPicker(selection: concurrency)
                             .accessibilityIdentifier("\(identifierPrefix).concurrency")
                     }
                 }
                 if execution.wrappedValue == .worktree, let baseBranch {
-                    ScheduleEditorRow("Base branch") {
+                    ScheduleEditorRow(L("Base branch")) {
                         TextField("main", text: baseBranch)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 180)
@@ -2299,6 +2299,6 @@ struct ScheduleTaskWorkspaceGroup: Identifiable {
             )
         }
         guard let loose = buckets[nil] else { return named }
-        return named + [ScheduleTaskWorkspaceGroup(id: nil, name: "No workspace", color: nil, entries: loose)]
+        return named + [ScheduleTaskWorkspaceGroup(id: nil, name: L("No workspace"), color: nil, entries: loose)]
     }
 }

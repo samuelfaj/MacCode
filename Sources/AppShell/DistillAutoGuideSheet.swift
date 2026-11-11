@@ -139,9 +139,9 @@ struct DistillAutoGuideSheet: View {
     }
 
     private var statusText: String {
-        if controller.isBusy { return "Saving…" }
-        if controller.isRefreshing { return "Refreshing Auto profile…" }
-        if hasChanges { return "Unsaved changes" }
-        return "Saved · Auto \(controller.routing.enabled ? "on" : "off")"
+        if controller.isBusy { return L("Saving…") }
+        if controller.isRefreshing { return L("Refreshing Auto profile…") }
+        if hasChanges { return L("Unsaved changes") }
+        return L("Saved · Auto %1$@", controller.routing.enabled ? "on" : "off")
     }
 }

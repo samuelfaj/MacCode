@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CoreModel
 
 // MARK: - Focus ring
 
@@ -407,7 +408,7 @@ public struct DSResizeDivider: View {
     // Returns a non-empty accessible label: the caller-supplied help string, or a
     // direction-aware fallback so VoiceOver users always hear a meaningful name.
     var accessibleLabel: String {
-        help.isEmpty ? (axis == .vertical ? "Resize horizontally" : "Resize vertically") : help
+        help.isEmpty ? (axis == .vertical ? L("Resize horizontally") : L("Resize vertically")) : help
     }
 
     public var body: some View {

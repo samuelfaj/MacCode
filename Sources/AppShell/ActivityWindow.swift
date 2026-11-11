@@ -69,16 +69,16 @@ struct ActivityWireItem: Codable, Identifiable, Equatable, Sendable {
     }
     var statusLabel: String {
         switch state {
-        case "completed": "Completed"
-        case "failed": "Failed"
-        case "interrupted": "Interrupted"
-        case "stopped": "Stopped by you"
-        case "waiting_approval": "Waiting for approval"
-        case "waiting_answer": "Waiting for your answer"
-        case "queued": "Queued"
-        case "running": "Running"
-        case "expired": "Request expired"
-        case "needs_you": kind == "agent" ? "Run interrupted" : "Review required"
+        case "completed": L("Completed")
+        case "failed": L("Failed")
+        case "interrupted": L("Interrupted")
+        case "stopped": L("Stopped by you")
+        case "waiting_approval": L("Waiting for approval")
+        case "waiting_answer": L("Waiting for your answer")
+        case "queued": L("Queued")
+        case "running": L("Running")
+        case "expired": L("Request expired")
+        case "needs_you": kind == "agent" ? L("Run interrupted") : L("Review required")
         default: state.capitalized
         }
     }
@@ -88,21 +88,21 @@ struct ActivityWireItem: Codable, Identifiable, Equatable, Sendable {
         if kind == "request", let summary { return summary }
         switch state {
         case "waiting_approval":
-            return "Approve or decline the request. This alert clears after your decision."
+            return L("Approve or decline the request. This alert clears after your decision.")
         case "waiting_answer":
-            return "Send your response in this conversation. This alert clears when you reply."
+            return L("Send your response in this conversation. This alert clears when you reply.")
         case "failed", "interrupted":
             if id.hasPrefix("scheduled-occurrence:") {
-                return "Review this task in Schedule Tasks and run it again, or dismiss this alert."
+                return L("Review this task in Schedule Tasks and run it again, or dismiss this alert.")
             }
             if thread_id != nil {
-                return "Send a new message to retry, or dismiss this alert. Starting a new run clears the previous failure."
+                return L("Send a new message to retry, or dismiss this alert. Starting a new run clears the previous failure.")
             }
-            return "Review the error at its source and retry, or dismiss this alert."
+            return L("Review the error at its source and retry, or dismiss this alert.")
         case "needs_you":
             return kind == "agent"
-                ? "This run has no active process. Send a new message to resume, or dismiss this alert."
-                : "Resolve the issue at its source, or dismiss this alert. Opening it alone does not resolve it."
+                ? L("This run has no active process. Send a new message to resume, or dismiss this alert.")
+                : L("Resolve the issue at its source, or dismiss this alert. Opening it alone does not resolve it.")
         default: return nil
         }
     }
@@ -170,10 +170,10 @@ private enum ActivityBatchError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidCutoff: "Could not verify activity snapshot time; no results were changed."
-        case .invalidItemDate(let id): "Could not verify timestamp for \(id); no further results were changed."
-        case .repeatedCursor: "Activity paging repeated a cursor; remaining results were not changed."
-        case .partial(let updated, let total): "Updated \(updated) of \(total) results before the host returned a partial response."
+        case .invalidCutoff: L("Could not verify activity snapshot time; no results were changed.")
+        case .invalidItemDate(let id): L("Could not verify timestamp for %1$@; no further results were changed.", id)
+        case .repeatedCursor: L("Activity paging repeated a cursor; remaining results were not changed.")
+        case .partial(let updated, let total): L("Updated %1$@ of %2$@ results before the host returned a partial response.", updated, total)
         }
     }
 }
@@ -192,10 +192,10 @@ final class ActivityViewModel: ObservableObject {
         }
         var title: String {
             switch self {
-            case .running: "Running"
-            case .needsYou: "Needs you"
-            case .justFinished: "Just finished"
-            case .finished: "Results"
+            case .running: L("Running")
+            case .needsYou: L("Needs you")
+            case .justFinished: L("Just finished")
+            case .finished: L("Results")
             }
         }
     }
@@ -205,10 +205,10 @@ final class ActivityViewModel: ObservableObject {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .all: "Any time"
-            case .day: "Past 24 hours"
-            case .week: "Past 7 days"
-            case .month: "Past 30 days"
+            case .all: L("Any time")
+            case .day: L("Past 24 hours")
+            case .week: L("Past 7 days")
+            case .month: L("Past 30 days")
             }
         }
         var since: String? {
@@ -256,7 +256,7 @@ final class ActivityViewModel: ObservableObject {
     /// The search the open row was last confirmed under; a search change must not keep a row that left its results.
     private var selectionSearch = ""
     private var missingTargetID: String?
-    private static let missingTargetMessage = "Requested activity result was not found."
+    private static let missingTargetMessage = L("Requested activity result was not found.")
     /// Only a notification route names its target explicitly. A selection restored from
     /// defaults is local convenience: when its row has moved section it is dropped quietly.
     private var requestedTargetIsExplicit = false
@@ -628,7 +628,7 @@ final class ActivityViewModel: ObservableObject {
 
     func markCurrentResultsSeen() {
         guard !batchRunning else { return }
-        beginBatch("Collecting unread results…")
+        beginBatch(L("Collecting unread results…"))
         let scope = batchScope
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -637,7 +637,7 @@ final class ActivityViewModel: ObservableObject {
             do {
                 let items = try await self.collect(scope) { $0.isUnread }
                 guard !items.isEmpty else {
-                    self.batchStatus = "No unread results match this filter."
+                    self.batchStatus = L("No unread results match this filter.")
                     self.batchRunning = false
                     return
                 }
@@ -653,11 +653,11 @@ final class ActivityViewModel: ObservableObject {
                     self.applyViewed(chunkUpdated, viewedAt: Self.timestamp(Date()))
                     if chunkUpdated.count != chunk.count { throw ActivityBatchError.partial(updated: updated.count, total: ids.count) }
                 }
-                self.batchStatus = "Marked \(updated.count) as read."
+                self.batchStatus = L("Marked %1$@ as read.", updated.count)
                 self.refreshAfterFrame()
             } catch {
                 if !self.undoSnapshot.isEmpty {
-                    self.batchStatus = "Marked \(self.undoSnapshot.count) as read before a failure. Undo restores them."
+                    self.batchStatus = L("Marked %1$@ as read before a failure. Undo restores them.", self.undoSnapshot.count)
                 }
                 self.fail(error)
             }
@@ -669,7 +669,7 @@ final class ActivityViewModel: ObservableObject {
     /// longer considers open are skipped, so the status reports what actually changed.
     func clearCurrentNeedsYou() {
         guard !batchRunning else { return }
-        beginBatch("Collecting alerts to dismiss…")
+        beginBatch(L("Collecting alerts to dismiss…"))
         let scope = batchScope
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -677,7 +677,7 @@ final class ActivityViewModel: ObservableObject {
             do {
                 let items = try await self.collect(scope) { $0.isClearable }
                 guard !items.isEmpty else {
-                    self.batchStatus = "Nothing to dismiss in this filter."
+                    self.batchStatus = L("Nothing to dismiss in this filter.")
                     self.batchRunning = false
                     return
                 }
@@ -686,11 +686,11 @@ final class ActivityViewModel: ObservableObject {
                     let cleared = try await self.clear(chunk)
                     self.applyCleared(cleared)
                 }
-                self.batchStatus = self.undoCleared.isEmpty ? "No alerts needed dismissal." : "Dismissed \(self.undoCleared.count) from Needs you."
+                self.batchStatus = self.undoCleared.isEmpty ? L("No alerts needed dismissal.") : L("Dismissed %1$@ from Needs you.", self.undoCleared.count)
                 self.refreshAfterFrame()
             } catch {
                 if !self.undoCleared.isEmpty {
-                    self.batchStatus = "Dismissed \(self.undoCleared.count) before a failure. Undo restores them."
+                    self.batchStatus = L("Dismissed %1$@ before a failure. Undo restores them.", self.undoCleared.count)
                 }
                 self.fail(error)
             }
@@ -729,7 +729,7 @@ final class ActivityViewModel: ObservableObject {
         undoSnapshot = [:]
         undoCleared = [item.id]
         undoCount = 1
-        batchStatus = "Dismissed from Needs you."
+        batchStatus = L("Dismissed from Needs you.")
         applyCleared([item.id])
         enqueueWrite { [weak self] in
             guard let self else { return }
@@ -869,14 +869,14 @@ final class ActivityViewModel: ObservableObject {
             undoSnapshot.removeAll()
             undoCleared.removeAll()
             undoCount = nil
-            batchStatus = cleared.isEmpty ? "Restored \(restored.count) to unread." : "Restored \(reopened.count) to Needs you."
+            batchStatus = cleared.isEmpty ? L("Restored %1$@ to unread.", restored.count) : L("Restored %1$@ to Needs you.", reopened.count)
             refreshAfterFrame()
         } catch {
             undoCleared = cleared.filter { !reopened.contains($0) }
             undoSnapshot = viewedSnapshot.filter { !restored.contains($0.key) }
             let remaining = Set(undoCleared).union(undoSnapshot.keys).count
             undoCount = remaining == 0 ? nil : remaining
-            if remaining > 0 { batchStatus = "Undo stopped early; \(remaining) still need Undo." }
+            if remaining > 0 { batchStatus = L("Undo stopped early; %1$@ still need Undo.", remaining) }
             fail(error)
         }
     }
@@ -952,7 +952,7 @@ private struct ActivityBotComposer: View {
             }
             AgentChatComposerBar(
                 text: $text,
-                placeholder: "Message the Bot",
+                placeholder: L("Message the Bot"),
                 sendEnabled: !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 runActive: target.isRunActive(),
                 onSend: send,
@@ -1051,7 +1051,7 @@ struct ActivityRootView: View {
                         if let item = model.detail {
                             detailPane(item)
                         } else {
-                            DSEmptyState(icon: "rectangle.righthalf.inset.filled", title: "Nothing selected", subtitle: "Select an item to see its result and what you can do next.")
+                            DSEmptyState(icon: "rectangle.righthalf.inset.filled", title: L("Nothing selected"), subtitle: L("Select an item to see its result and what you can do next."))
                         }
                     }
                 }
@@ -1127,10 +1127,10 @@ struct ActivityRootView: View {
     @ViewBuilder
     private var filterMenus: some View {
         filterMenu(
-            icon: "folder", title: workspaces.first { $0.id == model.workspaceID }?.name ?? "All workspaces",
+            icon: "folder", title: workspaces.first { $0.id == model.workspaceID }?.name ?? L("All workspaces"),
             active: !model.workspaceID.isEmpty, label: "Workspace", identifier: "activity.filter.workspace"
         ) {
-            menuOption("All workspaces", selected: model.workspaceID.isEmpty) { model.workspaceID = "" }
+            menuOption(L("All workspaces"), selected: model.workspaceID.isEmpty) { model.workspaceID = "" }
             Divider()
             ForEach(workspaces, id: \.id) { workspace in
                 menuOption(workspace.name, selected: model.workspaceID == workspace.id) { model.workspaceID = workspace.id }
@@ -1152,9 +1152,9 @@ struct ActivityRootView: View {
     }
 
     private static let outcomes: [(value: String, title: String)] = [
-        ("", "All outcomes"), ("completed", "Completed"), ("failed", "Failed"), ("interrupted", "Interrupted"), ("stopped", "Stopped by you"),
+        ("", L("All outcomes")), ("completed", L("Completed")), ("failed", L("Failed")), ("interrupted", L("Interrupted")), ("stopped", L("Stopped by you")),
     ]
-    private static func outcomeTitle(_ value: String) -> String { outcomes.first { $0.value == value }?.title ?? "All outcomes" }
+    private static func outcomeTitle(_ value: String) -> String { outcomes.first { $0.value == value }?.title ?? L("All outcomes") }
 
     /// Composer-style capsule menu: an active filter is tinted so it is visible at a glance.
     private func filterMenu<Content: View>(icon: String, title: String, active: Bool, label: String, identifier: String, @ViewBuilder content: () -> Content) -> some View {
@@ -1164,7 +1164,7 @@ struct ActivityRootView: View {
             }
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-        .help("Filter by \(label.lowercased())")
+        .help(L("Filter by %1$@", label.lowercased()))
         .accessibilityLabel("\(label): \(title)")
         .accessibilityIdentifier(identifier)
     }
@@ -1189,13 +1189,13 @@ struct ActivityRootView: View {
         if model.tab == .finished || model.tab == .justFinished {
             Button(L("Mark all as read")) { model.markCurrentResultsSeen() }
                 .buttonStyle(DSSecondaryButtonStyle()).disabled(model.batchRunning || !model.hasUnreadResults).fixedSize()
-                .help(model.hasUnreadResults ? "Marks every result in this filter as read. Nothing is removed." : "Every result in this filter is already read.")
+                .help(model.hasUnreadResults ? L("Marks every result in this filter as read. Nothing is removed.") : L("Every result in this filter is already read."))
                 .accessibilityIdentifier("activity.markAllRead")
         }
         if model.tab == .needsYou {
             Button(L("Dismiss all")) { model.clearCurrentNeedsYou() }
                 .buttonStyle(DSSecondaryButtonStyle()).disabled(model.batchRunning || model.page.counts.needs_you == 0).fixedSize()
-                .help("Dismisses alerts in this filter and marks results read. Pending approvals and questions still wait in their conversations.")
+                .help(L("Dismisses alerts in this filter and marks results read. Pending approvals and questions still wait in their conversations."))
                 .accessibilityIdentifier("activity.clearAll")
         }
     }
@@ -1203,11 +1203,11 @@ struct ActivityRootView: View {
     private func errorBanner(_ error: String) -> some View {
         HStack(spacing: DS.Space.md) {
             Image(systemName: "exclamationmark.triangle.fill").font(DS.Font.body).foregroundColor(DS.Palette.danger).accessibilityHidden(true)
-            Text(model.showingCachedResults ? "Showing saved results. Update failed: \(error)" : "Update failed: \(error)")
+            Text(model.showingCachedResults ? L("Showing saved results. Update failed: %1$@", error) : L("Update failed: %1$@", error))
                 .font(DS.Font.bodyDense).foregroundColor(DS.Palette.text).lineLimit(3)
             Spacer(minLength: DS.Space.md)
             Button(L("Retry")) { model.refreshAfterFrame() }.buttonStyle(DSSecondaryButtonStyle())
-            DSIconButton("xmark", help: "Dismiss error") { model.dismissError() }.packed()
+            DSIconButton("xmark", help: L("Dismiss error")) { model.dismissError() }.packed()
         }
         .padding(.horizontal, DS.Space.xl).padding(.vertical, DS.Space.md)
         .background(DS.Palette.danger.opacity(0.12))
@@ -1223,7 +1223,7 @@ struct ActivityRootView: View {
                     .buttonStyle(DSSecondaryButtonStyle()).disabled(model.batchRunning)
                     .accessibilityIdentifier("activity.undo")
             }
-            DSIconButton("xmark", help: "Dismiss") { model.dismissStatus() }.packed()
+            DSIconButton("xmark", help: L("Dismiss")) { model.dismissStatus() }.packed()
         }
         .padding(.horizontal, DS.Space.xl).padding(.vertical, DS.Space.md)
         .background(DS.Palette.surfaceOverlay)
@@ -1246,7 +1246,7 @@ struct ActivityRootView: View {
                 // No safe cache for this filter yet: hold the layout, the header owns progress and errors.
                 DS.Palette.bg.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if model.hasActiveFilters {
-                DSEmptyState(icon: "magnifyingglass", title: "No matches", subtitle: "Nothing in \(model.tab.title) matches this search and these filters.") {
+                DSEmptyState(icon: "magnifyingglass", title: L("No matches"), subtitle: L("Nothing in %1$@ matches this search and these filters.", model.tab.title)) {
                     Button(L("Clear filters")) { model.clearFilters() }.buttonStyle(DSSecondaryButtonStyle())
                 }
             } else {
@@ -1283,10 +1283,10 @@ struct ActivityRootView: View {
     @ViewBuilder
     private var emptyState: some View {
         switch model.tab {
-        case .running: DSEmptyState(icon: "moon.zzz", title: "Nothing running", subtitle: "Agent runs and project scripts in progress appear here.")
-        case .needsYou: DSEmptyState(icon: "checkmark.circle", title: "Nothing needs you", subtitle: "Approvals, questions, and runs that failed and were not retried show up here.")
-        case .justFinished: DSEmptyState(icon: "checkmark.seal", title: "You're caught up", subtitle: "Runs that finish show up here until you open them.")
-        case .finished: DSEmptyState(icon: "tray", title: "No results yet", subtitle: "Each conversation's latest finished run shows up here.")
+        case .running: DSEmptyState(icon: "moon.zzz", title: L("Nothing running"), subtitle: L("Agent runs and project scripts in progress appear here."))
+        case .needsYou: DSEmptyState(icon: "checkmark.circle", title: L("Nothing needs you"), subtitle: L("Approvals, questions, and runs that failed and were not retried show up here."))
+        case .justFinished: DSEmptyState(icon: "checkmark.seal", title: L("You're caught up"), subtitle: L("Runs that finish show up here until you open them."))
+        case .finished: DSEmptyState(icon: "tray", title: L("No results yet"), subtitle: L("Each conversation's latest finished run shows up here."))
         }
     }
 
@@ -1295,7 +1295,7 @@ struct ActivityRootView: View {
             Text(L("Showing %1$@ of %2$@", model.page.items.count, count(for: model.tab)))
                 .font(DS.Font.caption).monospacedDigit().foregroundColor(DS.Palette.textSecondary)
             Spacer()
-            Button(model.loading ? "Loading…" : "Load more") { model.loadMore() }
+            Button(model.loading ? L("Loading…") : L("Load more")) { model.loadMore() }
                 .buttonStyle(DSSecondaryButtonStyle()).disabled(model.loading)
         }
         .padding(.vertical, DS.Space.sm)
@@ -1386,7 +1386,7 @@ struct ActivityRootView: View {
                 }
                 if item.isClearable {
                     Button(L("Dismiss")) { model.acknowledge(item) }.buttonStyle(DSSecondaryButtonStyle())
-                        .help("Dismisses this alert without answering requests or deleting results.")
+                        .help(L("Dismisses this alert without answering requests or deleting results."))
                 }
                 if item.isMarkable, !item.isNew {
                     Button(L("Mark as unread")) { model.markUnread(item) }.buttonStyle(DSSecondaryButtonStyle())
@@ -1417,13 +1417,13 @@ struct ActivityRootView: View {
                 detailActions(item)
                 detailFacts(item)
                 if item.kind != "request" || (item.summary != nil && item.summary != item.attentionInstruction) {
-                    detailSection(item.kind == "agent" ? "Agent summary" : "Result") {
-                        Text(item.summary ?? "No summary available for this run.").font(DS.Font.body).foregroundColor(DS.Palette.text)
+                    detailSection(item.kind == "agent" ? L("Agent summary") : L("Result")) {
+                        Text(item.summary ?? L("No summary available for this run.")).font(DS.Font.body).foregroundColor(DS.Palette.text)
                             .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 if let error = item.error, !error.isEmpty {
-                    detailSection("Error") {
+                    detailSection(L("Error")) {
                         Text(error).font(DS.Font.bodyDense).foregroundColor(DS.Palette.danger)
                             .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                             .padding(DS.Space.lg).frame(maxWidth: .infinity, alignment: .leading)
@@ -1432,12 +1432,12 @@ struct ActivityRootView: View {
                     }
                 }
                 if !item.changed_files.isEmpty {
-                    detailSection("Changes") {
+                    detailSection(L("Changes")) {
                         ForEach(item.changed_files, id: \.self) { path in
                             if canOpen(item), canViewChanges(item) {
                                 Button { openEvidence(item, path) } label: {
                                     Text(path).font(DS.Font.monoSmall).lineLimit(1).truncationMode(.middle)
-                                }.buttonStyle(.link).help(path).accessibilityLabel("View \(path)")
+                                }.buttonStyle(.link).help(path).accessibilityLabel(L("View %1$@", path))
                             } else {
                                 Text(path).font(DS.Font.monoSmall).foregroundColor(DS.Palette.textSecondary)
                                     .lineLimit(1).truncationMode(.middle).help(path)
@@ -1469,7 +1469,7 @@ struct ActivityRootView: View {
                 }
                 if item.isClearable {
                     Button(L("Dismiss")) { model.acknowledge(item) }.buttonStyle(DSSecondaryButtonStyle())
-                        .help(item.isKeptFinished ? "Removes this finished row from the list." : item.kind == "request" ? "Removes this from Needs you. The request stays in the bot's conversation." : "Removes this from Needs you. The result stays in Results.")
+                        .help(item.isKeptFinished ? L("Removes this finished row from the list.") : item.kind == "request" ? L("Removes this from Needs you. The request stays in the bot's conversation.") : L("Removes this from Needs you. The result stays in Results."))
                 }
                 if item.isMarkable, !item.isNew {
                     Button(L("Mark as unread")) { model.markUnread(item) }.buttonStyle(DSSecondaryButtonStyle())
@@ -1495,7 +1495,7 @@ struct ActivityRootView: View {
 
     @ViewBuilder
     private func detailFacts(_ item: ActivityWireItem) -> some View {
-        let facts = [("Workspace", item.workspace_name), ("Provider", item.provider), ("Origin", item.origin_label)]
+        let facts = [(L("Workspace"), item.workspace_name), (L("Provider"), item.provider), (L("Origin"), item.origin_label)]
             .compactMap { label, value in value.flatMap { $0.isEmpty ? nil : (label, $0) } }
         if !facts.isEmpty {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: DS.Space.xl, verticalSpacing: DS.Space.sm) {
@@ -1531,10 +1531,10 @@ struct ActivityRootView: View {
     private func openLabel(_ item: ActivityWireItem) -> String {
         if item.id.hasPrefix("scheduled-occurrence:") { return "Open Schedule Tasks" }
         if item.state == "waiting_answer" { return "Reply" }
-        if item.state == "waiting_approval" { return "Review request" }
-        if item.bot_id != nil { return "Open bot" }
-        if item.thread_id != nil { return "Open conversation" }
-        return item.surface_id != nil ? "Open terminal" : "Open destination"
+        if item.state == "waiting_approval" { return L("Review request") }
+        if item.bot_id != nil { return L("Open bot") }
+        if item.thread_id != nil { return L("Open conversation") }
+        return item.surface_id != nil ? L("Open terminal") : L("Open destination")
     }
 
     private var workspaces: [(id: String, name: String)] {
@@ -1665,15 +1665,15 @@ private struct ActivityRow: View {
         .help(item.displayTitle)
         .contextMenu {
             if let open { Button(openLabel, action: open) }
-            if item.isMarkable { Button(item.isUnread ? "Mark as Read" : "Mark as Unread", action: toggleRead) }
+            if item.isMarkable { Button(item.isUnread ? L("Mark as Read") : L("Mark as Unread"), action: toggleRead) }
             if item.isClearable { Button(L("Dismiss alert"), action: clear) }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel([item.displayTitle, item.statusLabel, factsLine(workspace: true), item.listSummary ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
-        .accessibilityValue(item.isUnread ? "Unread" : "")
+        .accessibilityValue(item.isUnread ? L("Unread") : "")
         .accessibilityActions {
             if let open { Button(openLabel, action: open) }
-            if item.isMarkable { Button(item.isUnread ? "Mark as read" : "Mark as unread", action: toggleRead) }
+            if item.isMarkable { Button(item.isUnread ? L("Mark as read") : L("Mark as unread"), action: toggleRead) }
             if item.isClearable { Button(L("Dismiss alert"), action: clear) }
         }
     }
@@ -1688,10 +1688,10 @@ private struct ActivityRow: View {
             if showsActions {
                 HStack(spacing: 0) {
                     if item.isMarkable {
-                        DSIconButton(item.isUnread ? "envelope.open" : "envelope.badge", help: item.isUnread ? "Mark as read" : "Mark as unread", action: toggleRead).packed()
+                        DSIconButton(item.isUnread ? "envelope.open" : "envelope.badge", help: item.isUnread ? L("Mark as read") : L("Mark as unread"), action: toggleRead).packed()
                     }
                     if item.isClearable {
-                        DSIconButton("archivebox", help: "Dismiss alert", action: clear).packed()
+                        DSIconButton("archivebox", help: L("Dismiss alert"), action: clear).packed()
                     }
                 }
             }
@@ -1723,11 +1723,11 @@ extension ActivityViewModel {
             guard let key = item.workspace_id, !key.isEmpty else { unassigned.append(item); continue }
             if buckets[key] == nil {
                 order.append(key)
-                names[key] = item.workspace_name.flatMap { $0.isEmpty ? nil : $0 } ?? "Workspace"
+                names[key] = item.workspace_name.flatMap { $0.isEmpty ? nil : $0 } ?? L("Workspace")
             }
             buckets[key, default: []].append(item)
         }
-        var sections = order.map { ItemSection(id: $0, title: names[$0] ?? "Workspace", items: buckets[$0] ?? []) }
+        var sections = order.map { ItemSection(id: $0, title: names[$0] ?? L("Workspace"), items: buckets[$0] ?? []) }
         if !unassigned.isEmpty { sections.append(ItemSection(id: "", title: "No workspace", items: unassigned)) }
         return sections
     }

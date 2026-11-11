@@ -11,8 +11,8 @@ public enum ActiveBotsTab: String, CaseIterable, Identifiable {
 
     public var title: String {
         switch self {
-        case .active: return "Active"
-        case .lastFinished: return "Last Finished"
+        case .active: return L("Active")
+        case .lastFinished: return L("Last Finished")
         }
     }
 }
@@ -40,7 +40,7 @@ public struct ActiveBotScreenItem: Identifiable, Equatable, Sendable {
             self.detail = "\(handleLine) · \(job) · \(providerName)"
         }
         let clean = MarkdownPlainText.firstLine(AgentReplyQuote.strippingQuote(preview))
-        self.preview = clean.isEmpty || clean == "No job yet" ? nil : clean
+        self.preview = clean.isEmpty || clean == L("No job yet") ? nil : clean
         self.symbol = bot.avatarSymbol
         self.startedAt = startedAt
     }
@@ -49,7 +49,7 @@ public struct ActiveBotScreenItem: Identifiable, Equatable, Sendable {
         Self.timestampLabel(startedAt)
     }
 
-    public var nextRunLabel: String { "Running now" }
+    public var nextRunLabel: String { L("Running now") }
 
     static func timestampLabel(_ date: Date?) -> String {
         guard let date else { return "—" }
@@ -162,11 +162,11 @@ public struct ActiveBotsRootView: View {
     private var searchField: some View {
         AgentListSearchField(
             text: $vm.activeBotsSearchText,
-            placeholder: "Search bots",
+            placeholder: L("Search bots"),
             identifier: "activeBots.search",
-            accessibilityLabel: "Search bots"
+            accessibilityLabel: L("Search bots")
         )
-        .accessibilityLabel("Search bots")
+        .accessibilityLabel(L("Search bots"))
     }
 
     @ViewBuilder
@@ -185,10 +185,10 @@ public struct ActiveBotsRootView: View {
             if items.isEmpty {
                 DSEmptyState(
                     icon: "bolt.horizontal.circle",
-                    title: vm.activeBotsSearchText.isEmpty ? "No active bots" : "No matching bots",
+                    title: vm.activeBotsSearchText.isEmpty ? L("No active bots") : L("No matching bots"),
                     subtitle: vm.activeBotsSearchText.isEmpty
-                        ? "Bot runs in progress will show up here with name and provider context."
-                        : "Try another search or clear the status filter."
+                        ? L("Bot runs in progress will show up here with name and provider context.")
+                        : L("Try another search or clear the status filter.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -214,10 +214,10 @@ public struct ActiveBotsRootView: View {
             if items.isEmpty {
                 DSEmptyState(
                     icon: "checkmark.circle",
-                    title: vm.activeBotsSearchText.isEmpty ? "No recent finished runs" : "No matching bots",
+                    title: vm.activeBotsSearchText.isEmpty ? L("No recent finished runs") : L("No matching bots"),
                     subtitle: vm.activeBotsSearchText.isEmpty
-                        ? "Completed, failed, cancelled, and interrupted bot runs appear here."
-                        : "Try another search or clear the status filter."
+                        ? L("Completed, failed, cancelled, and interrupted bot runs appear here.")
+                        : L("Try another search or clear the status filter.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -240,7 +240,7 @@ public struct ActiveBotsRootView: View {
     private var footerBar: some View {
         AgentListFooterBar(
             caption: vm.activeBotsFooterLine,
-            pillTitle: vm.activeBotCount > 0 ? "Live" : "Idle",
+            pillTitle: vm.activeBotCount > 0 ? L("Live") : L("Idle"),
             pillTone: vm.activeBotCount > 0 ? .warning : .neutral
         )
         .accessibilityLabel(vm.activeBotsFooterLine)
@@ -260,12 +260,12 @@ struct ActiveBotCard: View {
             identifier: "activeBots.active.\(item.botID.value.uuidString.lowercased())",
             onOpen: onOpen
         ) {
-            DSPill("Running", tone: .success)
+            DSPill(L("Running"), tone: .success)
         } meta: {
             HStack(alignment: .center, spacing: DS.Space.xl) {
-                AgentOverviewMetaColumn(title: "Last Triggered", value: item.lastTriggeredLabel)
+                AgentOverviewMetaColumn(title: L("Last Triggered"), value: item.lastTriggeredLabel)
                 AgentOverviewMetaColumn(
-                    title: "Next Run",
+                    title: L("Next Run"),
                     value: item.nextRunLabel,
                     valueColor: DS.Palette.warning
                 )
@@ -281,7 +281,7 @@ struct ActiveBotCard: View {
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
-            .accessibilityLabel("Bot actions")
+            .accessibilityLabel(L("Bot actions"))
         }
     }
 }
@@ -302,8 +302,8 @@ private struct FinishedBotCard: View {
             statusPill
         } meta: {
             HStack(alignment: .center, spacing: DS.Space.xl) {
-                AgentOverviewMetaColumn(title: "Last Triggered", value: item.lastTriggeredLabel)
-                AgentOverviewMetaColumn(title: "Next Run", value: item.nextRunLabel)
+                AgentOverviewMetaColumn(title: L("Last Triggered"), value: item.lastTriggeredLabel)
+                AgentOverviewMetaColumn(title: L("Next Run"), value: item.nextRunLabel)
             }
         } trailing: {
             Menu {
@@ -316,7 +316,7 @@ private struct FinishedBotCard: View {
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
-            .accessibilityLabel("Bot actions")
+            .accessibilityLabel(L("Bot actions"))
         }
     }
 
@@ -342,12 +342,12 @@ private struct FinishedBotCard: View {
     @ViewBuilder
     private var statusPill: some View {
         switch item.status {
-        case .completed: DSPill("Completed", tone: .success)
-        case .failed: DSPill("Failed", tone: .danger)
-        case .cancelled: DSPill("Cancelled", tone: .neutral)
-        case .interrupted: DSPill("Interrupted", tone: .warning)
-        case .pending: DSPill("Pending", tone: .warning)
-        case .running: DSPill("Running", tone: .warning)
+        case .completed: DSPill(L("Completed"), tone: .success)
+        case .failed: DSPill(L("Failed"), tone: .danger)
+        case .cancelled: DSPill(L("Cancelled"), tone: .neutral)
+        case .interrupted: DSPill(L("Interrupted"), tone: .warning)
+        case .pending: DSPill(L("Pending"), tone: .warning)
+        case .running: DSPill(L("Running"), tone: .warning)
         }
     }
 }

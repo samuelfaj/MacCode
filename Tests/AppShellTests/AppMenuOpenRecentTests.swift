@@ -21,9 +21,9 @@ final class AppMenuOpenRecentTests: XCTestCase {
     func test_fileMenuDefinesOpenRecentSubmenuWithClearMenuAction() throws {
         let source = try appDelegateSource()
 
-        let fileMenu = try XCTUnwrap(source.range(of: "let fileMenu = NSMenu(title: \"File\")"))
-        let openRecent = try XCTUnwrap(source.range(of: "let openRecent = NSMenuItem(title: \"Open Recent\", action: nil, keyEquivalent: \"\")"))
-        let openRecentMenu = try XCTUnwrap(source.range(of: "let openRecentMenu = NSMenu(title: \"Open Recent\")"))
+        let fileMenu = try XCTUnwrap(source.range(of: "let fileMenu = NSMenu(title: L(\"File\"))"))
+        let openRecent = try XCTUnwrap(source.range(of: "let openRecent = NSMenuItem(title: L(\"Open Recent\"), action: nil, keyEquivalent: \"\")"))
+        let openRecentMenu = try XCTUnwrap(source.range(of: "let openRecentMenu = NSMenu(title: L(\"Open Recent\"))"))
         let clearRecent = try XCTUnwrap(source.range(of: "Selector((\"clearRecentDocuments:\"))"))
 
         XCTAssertLessThan(fileMenu.lowerBound, openRecent.lowerBound,

@@ -51,7 +51,7 @@ private struct ActivityTerminalText: NSViewRepresentable {
             text.textContainer?.widthTracksTextView = false
             text.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
             text.textContainerInset = NSSize(width: DS.Space.lg, height: DS.Space.lg)
-            text.setAccessibilityLabel("Terminal output")
+            text.setAccessibilityLabel(L("Terminal output"))
         }
         return scroll
     }

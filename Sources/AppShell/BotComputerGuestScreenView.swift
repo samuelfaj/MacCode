@@ -208,12 +208,12 @@ struct BotComputerGuestCanvas: View {
                                 ProgressView()
                                     .controlSize(.small)
                             }
-                            Text(rebuilding ? "Rebuilding…" : "Rebuild")
+                            Text(rebuilding ? L("Rebuilding…") : L("Rebuild"))
                         }
                     }
                     .buttonStyle(.bordered)
                     .disabled(rebuilding)
-                    .accessibilityLabel(rebuilding ? "Rebuilding Linux desktop" : "Rebuild Linux desktop")
+                    .accessibilityLabel(rebuilding ? L("Rebuilding Linux desktop") : L("Rebuild Linux desktop"))
                     .accessibilityIdentifier(rebuildIdentifier)
                     Button(L("Stop"), action: onStop)
                         .buttonStyle(.bordered)
@@ -236,7 +236,7 @@ struct BotComputerGuestCanvas: View {
                     .accessibilityIdentifier(startIdentifier)
                 }
                 if let onOpenInNewWindow {
-                    DSIconButton("rectangle.on.rectangle", help: "Open in New Window") {
+                    DSIconButton("rectangle.on.rectangle", help: L("Open in New Window")) {
                         onOpenInNewWindow()
                     }
                     .accessibilityIdentifier(openInNewWindowIdentifier)
@@ -250,10 +250,10 @@ struct BotComputerGuestCanvas: View {
                         do {
                             let paths = try importFiles(urls)
                             importMessage = paths.count == 1
-                                ? "Copied to \(paths[0])"
-                                : "Copied \(paths.count) items to ~/Downloads"
+                                ? L("Copied to %1$@", paths[0])
+                                : L("Copied %1$@ items to ~/Downloads", paths.count)
                         } catch {
-                            importMessage = "Could not copy to the Linux desktop: \(error.localizedDescription)"
+                            importMessage = L("Could not copy to the Linux desktop: %1$@", error.localizedDescription)
                         }
                     }
                 })
@@ -323,12 +323,12 @@ struct BotComputerGuestCanvas: View {
     }
 
     private var startButtonTitle: String {
-        if launchState.isStarting { return "Starting…" }
-        return launchState.failureMessage == nil ? "Start" : "Try Again"
+        if launchState.isStarting { return L("Starting…") }
+        return launchState.failureMessage == nil ? L("Start") : L("Try Again")
     }
 
     private var startButtonAccessibilityLabel: String {
-        if launchState.isStarting { return "Starting Linux desktop" }
+        if launchState.isStarting { return L("Starting Linux desktop") }
         if case .failed(let message) = launchState,
            let recovery = BotComputerDockerRecovery.matching(message) {
             return recovery.accessibilityAction
@@ -340,6 +340,6 @@ struct BotComputerGuestCanvas: View {
         if case .failed(let message) = launchState {
             return BotComputerDockerRecovery.matching(message)?.accessibilityLabel ?? message
         }
-        return "Starts the Linux desktop."
+        return L("Starts the Linux desktop.")
     }
 }

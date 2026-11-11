@@ -79,7 +79,7 @@ public struct DeviceRowFormatter {
         if let ls = d.lastSeenAt {
             parts.append("seen " + relativeFormatter.localizedString(for: ls, relativeTo: now))
         }
-        if d.alwaysAllowPairing { parts.append("always allow") }
+        if d.alwaysAllowPairing { parts.append(L("always allow")) }
         if d.revokedAt != nil { parts.append("revoked") }
         return parts.joined(separator: " \u{00B7} ")
     }
@@ -438,7 +438,7 @@ public final class SettingsViewModel: ObservableObject {
     @Published public var privateAccountEmail: String = ""
     @Published public var privateAccountPassword: String = ""
     @Published public var privateAccountUser: PrivateAccountUser?
-    @Published public var privateAccountStatus: String = "Optional"
+    @Published public var privateAccountStatus: String = L("Optional")
     @Published public var privateAccountBusy: Bool = false
     @Published public var privateBillingPortalURL: URL?
     @Published public var updateAvailability: AppUpdateAvailability = .unknown
@@ -474,13 +474,13 @@ public final class SettingsViewModel: ObservableObject {
     /// The server accepted the credentials but the Mac could not write the
     /// session to settings. Distinct from a sign-in failure: retrying the
     /// credentials is not the fix, and the account is not usable locally.
-    static let sessionNotPersistedStatus = "Signed in, but the session could not be saved"
+    static let sessionNotPersistedStatus = L("Signed in, but the session could not be saved")
 
     /// Status strings that represent a sign-in/refresh failure (used by the
     /// signed-out form to decide whether to show the inline error hint).
     static let signInFailureStatuses: Set<String> = [
-        "Sign in failed", "No internet connection", "Too many attempts, wait a minute",
-        "Service unavailable", "Service error", "Session expired", sessionNotPersistedStatus
+        L("Sign in failed"), L("No internet connection"), L("Too many attempts, wait a minute"),
+        L("Service unavailable"), L("Service error"), L("Session expired"), sessionNotPersistedStatus
     ]
 
     /// Maps transport/API errors to distinct, actionable status copy so 401,
@@ -490,26 +490,26 @@ public final class SettingsViewModel: ObservableObject {
             switch apiError {
             case .http(let code):
                 switch code {
-                case 401, 403: return "Sign in failed"
-                case 429: return "Too many attempts, wait a minute"
-                case 500...599: return "Service unavailable"
-                default: return "Service error"
+                case 401, 403: return L("Sign in failed")
+                case 429: return L("Too many attempts, wait a minute")
+                case 500...599: return L("Service unavailable")
+                default: return L("Service error")
                 }
             case .invalidResponse, .conflict:
-                return "Service error"
+                return L("Service error")
             }
         }
         if let urlError = error as? URLError {
             switch urlError.code {
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
-                return "No internet connection"
+                return L("No internet connection")
             case .timedOut, .cannotConnectToHost, .cannotFindHost:
-                return "Service unavailable"
+                return L("Service unavailable")
             default:
-                return "No internet connection"
+                return L("No internet connection")
             }
         }
-        return "Sign in failed"
+        return L("Sign in failed")
     }
 
     public init(
@@ -603,7 +603,7 @@ public final class SettingsViewModel: ObservableObject {
                 // Read the HTTP server failure reason, if any.
                 let delegate = notification.object as? AppDelegate
 	                let reason = delegate?.serverStartupFailures
-	                    .last(where: { $0.server == "HTTP server" })?.reason ?? "Listener failed to bind"
+	                    .last(where: { $0.server == "HTTP server" })?.reason ?? L("Listener failed to bind")
 	                // Revert the stored preference so it matches the actual listener state.
 	                do {
 	                    try self.settingsRepo.set("remote_access_enabled", "0")
@@ -652,7 +652,7 @@ public final class SettingsViewModel: ObservableObject {
                 try manager.snapshot()
             }.value
         } catch {
-            storageOperationStatus = "Storage usage could not be read: \(String(describing: error))"
+            storageOperationStatus = L("Storage usage could not be read: %1$@", String(describing: error))
         }
     }
 
@@ -668,14 +668,14 @@ public final class SettingsViewModel: ObservableObject {
             storageSnapshot = result.snapshot
             let removed = result.removedRows.values.reduce(0, +)
             if result.compacted {
-                storageOperationStatus = "Removed \(removed) expired item\(removed == 1 ? "" : "s") and compacted the database."
+                storageOperationStatus = (removed == 1 ? L("Removed %1$@ expired item and compacted the database.", removed) : L("Removed %1$@ expired items and compacted the database.", removed))
             } else if let reason = result.compactionSkippedReason {
-                storageOperationStatus = "Removed \(removed) expired item\(removed == 1 ? "" : "s"). \(reason.message)"
+                storageOperationStatus = (removed == 1 ? L("Removed %1$@ expired item. %2$@", removed, reason.message) : L("Removed %1$@ expired items. %2$@", removed, reason.message))
             } else {
-                storageOperationStatus = "Removed \(removed) expired item\(removed == 1 ? "" : "s")."
+                storageOperationStatus = (removed == 1 ? L("Removed %1$@ expired item.", removed) : L("Removed %1$@ expired items.", removed))
             }
         } catch {
-            storageOperationStatus = "Storage cleanup failed: \(String(describing: error))"
+            storageOperationStatus = L("Storage cleanup failed: %1$@", String(describing: error))
         }
     }
 
@@ -734,11 +734,11 @@ public final class SettingsViewModel: ObservableObject {
         if let session = privateAccountStore.load() {
             privateAccountUser = session.user
             privateAccountEmail = session.user.email
-            privateAccountStatus = session.user.subscribed ? "Subscription active" : "Signed in; subscription required for backend push"
+            privateAccountStatus = session.user.subscribed ? L("Subscription active") : L("Signed in; subscription required for backend push")
             privateBillingPortalURL = nil
         } else {
             privateAccountUser = nil
-            privateAccountStatus = "Optional"
+            privateAccountStatus = L("Optional")
             privateBillingPortalURL = nil
         }
     }
@@ -1089,7 +1089,7 @@ public final class SettingsViewModel: ObservableObject {
     public func updateProvider(_ provider: AgentProvider) async {
         guard !updatingProviders.contains(provider) else { return }
         guard let router = context.router else {
-            providerUpdateMessages[provider] = "Update unavailable: app router is not ready."
+            providerUpdateMessages[provider] = L("Update unavailable: app router is not ready.")
             return
         }
         updatingProviders.insert(provider)
@@ -1103,17 +1103,17 @@ public final class SettingsViewModel: ObservableObject {
             let stdout = object["stdout"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let stderr = object["stderr"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if ok {
-                providerUpdateMessages[provider] = stdout.isEmpty ? "Update completed." : stdout
+                providerUpdateMessages[provider] = stdout.isEmpty ? L("Update completed.") : stdout
             } else {
                 let detail = stderr.isEmpty ? stdout : stderr
-                providerUpdateMessages[provider] = detail.isEmpty ? "Update failed with status \(status)." : "Update failed with status \(status): \(detail)"
+                providerUpdateMessages[provider] = detail.isEmpty ? L("Update failed with status %1$@.", status) : L("Update failed with status %1$@: %2$@", status, detail)
             }
         } catch let error as JSONRPCError where error.code == AppCommandRouter.providerUpdateAlreadyRunningCode {
             // The automatic Distill update (or another surface) holds the
             // update lock: an update is in progress, not failed.
-            providerUpdateMessages[provider] = "\(providerDisplayName(provider)) is already updating."
+            providerUpdateMessages[provider] = L("%1$@ is already updating.", providerDisplayName(provider))
         } catch {
-            providerUpdateMessages[provider] = "Update failed: \(error)"
+            providerUpdateMessages[provider] = L("Update failed: %1$@", error)
         }
     }
 
@@ -1139,7 +1139,7 @@ public final class SettingsViewModel: ObservableObject {
                 serverId: serverId
             )
         } catch {
-            pairingCodeError = "Could not generate a pairing code: \(error.localizedDescription)"
+            pairingCodeError = L("Could not generate a pairing code: %1$@", error.localizedDescription)
             pairingQRPayload = nil
         }
     }
@@ -1149,7 +1149,7 @@ public final class SettingsViewModel: ObservableObject {
             try trustRepo.revoke(id: id)
             revokeErrorMessage = nil
         } catch {
-            revokeErrorMessage = "Revoke failed: \(error.localizedDescription). The device may still be able to connect."
+            revokeErrorMessage = L("Revoke failed: %1$@. The device may still be able to connect.", error.localizedDescription)
         }
         reload()
     }
@@ -1186,7 +1186,7 @@ public final class SettingsViewModel: ObservableObject {
             }
             privateAccountPassword = ""
             privateAccountUser = verified.user
-            privateAccountStatus = verified.user.subscribed ? "Subscription active" : "Signed in; subscription required for backend push"
+            privateAccountStatus = verified.user.subscribed ? L("Subscription active") : L("Signed in; subscription required for backend push")
             privateBillingPortalURL = nil
         } catch {
             Self.accountLog.error("Private account sign-in failed: \(String(describing: error), privacy: .public)")
@@ -1197,7 +1197,7 @@ public final class SettingsViewModel: ObservableObject {
     public func refreshPrivateAccount() async {
         guard !privateAccountBusy else { return }
         guard let stored = privateAccountStore.load() else {
-            privateAccountStatus = "Optional"
+            privateAccountStatus = L("Optional")
             return
         }
         privateAccountBusy = true
@@ -1208,7 +1208,7 @@ public final class SettingsViewModel: ObservableObject {
             privateAccountStore.save(verified)
             privateAccountUser = user
             privateAccountEmail = user.email
-            privateAccountStatus = user.subscribed ? "Subscription active" : "Signed in; subscription required for backend push"
+            privateAccountStatus = user.subscribed ? L("Subscription active") : L("Signed in; subscription required for backend push")
         } catch {
             do {
                 let refreshed = try await privateAccountAPI.refresh(refreshToken: stored.refreshToken)
@@ -1222,14 +1222,14 @@ public final class SettingsViewModel: ObservableObject {
                 }
                 privateAccountUser = refreshed.user
                 privateAccountEmail = refreshed.user.email
-                privateAccountStatus = refreshed.user.subscribed ? "Subscription active" : "Signed in; subscription required for backend push"
+                privateAccountStatus = refreshed.user.subscribed ? L("Subscription active") : L("Signed in; subscription required for backend push")
             } catch {
                 Self.accountLog.error("Private account refresh failed: \(String(describing: error), privacy: .public)")
                 // The push refresher may have stored a newer session meanwhile.
                 if let current = privateAccountStore.load(), current.accessToken != stored.accessToken {
                     privateAccountUser = current.user
                     privateAccountEmail = current.user.email
-                    privateAccountStatus = current.user.subscribed ? "Subscription active" : "Signed in; subscription required for backend push"
+                    privateAccountStatus = current.user.subscribed ? L("Subscription active") : L("Signed in; subscription required for backend push")
                     return
                 }
                 // Only the backend's auth rejection ends the session.
@@ -1240,7 +1240,7 @@ public final class SettingsViewModel: ObservableObject {
                 privateAccountStore.clear()
                 privateAccountUser = nil
                 privateBillingPortalURL = nil
-                privateAccountStatus = "Session expired"
+                privateAccountStatus = L("Session expired")
             }
         }
     }
@@ -1248,7 +1248,7 @@ public final class SettingsViewModel: ObservableObject {
     public func openPrivateBillingPortal() async {
         guard !privateAccountBusy else { return }
         guard let stored = privateAccountStore.load() else {
-            privateAccountStatus = "Sign in required"
+            privateAccountStatus = L("Sign in required")
             return
         }
         privateAccountBusy = true
@@ -1260,7 +1260,7 @@ public final class SettingsViewModel: ObservableObject {
             openURL(url)
         } catch {
             Self.accountLog.error("Private account billing portal failed: \(String(describing: error), privacy: .public)")
-            privateAccountStatus = "Billing portal unavailable"
+            privateAccountStatus = L("Billing portal unavailable")
         }
     }
 
@@ -1272,7 +1272,7 @@ public final class SettingsViewModel: ObservableObject {
         privateAccountStore.clear()
         privateAccountPassword = ""
         privateAccountUser = nil
-        privateAccountStatus = "Optional"
+        privateAccountStatus = L("Optional")
         privateBillingPortalURL = nil
     }
 
@@ -1335,7 +1335,7 @@ public final class SettingsViewModel: ObservableObject {
     }
 
     static func settingsWriteErrorMessage(_ error: Error) -> String {
-        "Settings could not be saved: \(error.localizedDescription). The change will revert on next launch."
+        L("Settings could not be saved: %1$@. The change will revert on next launch.", error.localizedDescription)
     }
 }
 
@@ -1586,7 +1586,7 @@ public struct SettingsView: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .accessibilityLabel("Settings category \(vm.selectedCategory.title)")
+        .accessibilityLabel(L("Settings category %1$@", vm.selectedCategory.title))
         .accessibilityIdentifier("settings.category.menu")
     }
 
@@ -1618,7 +1618,7 @@ public struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(DS.Palette.danger)
-                    .accessibilityLabel("Dismiss")
+                    .accessibilityLabel(L("Dismiss"))
                     .accessibilityIdentifier("settings.writeError.dismiss")
                 }
                 .padding(DS.Space.sm)
@@ -1684,7 +1684,7 @@ public struct SettingsView: View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             AgentChoiceSearchField(
                 query: $categoryQuery,
-                placeholder: "Search settings",
+                placeholder: L("Search settings"),
                 accessibilityIdentifier: "settings.search"
             )
             ScrollView {
@@ -1844,8 +1844,8 @@ public struct SettingsView: View {
 
     private var remoteAccessSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            DSSectionHeaderG("Remote Access")
-            settingRow("Allow iPhone or iPad on your network") {
+            DSSectionHeaderG(L("Remote Access"))
+            settingRow(L("Allow iPhone or iPad on your network")) {
                 Toggle("", isOn: Binding(
                     get: { vm.remoteAccessEnabled },
                     set: { vm.setRemoteAccess($0) }
@@ -1869,8 +1869,8 @@ public struct SettingsView: View {
 
     private var diffDefaultsSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            DSSectionHeaderG("Diff Defaults")
-            settingRow("Word wrap") {
+            DSSectionHeaderG(L("Diff Defaults"))
+            settingRow(L("Word wrap")) {
                 Toggle("", isOn: Binding(
                     get: { vm.appSettings.diffWordWrap },
                     set: { vm.setDiffWordWrap($0) }
@@ -1878,7 +1878,7 @@ public struct SettingsView: View {
                 .labelsHidden()
                 .accessibilityIdentifier("settings.diff.wordWrap.toggle")
             }
-            settingRow("Ignore whitespace") {
+            settingRow(L("Ignore whitespace")) {
                 Toggle("", isOn: Binding(
                     get: { vm.appSettings.diffIgnoreWhitespace },
                     set: { vm.setDiffIgnoreWhitespace($0) }
@@ -1895,8 +1895,8 @@ public struct SettingsView: View {
 
     private var sidebarSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            DSSectionHeaderG("Sidebar")
-            settingRow("Workspace sort order") {
+            DSSectionHeaderG(L("Sidebar"))
+            settingRow(L("Workspace sort order")) {
                 Picker("", selection: Binding(
                     get: { vm.appSettings.sidebarSort },
                     set: { vm.setSidebarSort($0) }
@@ -1915,8 +1915,8 @@ public struct SettingsView: View {
 
     private var terminalSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            DSSectionHeaderG("Terminal")
-            settingRow("Font size") {
+            DSSectionHeaderG(L("Terminal"))
+            settingRow(L("Font size")) {
                 Picker("", selection: Binding(
                     get: { TerminalFontSizeSetting.normalized(vm.appSettings.terminalFontSize) },
                     set: { vm.setTerminalFontSize($0) }
@@ -1940,10 +1940,10 @@ public struct SettingsView: View {
 
     private var petSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            DSSectionHeaderG("Desktop Pet")
+            DSSectionHeaderG(L("Desktop Pet"))
                 .accessibilityIdentifier("settings.pet.section")
 
-            settingRow("Show black cat pet") {
+            settingRow(L("Show black cat pet")) {
                 Toggle("", isOn: Binding(
                     get: { vm.appSettings.petEnabled },
                     set: { vm.setPetEnabled($0) }
@@ -1953,7 +1953,7 @@ public struct SettingsView: View {
             }
 
             if vm.appSettings.petEnabled {
-                settingRow("Play animations") {
+                settingRow(L("Play animations")) {
                     Toggle("", isOn: Binding(
                         get: { vm.appSettings.petAnimationsEnabled },
                         set: { vm.setPetAnimationsEnabled($0) }
@@ -1962,7 +1962,7 @@ public struct SettingsView: View {
                     .accessibilityIdentifier("settings.pet.animations.toggle")
                 }
 
-                settingRow("Show ready counter") {
+                settingRow(L("Show ready counter")) {
                     Toggle("", isOn: Binding(
                         get: { vm.appSettings.petReadyCounterEnabled },
                         set: { vm.setPetReadyCounterEnabled($0) }
@@ -1971,7 +1971,7 @@ public struct SettingsView: View {
                     .accessibilityIdentifier("settings.pet.counter.toggle")
                 }
 
-                settingRow("Titio speaks from the pet") {
+                settingRow(L("Titio speaks from the pet")) {
                     Toggle("", isOn: Binding(
                         get: { vm.appSettings.petSpeechEnabled },
                         set: { vm.setPetSpeechEnabled($0) }
@@ -1980,7 +1980,7 @@ public struct SettingsView: View {
                     .accessibilityIdentifier("settings.pet.speech.toggle")
                 }
 
-                settingRow("Reduce motion") {
+                settingRow(L("Reduce motion")) {
                     Toggle("", isOn: Binding(
                         get: { vm.appSettings.petReduceMotion },
                         set: { vm.setPetReduceMotion($0) }
@@ -1989,7 +1989,7 @@ public struct SettingsView: View {
                     .accessibilityIdentifier("settings.pet.reduceMotion.toggle")
                 }
 
-                settingRow("Position") {
+                settingRow(L("Position")) {
                     Picker("", selection: Binding(
                         get: { vm.appSettings.petPosition },
                         set: { vm.setPetPosition($0) }
@@ -2003,7 +2003,7 @@ public struct SettingsView: View {
                     .accessibilityIdentifier("settings.pet.position.picker")
                 }
 
-                settingRow("Size") {
+                settingRow(L("Size")) {
                     Picker("", selection: Binding(
                         get: { vm.appSettings.petSize },
                         set: { vm.setPetSize($0) }
@@ -2018,7 +2018,7 @@ public struct SettingsView: View {
                     .accessibilityIdentifier("settings.pet.size.picker")
                 }
 
-                settingRow("Attention items") {
+                settingRow(L("Attention items")) {
                     Picker("", selection: Binding(
                         get: { vm.appSettings.petAttentionFilter },
                         set: { vm.setPetAttentionFilter($0) }
@@ -2052,8 +2052,8 @@ public struct SettingsView: View {
 
     private var insomniaSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            DSSectionHeaderG("Insomnia")
-            settingRow("Keep Mac awake while agents run") {
+            DSSectionHeaderG(L("Insomnia"))
+            settingRow(L("Keep Mac awake while agents run")) {
                 Toggle("", isOn: Binding(
                     get: { vm.appSettings.insomniaEnabled },
                     set: { vm.setInsomniaEnabled($0) }
@@ -2062,7 +2062,7 @@ public struct SettingsView: View {
                 .accessibilityIdentifier("settings.insomnia.enabled.toggle")
             }
             if vm.appSettings.insomniaEnabled {
-                settingRow("Allow display to sleep") {
+                settingRow(L("Allow display to sleep")) {
                     Toggle("", isOn: Binding(
                         get: { vm.appSettings.insomniaAllowDisplaySleep },
                         set: { vm.setInsomniaAllowDisplaySleep($0) }
@@ -2070,7 +2070,7 @@ public struct SettingsView: View {
                     .labelsHidden()
                     .accessibilityIdentifier("settings.insomnia.allowDisplaySleep.toggle")
                 }
-                settingRow("Allow system sleep when lid closed") {
+                settingRow(L("Allow system sleep when lid closed")) {
                     Toggle("", isOn: Binding(
                         get: { vm.appSettings.insomniaAllowSystemSleepWhenDisplayClosed },
                         set: { vm.setInsomniaAllowSystemSleepWhenDisplayClosed($0) }
@@ -2078,7 +2078,7 @@ public struct SettingsView: View {
                     .labelsHidden()
                     .accessibilityIdentifier("settings.insomnia.allowSystemSleepWhenDisplayClosed.toggle")
                 }
-                settingRow("Allow screen saver after 45 min idle") {
+                settingRow(L("Allow screen saver after 45 min idle")) {
                     Toggle("", isOn: Binding(
                         get: { vm.appSettings.insomniaAllowScreenSaverAfter45MinutesOfInactivity },
                         set: { vm.setInsomniaAllowScreenSaverAfter45MinutesOfInactivity($0) }
@@ -2096,8 +2096,8 @@ public struct SettingsView: View {
 
     private var botsSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            DSSectionHeaderG("Bots")
-            settingRow("Control plane") {
+            DSSectionHeaderG(L("Bots"))
+            settingRow(L("Control plane")) {
                 Toggle("", isOn: Binding(
                     get: { vm.appSettings.botsControlPlaneEnabled },
                     set: { vm.setBotsControlPlaneEnabled($0) }
@@ -2108,7 +2108,7 @@ public struct SettingsView: View {
             Text(L("Create and message durable named teammates. A Bot is not an Agent thread."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
-            settingRow("Memory") {
+            settingRow(L("Memory")) {
                 Toggle("", isOn: Binding(
                     get: { vm.appSettings.botsMemoryEnabled },
                     set: { vm.setBotsMemoryEnabled($0) }
@@ -2120,7 +2120,7 @@ public struct SettingsView: View {
             Text(L("Remember facts and corrections. Corrections write a new revision; they do not rewrite the old one."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
-            settingRow("Effects (host-brokered writes)") {
+            settingRow(L("Effects (host-brokered writes)")) {
                 Toggle("", isOn: Binding(
                     get: { vm.appSettings.botsEffectsEnabled },
                     set: { vm.setBotsEffectsEnabled($0) }
@@ -2132,7 +2132,7 @@ public struct SettingsView: View {
             Text(L("P1b. Host-brokered writes stay off until that phase ships."))
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
-            settingRow("Autonomy / unattended routines") {
+            settingRow(L("Autonomy / unattended routines")) {
                 Toggle("", isOn: Binding(
                     get: { vm.appSettings.botsAutonomyEnabled },
                     set: { vm.setBotsAutonomyEnabled($0) }
@@ -2144,7 +2144,7 @@ public struct SettingsView: View {
             Text(BotRoutineCopy.testRunHonestyCaption)
                 .font(DS.Font.caption)
                 .foregroundColor(DS.Palette.textTertiary)
-            settingRow("Channels") {
+            settingRow(L("Channels")) {
                 Toggle("", isOn: Binding(
                     get: { vm.appSettings.botsChannelsEnabled },
                     set: { vm.setBotsChannelsEnabled($0) }
@@ -2170,9 +2170,9 @@ public struct SettingsView: View {
 
     private var storageSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            DSSectionHeaderG("Storage")
+            DSSectionHeaderG(L("Storage"))
             if let snapshot = vm.storageSnapshot {
-                settingRow("Local database") {
+                settingRow(L("Local database")) {
                     Text(Self.storageByteLabel(snapshot.databaseBytes))
                         .font(DS.Font.body)
                         .foregroundColor(DS.Palette.textSecondary)
@@ -2201,7 +2201,7 @@ public struct SettingsView: View {
                         .foregroundColor(DS.Palette.textTertiary)
                 }
             } else {
-                Text(vm.storageOperationInProgress ? "Reading local storage…" : "Storage usage is unavailable.")
+                Text(vm.storageOperationInProgress ? L("Reading local storage…") : L("Storage usage is unavailable."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textTertiary)
             }
@@ -2224,7 +2224,7 @@ public struct SettingsView: View {
                 if vm.storageOperationInProgress {
                     ProgressView()
                         .controlSize(.small)
-                        .accessibilityLabel("Storage operation in progress")
+                        .accessibilityLabel(L("Storage operation in progress"))
                 }
             }
             Text(L("Cleanup removes only diagnostics and unreferenced local payloads older than 30 days. Referenced attachments and recoverable [[rc:handle]] originals are preserved."))
@@ -2248,7 +2248,7 @@ public struct SettingsView: View {
 
     private var customModelsSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            DSSectionHeaderG("Custom Models")
+            DSSectionHeaderG(L("Custom Models"))
             let hasModels = AgentProvider.selectable.contains { !(vm.customModelsByProvider[$0] ?? []).isEmpty }
             if !hasModels {
                 Text(L("No custom models saved. Add one from the Agent model menu."))
@@ -2281,7 +2281,7 @@ public struct SettingsView: View {
                                         .font(.system(size: 12, weight: .semibold))
                                         .frame(width: 18, height: 18)
                                 }
-                                .help("Remove custom model")
+                                .help(L("Remove custom model"))
                                 .buttonStyle(DSSecondaryButtonStyle())
                                 .accessibilityIdentifier("settings.customModel.\(provider.rawValue).\(index).remove")
                             }
@@ -2295,7 +2295,7 @@ public struct SettingsView: View {
 
     private var trustedDevicesSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            DSSectionHeaderG("Trusted Devices")
+            DSSectionHeaderG(L("Trusted Devices"))
             if !vm.remoteAccessEnabled {
                 Text(L("Turn on Remote Access for paired devices to reach this Mac. A pairing code generated while it's off won't be reachable from another device."))
                     .font(DS.Font.caption)
@@ -2309,7 +2309,7 @@ public struct SettingsView: View {
                         now: context.date
                     )
                     HStack(spacing: DS.Space.lg) {
-                        Button(countdown.expired ? "Generate again" : "Generate pairing code") { vm.createPairingCode() }
+                        Button(countdown.expired ? L("Generate again") : L("Generate pairing code")) { vm.createPairingCode() }
                             .buttonStyle(DSSecondaryButtonStyle())
                             .accessibilityIdentifier("settings.pairing.generate")
                         Text(c).font(DS.Font.title2.monospaced())
@@ -2324,7 +2324,7 @@ public struct SettingsView: View {
                                 .font(.system(size: 12, weight: .semibold))
                                 .frame(width: 18, height: 18)
                         }
-                        .help("Copy pairing code")
+                        .help(L("Copy pairing code"))
                         .buttonStyle(DSSecondaryButtonStyle())
                         .disabled(countdown.expired)
                         .accessibilityIdentifier("settings.pairing.copy")
@@ -2390,7 +2390,7 @@ public struct SettingsView: View {
                                 DSPill("revoked", tone: .danger)
                             } else {
                                 if d.alwaysAllowPairing {
-                                    DSPill("always allow", tone: .success)
+                                    DSPill(L("always allow"), tone: .success)
                                     Button(L("Disable Always Allow")) {
                                         vm.setAlwaysAllowPairing(deviceID: d.id, enabled: false)
                                     }
@@ -2454,15 +2454,15 @@ public struct SettingsView: View {
         if let lastSeen = d.lastSeenAt {
             parts.append("seen " + Self.deviceRelativeFormatter.localizedString(for: lastSeen, relativeTo: Date()))
         }
-        if d.alwaysAllowPairing { parts.append("always allow") }
+        if d.alwaysAllowPairing { parts.append(L("always allow")) }
         return parts.joined(separator: " \u{00B7} ")
     }
 
     private var diagnosticsSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            DSSectionHeaderG("Diagnostics")
+            DSSectionHeaderG(L("Diagnostics"))
             cliPathRow(
-                label: "Distill path",
+                label: L("Distill path"),
                 draft: $distillPathDraft,
                 onDraftChange: { vm.setDistillPath($0, committed: false) },
                 onCommit: { vm.setDistillPath(distillPathDraft, committed: true) },
@@ -2735,9 +2735,9 @@ extension SettingsView {
 
     private var updateStatusText: String? {
         switch vm.updateAvailability {
-        case .available: return "An update is available."
-        case .upToDate: return "MacCode is up to date."
-        case .failed(let message): return "Update check failed: \(message)"
+        case .available: return L("An update is available.")
+        case .upToDate: return L("MacCode is up to date.")
+        case .failed(let message): return L("Update check failed: %1$@", message)
         case .checking, .unknown: return nil
         }
     }
@@ -2772,7 +2772,7 @@ extension SettingsView {
                 if updating {
                     ProgressView().controlSize(.small).scaleEffect(0.6)
                 }
-                Button(updating ? "Updating..." : "Update") {
+                Button(updating ? L("Updating...") : "Update") {
                     Task { await vm.updateProvider(provider) }
                 }
                 .buttonStyle(DSSecondaryButtonStyle())
@@ -2802,7 +2802,7 @@ extension SettingsView {
                         .lineLimit(expanded ? nil : 3)
                         .accessibilityIdentifier("settings.cli.\(provider.rawValue).updateMessage")
                     if isLong {
-                        Button(expanded ? "Hide details" : "Show details") {
+                        Button(expanded ? L("Hide details") : L("Show details")) {
                             if expanded { expandedUpdateDetails.remove(provider) }
                             else { expandedUpdateDetails.insert(provider) }
                         }
@@ -2823,7 +2823,7 @@ extension SettingsView {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.treatsFilePackagesAsDirectories = true
-        panel.message = "Choose the CLI executable"
+        panel.message = L("Choose the CLI executable")
         if panel.runModal() == .OK, let url = panel.url {
             value.wrappedValue = url.path
             onCommit()
@@ -2857,10 +2857,10 @@ public struct AccountView: View {
                 .frame(width: 42, height: 42)
 
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
-                    Text(vm.privateAccountUser == nil ? "Sign in to MacCode" : "MacCode Account")
+                    Text(vm.privateAccountUser == nil ? L("Sign in to MacCode") : L("MacCode Account"))
                         .font(DS.Font.title3)
                         .foregroundColor(DS.Palette.text)
-                    Text(vm.privateAccountUser == nil ? "Connect your private account for backend push notifications to paired devices." : "Manage the private account connected to this Mac.")
+                    Text(vm.privateAccountUser == nil ? L("Connect your private account for backend push notifications to paired devices.") : L("Manage the private account connected to this Mac."))
                         .font(DS.Font.caption)
                         .foregroundColor(DS.Palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2932,7 +2932,7 @@ public struct AccountView: View {
                             .font(.system(size: 12, weight: .semibold))
                             .frame(width: 18, height: 18)
                     }
-                    .help(revealPassword ? "Hide password" : "Show password")
+                    .help(revealPassword ? L("Hide password") : L("Show password"))
                     .buttonStyle(DSSecondaryButtonStyle())
                     .accessibilityIdentifier("account.password.reveal")
                 }
@@ -2947,7 +2947,7 @@ public struct AccountView: View {
                             .controlSize(.small)
                             .scaleEffect(0.65)
                     }
-                    Text(vm.privateAccountBusy ? "Signing in..." : "Sign in")
+                    Text(vm.privateAccountBusy ? L("Signing in...") : L("Sign in"))
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -2969,13 +2969,13 @@ public struct AccountView: View {
 
     private var signInFailureHint: String {
         switch vm.privateAccountStatus {
-        case "No internet connection": return "No internet connection. Check your network and try again."
-        case "Too many attempts, wait a minute": return "Too many attempts. Wait a minute, then try again."
-        case "Service unavailable", "Service error": return "The service is unavailable right now. Try again shortly."
-        case "Session expired": return "Your session expired. Sign in again."
+        case L("No internet connection"): return L("No internet connection. Check your network and try again.")
+        case L("Too many attempts, wait a minute"): return L("Too many attempts. Wait a minute, then try again.")
+        case L("Service unavailable"), L("Service error"): return L("The service is unavailable right now. Try again shortly.")
+        case L("Session expired"): return L("Your session expired. Sign in again.")
         case SettingsViewModel.sessionNotPersistedStatus:
-            return "This Mac could not save the session to disk. Check free disk space, then sign in again."
-        default: return "Check the email and password, then try again."
+            return L("This Mac could not save the session to disk. Check free disk space, then sign in again.")
+        default: return L("Check the email and password, then try again.")
         }
     }
 
@@ -3069,8 +3069,8 @@ public struct AccountView: View {
     /// states, which the pill already describes.
     private var signedInStatusCaption: String? {
         switch vm.privateAccountStatus {
-        case "Billing portal unavailable": return "Billing portal unavailable. Try again shortly."
-        case "Session expired": return "Your session expired. Sign in again."
+        case L("Billing portal unavailable"): return L("Billing portal unavailable. Try again shortly.")
+        case L("Session expired"): return L("Your session expired. Sign in again.")
         default: return nil
         }
     }
@@ -3082,12 +3082,12 @@ public struct AccountView: View {
         guard let user = vm.privateAccountUser, user.daysRemaining > 0 else { return nil }
         let days = user.daysRemaining
         let unit = days == 1 ? "day" : "days"
-        return user.subscribed ? "Renews in \(days) \(unit)." : "Trial ends in \(days) \(unit)."
+        return user.subscribed ? L("Renews in %1$@ %2$@.", days, unit) : L("Trial ends in %1$@ %2$@.", days, unit)
     }
 
     private var accountName: String {
         guard let email = vm.privateAccountUser?.email, let local = email.split(separator: "@").first, !local.isEmpty else {
-            return "MacCode Account"
+            return L("MacCode Account")
         }
         return String(local)
     }
@@ -3139,10 +3139,10 @@ public final class SettingsWindowController: NSObject {
             routeRegistry: routeRegistry
         ))
         let win = NSWindow(contentViewController: host)
-        win.title = "MacCode Settings"
+        win.title = L("MacCode Settings")
         win.setAccessibilityRole(.window)
         win.setAccessibilitySubrole(.standardWindow)
-        win.setAccessibilityTitle("MacCode Settings")
+        win.setAccessibilityTitle(L("MacCode Settings"))
         win.setAccessibilityIdentifier("window.settings")
         win.styleMask = [.titled, .closable, .resizable]
         // Match the SwiftUI content frame so the window doesn't open smaller
@@ -3261,7 +3261,7 @@ private struct PairingQRView: View {
                 .interpolation(.none)
                 .resizable()
                 .frame(width: 128, height: 128)
-                .accessibilityLabel("Scan to pair with this Mac")
+                .accessibilityLabel(L("Scan to pair with this Mac"))
         }
     }
 
@@ -3285,7 +3285,7 @@ public final class AccountWindowController: NSObject {
         self.viewModel = SettingsViewModel(context: context, loadImmediately: loadImmediately)
         let host = NSHostingController(rootView: AccountView(vm: viewModel))
         let win = NSWindow(contentViewController: host)
-        win.title = "MacCode Account"
+        win.title = L("MacCode Account")
         win.styleMask = [.titled, .closable]
         win.setContentSize(NSSize(width: 460, height: 360))
         win.center()

@@ -201,12 +201,12 @@ public struct PrivateLiveActivitySnapshot: Equatable, Sendable {
         now: Date = Date()
     ) -> PrivateLiveActivitySnapshot {
         let normalizedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayTitle = (normalizedTitle?.isEmpty == false) ? normalizedTitle! : "Thread"
+        let displayTitle = (normalizedTitle?.isEmpty == false) ? normalizedTitle! : L("Thread")
         let updateText = lastUpdatePreview?.trimmingCharacters(in: .whitespacesAndNewlines)
         let preview = (updateText?.isEmpty == false) ? String(updateText!.prefix(140)) : displayTitle
         return PrivateLiveActivitySnapshot(
             title: displayTitle,
-            statusLine: "Working…",
+            statusLine: L("Working…"),
             preview: preview,
             phase: "running",
             activeThreadCount: 1,
@@ -228,7 +228,7 @@ public struct PrivateLiveActivitySnapshot: Equatable, Sendable {
         phase: AgentRunStatus,
         now: Date = Date()
     ) -> PrivateLiveActivitySnapshot? {
-        let displayTitle = "Run"
+        let displayTitle = L("Run")
         let mappedPhase: String
         let petState: String
         let statusLine: String
@@ -237,23 +237,23 @@ public struct PrivateLiveActivitySnapshot: Equatable, Sendable {
         case .completed:
             mappedPhase = "completed"
             petState = "success"
-            statusLine = "Finished"
-            previewSuffix = "response is ready."
+            statusLine = L("Finished")
+            previewSuffix = L("response is ready.")
         case .cancelled:
             mappedPhase = "failed"
             petState = "interrupted"
-            statusLine = "Stopped"
-            previewSuffix = "was stopped."
+            statusLine = L("Stopped")
+            previewSuffix = L("was stopped.")
         case .interrupted:
             mappedPhase = "failed"
             petState = "interrupted"
-            statusLine = "Interrupted"
-            previewSuffix = "was interrupted."
+            statusLine = L("Interrupted")
+            previewSuffix = L("was interrupted.")
         case .failed:
             mappedPhase = "failed"
             petState = "failed"
-            statusLine = "Failed"
-            previewSuffix = "ended with an error."
+            statusLine = L("Failed")
+            previewSuffix = L("ended with an error.")
         case .pending, .running:
             return nil
         }

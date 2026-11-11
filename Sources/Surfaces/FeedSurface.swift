@@ -155,10 +155,10 @@ public final class FeedPanelViewModel: ObservableObject {
     public func relativeTime(for item: Item) -> String {
         let secs = Int(now().timeIntervalSince(item.ts))
         if secs < 2 { return "now" }
-        if secs < 60 { return "\(secs)s ago" }
-        if secs < 3600 { return "\(secs / 60)m ago" }
-        if secs < 86_400 { return "\(secs / 3600)h ago" }
-        return "\(secs / 86_400)d ago"
+        if secs < 60 { return L("%1$@s ago", secs) }
+        if secs < 3600 { return L("%1$@m ago", secs / 60) }
+        if secs < 86_400 { return L("%1$@h ago", secs / 3600) }
+        return L("%1$@d ago", secs / 86_400)
     }
 }
 
@@ -199,8 +199,8 @@ public struct FeedPanelView: View {
                 // UX-008: pause freezes the stream while reading; clear resets it.
                 HStack(spacing: DS.Space.xs) {
                     DSIconButton(vm.paused ? "play.fill" : "pause.fill",
-                                 help: vm.paused ? "Resume feed" : "Pause feed") { vm.paused.toggle() }
-                        .accessibilityLabel(vm.paused ? "Resume feed" : "Pause feed")
+                                 help: vm.paused ? L("Resume feed") : L("Pause feed")) { vm.paused.toggle() }
+                        .accessibilityLabel(vm.paused ? L("Resume feed") : L("Pause feed"))
                         .accessibilityIdentifier("feed.pause")
                     if let badge = FeedPanelViewModel.pauseBadgeText(isPaused: vm.paused,
                                                                       pendingCount: vm.pendingCount) {
@@ -211,23 +211,23 @@ public struct FeedPanelView: View {
                             .padding(.vertical, 1)
                             .background(DS.Palette.accent)
                             .clipShape(Capsule())
-                            .accessibilityLabel("\(badge) buffered events")
+                            .accessibilityLabel(L("%1$@ buffered events", badge))
                             .accessibilityIdentifier("feed.pause.badge")
                     }
                 }
                 // UX-P2: confirm before clearing -- instant and irreversible.
-                DSIconButton("trash", help: "Clear feed") { showClearConfirm = true }
-                    .accessibilityLabel("Clear feed")
+                DSIconButton("trash", help: L("Clear feed")) { showClearConfirm = true }
+                    .accessibilityLabel(L("Clear feed"))
                     .accessibilityIdentifier("feed.clear")
                     .disabled(vm.items.isEmpty)
-                    .confirmationDialog("Clear all feed events?", isPresented: $showClearConfirm) {
+                    .confirmationDialog(L("Clear all feed events?"), isPresented: $showClearConfirm) {
                         Button(L("Clear Feed"), role: .destructive) { vm.clear() }
                         Button(L("Cancel"), role: .cancel) {}
                     } message: {
                         Text(L("This removes all events and cannot be undone."))
                     }
                 HStack(spacing: DS.Space.xs) {
-                    TextField("filter", text: $vm.filter)
+                    TextField(L("filter"), text: $vm.filter)
                         .textFieldStyle(.plain)
                         .font(DS.Font.caption)
                         .accessibilityIdentifier("feed.filter")
@@ -237,7 +237,7 @@ public struct FeedPanelView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundColor(DS.Palette.textTertiary)
-                        .accessibilityLabel("Clear filter")
+                        .accessibilityLabel(L("Clear filter"))
                         .accessibilityIdentifier("feed.filter.clear")
                     }
                 }
@@ -252,10 +252,10 @@ public struct FeedPanelView: View {
             .dsBar(edge: .bottom)
             if vm.filtered.isEmpty {
                 DSEmptyState(icon: "dot.radiowaves.left.and.right",
-                             title: vm.filter.isEmpty ? "No activity" : "No matches",
+                             title: vm.filter.isEmpty ? L("No activity") : L("No matches"),
                              subtitle: vm.filter.isEmpty
-                                ? "Domain events (workspace, surface, notification, window) stream here as they happen."
-                                : "No events match \"\(vm.filter)\". Clear the filter to see all activity.")
+                                ? L("Domain events (workspace, surface, notification, window) stream here as they happen.")
+                                : L("No events match \"%1$@\". Clear the filter to see all activity.", vm.filter))
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: DS.Space.xs) {
@@ -343,7 +343,7 @@ public final class FeedPanelSurface: NSObject, Surface {
     /// (PERF-MAC_DIFF_FEED_MARKDOWN-001).
     public var onClose: (() -> Void)?
 
-    public init(workspaceID: WorkspaceID, title: String = "Feed") {
+    public init(workspaceID: WorkspaceID, title: String = L("Feed")) {
         self.descriptor = SurfaceDescriptor(type: .rightSidebarTool, title: title,
                                             iconName: "list.bullet.rectangle.portrait",
                                             metadata: ["workspace": workspaceID.value.uuidString, "tool": "feed"])

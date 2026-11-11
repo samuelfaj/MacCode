@@ -84,10 +84,10 @@ public struct SubagentActivityItem: Identifiable, Sendable, Equatable {
     public var statusLabel: String {
         switch phase {
         case .working: return "Working"
-        case .completed: return "Done"
-        case .failed: return "Failed"
-        case .cancelled: return "Cancelled"
-        case .unknown: return "Unknown"
+        case .completed: return L("Done")
+        case .failed: return L("Failed")
+        case .cancelled: return L("Cancelled")
+        case .unknown: return L("Unknown")
         }
     }
 
@@ -99,7 +99,7 @@ public struct SubagentActivityItem: Identifiable, Sendable, Equatable {
         case .claude: providerName = "Claude"
         case .grok: providerName = "Grok"
         case .distill: providerName = "Distill"
-        case .unknown: providerName = "Unknown"
+        case .unknown: providerName = L("Unknown")
         }
         var parts = [providerName]
         if let model, !model.isEmpty {
@@ -324,7 +324,7 @@ public enum SubagentActivityProjection {
         let effort = detail.effort?.trimmingCharacters(in: .whitespaces)
         if let effort, !effort.isEmpty { parts.append(AgentReasoningEffort(rawValue: effort)?.displayName ?? effort) }
         else if let e = item.reasoningEffort { parts.append(e.displayName) }
-        if detail.tokensUsed > 0 { parts.append("\(DistillLiveStatus.formatTokens(detail.tokensUsed)) tokens") }
+        if detail.tokensUsed > 0 { parts.append(L("%1$@ tokens", DistillLiveStatus.formatTokens(detail.tokensUsed))) }
         return parts.joined(separator: " · ")
     }
 
@@ -515,12 +515,12 @@ public enum SubagentActivityProjection {
         let trimmed = nodeId.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty || trimmed.caseInsensitiveCompare("unknown") == .orderedSame {
             if let model, !model.isEmpty { return model }
-            return "Unknown"
+            return L("Unknown")
         }
         if trimmed.caseInsensitiveCompare("root") == .orderedSame {
             // Main-route admission: prefer model, else a stable generic label.
             if let model, !model.isEmpty { return model }
-            return "Root - \(providerDisplayName(provider))"
+            return L("Root - %1$@", providerDisplayName(provider))
         }
         if let handle = botDelegationHandle(from: trimmed) {
             // Delegated bot peer: operators know the teammate by @handle.
@@ -572,13 +572,13 @@ public enum SubagentActivityProjection {
         let lower = nodeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if lower.hasPrefix("native.") || lower.hasPrefix("native-") || lower.hasPrefix("native_")
             || lower.hasPrefix("native ") {
-            return "Native"
+            return L("Native")
         }
         if lower.hasPrefix("nested.") || lower.hasPrefix("nested-") || lower.hasPrefix("nested_")
             || lower.hasPrefix("nested ") {
-            return "Nested"
+            return L("Nested")
         }
-        return "Worker"
+        return L("Worker")
     }
 
     // PERF: displayName/providerDisplayName/lastFour/humanize allocate
@@ -599,7 +599,7 @@ public enum SubagentActivityProjection {
         case .distill: return "Distill"
         case .unknown:
             // Fall back to a provider token embedded in the nodeId when known.
-            guard let nodeId else { return "Unknown" }
+            guard let nodeId else { return L("Unknown") }
             let parts = nodeId
                 .lowercased()
                 .components(separatedBy: providerNodeIdSeparators)
@@ -609,7 +609,7 @@ public enum SubagentActivityProjection {
                 if part == "codex" { return "Codex" }
                 if part == "grok" { return "Grok" }
             }
-            return "Unknown"
+            return L("Unknown")
         }
     }
 
@@ -693,20 +693,20 @@ public enum SubagentActivityProjection {
     /// Relative label for completed rows: `1w ago`, `2h ago`, `just now`.
     public static func formatRelative(from date: Date, now: Date = Date()) -> String {
         let seconds = max(0, Int(now.timeIntervalSince(date)))
-        if seconds < 10 { return "just now" }
-        if seconds < 60 { return "\(seconds)s ago" }
+        if seconds < 10 { return L("just now") }
+        if seconds < 60 { return L("%1$@s ago", seconds) }
         let minutes = seconds / 60
-        if minutes < 60 { return "\(minutes)m ago" }
+        if minutes < 60 { return L("%1$@m ago", minutes) }
         let hours = minutes / 60
-        if hours < 48 { return "\(hours)h ago" }
+        if hours < 48 { return L("%1$@h ago", hours) }
         let days = hours / 24
-        if days < 7 { return "\(days)d ago" }
+        if days < 7 { return L("%1$@d ago", days) }
         let weeks = days / 7
-        if weeks < 8 { return "\(weeks)w ago" }
+        if weeks < 8 { return L("%1$@w ago", weeks) }
         let months = days / 30
-        if months < 24 { return "\(months)mo ago" }
+        if months < 24 { return L("%1$@mo ago", months) }
         let years = days / 365
-        return "\(max(1, years))y ago"
+        return L("%1$@y ago", max(1, years))
     }
 
     /// Trailing time label: elapsed while active, relative when done.
@@ -775,7 +775,7 @@ public struct SubagentActivityBadge: View {
         .help(accessibilityLabel)
         .accessibilityIdentifier("agent.subagents.badge")
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue(isPresented ? "Expanded" : "Collapsed")
+        .accessibilityValue(isPresented ? L("Expanded") : L("Collapsed"))
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             SubagentActivityPopoverPanel(
                 snapshot: snapshot,
@@ -832,19 +832,19 @@ public struct SubagentActivityBadge: View {
     }
 
     private var countLabel: String {
-        if snapshot.isEmpty { return orchestrateActive ? "Ready" : "0" }
+        if snapshot.isEmpty { return orchestrateActive ? L("Ready") : "0" }
         var parts: [String] = []
-        if snapshot.activeCount > 0 { parts.append("\(snapshot.activeCount) working") }
-        if snapshot.doneCount > 0 { parts.append("\(snapshot.doneCount) done") }
-        if snapshot.unknownCount > 0 { parts.append("\(snapshot.unknownCount) unknown") }
+        if snapshot.activeCount > 0 { parts.append(L("%1$@ working", snapshot.activeCount)) }
+        if snapshot.doneCount > 0 { parts.append(L("%1$@ done", snapshot.doneCount)) }
+        if snapshot.unknownCount > 0 { parts.append(L("%1$@ unknown", snapshot.unknownCount)) }
         return parts.joined(separator: " · ")
     }
 
     private var accessibilityLabel: String {
         if snapshot.isEmpty, orchestrateActive {
-            return "Subagents, ready to help, no workers active"
+            return L("Subagents, ready to help, no workers active")
         }
-        return "Subagents, \(snapshot.activeCount) active, \(snapshot.doneCount) done, \(snapshot.unknownCount) unknown"
+        return L("Subagents, %1$@ active, %2$@ done, %3$@ unknown", snapshot.activeCount, snapshot.doneCount, snapshot.unknownCount)
     }
 }
 
@@ -874,7 +874,7 @@ struct SubagentActivityPopoverPanel: View {
                 }
                 Spacer(minLength: 0)
                 if snapshot.isLive {
-                    DSPill("Live", tone: .accent)
+                    DSPill(L("Live"), tone: .accent)
                         .accessibilityIdentifier("agent.subagents.live")
                 }
             }
@@ -890,8 +890,8 @@ struct SubagentActivityPopoverPanel: View {
                                 .foregroundStyle(DS.Palette.accent)
                                 .accessibilityHidden(true)
                             Text(orchestrateActive
-                                 ? "Ready to help. Cats appear here when the agent delegates work."
-                                 : "No helpers yet. Delegated work will appear here.")
+                                 ? L("Ready to help. Cats appear here when the agent delegates work.")
+                                 : L("No helpers yet. Delegated work will appear here."))
                                 .font(DS.Font.bodyDense)
                                 .foregroundStyle(DS.Palette.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -900,19 +900,19 @@ struct SubagentActivityPopoverPanel: View {
                         .accessibilityIdentifier("agent.subagents.empty")
                     }
                     if !snapshot.active.isEmpty {
-                        section("Active", count: snapshot.activeCount,
+                        section(L("Active"), count: snapshot.activeCount,
                                 items: snapshot.visibleActive(expanded: activeExpanded),
                                 hidden: snapshot.hiddenActiveCount(expanded: activeExpanded),
                                 expanded: $activeExpanded)
                     }
                     if !snapshot.done.isEmpty {
-                        section("Done", count: snapshot.doneCount,
+                        section(L("Done"), count: snapshot.doneCount,
                                 items: snapshot.visibleDone(expanded: doneExpanded),
                                 hidden: snapshot.hiddenDoneCount(expanded: doneExpanded),
                                 expanded: $doneExpanded)
                     }
                     if !snapshot.unknown.isEmpty {
-                        section("Unknown", count: snapshot.unknownCount,
+                        section(L("Unknown"), count: snapshot.unknownCount,
                                 items: snapshot.visibleUnknown(expanded: unknownExpanded),
                                 hidden: snapshot.hiddenUnknownCount(expanded: unknownExpanded),
                                 expanded: $unknownExpanded)
@@ -956,7 +956,7 @@ struct SubagentActivityPopoverPanel: View {
             if hidden > 0 || expanded.wrappedValue {
                 Button { expanded.wrappedValue.toggle() } label: {
                     HStack(spacing: DS.Space.xs) {
-                        Text(expanded.wrappedValue ? "Show Less" : "Show \(hidden) More")
+                        Text(expanded.wrappedValue ? L("Show Less") : L("Show %1$@ More", hidden))
                         Image(systemName: expanded.wrappedValue ? "chevron.up" : "chevron.down")
                             .accessibilityHidden(true)
                     }
@@ -993,8 +993,8 @@ struct SubagentActivityPopoverPanel: View {
             }
             .buttonStyle(.plain)
             .dsHoverFill(cornerRadius: DS.Radius.card)
-            .help("Open \(item.cat.name)’s work")
-            .accessibilityHint("Opens the subagent's work in a side pane")
+            .help(L("Open %1$@’s work", item.cat.name))
+            .accessibilityHint(L("Opens the subagent's work in a side pane"))
         } else {
             view
         }

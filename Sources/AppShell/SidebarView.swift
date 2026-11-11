@@ -35,7 +35,7 @@ public final class SidebarViewModel: ObservableObject {
     nonisolated public static func insomniaStatusPill(enabled: Bool) -> InsomniaStatusPillState {
         InsomniaStatusPillState(
             isVisible: enabled,
-            label: enabled ? "Keeping Mac awake" : "",
+            label: enabled ? L("Keeping Mac awake") : "",
             disablesInsomniaOnTap: enabled
         )
     }
@@ -137,8 +137,8 @@ public final class SidebarViewModel: ObservableObject {
             alert.alertStyle = .warning
             alert.messageText = L("Remove \"%1$@\"?", name)
             alert.informativeText = L("This removes the workspace and its tabs from MacCode. Files on disk are not touched.")
-            alert.addButton(withTitle: "Remove")
-            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: L("Remove"))
+            alert.addButton(withTitle: L("Cancel"))
             let handler: (NSApplication.ModalResponse) -> Void = { response in
                 completion(SidebarRootView.confirmRemoveDecision(response: response) ? .confirmed : .cancelled)
             }
@@ -158,8 +158,8 @@ public final class SidebarViewModel: ObservableObject {
             alert.alertStyle = .warning
             alert.messageText = L("Remove %1$@ workspaces?", count)
             alert.informativeText = L("This removes the selected workspaces and their tabs from MacCode. Files on disk are not touched.\n\n") + names.joined(separator: "\n")
-            alert.addButton(withTitle: "Remove")
-            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: L("Remove"))
+            alert.addButton(withTitle: L("Cancel"))
             let handler: (NSApplication.ModalResponse) -> Void = { response in
                 completion(SidebarRootView.confirmRemoveDecision(response: response) ? .confirmed : .cancelled)
             }
@@ -437,9 +437,9 @@ public final class SidebarViewModel: ObservableObject {
         case conversations, bots, vms
         var title: String {
             switch self {
-            case .conversations: return "Conversations"
-            case .bots: return "Bots"
-            case .vms: return "VMs"
+            case .conversations: return L("Conversations")
+            case .bots: return L("Bots")
+            case .vms: return L("VMs")
             }
         }
     }
@@ -488,7 +488,7 @@ public final class SidebarViewModel: ObservableObject {
     }
     private var didSeedExpandedWorkspace = false
     /// Names the host in search results so equal names on different hosts stay distinguishable.
-    public let hostDisplayName: String = Host.current().localizedName ?? "This Mac"
+    public let hostDisplayName: String = Host.current().localizedName ?? L("This Mac")
 
     @Published public var workspaces: [Workspace] = [] {
         didSet {
@@ -936,7 +936,7 @@ public final class SidebarViewModel: ObservableObject {
                         return $0.0.id.value.uuidString < $1.0.id.value.uuidString
                     }
                     let conversation = matching.first?.0
-                    rows.append(AuthorizedBotConversationRow(botID: bot.id, botName: bot.name, handle: bot.handle, symbol: bot.avatarSymbol, context: binding.context, conversationID: conversation?.id, title: conversation?.title ?? "No conversations"))
+                    rows.append(AuthorizedBotConversationRow(botID: bot.id, botName: bot.name, handle: bot.handle, symbol: bot.avatarSymbol, context: binding.context, conversationID: conversation?.id, title: conversation?.title ?? L("No conversations")))
                 }
             }
             return rows
@@ -1266,9 +1266,9 @@ public final class SidebarViewModel: ObservableObject {
 
     /// "2 running · 1 need you", with "· 3 bots" when Bots are running.
     static func activitySubtitle(_ counts: PetActivityCounts, activeBots: Int) -> String {
-        guard counts.isAvailable else { return "Activity unavailable" }
-        var line = "\(counts.running) running · \(counts.needsYou) need you"
-        if activeBots > 0 { line += " · \(activeBots) bot\(activeBots == 1 ? "" : "s")" }
+        guard counts.isAvailable else { return L("Activity unavailable") }
+        var line = L("%1$@ running · %2$@ need you", counts.running, counts.needsYou)
+        if activeBots > 0 { line += (activeBots == 1 ? L(" · %1$@ bot", activeBots) : L(" · %1$@ bots", activeBots)) }
         return line
     }
 
@@ -1315,7 +1315,7 @@ public final class SidebarViewModel: ObservableObject {
         if let botsViewModel = router?.botsViewModel {
             botsViewModel.reorderBots(orderedIDs: ids)
         } else {
-            do { try context?.botStore.reorder(orderedIDs: ids) } catch { showOperationError("Could not reorder Bots", detail: error.localizedDescription) }
+            do { try context?.botStore.reorder(orderedIDs: ids) } catch { showOperationError(L("Could not reorder Bots"), detail: error.localizedDescription) }
         }
         reloadAuthorizedBotConversationRows()
     }
@@ -1357,11 +1357,11 @@ public final class SidebarViewModel: ObservableObject {
         // A Bot without contextual General access opens its Desk exactly like the Bots roster does.
         do {
             guard let router, try router.openBotsDesk(botID: row.botID) else {
-                showOperationError("Could not open Bot", detail: "This Bot is no longer available.")
+                showOperationError(L("Could not open Bot"), detail: L("This Bot is no longer available."))
                 return reloadAuthorizedBotConversationRows()
             }
         } catch {
-            showOperationError("Could not open Bot", detail: error.localizedDescription)
+            showOperationError(L("Could not open Bot"), detail: error.localizedDescription)
         }
     }
 
@@ -1377,7 +1377,7 @@ public final class SidebarViewModel: ObservableObject {
                    pinContext: { try context.botStore.conversationContextPin(conversationID: $0)?.context },
                    context: row.context) {
                 guard try router.openBotsDesk(botID: row.botID, conversationID: running.id) else {
-                    showOperationError("Could not open Bot conversation", detail: "This Bot context is no longer available.")
+                    showOperationError(L("Could not open Bot conversation"), detail: L("This Bot context is no longer available."))
                     return reloadAuthorizedBotConversationRows()
                 }
                 newBotConversationThreadID = nil
@@ -1386,7 +1386,7 @@ public final class SidebarViewModel: ObservableObject {
             }
             createBotConversation(row)
         } catch {
-            showOperationError("Could not start conversation", detail: error.localizedDescription)
+            showOperationError(L("Could not start conversation"), detail: error.localizedDescription)
         }
     }
 
@@ -1409,13 +1409,13 @@ public final class SidebarViewModel: ObservableObject {
             guard let router, try router.openBotsDesk(botID: row.botID),
                   let botsViewModel = router.botsViewModel,
                   botsViewModel.createDeskThread(in: row.context) else {
-                showOperationError("Could not start conversation", detail: router?.botsViewModel?.errorMessage ?? "This Bot context is no longer available.")
+                showOperationError(L("Could not start conversation"), detail: router?.botsViewModel?.errorMessage ?? L("This Bot context is no longer available."))
                 return reloadAuthorizedBotConversationRows()
             }
             newBotConversationThreadID = botsViewModel.selectedConversation?.linkedAgentThreadID
             reloadAuthorizedBotConversationRows()
         } catch {
-            showOperationError("Could not start conversation", detail: error.localizedDescription)
+            showOperationError(L("Could not start conversation"), detail: error.localizedDescription)
         }
     }
 
@@ -1441,19 +1441,19 @@ public final class SidebarViewModel: ObservableObject {
             try router.createWorkspaceConversation(workspace: workspaceID)
             reloadAuthorizedBotConversationRows()
         } catch {
-            showOperationError("Could not start conversation", detail: error.localizedDescription)
+            showOperationError(L("Could not start conversation"), detail: error.localizedDescription)
         }
     }
 
     /// Same canonical route as Activity: a Bot thread opens its Desk, any other thread its Agent App.
     public func renameConversation(_ row: WorkspaceConversationRow) {
-        presentPromptSheet(title: "Rename conversation", message: "Enter a new conversation title.", initial: row.title) { [weak self] title in
+        presentPromptSheet(title: L("Rename conversation"), message: L("Enter a new conversation title."), initial: row.title) { [weak self] title in
             guard let self, let title else { return }
             do {
                 _ = try self.router?.renameAgentThread(thread: row.threadID, title: title)
                 self.reloadAuthorizedBotConversationRows()
             } catch {
-                self.showOperationError("Could not rename conversation", detail: error.localizedDescription)
+                self.showOperationError(L("Could not rename conversation"), detail: error.localizedDescription)
             }
         }
     }
@@ -1462,8 +1462,8 @@ public final class SidebarViewModel: ObservableObject {
         let alert = NSAlert()
         alert.messageText = L("Delete conversation?")
         alert.informativeText = L("This permanently deletes “%1$@” and its messages. Any active run will stop.", row.title)
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L("Delete"))
+        alert.addButton(withTitle: L("Cancel"))
         let complete: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard response == .alertFirstButtonReturn, let self, let router = self.router else { return }
             Task { @MainActor in
@@ -1472,7 +1472,7 @@ public final class SidebarViewModel: ObservableObject {
                     if self.newBotConversationThreadID == row.threadID { self.newBotConversationThreadID = nil }
                     self.reloadAuthorizedBotConversationRows()
                 } catch {
-                    self.showOperationError("Could not delete conversation", detail: error.localizedDescription)
+                    self.showOperationError(L("Could not delete conversation"), detail: error.localizedDescription)
                 }
             }
         }
@@ -1492,11 +1492,11 @@ public final class SidebarViewModel: ObservableObject {
             case .workspace:
                 _ = try router.openAgentThread(thread: row.threadID, markRead: false)
             case .unavailable:
-                showOperationError("Could not open conversation", detail: "This conversation is no longer available.")
+                showOperationError(L("Could not open conversation"), detail: L("This conversation is no longer available."))
                 reloadAuthorizedBotConversationRows()
             }
         } catch {
-            showOperationError("Could not open conversation", detail: error.localizedDescription)
+            showOperationError(L("Could not open conversation"), detail: error.localizedDescription)
         }
     }
 
@@ -1567,12 +1567,12 @@ public final class SidebarViewModel: ObservableObject {
                   try AppCommandRouter.contextPinnedThreadDestination(threadID, context: context)
                     == .bot(row.botID, conversationID),
                   try router.openBotsDesk(botID: row.botID, conversationID: conversationID) else {
-                showOperationError("Could not open Bot conversation", detail: "This Bot context is no longer available.")
+                showOperationError(L("Could not open Bot conversation"), detail: L("This Bot context is no longer available."))
                 reloadAuthorizedBotConversationRows()
                 return
             }
         } catch {
-            showOperationError("Could not open Bot conversation", detail: error.localizedDescription)
+            showOperationError(L("Could not open Bot conversation"), detail: error.localizedDescription)
             reloadAuthorizedBotConversationRows()
         }
     }
@@ -1812,8 +1812,8 @@ public final class SidebarViewModel: ObservableObject {
         alert.alertStyle = .warning
         alert.messageText = L("Insomnia is on while your MacBook is on battery")
         alert.informativeText = L("Insomnia can drain the battery because it keeps this Mac awake. Do you want to keep Insomnia on or disable it now?")
-        alert.addButton(withTitle: "Disable Insomnia")
-        alert.addButton(withTitle: "Keep Insomnia On")
+        alert.addButton(withTitle: L("Disable Insomnia"))
+        alert.addButton(withTitle: L("Keep Insomnia On"))
         let finish: (NSApplication.ModalResponse) -> Void = { response in
             MainActor.assumeIsolated {
                 completion(response == .alertFirstButtonReturn ? .disable : .keepEnabled)
@@ -1859,7 +1859,7 @@ public final class SidebarViewModel: ObservableObject {
             finishInsomniaSession()
             // UX-P2: surface the failure so the user knows why the toggle snapped off.
             showOperationError(
-                "Insomnia could not keep the display or system awake",
+                L("Insomnia could not keep the display or system awake"),
                 detail: "macOS denied the power assertion. MacCode may use `pmset` to disable clamshell sleep, which requires administrator privileges. Insomnia has been turned off."
             )
             return
@@ -1999,7 +1999,7 @@ public final class SidebarViewModel: ObservableObject {
             // between the panel and the drop, used to close the panel and do
             // nothing at all — no row, no error, no explanation.
             operationErrorPresenter(
-                "Could not add \(url.lastPathComponent)",
+                L("Could not add %1$@", url.lastPathComponent),
                 Self.addWorkspaceFailureDetail(for: error)
             )
             return false
@@ -2013,7 +2013,7 @@ public final class SidebarViewModel: ObservableObject {
     /// picked folder is gone, so it gets a folder-specific reason.
     nonisolated public static func addWorkspaceFailureDetail(for error: Error) -> String {
         if let layoutError = error as? LayoutError, layoutError == .workspaceNotFound {
-            return "That folder no longer exists. It may have been moved, renamed or deleted."
+            return L("That folder no longer exists. It may have been moved, renamed or deleted.")
         }
         return error.localizedDescription
     }
@@ -2092,8 +2092,8 @@ public final class SidebarViewModel: ObservableObject {
                       isDir.boolValue else {
                     DispatchQueue.main.async {
                         self?.showOperationError(
-                            "Cannot add \"\(url.lastPathComponent)\" as a workspace",
-                            detail: "Only folders can be added as workspaces. Please drop a folder instead."
+                            L("Cannot add \"%1$@\" as a workspace", url.lastPathComponent),
+                            detail: L("Only folders can be added as workspaces. Please drop a folder instead.")
                         )
                     }
                     return
@@ -2131,15 +2131,15 @@ public final class SidebarViewModel: ObservableObject {
     public var updateActionTitle: String {
         switch updateAvailability {
         case .available:
-            return "Update Available"
+            return L("Update Available")
         case .checking:
-            return "Checking for Updates"
+            return L("Checking for Updates")
         case .upToDate:
-            return "Up to Date"
+            return L("Up to Date")
         case .failed:
-            return "Update Check Failed"
+            return L("Update Check Failed")
         case .unknown:
-            return "Check for Updates"
+            return L("Check for Updates")
         }
     }
 
@@ -2185,8 +2185,8 @@ public final class SidebarViewModel: ObservableObject {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L("Save"))
+        alert.addButton(withTitle: L("Cancel"))
         let field: NSTextField
         if multiline {
             // UX-MAC_SHELL_WINDOW-006: descriptions get a taller, wrapping
@@ -2236,8 +2236,8 @@ public final class SidebarViewModel: ObservableObject {
         // :95 -- Route through workspacePrompter so tests can drive the decision.
         guard let prompter = workspacePrompter else { return }
         prompter.promptForText(
-            title: "Rename workspace",
-            message: "New name for \"\(ws.name)\".",
+            title: L("Rename workspace"),
+            message: L("New name for \"%1$@\".", ws.name),
             initial: ws.name,
             multiline: false
         ) { [weak self] decision in
@@ -2246,14 +2246,14 @@ public final class SidebarViewModel: ObservableObject {
             // UX-P3: whitespace-only rename must show an error rather than silently
             // doing nothing, so the user knows the save was rejected.
             guard !name.isEmpty else {
-                self.showOperationError("Rename not saved",
-                                       detail: "A workspace name cannot be blank. Please enter at least one non-whitespace character.")
+                self.showOperationError(L("Rename not saved"),
+                                       detail: L("A workspace name cannot be blank. Please enter at least one non-whitespace character."))
                 return
             }
             do {
                 try self.router?.renameWorkspace(ws.id, name)
             } catch {
-                self.showOperationError("Could not rename workspace", detail: error.localizedDescription)
+                self.showOperationError(L("Could not rename workspace"), detail: error.localizedDescription)
             }
         }
     }
@@ -2263,8 +2263,8 @@ public final class SidebarViewModel: ObservableObject {
         guard let prompter = workspacePrompter else { return }
         let current = ws.metadata["description"] ?? ""
         prompter.promptForText(
-            title: "Workspace description",
-            message: "Optional note for \"\(ws.name)\".",
+            title: L("Workspace description"),
+            message: L("Optional note for \"%1$@\".", ws.name),
             initial: current,
             multiline: true
         ) { [weak self] decision in
@@ -2273,7 +2273,7 @@ public final class SidebarViewModel: ObservableObject {
             do {
                 try self.router?.setWorkspaceDescription(ws.id, text)
             } catch {
-                self.showOperationError("Could not update description", detail: error.localizedDescription)
+                self.showOperationError(L("Could not update description"), detail: error.localizedDescription)
             }
         }
     }
@@ -2329,7 +2329,7 @@ public final class SidebarViewModel: ObservableObject {
     ) -> String {
         var parts: [String] = []
         if let desc = busyDescription { parts.append(desc) }
-        if unreadCount > 0 { parts.append("\(unreadCount) unread") }
+        if unreadCount > 0 { parts.append(L("%1$@ unread", unreadCount)) }
         if let activityDescription, !activityDescription.isEmpty { parts.append(activityDescription) }
         if pinned { parts.append("pinned") }
         if checked { parts.append("selected") }
@@ -2351,11 +2351,11 @@ public final class SidebarViewModel: ObservableObject {
     ) -> String? {
         if let first = runningThreadTitles.first {
             let display = first.isEmpty ? "Untitled" : first
-            return "Agent run in thread \"\(display)\""
+            return L("Agent run in thread \"%1$@\"", display)
         }
         if let first = busySurfaceTitles.first {
             let display = first.isEmpty ? "surface" : first
-            return "Activity running in \"\(display)\""
+            return L("Activity running in \"%1$@\"", display)
         }
         return nil
     }
@@ -2437,7 +2437,7 @@ public final class SidebarViewModel: ObservableObject {
             } catch {
                 // Roll back the undo push if close failed.
                 self.removedWorkspaceStack = WorkspaceUndoStack.pop(from: self.removedWorkspaceStack)?.remaining ?? self.removedWorkspaceStack
-                self.showOperationError("Could not remove workspace", detail: error.localizedDescription)
+                self.showOperationError(L("Could not remove workspace"), detail: error.localizedDescription)
             }
         }
     }
@@ -2487,7 +2487,7 @@ public final class SidebarViewModel: ObservableObject {
             do {
                 try self.router?.closeWorkspaces(Array(ids))
             } catch {
-                self.showOperationError("Could not remove workspaces", detail: error.localizedDescription)
+                self.showOperationError(L("Could not remove workspaces"), detail: error.localizedDescription)
                 return
             }
             self.selectedWorkspaceIDs.removeAll()
@@ -2503,7 +2503,7 @@ public final class SidebarViewModel: ObservableObject {
         alert.alertStyle = .critical
         alert.messageText = message
         alert.informativeText = detail
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: L("OK"))
         // :15 -- Sheet so other windows are not blocked by error presentation.
         if let window = NSApp.keyWindow {
             alert.beginSheetModal(for: window)
@@ -2569,7 +2569,7 @@ public final class SidebarViewModel: ObservableObject {
             }
             reload()
         } catch {
-            showOperationError("Could not restore workspace", detail: error.localizedDescription)
+            showOperationError(L("Could not restore workspace"), detail: error.localizedDescription)
         }
     }
 }
@@ -2842,8 +2842,8 @@ public struct SidebarRootView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Toggle sidebar")
-                .accessibilityLabel("Toggle sidebar")
+                .help(L("Toggle sidebar"))
+                .accessibilityLabel(L("Toggle sidebar"))
                 .accessibilityIdentifier("shell.toggleSidebar")
 
                 Button(action: reportBug) {
@@ -2854,8 +2854,8 @@ public struct SidebarRootView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Report a bug via email")
-                .accessibilityLabel("Report Bug")
+                .help(L("Report a bug via email"))
+                .accessibilityLabel(L("Report Bug"))
                 .accessibilityIdentifier("sidebar.reportBug")
 
                 Button(action: onOpenSettings) {
@@ -2870,8 +2870,8 @@ public struct SidebarRootView: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .help("Settings")
-                .accessibilityLabel("Settings")
+                .help(L("Settings"))
+                .accessibilityLabel(L("Settings"))
                 .accessibilityIdentifier("sidebar.settings")
                 .accessibilityAddTraits(vm.isSettingsSelected ? .isSelected : [])
 
@@ -2886,7 +2886,7 @@ public struct SidebarRootView: View {
                     }
                     .buttonStyle(.plain)
                     .help(accountSubtitle)
-                    .accessibilityLabel("Account")
+                    .accessibilityLabel(L("Account"))
                     .accessibilityValue(accountSubtitle)
                 }
             }
@@ -2904,36 +2904,36 @@ public struct SidebarRootView: View {
                     }
                     .accessibilityIdentifier("sidebar.newVM")
                 } label: {
-                    SidebarActionRow(symbol: "plus.circle", title: "New")
+                    SidebarActionRow(symbol: "plus.circle", title: L("New"))
                 }
                 .menuStyle(.button)
                 .buttonStyle(.plain)
                 .menuIndicator(.hidden)
-                .help("Create a workspace, Bot or VM")
+                .help(L("Create a workspace, Bot or VM"))
                 .accessibilityIdentifier("sidebar.new")
 
                 Button { navigate(onOpenActiveThreads) } label: {
                     SidebarActionRow(
                         symbol: "bolt.horizontal.circle",
-                        title: "Activity\n\(SidebarViewModel.activitySubtitle(vm.activityCounts, activeBots: vm.activeBotCount))",
+                        title: L("Activity\n%1$@", SidebarViewModel.activitySubtitle(vm.activityCounts, activeBots: vm.activeBotCount)),
                         isSelected: vm.isActiveThreadsSelected
                     )
                 }
                 .buttonStyle(.plain)
                 .help(SidebarViewModel.activitySubtitle(vm.activityCounts, activeBots: vm.activeBotCount))
                 .accessibilityIdentifier("sidebar.activity")
-                .accessibilityLabel("Activity, " + SidebarViewModel.activitySubtitle(vm.activityCounts, activeBots: vm.activeBotCount))
+                .accessibilityLabel(L("Activity, ") + SidebarViewModel.activitySubtitle(vm.activityCounts, activeBots: vm.activeBotCount))
                 .accessibilityAddTraits(vm.isActiveThreadsSelected ? .isSelected : [])
 
                 Button { navigate(onOpenScheduledTasks) } label: {
                     SidebarActionRow(
                         symbol: "calendar.badge.clock",
-                        title: "Schedule Tasks",
+                        title: L("Schedule Tasks"),
                         isSelected: vm.isScheduledTasksSelected
                     )
                 }
                 .buttonStyle(.plain)
-                .help("Create and manage scheduled Agent tasks")
+                .help(L("Create and manage scheduled Agent tasks"))
                 .accessibilityIdentifier("sidebar.scheduleTasks")
                 .accessibilityAddTraits(vm.isScheduledTasksSelected ? .isSelected : [])
 
@@ -3123,7 +3123,7 @@ public struct SidebarRootView: View {
 
     private var workspaceFilterField: some View {
         SidebarSearchField(
-            placeholder: "Search workspaces, Bots and VMs",
+            placeholder: L("Search workspaces, Bots and VMs"),
             text: $vm.filterText,
             focusRequest: $filterFocusRequest,
             accessibilityIdentifier: "sidebar.workspaceFilter"
@@ -3133,15 +3133,15 @@ public struct SidebarRootView: View {
     private var updateHelpText: String {
         switch vm.updateAvailability {
         case .available:
-            return "Install the available MacCode update"
+            return L("Install the available MacCode update")
         case .checking:
-            return "Checking for MacCode updates"
+            return L("Checking for MacCode updates")
         case .upToDate:
-            return "Check again for MacCode updates"
+            return L("Check again for MacCode updates")
         case .failed(let message):
             return message
         case .unknown:
-            return "Check for MacCode updates"
+            return L("Check for MacCode updates")
         }
     }
 
@@ -3180,7 +3180,7 @@ public struct SidebarRootView: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .help("Sign in")
+                .help(L("Sign in"))
                 .padding(.horizontal, DS.Space.md)
                 .padding(.top, DS.Space.md)
 
@@ -3258,13 +3258,13 @@ public struct SidebarRootView: View {
     nonisolated public static func lastUpdatedLabel(_ date: Date?, now: Date) -> String {
         guard let date else { return "Never" }
         let elapsed = now.timeIntervalSince(date)
-        guard elapsed >= 0 else { return "Updated just now" }
-        if elapsed < 60 { return "Updated just now" }
+        guard elapsed >= 0 else { return L("Updated just now") }
+        if elapsed < 60 { return L("Updated just now") }
         let mins = Int(elapsed / 60)
-        if mins < 60 { return "Updated \(mins)m ago" }
+        if mins < 60 { return L("Updated %1$@m ago", mins) }
         let hours = mins / 60
-        if hours < 24 { return "Updated \(hours)h ago" }
-        return "Updated 24h+ ago"
+        if hours < 24 { return L("Updated %1$@h ago", hours) }
+        return L("Updated 24h+ ago")
     }
 
     /// Labels the slow provider-account probe explicitly so it cannot be mistaken
@@ -3274,10 +3274,10 @@ public struct SidebarRootView: View {
         now: Date
     ) -> String {
         let label = lastUpdatedLabel(date, now: now)
-        guard label != "Never" else { return "Account usage not refreshed" }
+        guard label != "Never" else { return L("Account usage not refreshed") }
         return label.replacingOccurrences(
-            of: "Updated",
-            with: "Account usage updated",
+            of: L("Updated"),
+            with: L("Account usage updated"),
             options: [.anchored]
         )
     }
@@ -3301,7 +3301,7 @@ public struct SidebarRootView: View {
     }
 
     private var insomniaHelpText: String {
-        "Insomnia keeps this Mac awake while the toggle is on. Settings can allow display sleep, closed-display sleep, or the screen saver without ending the session."
+        L("Insomnia keeps this Mac awake while the toggle is on. Settings can allow display sleep, closed-display sleep, or the screen saver without ending the session.")
     }
 
     /// At the 180pt minimum sidebar width the row fits only because the
@@ -3328,12 +3328,12 @@ public struct SidebarRootView: View {
     }
 
     private var insomniaStateSummary: String {
-        guard vm.insomniaEnabled else { return "Off" }
+        guard vm.insomniaEnabled else { return L("Off") }
         var allowances: [String] = []
-        if vm.insomniaAllowDisplaySleep { allowances.append("display can sleep") }
-        if vm.insomniaAllowSystemSleepWhenDisplayClosed { allowances.append("sleep when closed") }
-        if vm.insomniaAllowScreenSaverAfter45MinutesOfInactivity { allowances.append("screen saver after 45m") }
-        return allowances.isEmpty ? "Mac stays awake" : allowances.joined(separator: " · ")
+        if vm.insomniaAllowDisplaySleep { allowances.append(L("display can sleep")) }
+        if vm.insomniaAllowSystemSleepWhenDisplayClosed { allowances.append(L("sleep when closed")) }
+        if vm.insomniaAllowScreenSaverAfter45MinutesOfInactivity { allowances.append(L("screen saver after 45m")) }
+        return allowances.isEmpty ? L("Mac stays awake") : allowances.joined(separator: " · ")
     }
 
     private var insomniaToggle: some View {
@@ -3363,7 +3363,7 @@ public struct SidebarRootView: View {
         .frame(width: 36, height: 36)
         .contentShape(Rectangle())
         .help(insomniaHelpText)
-        .accessibilityLabel("Insomnia")
+        .accessibilityLabel(L("Insomnia"))
         .accessibilityValue(vm.insomniaEnabled ? "on" : "off")
         .accessibilityHint(insomniaHelpText)
         .accessibilityIdentifier("sidebar.insomnia.toggle")
@@ -3384,7 +3384,7 @@ public struct SidebarRootView: View {
             insomniaOptionsPopover
         }
         .help(insomniaHelpText)
-        .accessibilityLabel("Insomnia settings")
+        .accessibilityLabel(L("Insomnia settings"))
         .accessibilityIdentifier("sidebar.insomnia.options")
     }
 
@@ -3457,22 +3457,22 @@ public struct SidebarRootView: View {
 
     private var relayStatusText: String {
         switch vm.relayStatus {
-        case .connected: return "Relay connected: your iPhone can reach this Mac from anywhere"
-        case .connecting: return "Connecting to the relay…"
-        case .offline: return "Relay offline: your iPhone can only reach this Mac on the same network"
-        case .subscriptionRequired: return "Relay needs an active subscription: your iPhone can only reach this Mac on the same network"
+        case .connected: return L("Relay connected: your iPhone can reach this Mac from anywhere")
+        case .connecting: return L("Connecting to the relay…")
+        case .offline: return L("Relay offline: your iPhone can only reach this Mac on the same network")
+        case .subscriptionRequired: return L("Relay needs an active subscription: your iPhone can only reach this Mac on the same network")
         }
     }
 
     private var accountDisplayName: String {
         guard let email = vm.privateAccountUser?.email, let local = email.split(separator: "@").first, !local.isEmpty else {
-            return "Sign in"
+            return L("Sign in")
         }
         return String(local)
     }
 
     private var accountSubtitle: String {
-        vm.privateAccountUser?.email ?? "MacCode Account"
+        vm.privateAccountUser?.email ?? L("MacCode Account")
     }
 
     private var accountInitials: String {
@@ -3516,12 +3516,12 @@ public struct SidebarRootView: View {
     }
 
     static func workspaceActivityLabel(_ counts: PetActivityCounts) -> String {
-        guard counts.isAvailable else { return "Activity unavailable" }
+        guard counts.isAvailable else { return L("Activity unavailable") }
         if counts.running > 0 || counts.needsYou > 0 {
-            return [counts.running > 0 ? "\(counts.running) running" : nil, counts.needsYou > 0 ? "\(counts.needsYou) needs you" : nil]
+            return [counts.running > 0 ? L("%1$@ running", counts.running) : nil, counts.needsYou > 0 ? L("%1$@ needs you", counts.needsYou) : nil]
                 .compactMap { $0 }.joined(separator: " · ")
         }
-        return counts.newResults > 0 ? "New result" : ""
+        return counts.newResults > 0 ? L("New result") : ""
     }
 
     /// Leaving Bots content keeps drafts and asks before dropping an unsaved new Bot, from any sidebar row.
@@ -3530,8 +3530,8 @@ public struct SidebarRootView: View {
     }
 
     private func botContextLabel(_ context: BotContext) -> String {
-        if case .workspace(let id) = context { return vm.workspaces.first { $0.id == id }?.name ?? "Workspace" }
-        return "General"
+        if case .workspace(let id) = context { return vm.workspaces.first { $0.id == id }?.name ?? L("Workspace") }
+        return L("General")
     }
 
     private func botConversationRow(_ row: SidebarViewModel.AuthorizedBotConversationRow, tintHex: UInt32? = nil) -> some View {
@@ -3546,7 +3546,7 @@ public struct SidebarRootView: View {
                 Text(BotsViewModel.displayName(row.botName)).font(selected ? DS.Font.bodyStrong : DS.Font.body).foregroundColor(selected ? DS.Palette.text : DS.Palette.textSecondary).lineLimit(1)
                 Spacer(minLength: 0)
                 if let loop = vm.loopLabelsByBot[row.botID] { loopGlyph(loop) }
-                if running { DSBusySpinner(label: "Running") } else if vm.finishedBotIDs.contains(row.botID) { finishedDot }
+                if running { DSBusySpinner(label: L("Running")) } else if vm.finishedBotIDs.contains(row.botID) { finishedDot }
             }
             .padding(.leading, Self.workspaceChildIndent)
             .padding(.horizontal, DS.Space.sm)
@@ -3564,14 +3564,14 @@ public struct SidebarRootView: View {
             return NSItemProvider(object: row.botID.value.uuidString as NSString)
         }
         .onDrop(of: [.text], delegate: BotDropDelegate(vm: vm, target: row.botID, inWorkspace: true))
-        .help(searchHelp(type: "Bot", location: botContextLabel(row.context), name: row.conversationID == nil ? "\(row.botName): New conversation" : "\(row.botName), \(row.title)"))
+        .help(searchHelp(type: L("Bot"), location: botContextLabel(row.context), name: row.conversationID == nil ? L("%1$@: New conversation", row.botName) : "\(row.botName), \(row.title)"))
         .accessibilityLabel("\(botContextLabel(row.context)), \(row.botName), \(row.title)")
-        .accessibilityValue(running ? "Running" : "")
+        .accessibilityValue(running ? L("Running") : "")
         .accessibilityIdentifier("sidebar.botConversation.\(row.id)")
         .contextMenu {
             let state = vm.botPinnedAndHidden(row.botID)
-            Button(state.pinned ? "Unpin" : "Pin") { vm.setBotPinned(row.botID, !state.pinned) }
-            Button(state.hidden ? "Unhide" : "Hide") { vm.setBotHidden(row.botID, !state.hidden) }
+            Button(state.pinned ? L("Unpin") : L("Pin")) { vm.setBotPinned(row.botID, !state.pinned) }
+            Button(state.hidden ? L("Unhide") : L("Hide")) { vm.setBotHidden(row.botID, !state.hidden) }
             Button(L("Edit in Studio")) { navigate { vm.editBot(row.botID) } }
             Button(L("Duplicate")) { navigate { vm.duplicateBot(row.botID) } }
             Divider()
@@ -3609,7 +3609,7 @@ public struct SidebarRootView: View {
             .padding(.horizontal, DS.Space.sm)
             .padding(.bottom, DS.Space.xxs)
             if bots.isEmpty {
-                Text(vm.generalBots.isEmpty ? "No bots" : "No matches")
+                Text(vm.generalBots.isEmpty ? L("No bots") : L("No matches"))
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.textTertiary)
                     .padding(.horizontal, DS.Space.sm)
@@ -3639,7 +3639,7 @@ public struct SidebarRootView: View {
                     .frame(width: 20, height: 20)
                 Text(BotsViewModel.displayName(row.name)).font(selected ? DS.Font.bodyStrong : DS.Font.body).foregroundColor(DS.Palette.text).lineLimit(1)
                 Spacer(minLength: 0)
-                if running { DSBusySpinner(label: "Running") } else if vm.finishedBotIDs.contains(row.botID) { finishedDot }
+                if running { DSBusySpinner(label: L("Running")) } else if vm.finishedBotIDs.contains(row.botID) { finishedDot }
                 if unread > 0 { unreadBadge(unread) }
                 if row.hidden {
                     Image(systemName: "eye.slash")
@@ -3671,11 +3671,11 @@ public struct SidebarRootView: View {
         .onDrop(of: [.text], delegate: BotDropDelegate(vm: vm, target: row.botID))
         .help(searchHelp(type: "General Bot", location: "General", name: row.name))
         .accessibilityLabel(BotsViewModel.displayName(row.name))
-        .accessibilityValue("\(running ? "Running. " : "")\(unread > 0 ? "\(unread) unread. " : "")\(row.pinned ? "Pinned. " : "")\(row.hidden ? "Hidden. " : "")General Bot")
+        .accessibilityValue(L("%1$@%2$@%3$@%4$@General Bot", running ? "Running. " : "", unread > 0 ? "\(unread) unread. " : "", row.pinned ? "Pinned. " : "", row.hidden ? "Hidden. " : ""))
         .accessibilityIdentifier("sidebar.generalBot.\(row.handle)")
         .contextMenu {
-            Button(row.pinned ? "Unpin" : "Pin") { vm.setBotPinned(row.botID, !row.pinned) }
-            Button(row.hidden ? "Unhide" : "Hide") { vm.setBotHidden(row.botID, !row.hidden) }
+            Button(row.pinned ? L("Unpin") : L("Pin")) { vm.setBotPinned(row.botID, !row.pinned) }
+            Button(row.hidden ? L("Unhide") : L("Hide")) { vm.setBotHidden(row.botID, !row.hidden) }
             Button(L("Edit in Studio")) { navigate { vm.editBot(row.botID) } }
             Button(L("Duplicate")) { navigate { vm.duplicateBot(row.botID) } }
             Divider()
@@ -3707,7 +3707,7 @@ public struct SidebarRootView: View {
             .padding(.horizontal, DS.Space.sm)
             ForEach(vm.virtualMachineRows(in: nil)) { virtualMachineRow($0) }
             if vm.virtualMachineRows(in: nil).isEmpty {
-                Text(vm.filterText.isEmpty ? "No VMs" : "No matches")
+                Text(vm.filterText.isEmpty ? L("No VMs") : L("No matches"))
                     .font(DS.Font.body)
                     .foregroundColor(DS.Palette.textTertiary)
                     .padding(.horizontal, DS.Space.sm)
@@ -3722,10 +3722,10 @@ public struct SidebarRootView: View {
         Button {
             virtualMachineRequest = VirtualMachineRequest(workspaceID: workspaceID)
         } label: {
-            virtualMachineRowLabel("New VM", symbol: "plus", nested: true)
+            virtualMachineRowLabel(L("New VM"), symbol: "plus", nested: true)
         }
         .buttonStyle(.plain)
-        .help("Create a VM for this workspace")
+        .help(L("Create a VM for this workspace"))
         .accessibilityIdentifier("sidebar.newVM.\(workspaceID.value.uuidString)")
     }
 
@@ -3736,8 +3736,8 @@ public struct SidebarRootView: View {
             virtualMachineRowLabel(machine.name, symbol: "desktopcomputer", nested: machine.workspaceID != nil)
         }
         .buttonStyle(.plain)
-        .help("Manage \(machine.name)")
-        .accessibilityValue(machine.workspaceID == nil ? "General VM" : "Workspace VM")
+        .help(L("Manage %1$@", machine.name))
+        .accessibilityValue(machine.workspaceID == nil ? L("General VM") : L("Workspace VM"))
         .accessibilityIdentifier("sidebar.vm.\(machine.id.uuidString.lowercased())")
     }
 
@@ -3789,10 +3789,10 @@ public struct SidebarRootView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(collapsed ? "Show \(section.title)" : "Hide \(section.title)")
+        .help(collapsed ? L("Show %1$@", section.title) : L("Hide %1$@", section.title))
         .accessibilityLabel(section.title)
-        .accessibilityValue(collapsed ? "Hidden" : "Shown")
-        .accessibilityHint(collapsed ? "Shows this section" : "Hides this section")
+        .accessibilityValue(collapsed ? L("Hidden") : L("Shown"))
+        .accessibilityHint(collapsed ? L("Shows this section") : L("Hides this section"))
         .accessibilityIdentifier(id)
     }
 
@@ -3814,7 +3814,7 @@ public struct SidebarRootView: View {
 
     private func newConversationMenu(_ ws: Workspace) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            newConversationMenuRow(title: "No Bot", subtitle: "Plain agent conversation", id: "sidebar.newConversation.noBot", action: {
+            newConversationMenuRow(title: L("No Bot"), subtitle: L("Plain agent conversation"), id: "sidebar.newConversation.noBot", action: {
                 navigate { vm.newWorkspaceConversation(in: ws.id) }
             }) {
                 AgentChoiceIconTile(systemName: "person.fill", tint: DS.Palette.textSecondary, size: 24)
@@ -3822,7 +3822,7 @@ public struct SidebarRootView: View {
             AgentCompactMenuDivider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    AgentChoiceSectionHeader("Workspace bots")
+                    AgentChoiceSectionHeader(L("Workspace bots"))
                         .padding(.horizontal, DS.Space.sm)
                         .padding(.bottom, 2)
                     let bots = vm.workspaceBotRows(ws.id)
@@ -3847,7 +3847,7 @@ public struct SidebarRootView: View {
                     let general = vm.generalBots.filter { !$0.hidden }
                     if !general.isEmpty {
                         AgentCompactMenuDivider()
-                        AgentChoiceSectionHeader("General bots")
+                        AgentChoiceSectionHeader(L("General bots"))
                             .padding(.horizontal, DS.Space.sm)
                             .padding(.bottom, 2)
                         ForEach(general) { row in
@@ -3866,7 +3866,7 @@ public struct SidebarRootView: View {
             .frame(maxHeight: 340)
             .fixedSize(horizontal: false, vertical: true)
             AgentCompactMenuDivider()
-            newConversationMenuRow(title: "New bot…", subtitle: nil, id: "sidebar.newConversation.newBot", action: {
+            newConversationMenuRow(title: L("New bot…"), subtitle: nil, id: "sidebar.newConversation.newBot", action: {
                 navigate { vm.addBot(inWorkspace: ws.id) }
             }) {
                 AgentChoiceIconTile(systemName: "plus", tint: DS.Palette.accent, size: 24)
@@ -3953,7 +3953,7 @@ public struct SidebarRootView: View {
             ), arrowEdge: .trailing) {
                 newConversationMenu(ws)
             }
-            .help("Start a new conversation in \(ws.name)")
+            .help(L("Start a new conversation in %1$@", ws.name))
             .accessibilityIdentifier("sidebar.newConversation.\(ws.id.value.uuidString)")
         }
         let conversations = vm.workspaceConversationRows(ws.id)
@@ -3984,7 +3984,7 @@ public struct SidebarRootView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Create a Bot exclusive to \(ws.name)")
+            .help(L("Create a Bot exclusive to %1$@", ws.name))
             .accessibilityIdentifier("sidebar.addBot.\(ws.id.value.uuidString)")
         }
         let bots = vm.sectionSlice(vm.workspaceBotRows(ws.id), ws.id, .bots)
@@ -4004,7 +4004,7 @@ public struct SidebarRootView: View {
         let machines = vm.sectionSlice(vm.workspaceVirtualMachineRows(ws.id), ws.id, .vms)
         ForEach(machines.rows) { virtualMachineRow($0) }
         if machines.hidden > 0 || machines.expanded {
-            showMoreRow(expanded: machines.expanded, hidden: machines.hidden, noun: "VMs",
+            showMoreRow(expanded: machines.expanded, hidden: machines.hidden, noun: L("VMs"),
                         id: "sidebar.vmsToggle.\(ws.id.value.uuidString)") { vm.toggleSectionList(ws.id, .vms) }
         }
         }
@@ -4021,7 +4021,7 @@ public struct SidebarRootView: View {
                     .font(.system(size: 11, weight: .regular))
                     .frame(width: 20, height: 20)
                     .foregroundColor(DS.Palette.textTertiary)
-                Text(expanded ? "Show less" : "Show more (\(hidden))").font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).lineLimit(1)
+                Text(expanded ? L("Show less") : L("Show more (%1$@)", hidden)).font(DS.Font.body).foregroundColor(DS.Palette.textSecondary).lineLimit(1)
                 Spacer(minLength: 0)
             }
             .padding(.leading, Self.workspaceChildIndent)
@@ -4030,7 +4030,7 @@ public struct SidebarRootView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(expanded ? "Show fewer \(noun)" : "Show \(hidden) more \(noun)")
+        .accessibilityLabel(expanded ? L("Show fewer %1$@", noun) : L("Show %1$@ more %2$@", hidden, noun))
         .accessibilityIdentifier(id)
     }
 
@@ -4044,7 +4044,7 @@ public struct SidebarRootView: View {
                     .foregroundColor(DS.Palette.textTertiary)
                 Text(item.title).font(selected ? DS.Font.bodyStrong : DS.Font.body).foregroundColor(selected ? DS.Palette.text : DS.Palette.textSecondary).lineLimit(1)
                 Spacer(minLength: 0)
-                if busy { DSBusySpinner(label: "Running") } else if vm.finishedSurfaceIDs.contains(item.surfaceID) { finishedDot }
+                if busy { DSBusySpinner(label: L("Running")) } else if vm.finishedSurfaceIDs.contains(item.surfaceID) { finishedDot }
             }
             .padding(.leading, Self.workspaceChildIndent)
             .padding(.horizontal, DS.Space.sm)
@@ -4053,7 +4053,7 @@ public struct SidebarRootView: View {
             .sidebarRowChrome(selected: selected)
         }
         .buttonStyle(.plain)
-        .help("Open \(item.title)")
+        .help(L("Open %1$@", item.title))
         .accessibilityLabel(busy ? "\(item.title), running" : item.title)
         .accessibilityIdentifier("sidebar.activeSurface.\(item.surfaceID.value.uuidString)")
     }
@@ -4079,7 +4079,7 @@ public struct SidebarRootView: View {
             .padding(.horizontal, 5)
             .frame(minWidth: 16, minHeight: 16)
             .background(Capsule().fill(Color.red))
-            .help("\(count) unread")
+            .help(L("%1$@ unread", count))
             .accessibilityHidden(true)
             .accessibilityIdentifier("sidebar.unreadBadge")
     }
@@ -4089,8 +4089,8 @@ public struct SidebarRootView: View {
             .fill(DS.Palette.success)
             .frame(width: 7, height: 7)
             .frame(width: 16, height: 16)
-            .help("Just finished")
-            .accessibilityLabel("Just finished")
+            .help(L("Just finished"))
+            .accessibilityLabel(L("Just finished"))
             .accessibilityIdentifier("sidebar.finishedDot")
     }
 
@@ -4127,7 +4127,7 @@ public struct SidebarRootView: View {
                 }
                 Spacer(minLength: 0)
                 if let loop = vm.loopLabelsByThread[row.threadID] { loopGlyph(loop) }
-                if running { DSBusySpinner(label: "Running") } else if vm.finishedThreadIDs.contains(row.threadID) { finishedDot }
+                if running { DSBusySpinner(label: L("Running")) } else if vm.finishedThreadIDs.contains(row.threadID) { finishedDot }
             }
             .padding(.leading, Self.workspaceChildIndent)
             .padding(.horizontal, DS.Space.sm)
@@ -4136,8 +4136,8 @@ public struct SidebarRootView: View {
         }
         .buttonStyle(.plain)
         .help(searchHelp(type: "Conversation", location: workspace.name, name: row.title))
-        .accessibilityLabel("\(workspace.name), \(row.title)\(age.map { ", updated \($0)" } ?? "")")
-        .accessibilityValue(running ? "Running" : "")
+        .accessibilityLabel("\(workspace.name), \(row.title)\(age.map { ", " + L("updated %1$@", $0) } ?? "")")
+        .accessibilityValue(running ? L("Running") : "")
         .accessibilityIdentifier("sidebar.conversation.\(row.id)")
         .contextMenu {
             Button(L("Open")) { navigate { vm.openWorkspaceConversation(row) } }
@@ -4173,8 +4173,8 @@ public struct SidebarRootView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(expanded ? "Collapse" : "Expand")
-        .accessibilityLabel(expanded ? "Collapse \(ws.name)" : "Expand \(ws.name)")
+        .help(expanded ? L("Collapse") : L("Expand"))
+        .accessibilityLabel(expanded ? L("Collapse %1$@", ws.name) : L("Expand %1$@", ws.name))
         .accessibilityIdentifier("sidebar.workspaceDisclosure.\(ws.id.value.uuidString)")
         Button {
             let flags = NSEvent.modifierFlags
@@ -4216,7 +4216,7 @@ public struct SidebarRootView: View {
                     // UX-SIDEBAR-P3-BUSYTIP: use the per-workspace busy
                     // source description instead of the generic label so
                     // VoiceOver and tooltip convey agent-run vs terminal.
-                    DSBusySpinner(label: vm.busyTooltip(for: ws) ?? "Workspace busy")
+                    DSBusySpinner(label: vm.busyTooltip(for: ws) ?? L("Workspace busy"))
                 } else if vm.completedWorkspaces.contains(ws.id) {
                     // UX-SIDEBAR-COMPLETED-DOT: the action finished — a small success
                     // dot takes the spinner's slot until the user opens the workspace.
@@ -4224,8 +4224,8 @@ public struct SidebarRootView: View {
                         .fill(DS.Palette.success)
                         .frame(width: 7, height: 7)
                         .frame(width: 16, height: 16)
-                        .help("Action completed")
-                        .accessibilityLabel("Action completed")
+                        .help(L("Action completed"))
+                        .accessibilityLabel(L("Action completed"))
                         .transition(.scale(scale: 0.4).combined(with: .opacity))
                 }
             }
@@ -4290,7 +4290,7 @@ public struct SidebarRootView: View {
                 Divider()
                 Button(L("Rename\u{2026}")) { vm.renameWorkspace(ws) }
                 Button(L("Edit description\u{2026}")) { vm.editDescription(ws) }
-                Menu("Color") {
+                Menu(L("Color")) {
                     Button { vm.setWorkspaceColor(ws, "") } label: {
                         TabColorMenuLabel.none
                     }
@@ -4323,7 +4323,7 @@ private struct TabColorMenuLabel: View {
     }
 
     static var none: TabColorMenuLabel {
-        TabColorMenuLabel(title: "None", swatchImage: noneSwatchImage())
+        TabColorMenuLabel(title: L("None"), swatchImage: noneSwatchImage())
     }
 
     var body: some View {
@@ -4557,7 +4557,7 @@ struct SidebarSearchField: View {
                         .foregroundColor(DS.Palette.textTertiary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Clear filter")
+                .accessibilityLabel(L("Clear filter"))
             }
         }
         .padding(.horizontal, DS.Space.sm)

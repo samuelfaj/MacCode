@@ -595,7 +595,7 @@ public final class AppContext {
             try await coordinator.resumeSessionForScheduler(threadId: threadId)
             return nil
         } catch {
-            let message = "Couldn't resume: \(error.localizedDescription)"
+            let message = L("Couldn't resume: %1$@", error.localizedDescription)
             let loops = distillLoopStore.loops(for: threadId).map { loop -> DistillLoopState in
                 guard DistillLoopStore.resumable(loop) else { return loop }
                 var failed = loop
@@ -890,7 +890,7 @@ public final class AppContext {
             await MainActor.run { self?.router?.releaseBotVMRun(runId) }
         }
         _ = try providerPendingCallbackRepo.markOpenStale(
-            reason: "Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue."
+            reason: L("Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.")
         )
         // The orchestration package is app-private and independent of Token Saver. Keep
         // XCTest isolated unless a sandboxed skills home was injected explicitly.
@@ -1083,7 +1083,7 @@ public final class AppContext {
                     requestId: request.id,
                     facts: TitioRequestFacts(
                         kind: .approval,
-                        legacyActionTitle: "Approve: \(PetApprovalActionLabel.label(for: request.kind))",
+                        legacyActionTitle: L("Approve: %1$@", PetApprovalActionLabel.label(for: request.kind)),
                         requestTitle: request.title,
                         detail: request.detail,
                         allowsSessionApproval: request.allowsSessionApproval,
@@ -1156,7 +1156,7 @@ public final class AppContext {
                     requestId: request.id,
                     facts: TitioRequestFacts(
                         kind: .userInput,
-                        legacyActionTitle: request.isSecret ? "Secret input requested" : "Input requested",
+                        legacyActionTitle: request.isSecret ? L("Secret input requested") : L("Input requested"),
                         prompt: prompt,
                         // A one-tap card cannot pick several options: multi-select answers as text.
                         options: multiple ? nil : options,
@@ -1620,7 +1620,7 @@ public final class AppContext {
             case .completed, .failed, .cancelled, .interrupted:
                 EventBus.shared.publish(kind: .agentMessageQueueFailed, payload: .object([
                     "thread_id": .string(threadId.value.uuidString),
-                    "message": .string("Provider is still stopping. The queued message remains safe and will start when the provider becomes idle.")
+                    "message": .string(L("Provider is still stopping. The queued message remains safe and will start when the provider becomes idle."))
                 ]))
             case .pending, .running, nil:
                 break
@@ -3266,7 +3266,7 @@ public final class AppContext {
                     try repo.save(snap)
                 } catch {
                     Task { @MainActor [weak self] in
-                        self?.recordPersistenceWriteError(error, operation: "Session layout")
+                        self?.recordPersistenceWriteError(error, operation: L("Session layout"))
                     }
                 }
             }
@@ -3282,7 +3282,7 @@ public final class AppContext {
         do {
             try snapshotRepo.save(snap)
         } catch {
-            recordPersistenceWriteError(error, operation: "Session layout")
+            recordPersistenceWriteError(error, operation: L("Session layout"))
         }
     }
 
@@ -3293,7 +3293,7 @@ public final class AppContext {
     }
 
     static func persistenceWriteErrorMessage(operation: String, error: Error) -> String {
-        "\(operation) could not be saved: \(error.localizedDescription)."
+        L("%1$@ could not be saved: %2$@.", operation, error.localizedDescription)
     }
 
     /// Drain backgroundWriterQueue synchronously. Use in tests that call

@@ -77,7 +77,7 @@ enum FileCompletionEngine {
         }
         for word in documentWords(in: text, excluding: range)
         where word.count >= 2 && word.lowercased().hasPrefix(prefix) && seen.contains(word) == false {
-            append(FileCompletionItem(word, kind: .variable, detail: "Document"))
+            append(FileCompletionItem(word, kind: .variable, detail: L("Document")))
         }
         return Array(items.prefix(limit))
     }
@@ -114,18 +114,18 @@ enum FileCompletionEngine {
         switch normalized(language) {
         case "swift":
             return [
-                FileCompletionItem("guard let", insert: "guard let ", kind: .snippet, detail: "Snippet"),
-                FileCompletionItem("if let", insert: "if let ", kind: .snippet, detail: "Snippet"),
+                FileCompletionItem("guard let", insert: "guard let ", kind: .snippet, detail: L("Snippet")),
+                FileCompletionItem("if let", insert: "if let ", kind: .snippet, detail: L("Snippet")),
                 FileCompletionItem("DispatchQueue.main.async", insert: "DispatchQueue.main.async { }", kind: .snippet, detail: "Snippet"),
             ]
         case "typescript", "javascript":
             return [
-                FileCompletionItem("console.log", insert: "console.log()", kind: .snippet, detail: "Snippet"),
-                FileCompletionItem("describe", insert: "describe(\"\", () => {\n    \n})", kind: .snippet, detail: "Snippet"),
+                FileCompletionItem("console.log", insert: "console.log()", kind: .snippet, detail: L("Snippet")),
+                FileCompletionItem("describe", insert: "describe(\"\", () => {\n    \n})", kind: .snippet, detail: L("Snippet")),
             ]
         case "python":
             return [
-                FileCompletionItem("if __name__", insert: "if __name__ == \"__main__\":\n    ", kind: .snippet, detail: "Snippet"),
+                FileCompletionItem("if __name__", insert: "if __name__ == \"__main__\":\n    ", kind: .snippet, detail: L("Snippet")),
             ]
         default:
             return []
@@ -162,7 +162,7 @@ enum FileCompletionEngine {
     }
 
     private static func keyword(_ word: String) -> FileCompletionItem {
-        FileCompletionItem(word, kind: .keyword, detail: "Keyword")
+        FileCompletionItem(word, kind: .keyword, detail: L("Keyword"))
     }
 
     private static func builtin(_ word: String, _ detail: String) -> FileCompletionItem {
@@ -177,14 +177,14 @@ enum FileCompletionEngine {
         "private", "fileprivate", "internal", "public", "open", "static", "mutating",
         "nonisolated", "where", "some", "any", "in", "is", "as", "typealias", "associatedtype",
     ].map { keyword($0) } + [
-        builtin("String", "Swift standard library"), builtin("Int", "Swift standard library"),
-        builtin("Double", "Swift standard library"), builtin("Bool", "Swift standard library"),
-        builtin("Array", "Swift standard library"), builtin("Dictionary", "Swift standard library"),
-        builtin("Set", "Swift standard library"), builtin("Optional", "Swift standard library"),
-        builtin("Result", "Swift standard library"), builtin("Void", "Swift standard library"),
-        builtin("print", "Swift standard library"), builtin("min", "Swift standard library"),
-        builtin("max", "Swift standard library"), builtin("abs", "Swift standard library"),
-        builtin("Task", "Swift concurrency"), builtin("MainActor", "Swift concurrency"),
+        builtin("String", L("Swift standard library")), builtin("Int", L("Swift standard library")),
+        builtin("Double", L("Swift standard library")), builtin("Bool", L("Swift standard library")),
+        builtin("Array", L("Swift standard library")), builtin("Dictionary", L("Swift standard library")),
+        builtin("Set", L("Swift standard library")), builtin("Optional", L("Swift standard library")),
+        builtin("Result", L("Swift standard library")), builtin("Void", L("Swift standard library")),
+        builtin("print", L("Swift standard library")), builtin("min", L("Swift standard library")),
+        builtin("max", L("Swift standard library")), builtin("abs", L("Swift standard library")),
+        builtin("Task", L("Swift concurrency")), builtin("MainActor", L("Swift concurrency")),
     ]
 
     private static let typeScriptItems: [FileCompletionItem] = [
@@ -195,13 +195,13 @@ enum FileCompletionEngine {
         "static", "readonly", "public", "private", "protected", "abstract", "declare",
         "typeof", "instanceof", "keyof", "in", "of", "true", "false", "null", "undefined",
     ].map { keyword($0) } + [
-        builtin("console", "JavaScript global"), builtin("Promise", "JavaScript built-in"),
-        builtin("Array", "JavaScript built-in"), builtin("Object", "JavaScript built-in"),
-        builtin("String", "JavaScript built-in"), builtin("Number", "JavaScript built-in"),
-        builtin("Boolean", "JavaScript built-in"), builtin("JSON", "JavaScript built-in"),
-        builtin("Map", "JavaScript built-in"), builtin("Set", "JavaScript built-in"),
-        builtin("Date", "JavaScript built-in"), builtin("Error", "JavaScript built-in"),
-        builtin("document", "Browser global"), builtin("window", "Browser global"),
+        builtin("console", L("JavaScript global")), builtin("Promise", L("JavaScript built-in")),
+        builtin("Array", L("JavaScript built-in")), builtin("Object", L("JavaScript built-in")),
+        builtin("String", L("JavaScript built-in")), builtin("Number", L("JavaScript built-in")),
+        builtin("Boolean", L("JavaScript built-in")), builtin("JSON", L("JavaScript built-in")),
+        builtin("Map", L("JavaScript built-in")), builtin("Set", L("JavaScript built-in")),
+        builtin("Date", L("JavaScript built-in")), builtin("Error", L("JavaScript built-in")),
+        builtin("document", L("Browser global")), builtin("window", L("Browser global")),
     ]
 
     private static let pythonItems: [FileCompletionItem] = [
@@ -210,12 +210,12 @@ enum FileCompletionEngine {
         "yield", "async", "await", "global", "nonlocal", "assert", "del", "in", "is", "not",
         "and", "or", "None", "True", "False", "self",
     ].map { keyword($0) } + [
-        builtin("print", "Python built-in"), builtin("len", "Python built-in"),
-        builtin("range", "Python built-in"), builtin("enumerate", "Python built-in"),
-        builtin("str", "Python built-in"), builtin("int", "Python built-in"),
-        builtin("float", "Python built-in"), builtin("list", "Python built-in"),
-        builtin("dict", "Python built-in"), builtin("set", "Python built-in"),
-        builtin("tuple", "Python built-in"), builtin("Exception", "Python built-in"),
+        builtin("print", L("Python built-in")), builtin("len", L("Python built-in")),
+        builtin("range", L("Python built-in")), builtin("enumerate", L("Python built-in")),
+        builtin("str", L("Python built-in")), builtin("int", L("Python built-in")),
+        builtin("float", L("Python built-in")), builtin("list", L("Python built-in")),
+        builtin("dict", L("Python built-in")), builtin("set", L("Python built-in")),
+        builtin("tuple", L("Python built-in")), builtin("Exception", L("Python built-in")),
     ]
 
     private static let goItems: [FileCompletionItem] = [
@@ -223,9 +223,9 @@ enum FileCompletionEngine {
         "if", "else", "for", "range", "switch", "case", "default", "break", "continue", "go",
         "defer", "select", "chan", "map", "make", "new", "nil", "true", "false", "fallthrough",
     ].map { keyword($0) } + [
-        builtin("fmt", "Go standard library"), builtin("error", "Go built-in"),
-        builtin("string", "Go built-in"), builtin("int", "Go built-in"),
-        builtin("bool", "Go built-in"), builtin("byte", "Go built-in"),
+        builtin("fmt", L("Go standard library")), builtin("error", L("Go built-in")),
+        builtin("string", L("Go built-in")), builtin("int", L("Go built-in")),
+        builtin("bool", L("Go built-in")), builtin("byte", L("Go built-in")),
     ]
 
     private static let rustItems: [FileCompletionItem] = [
@@ -234,9 +234,9 @@ enum FileCompletionEngine {
         "break", "continue", "move", "ref", "as", "in", "where", "async", "await", "dyn",
         "Some", "None", "Ok", "Err", "true", "false",
     ].map { keyword($0) } + [
-        builtin("String", "Rust standard library"), builtin("Vec", "Rust standard library"),
-        builtin("Option", "Rust standard library"), builtin("Result", "Rust standard library"),
-        builtin("println!", "Rust macro"), builtin("format!", "Rust macro"),
+        builtin("String", L("Rust standard library")), builtin("Vec", L("Rust standard library")),
+        builtin("Option", L("Rust standard library")), builtin("Result", L("Rust standard library")),
+        builtin("println!", L("Rust macro")), builtin("format!", L("Rust macro")),
     ]
 
     private static let genericItems: [FileCompletionItem] = [
@@ -291,10 +291,10 @@ enum InlineSuggestionState: Equatable {
 
     var label: String {
         switch self {
-        case .idle: return "AI Ready"
-        case .loading: return "AI Suggesting…"
-        case .available: return "Tab to Accept"
-        case .failed: return "AI Unavailable"
+        case .idle: return L("AI Ready")
+        case .loading: return L("AI Suggesting…")
+        case .available: return L("Tab to Accept")
+        case .failed: return L("AI Unavailable")
         }
     }
 }
@@ -306,9 +306,9 @@ enum InlineCompletionError: Error, Equatable, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .timedOut: return "The AI suggestion took too long. Try again."
-        case .unavailable: return "AI suggestions are unavailable. Check Accounts & Auto in Settings."
-        case .empty: return "No code suggestion was returned."
+        case .timedOut: return L("The AI suggestion took too long. Try again.")
+        case .unavailable: return L("AI suggestions are unavailable. Check Accounts & Auto in Settings.")
+        case .empty: return L("No code suggestion was returned.")
         }
     }
 }

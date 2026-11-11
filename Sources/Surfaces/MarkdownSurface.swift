@@ -80,20 +80,20 @@ public final class MarkdownSurface: NSObject, Surface, WKNavigationDelegate {
     nonisolated static func loadMarkdownBody(filePath: String?, maxBytes: Int = MarkdownSurface.maxMarkdownBytes) -> String {
         guard let path = filePath,
               let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else {
-            return "# Markdown Preview\n\nNo file loaded."
+            return L("# Markdown Preview\n\nNo file loaded.")
         }
         defer { try? handle.close() }
         let limit = max(1, maxBytes)
         let data = (try? handle.read(upToCount: limit + 1)) ?? Data()
         let clipped = Data(data.prefix(limit))
         guard var body = String(data: clipped, encoding: .utf8) else {
-            return "# Markdown Preview\n\nUnable to render this file as UTF-8 markdown."
+            return L("# Markdown Preview\n\nUnable to render this file as UTF-8 markdown.")
         }
         if data.count > limit {
             // UX-017: a truncated preview is a dead-end without an escape
             // hatch; offer Open / Reveal links handled by the nav delegate.
-            body += "\n\n---\n\n_Preview truncated after \(limit) bytes._"
-            body += "\n\n[Open full file in default app](rc-action:open) · [Reveal in Finder](rc-action:reveal)"
+            body += L("\n\n---\n\n_Preview truncated after %1$@ bytes._", limit)
+            body += L("\n\n[Open full file in default app](rc-action:open) · [Reveal in Finder](rc-action:reveal)")
         }
         return body
     }

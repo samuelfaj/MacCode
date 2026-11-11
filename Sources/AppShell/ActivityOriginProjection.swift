@@ -37,7 +37,7 @@ enum ActivityOriginProjection {
             return rows
         }
         for (runID, title) in taskRuns {
-            if let id = UUID(uuidString: runID) { labels[id.uuidString] = "Scheduled task: \(PetAttentionRedactor.safeContextLabel(title) ?? "Task")" }
+            if let id = UUID(uuidString: runID) { labels[id.uuidString] = L("Scheduled task: %1$@", PetAttentionRedactor.safeContextLabel(title) ?? "Task") }
         }
 
         let botStore = BotStore(db: db)
@@ -46,7 +46,7 @@ enum ActivityOriginProjection {
         let contextLabels = Dictionary(conversations.compactMap { conversation -> (String, String)? in
             guard let threadID = conversation.linkedAgentThreadID,
                   threadByID[threadID.value.uuidString.lowercased()] != nil else { return nil }
-            return (threadID.value.uuidString.lowercased(), "Bot conversation: \(conversation.title)")
+            return (threadID.value.uuidString.lowercased(), L("Bot conversation: %1$@", conversation.title))
         }, uniquingKeysWith: { first, _ in first })
         let botLinks = Dictionary(conversations.compactMap { conversation -> (String, (botID: UUID, conversationID: UUID))? in
             guard let threadID = conversation.linkedAgentThreadID?.value.uuidString.lowercased(),
@@ -110,7 +110,7 @@ enum ActivityOriginProjection {
                 needsAction: true,
                 botID: item.botID.value,
                 conversationID: item.conversationID?.value,
-                originLabel: conversation.flatMap { PetAttentionRedactor.safeContextLabel($0.title) }.map { "Bot conversation: \($0)" }
+                originLabel: conversation.flatMap { PetAttentionRedactor.safeContextLabel($0.title) }.map { L("Bot conversation: %1$@", $0) }
             )
         }
         let scheduledState = try db.performSync { database -> [String: (Date?, Date?)] in
@@ -161,11 +161,11 @@ enum ActivityOriginProjection {
                 let storedState = scheduledState[itemID]
                 items.append(AgentActivityItem(
                     id: itemID, kind: .operation, workspaceID: workspace,
-                    state: state, title: PetAttentionRedactor.safeContextLabel(statement.columnText(7) ?? "Scheduled task") ?? "Scheduled task",
+                    state: state, title: PetAttentionRedactor.safeContextLabel(statement.columnText(7) ?? L("Scheduled task")) ?? L("Scheduled task"),
                     provider: statement.columnText(9), summary: statement.columnText(5),
                     occurredAt: finishedAt ?? date(3) ?? queuedAt, startedAt: date(3), finishedAt: finishedAt,
                     viewedAt: storedState?.0, attentionAcknowledgedAt: storedState?.1,
-                    needsAction: state == .failed && statement.columnInt64(10) != 0 && storedState?.1 == nil, originLabel: "Scheduled task"
+                    needsAction: state == .failed && statement.columnInt64(10) != 0 && storedState?.1 == nil, originLabel: L("Scheduled task")
                 ))
             }
             return items

@@ -686,7 +686,7 @@ public enum BotBrainCompiler {
                     title: "Identity",
                     text: identity,
                     included: true,
-                    reason: "Name, handle, role, and avatar compile into the identity line."
+                    reason: L("Name, handle, role, and avatar compile into the identity line.")
                 )
             )
         } else {
@@ -697,7 +697,7 @@ public enum BotBrainCompiler {
                     title: "Identity",
                     text: "",
                     included: false,
-                    reason: "Name, handle, role, and avatar are empty."
+                    reason: L("Name, handle, role, and avatar are empty.")
                 )
             )
         }
@@ -708,10 +708,10 @@ public enum BotBrainCompiler {
                 BotContextLayer(
                     id: "bot-delegation",
                     kind: .tools,
-                    title: "Bot delegation",
+                    title: L("Bot delegation"),
                     text: directive,
                     included: true,
-                    reason: "Resolved Bot identities only. The provider interprets intent and authors every peer prompt."
+                    reason: L("Resolved Bot identities only. The provider interprets intent and authors every peer prompt.")
                 )
             )
         }
@@ -720,10 +720,10 @@ public enum BotBrainCompiler {
             BotContextLayer(
                 id: "desktop",
                 kind: .desktop,
-                title: "Working space",
+                title: L("Working space"),
                 text: workingSpaceText(workspace),
                 included: true,
-                reason: "Advertised workspace. Host-assigned. Leftover folder writes stay off."
+                reason: L("Advertised workspace. Host-assigned. Leftover folder writes stay off.")
             )
         )
 
@@ -734,7 +734,7 @@ public enum BotBrainCompiler {
                 title: "Desktop",
                 text: desktopText(for: revision, runsInGuest: runsInGuest),
                 included: true,
-                reason: "Advertised execution space. Leftover VM kinds compile as logical space."
+                reason: L("Advertised execution space. Leftover VM kinds compile as logical space.")
             )
         )
 
@@ -746,8 +746,8 @@ public enum BotBrainCompiler {
                 text: approvalModeText(for: effectiveRunMode(revision: revision, liveRunMode: liveRunMode)),
                 included: true,
                 reason: liveRunMode == nil
-                    ? "Advertised supervised route. Leftover full-access kinds compile as supervised."
-                    : "Live composer chip. Host-assigned. Not a self-config write."
+                    ? L("Advertised supervised route. Leftover full-access kinds compile as supervised.")
+                    : L("Live composer chip. Host-assigned. Not a self-config write.")
             )
         )
 
@@ -758,7 +758,7 @@ public enum BotBrainCompiler {
                 title: "Notifications",
                 text: notificationsLine(enabled: bot.notificationsEnabled),
                 included: true,
-                reason: "Advertised notification toggle. Studio already shows On or Off."
+                reason: L("Advertised notification toggle. Studio already shows On or Off.")
             )
         )
 
@@ -769,7 +769,7 @@ public enum BotBrainCompiler {
                 title: "Route",
                 text: "",
                 included: false,
-                reason: "Desk composer chooses the account per send. Studio no longer publishes a route."
+                reason: L("Desk composer chooses the account per send. Studio no longer publishes a route.")
             )
         )
 
@@ -777,28 +777,28 @@ public enum BotBrainCompiler {
             BotContextLayer(
                 id: "tools",
                 kind: .tools,
-                title: "Admitted tools",
+                title: L("Admitted tools"),
                 text: BotStandingInstructions.admittedToolsText(for: revision.desktopKind, inGuest: runsInGuest),
                 included: true,
-                reason: "Desk-admitted tools. Custom soul must not hide them."
+                reason: L("Desk-admitted tools. Custom soul must not hide them.")
             )
         )
         layers.append(BotContextLayer(
             id: "task-guidance",
             kind: .tools,
-            title: "Task guidance",
+            title: L("Task guidance"),
             text: taskGuidance,
             included: true,
-            reason: "Proportional reasoning and evidence. Runtime owns tool admission and permissions."
+            reason: L("Proportional reasoning and evidence. Runtime owns tool admission and permissions.")
         ))
         if bot.handle.lowercased() == TitioIdentity.handle {
             layers.append(BotContextLayer(
                 id: "titio-control-center",
                 kind: .tools,
-                title: "MacCode control center",
+                title: L("MacCode control center"),
                 text: TitioIdentity.orchestrationDirective,
                 included: true,
-                reason: "Current host capabilities for Titio chats and scheduled runs."
+                reason: L("Current host capabilities for Titio chats and scheduled runs.")
             ))
         }
 
@@ -810,7 +810,7 @@ public enum BotBrainCompiler {
                     title: "Browser",
                     text: browser,
                     included: true,
-                    reason: "Advertised last website. Tools already persist it."
+                    reason: L("Advertised last website. Tools already persist it.")
                 )
             )
         }
@@ -823,7 +823,7 @@ public enum BotBrainCompiler {
                     title: "Description",
                     text: description,
                     included: true,
-                    reason: "Advertised about text. Studio already shows Description."
+                    reason: L("Advertised about text. Studio already shows Description.")
                 )
             )
         } else {
@@ -847,13 +847,13 @@ public enum BotBrainCompiler {
             soul: revision.soul
         )
         let soulReason = BotStandingInstructions.looksGenerated(publishedSoul)
-            ? "Built-in teammate default. Write standing instructions to replace it."
-            : "Standing instructions are published with the revision."
+            ? L("Built-in teammate default. Write standing instructions to replace it.")
+            : L("Standing instructions are published with the revision.")
         layers.append(
             BotContextLayer(
                 id: "soul",
                 kind: .soul,
-                title: "Standing instructions",
+                title: L("Standing instructions"),
                 text: soul,
                 included: true,
                 reason: soulReason
@@ -869,7 +869,7 @@ public enum BotBrainCompiler {
                     title: "Memory",
                     text: memoryFileLine(file),
                     included: !body.isEmpty,
-                    reason: body.isEmpty ? "Empty memory file. Not injected." : "Memory file."
+                    reason: body.isEmpty ? L("Empty memory file. Not injected.") : L("Memory file.")
                 )
             )
         }
@@ -882,7 +882,7 @@ public enum BotBrainCompiler {
                     title: "Skill",
                     text: binding.skillID,
                     included: false,
-                    reason: "Leftover catalog binding. Skills are files."
+                    reason: L("Leftover catalog binding. Skills are files.")
                 )
             )
         }
@@ -912,8 +912,8 @@ public enum BotBrainCompiler {
                     text: routineLine(routine),
                     included: routine.activation.isEnabled,
                     reason: routine.activation.isEnabled
-                        ? "Active. Runs only while the app is open."
-                        : "Off. Not injected."
+                        ? L("Active. Runs only while the app is open.")
+                        : L("Off. Not injected.")
                 )
             )
         }
@@ -922,10 +922,10 @@ public enum BotBrainCompiler {
             BotContextLayer(
                 id: "user",
                 kind: .user,
-                title: "User request",
+                title: L("User request"),
                 text: userText,
                 included: true,
-                reason: "User request for this call."
+                reason: L("User request for this call.")
             )
         )
         return layers

@@ -33,7 +33,7 @@ final class ActivityService: @unchecked Sendable {
             AgentActivityItem(
                 id: "project-script:\(script.surfaceID.value.uuidString):\(script.startedAt.timeIntervalSince1970)",
                 kind: .notification, workspaceID: script.workspaceID.value, surfaceID: script.surfaceID.value,
-                state: .running, title: "Project script: \(PetAttentionRedactor.safeContextLabel(script.name) ?? "Running")",
+                state: .running, title: L("Project script: %1$@", PetAttentionRedactor.safeContextLabel(script.name) ?? L("Running")),
                 workspaceName: context.state.workspaces[script.workspaceID]?.name, workspaceColor: colors[script.workspaceID], occurredAt: script.startedAt, startedAt: script.startedAt
             )
         }
@@ -62,7 +62,7 @@ final class ActivityService: @unchecked Sendable {
         surfaces
             .filter { ($0.type == .terminal || $0.type == .ssh) && !scriptSurfaceIDs.contains($0.surfaceID.value) }
             .map { surface in
-                let label = surface.type == .ssh ? "SSH" : "Terminal"
+                let label = surface.type == .ssh ? "SSH" : L("Terminal")
                 return AgentActivityItem(
                     id: "surface:\(surface.surfaceID.value.uuidString)", kind: .operation,
                     workspaceID: surface.workspaceID.value, surfaceID: surface.surfaceID.value, state: .running,
@@ -187,7 +187,7 @@ final class ActivityService: @unchecked Sendable {
                 workspaceID: thread.workspaceId?.value, threadID: thread.id.value, state: state,
                 title: thread.title, workspaceName: workspaceName, workspaceColor: thread.workspaceId.flatMap { workspaceColors[$0] }, provider: thread.provider.rawValue,
                 summary: result?.summary ?? (state == .needsYou
-                    ? "This run has no active process. Send a new message to resume, or dismiss this alert."
+                    ? L("This run has no active process. Send a new message to resume, or dismiss this alert.")
                     : (terminal ? "No summary available for this run" : nil)),
                 occurredAt: row.finishedAt ?? row.startedAt, startedAt: row.startedAt, finishedAt: row.finishedAt,
                 viewedAt: result?.viewedAt, attentionAcknowledgedAt: result?.attentionAcknowledgedAt ?? orphanAcknowledgedAt,
@@ -212,11 +212,11 @@ final class ActivityService: @unchecked Sendable {
             items.append(AgentActivityItem(
                 id: requestID, kind: .request, runID: activeRun?.value, requestID: callback.requestId,
                 workspaceID: thread.workspaceId?.value, threadID: thread.id.value, state: state,
-                title: state == .expired ? "Request expired" : (callback.kind == .approval ? "Approve or decline request" : "Reply to question"),
+                title: state == .expired ? L("Request expired") : (callback.kind == .approval ? L("Approve or decline request") : L("Reply to question")),
                 workspaceName: thread.workspaceId.flatMap { workspaceNames[$0] },
                 workspaceColor: thread.workspaceId.flatMap { workspaceColors[$0] },
                 provider: thread.provider.rawValue,
-                summary: state == .expired ? "This request can no longer be answered. The run is no longer waiting for it."
+                summary: state == .expired ? L("This request can no longer be answered. The run is no longer waiting for it.")
                     : (callback.kind == .approval ? BotAttentionItemKind.approval.resolutionHint : BotAttentionItemKind.question.resolutionHint),
                 occurredAt: callback.createdAt,
                 attentionAcknowledgedAt: acknowledgedAt,
@@ -238,7 +238,7 @@ final class ActivityService: @unchecked Sendable {
             if payload.runID.map(knownRunIDs.contains) == true { continue }
             if let threadID = payload.threadID, let requestID = payload.requestID,
                knownRequestIDs.contains("\(threadID):\(requestID)") { continue }
-            let title = category?.presentation.title ?? "Notification"
+            let title = category?.presentation.title ?? L("Notification")
             let isFailure = category.map(Self.notificationFailureCategories.contains) ?? false
             let state = notificationStates[note.id]
             let botMetadata = botNotificationMetadata[note.id].flatMap { $0.notificationID == note.id ? $0 : nil }

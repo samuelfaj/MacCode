@@ -26,13 +26,13 @@ struct BotExecutionDestinationPicker: View {
             Picker(L("Run on"), selection: $selection) {
                 Text(L("This Mac")).tag(BotExecutionDestination.mac)
                 Text(L("Own VM")).tag(BotExecutionDestination.ownVM)
-                Section("General VMs") {
+                Section(L("General VMs")) {
                     ForEach(available.filter { $0.workspaceID == nil }) { machine in
                         Text(machine.name).tag(BotExecutionDestination.virtualMachine(machine.id))
                     }
                 }
                 if let workspaceID = bot?.workspaceID {
-                    Section(workspaces.first { $0.id == workspaceID }?.name ?? "Workspace VMs") {
+                    Section(workspaces.first { $0.id == workspaceID }?.name ?? L("Workspace VMs")) {
                         ForEach(available.filter { $0.workspaceID == workspaceID }) { machine in
                             Text(machine.name).tag(BotExecutionDestination.virtualMachine(machine.id))
                         }
@@ -62,10 +62,10 @@ struct BotExecutionDestinationPicker: View {
 
     private var explanation: String {
         switch selection {
-        case .mac: return "Runs on this Mac using your local environment."
-        case .ownVM: return "A Linux desktop reserved for this bot."
+        case .mac: return L("Runs on this Mac using your local environment.")
+        case .ownVM: return L("A Linux desktop reserved for this bot.")
         case .virtualMachine:
-            return "Bots using this VM share its files, apps and browser sessions. One conversation runs at a time; others wait."
+            return L("Bots using this VM share its files, apps and browser sessions. One conversation runs at a time; others wait.")
         }
     }
 
@@ -99,8 +99,8 @@ struct BotVirtualMachinesView: View {
                 }
             }
             Text(lockedWorkspaceID == nil
-                 ? "General VMs can be shared by any bot. Workspace VMs are available only to bots exclusive to that workspace."
-                 : "These VMs are available only to bots exclusive to this workspace.")
+                 ? L("General VMs can be shared by any bot. Workspace VMs are available only to bots exclusive to that workspace.")
+                 : L("These VMs are available only to bots exclusive to this workspace."))
                 .font(DS.Font.body).foregroundStyle(DS.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             List(machines) { machine in
@@ -116,13 +116,13 @@ struct BotVirtualMachinesView: View {
                         name = machine.name
                         scope = machine.workspaceID
                     }
-                    .accessibilityLabel("Rename \(machine.name)")
+                    .accessibilityLabel(L("Rename %1$@", machine.name))
                 }
                 .padding(.vertical, DS.Space.xs)
             }
             .overlay {
                 if machines.isEmpty {
-                    Text(lockedWorkspaceID == nil ? "No shared VMs yet. Create one below." : "No VMs in this workspace yet. Create one below.")
+                    Text(lockedWorkspaceID == nil ? L("No shared VMs yet. Create one below.") : L("No VMs in this workspace yet. Create one below."))
                         .foregroundStyle(DS.Palette.textSecondary)
                 }
             }
@@ -152,7 +152,7 @@ struct BotVirtualMachinesView: View {
                 if editingID != nil {
                     Button(L("Cancel")) { editingID = nil; name = ""; scope = lockedWorkspaceID; error = nil }
                 }
-                Button(editingID == nil ? "Create VM" : "Save name", action: save)
+                Button(editingID == nil ? L("Create VM") : L("Save name"), action: save)
                     .buttonStyle(.borderedProminent)
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("bots.vm.save")
@@ -173,14 +173,14 @@ struct BotVirtualMachinesView: View {
     }
 
     private func scopeName(_ machine: BotVirtualMachine) -> String {
-        guard let id = machine.workspaceID else { return "General · All bots" }
-        return workspaces.first { $0.id == id }.map { "Workspace · \($0.name)" } ?? "Workspace unavailable"
+        guard let id = machine.workspaceID else { return L("General · All bots") }
+        return workspaces.first { $0.id == id }.map { "Workspace · \($0.name)" } ?? L("Workspace unavailable")
     }
 
     private func save() {
         do {
             if let scope, !workspaces.contains(where: { $0.id == scope }) {
-                throw BotStoreError.invalidInput("This workspace is no longer available.")
+                throw BotStoreError.invalidInput(L("This workspace is no longer available."))
             }
             let machine = try store.saveVirtualMachine(id: editingID, name: name, workspaceID: scope)
             EventBus.shared.publish(kind: .botUpdated, payload: .object([

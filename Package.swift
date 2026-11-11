@@ -99,10 +99,12 @@ let package = Package(
         ),
         .target(
             name: "DesignSystemKit",
+            dependencies: ["CoreModel"],
             path: "Sources/DesignSystemKit"
         ),
         .target(
             name: "AppLifecycleSupport",
+            dependencies: ["CoreModel"],
             path: "Sources/AppLifecycleSupport"
         ),
         .target(

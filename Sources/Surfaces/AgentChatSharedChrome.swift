@@ -14,8 +14,8 @@ public enum AgentChatThreadStatusMark: Equatable {
 /// One stop affordance for Agent App and dest thread rows.
 public enum AgentChatThreadRowStopChrome {
     public static let symbolName = "stop.circle"
-    public static let accessibilityLabel = "Stop thread"
-    public static let help = "Stop this thread"
+    public static let accessibilityLabel = L("Stop thread")
+    public static let help = L("Stop this thread")
 
     public static func isVisible(
         status: AgentChatThreadStatusMark,
@@ -102,7 +102,7 @@ public struct AgentChatThreadRow<Leading: View, Trailing: View>: View, Equatable
                     Circle()
                         .fill(DS.Palette.accent)
                         .frame(width: 7, height: 7)
-                        .accessibilityLabel("Unread activity")
+                        .accessibilityLabel(L("Unread activity"))
                         .accessibilityIdentifier(unreadIdentifier ?? "\(identifier).unread")
                 }
                 trailing
@@ -148,14 +148,14 @@ public struct AgentChatThreadRow<Leading: View, Trailing: View>: View, Equatable
         case .running:
             // Same spinner as the Bots roster and the workspace rows.
             DSBusySpinner(
-                label: "Running",
+                label: L("Running"),
                 identifier: runningIdentifier ?? "\(identifier).running"
             )
         case .unread:
             Circle()
                 .fill(DS.Palette.accent)
                 .frame(width: 7, height: 7)
-                .accessibilityLabel("Unread")
+                .accessibilityLabel(L("Unread"))
         case .symbol(let name, let color, let size):
             Image(systemName: name)
                 .font(.system(size: size, weight: .semibold))
@@ -865,7 +865,7 @@ public struct AgentChatAttachmentChips: View {
                             Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Remove \(attachment.displayName)")
+                        .accessibilityLabel(L("Remove %1$@", attachment.displayName))
                     }
                     .foregroundColor(DS.Palette.textSecondary)
                     .padding(.horizontal, DS.Space.sm).padding(.vertical, 3)
@@ -1006,7 +1006,7 @@ public struct AgentChatCopyButton<Label: View>: View {
             label(acknowledgement.copied)
         }
         .buttonStyle(.plain)
-        .accessibilityValue(acknowledgement.copied ? "Copied" : "")
+        .accessibilityValue(acknowledgement.copied ? L("Copied") : "")
     }
 }
 
@@ -1077,7 +1077,7 @@ public struct AgentChatErrorStrip: View {
             if offersCopy {
                 AgentChatCopyButton(text: message) { AgentChatCopyWordLabel(copied: $0) }
                 .font(DS.Font.caption)
-                .accessibilityLabel("Copy")
+                .accessibilityLabel(L("Copy"))
                 .accessibilityIdentifier("\(identifier).copy")
             }
             if let onRetry {
@@ -1095,9 +1095,9 @@ public struct AgentChatErrorStrip: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(DS.Palette.textTertiary)
-                .accessibilityLabel("Dismiss error")
+                .accessibilityLabel(L("Dismiss error"))
                 .accessibilityIdentifier("\(identifier).dismiss")
-                .help("Dismiss error")
+                .help(L("Dismiss error"))
             }
         }
         .padding(.horizontal, DS.Space.lg)
@@ -1378,7 +1378,7 @@ struct AgentQueuedMessageEditor: View {
                         .strokeBorder(focused ? DS.Palette.accent : DS.Palette.line, lineWidth: DS.Border.hairline)
                 )
                 .onKeyPress(.escape) { onCancel(); return .handled }
-                .accessibilityLabel("Edit queued message \(position)")
+                .accessibilityLabel(L("Edit queued message %1$@", position))
                 .accessibilityIdentifier("agent.queued.editor.\(identifier)")
             HStack(spacing: DS.Space.sm) {
                 Text(L("Esc to cancel · ⌘↩ to save"))

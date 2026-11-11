@@ -276,7 +276,7 @@ public struct AgentChatImageGallery: View, Equatable {
         .padding(.top, DS.Space.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(refs.count) image\(refs.count == 1 ? "" : "s")")
+        .accessibilityLabel((refs.count == 1 ? L("%1$@ image", refs.count) : L("%1$@ images", refs.count)))
         .accessibilityIdentifier("agent.imageGallery")
     }
 
@@ -338,9 +338,9 @@ struct AgentChatImageGalleryTile: View {
                 .contentShape(shape)
         }
         .buttonStyle(.plain)
-        .help(overflowCount > 0 ? "Show \(overflowCount) more image\(overflowCount == 1 ? "" : "s")" : "Open \(ref.displayName)")
-        .accessibilityLabel(overflowCount > 0 ? "\(overflowCount) more images" : "Image \(ref.displayName)")
-        .accessibilityHint(overflowCount > 0 ? "Shows every image" : "Opens the image")
+        .help(overflowCount > 0 ? (overflowCount == 1 ? L("Show %1$@ more image", overflowCount) : L("Show %1$@ more images", overflowCount)) : L("Open %1$@", ref.displayName))
+        .accessibilityLabel(overflowCount > 0 ? L("%1$@ more images", overflowCount) : L("Image %1$@", ref.displayName))
+        .accessibilityHint(overflowCount > 0 ? L("Shows every image") : L("Opens the image"))
         .accessibilityIdentifier("agent.imageGallery.tile")
         .dsPointingHandCursor()
         .task(id: ref) { await load() }
@@ -406,7 +406,7 @@ private struct AgentChatImageShimmer: View {
                 }
             }
             .clipped()
-            .accessibilityLabel("Loading image")
+            .accessibilityLabel(L("Loading image"))
             .onAppear {
                 guard !reduceMotion else { return }
                 withAnimation(.linear(duration: 1.3).repeatForever(autoreverses: false)) { phase = 1.2 }

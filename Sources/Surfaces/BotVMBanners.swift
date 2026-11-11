@@ -35,7 +35,7 @@ struct BotMacExecutionBanner: View {
     var body: some View {
         BotVMBannerRow(
             icon: "desktopcomputer",
-            text: "The bot asked to run on the Mac: \(vm.pendingMacExecutionReason ?? "")",
+            text: L("The bot asked to run on the Mac: %1$@", vm.pendingMacExecutionReason ?? ""),
             identifier: "agent.macExecution.banner"
         ) {
             Button(L("Decline")) { vm.resolveMacExecution(approve: false) }
@@ -57,7 +57,7 @@ struct BotVMUnavailableBanner: View {
     var body: some View {
         BotVMBannerRow(
             icon: "exclamationmark.triangle",
-            text: "The bot's VM is not available.",
+            text: L("The bot's VM is not available."),
             identifier: "agent.vmUnavailable.banner"
         ) {
             Button(L("Start VM")) { vm.startUnavailableBotVM() }

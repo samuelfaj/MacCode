@@ -24,7 +24,7 @@ struct OnboardingView: View {
             HStack(spacing: DS.Space.xl) {
                 OnboardingStepper(current: vm.state.step, done: vm.state.completedSteps, reachable: vm.isLocked ? vm.state.step : vm.furthestReachable) { vm.jump(to: $0) }
                 Button(L("Skip setup")) { vm.skipSetup() }.buttonStyle(.link)
-                    .accessibilityHint("Stop showing setup automatically. Reopen it from the MacCode menu.")
+                    .accessibilityHint(L("Stop showing setup automatically. Reopen it from the MacCode menu."))
             }
                 .padding(.horizontal, 40)
                 .padding(.top, DS.Space.xxxl)
@@ -219,7 +219,7 @@ struct OnboardingStepper: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(step.index > reachable.index)
-                .accessibilityLabel("Step \(step.index + 1) of \(OnboardingStep.allCases.count), \(step.title)\(isDone ? ", done" : "")")
+                .accessibilityLabel(L("Step %1$@ of %2$@, %3$@%4$@", step.index + 1, OnboardingStep.allCases.count, step.title, isDone ? ", done" : ""))
                 .accessibilityAddTraits(isCurrent ? .isSelected : [])
                 if step != OnboardingStep.allCases.last {
                     Capsule()
@@ -279,7 +279,7 @@ struct OnboardingProviderRow: View {
                 Button(L("Connect"), action: connect)
                     .buttonStyle(DSSecondaryButtonStyle())
                     .disabled(!enabled)
-                    .accessibilityLabel("Connect \(provider.displayName)")
+                    .accessibilityLabel(L("Connect %1$@", provider.displayName))
             }
         }
         .padding(.horizontal, DS.Space.xl)

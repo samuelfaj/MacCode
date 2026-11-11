@@ -12,7 +12,7 @@ extension AppCommandRouter {
         guard let stored = try ctx.threadRepo.get(id: thread) else {
             throw ManualActionWire.refusal(
                 code: ManualActionWire.notFoundCode, kind: "not_found",
-                message: "Agent thread not found."
+                message: L("Agent thread not found.")
             )
         }
         return manualActionStore.all(threadID: thread).map { manualActionSnapshot($0, thread: stored) }
@@ -52,7 +52,7 @@ extension AppCommandRouter {
               let current = manualActionStore.all(threadID: thread).first(where: { $0.id == id }) else {
             throw DefiniteMutationRejection(ManualActionWire.refusal(
                 code: ManualActionWire.notFoundCode, kind: "not_found",
-                message: "This manual action is not on this thread."
+                message: L("This manual action is not on this thread.")
             ))
         }
         let control = botComputerControl
@@ -64,7 +64,7 @@ extension AppCommandRouter {
                 guard stored.executionTarget != .mac else {
                     throw DefiniteMutationRejection(ManualActionWire.refusal(
                         code: ManualActionWire.takeUnavailableCode, kind: "take_unavailable",
-                        message: "This bot runs on the Mac; there is no bot computer to take."
+                        message: L("This bot runs on the Mac; there is no bot computer to take.")
                     ))
                 }
                 // Control is in-memory only: after a restart a taken request is the bot's again (as on the Mac card).
@@ -95,7 +95,7 @@ extension AppCommandRouter {
             // The store write failed before anything changed (the request stays open).
             throw DefiniteMutationRejection(ManualActionWire.refusal(
                 code: -32000, kind: "store_unavailable",
-                message: "Manual action could not be saved: \(error.localizedDescription)"
+                message: L("Manual action could not be saved: %1$@", error.localizedDescription)
             ))
         }
         // Every Mac card refreshes, and the observer publishes agent.manual_action.updated
@@ -144,7 +144,7 @@ extension AppCommandRouter {
         let state = manualActionStore.all(threadID: thread).first(where: { $0.id == id })?.state
         return DefiniteMutationRejection(ManualActionWire.refusal(
             code: ManualActionWire.stateConflictCode, kind: "state_conflict",
-            message: "This manual action was already answered.", state: state
+            message: L("This manual action was already answered."), state: state
         ))
     }
 

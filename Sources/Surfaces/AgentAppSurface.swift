@@ -387,9 +387,9 @@ public enum AgentErrorRecoveryAction: String, Sendable, Equatable {
 
     public var title: String {
         switch self {
-        case .signIn: return "Sign in"
-        case .retry: return "Retry"
-        case .startFresh: return "Start fresh"
+        case .signIn: return L("Sign in")
+        case .retry: return L("Retry")
+        case .startFresh: return L("Start fresh")
         }
     }
 
@@ -435,14 +435,14 @@ public enum AgentErrorRecoveryAction: String, Sendable, Equatable {
 }
 
 private struct BotRunUnavailableError: LocalizedError {
-    var errorDescription: String? { "Bot unavailable." }
+    var errorDescription: String? { L("Bot unavailable.") }
 }
 
 /// `AgentAppViewModel.lockThreadToBot` found the thread's actor already
 /// locked (another device or window locked it first). Nothing was written.
 public struct ThreadActorAlreadyLockedError: LocalizedError {
     public var errorDescription: String? {
-        "This conversation is already assigned to another actor. Review the actor and try sending again."
+        L("This conversation is already assigned to another actor. Review the actor and try sending again.")
     }
 }
 
@@ -568,7 +568,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 UserDefaults.standard.set(data, forKey: "agent.parallelTask.\(source.value.uuidString)")
             }
         } catch {
-            statusMessage = "Could not open parallel conversation: \(error)"
+            statusMessage = L("Could not open parallel conversation: %1$@", error)
         }
     }
 
@@ -590,7 +590,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             } catch {
                 guard !Task.isCancelled, selectedParallelTask == task, selectedThreadId == source else { return }
                 closeParallelTask()
-                statusMessage = "Parallel conversation access is unavailable: \(error)"
+                statusMessage = L("Parallel conversation access is unavailable: %1$@", error)
                 return
             }
             do { try await Task.sleep(nanoseconds: 2_000_000_000) }
@@ -751,11 +751,11 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     @Published public var status: AgentRunStatus = .pending
     @Published public var statusMessage: String = ""
     private static let deletedThreadDraftRecoveryMessage =
-        "Thread removed; your unsent draft was kept in a fresh composer."
+        L("Thread removed; your unsent draft was kept in a fresh composer.")
     /// Informational replay state is separate from statusMessage so a bounded
     /// history window cannot be presented as a provider/persistence error.
     @Published public private(set) var historyReplayNotice: String?
-    public static let historyReplayNoticeText = "Showing the recent Agent history window. Earlier transcript events remain outside the hot replay budget."
+    public static let historyReplayNoticeText = L("Showing the recent Agent history window. Earlier transcript events remain outside the hot replay budget.")
 
     /// Never surface the hot-replay window as a user-visible banner.
     /// Partial history still loads; only the notice copy is suppressed.
@@ -1756,7 +1756,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             onThreadLifecycle?(.deleted(snapshot.prunedThreadIDs))
         }
         if let errorDescription = snapshot.errorDescription {
-            let reloadFailure = "Could not reload threads: \(errorDescription)"
+            let reloadFailure = L("Could not reload threads: %1$@", errorDescription)
             if statusMessage.contains(Self.deletedThreadDraftRecoveryMessage) {
                 statusMessage = "\(Self.deletedThreadDraftRecoveryMessage) \(reloadFailure)"
             } else {
@@ -1890,7 +1890,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             onThreadLifecycle?(.deleted(snapshot.prunedThreadIDs))
         }
         if let errorDescription = snapshot.errorDescription {
-            let reloadFailure = "Could not reload threads: \(errorDescription)"
+            let reloadFailure = L("Could not reload threads: %1$@", errorDescription)
             if statusMessage.contains(Self.deletedThreadDraftRecoveryMessage) {
                 statusMessage = "\(Self.deletedThreadDraftRecoveryMessage) \(reloadFailure)"
             } else {
@@ -2239,7 +2239,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             var titlesToPersist: [(AgentThreadID, String)] = []
             for item in fetched {
                 if let errorDescription = item.errorDescription {
-                    self.statusMessage = "Could not repair thread title: \(errorDescription)"
+                    self.statusMessage = L("Could not repair thread title: %1$@", errorDescription)
                     continue
                 }
                 self.repairedThreadIds.insert(item.threadId)
@@ -2292,7 +2292,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         do {
             try draftRepo?.upsert(draft)
         } catch {
-            statusMessage = "Draft save failed: \(error)"
+            statusMessage = L("Draft save failed: %1$@", error)
         }
     }
 
@@ -2312,7 +2312,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     }
 
     private func reportComposerDraftSaveFailure(_ error: Error) {
-        statusMessage = "Draft save failed: \(error)"
+        statusMessage = L("Draft save failed: %1$@", error)
     }
 
     private func cancelPendingComposerDraftPersistence() {
@@ -2523,18 +2523,18 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             do {
                 guard let persistedThread = try threadRepo.get(id: id) else {
                     if statusMessage.isEmpty {
-                        statusMessage = "Could not open thread: The thread is no longer available."
+                        statusMessage = L("Could not open thread: The thread is no longer available.")
                     }
                     return
                 }
                 selectedThread = persistedThread
             } catch {
-                statusMessage = "Could not open thread: \(error)"
+                statusMessage = L("Could not open thread: %1$@", error)
                 return
             }
             guard isPinned || selectedThread.workspaceId == workspaceID else {
                 if statusMessage.isEmpty {
-                    statusMessage = "Could not open thread: The thread belongs to another workspace."
+                    statusMessage = L("Could not open thread: The thread belongs to another workspace.")
                 }
                 return
             }
@@ -2722,7 +2722,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                     if self.embedding?.pinnedThreadId == id {
                         guard (try self.threadRepo.get(id: id)) != nil else {
                             if self.statusMessage.isEmpty {
-                                self.statusMessage = "Could not open thread: The thread is no longer available."
+                                self.statusMessage = L("Could not open thread: The thread is no longer available.")
                             }
                             self.retireUnbackedRailRow(id)
                             return
@@ -2730,7 +2730,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                     } else {
                         guard let durableWorkspace = try self.threadRepo.workspaceId(of: id) else {
                             if self.statusMessage.isEmpty {
-                                self.statusMessage = "Could not open thread: The thread is no longer available."
+                                self.statusMessage = L("Could not open thread: The thread is no longer available.")
                             }
                             // The stale rail row was already bound before this probe ran,
                             // so a missing durable row must undo the selection instead of
@@ -2740,7 +2740,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                         }
                         guard durableWorkspace == self.workspaceID else {
                             if self.statusMessage.isEmpty {
-                                self.statusMessage = "Could not open thread: The thread belongs to another workspace."
+                                self.statusMessage = L("Could not open thread: The thread belongs to another workspace.")
                             }
                             // The durable owner wins over the rail row: this surface must
                             // not stay bound to — or keep painting — another workspace's
@@ -2750,7 +2750,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                         }
                     }
                 } catch {
-                    self.statusMessage = "Could not open thread: \(error)"
+                    self.statusMessage = L("Could not open thread: %1$@", error)
                     return
                 }
             }
@@ -3073,7 +3073,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             // The value is unknown, not empty: never let the next switch paint
             // this failed read as the thread's cached notes.
             planNotesByThread.removeValue(forKey: id)
-            statusMessage = "Could not load plan notes"
+            statusMessage = L("Could not load plan notes")
         }
         // Subagents is thread-scoped chrome: rebuild after first paint so
         // switching threads never keeps another thread's Active/Done counts.
@@ -3179,7 +3179,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             planNotesByThread[id] = planNotes
             onPlanNotesPersisted?(id, planNotes)
         } catch {
-            statusMessage = "Could not save plan notes: \(error)"
+            statusMessage = L("Could not save plan notes: %1$@", error)
         }
     }
 
@@ -3300,7 +3300,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     }
 
     private static let preparedQueueStatusMessage =
-        "Start confirmation is pending. Check status before deciding whether to remove this queue record."
+        L("Start confirmation is pending. Check status before deciding whether to remove this queue record.")
 
     private func setQueueStatus(_ message: String?, threadId: AgentThreadID) {
         if let message {
@@ -3320,11 +3320,11 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     public func queuedMessageForceLabel(_ message: AgentQueuedMessage) -> String {
         switch message.durableState ?? .queued {
         case .queued:
-            return "Force"
+            return L("Force")
         case .prepared:
-            return "Check status"
+            return L("Check status")
         case .dispatched:
-            return "Finish cleanup"
+            return L("Finish cleanup")
         }
     }
 
@@ -3333,11 +3333,11 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     ) -> String {
         switch message.durableState ?? .queued {
         case .queued:
-            return "Force queued message \(message.position) now"
+            return L("Force queued message %1$@ now", message.position)
         case .prepared:
-            return "Check queued message \(message.position) provider status"
+            return L("Check queued message %1$@ provider status", message.position)
         case .dispatched:
-            return "Finish queued message \(message.position) cleanup"
+            return L("Finish queued message %1$@ cleanup", message.position)
         }
     }
 
@@ -3346,16 +3346,16 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         case .queued:
             return nil
         case .prepared:
-            return "Provider acceptance is unresolved. The message is retained to prevent duplicate work."
+            return L("Provider acceptance is unresolved. The message is retained to prevent duplicate work.")
         case .dispatched:
-            return "Provider start was confirmed. Queue acknowledgement is being recovered."
+            return L("Provider start was confirmed. Queue acknowledgement is being recovered.")
         }
     }
 
     public func editQueuedMessage(_ message: AgentQueuedMessage) {
         // Switching edits would silently discard the unsaved text of the current one.
         if let current = editingQueuedMessage, current.id != message.id, queuedMessageDraft != current.text {
-            statusMessage = "Save or cancel the current edit first."
+            statusMessage = L("Save or cancel the current edit first.")
             return
         }
         editingQueuedMessage = message
@@ -3380,11 +3380,11 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 self.editingQueuedMessage = nil
                 queuedMessageDraft = ""
                 reloadQueuedMessages()
-                setQueueStatus("Already processing.", threadId: editingQueuedMessage.threadId)
+                setQueueStatus(L("Already processing."), threadId: editingQueuedMessage.threadId)
             }
         } catch {
             setQueueStatus(
-                "Queue edit failed: \(error)",
+                L("Queue edit failed: %1$@", error),
                 threadId: editingQueuedMessage.threadId
             )
         }
@@ -3393,7 +3393,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     public func forceQueuedMessageNow(_ message: AgentQueuedMessage) async {
         guard let forceQueuedMessage else {
             setQueueStatus(
-                "Queue action is unavailable while the app router is not ready.",
+                L("Queue action is unavailable while the app router is not ready."),
                 threadId: message.threadId
             )
             return
@@ -3404,7 +3404,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             reloadQueuedMessages()
             if result.status == .queued {
                 setQueueStatus(
-                    "Stopping current run to start this now.",
+                    L("Stopping current run to start this now."),
                     threadId: message.threadId
                 )
             } else {
@@ -3418,8 +3418,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 return
             }
             let prefix = message.durableState == .queued
-                ? "Queue force failed"
-                : "Queue status check failed"
+                ? L("Queue force failed")
+                : L("Queue status check failed")
             setQueueStatus("\(prefix): \(error)", threadId: message.threadId)
         }
     }
@@ -3439,7 +3439,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 removed = try queuedMessageRepo.abandonPrepared(id: message.id)
             case .dispatched:
                 setQueueStatus(
-                    "Provider start was confirmed. Use Finish cleanup instead of removing this message.",
+                    L("Provider start was confirmed. Use Finish cleanup instead of removing this message."),
                     threadId: message.threadId
                 )
                 return
@@ -3467,13 +3467,13 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             } else {
                 reloadQueuedMessages()
                 setQueueStatus(
-                    "Queue state changed before removal. Check status and try again.",
+                    L("Queue state changed before removal. Check status and try again."),
                     threadId: message.threadId
                 )
             }
         } catch {
             setQueueStatus(
-                "Queue removal failed: \(error)",
+                L("Queue removal failed: %1$@", error),
                 threadId: message.threadId
             )
         }
@@ -3519,7 +3519,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             }
         } catch {
             if let selectedThreadId {
-                setQueueStatus("Queue reorder failed: \(error)", threadId: selectedThreadId)
+                setQueueStatus(L("Queue reorder failed: %1$@", error), threadId: selectedThreadId)
             }
         }
     }
@@ -3641,7 +3641,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
 
     public var planInteractionUnavailableReason: String? {
         guard !supportsPlanInteractionForSelectedProvider else { return nil }
-        return "\(providerDisplayName(provider)) does not support Plan mode for this session."
+        return L("%1$@ does not support Plan mode for this session.", providerDisplayName(provider))
     }
 
     public var supportedPermissionModesForSelectedProvider: [AgentPermissionMode] {
@@ -3656,17 +3656,17 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
 
     public func permissionModeUnavailableReason(_ mode: AgentPermissionMode) -> String? {
         guard !supportedPermissionModesForSelectedProvider.contains(mode) else { return nil }
-        return "\(providerDisplayName(provider)) does not support \(mode.displayName) for this session."
+        return L("%1$@ does not support %2$@ for this session.", providerDisplayName(provider), mode.displayName)
     }
 
     public var threadForkUnavailableReason: String? {
         guard !selectedProviderCapabilities.supportsFork else { return nil }
-        return "\(providerDisplayName(provider)) does not support provider-side fork for this session."
+        return L("%1$@ does not support provider-side fork for this session.", providerDisplayName(provider))
     }
 
     public var checkpointRevertUnavailableReason: String? {
         guard !selectedProviderCapabilities.supportsRollback else { return nil }
-        return "\(providerDisplayName(provider)) does not support provider-side rollback for this session."
+        return L("%1$@ does not support provider-side rollback for this session.", providerDisplayName(provider))
     }
 
     public func revertSelectedCheckpoint() {
@@ -3681,7 +3681,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 // PERF-MAC_AGENT-006/012: revert deleted assistant rows — drop both caches.
                 lastPersistedAssistantContentByThread.removeValue(forKey: selectedThreadId)
                 lastPersistedFinalIdByThread.removeValue(forKey: selectedThreadId)
-                checkpointStatusMessage = "Reverted to checkpoint \(turnCount)."
+                checkpointStatusMessage = L("Reverted to checkpoint %1$@.", turnCount)
                 loadAllMessages(selectedThreadId)
                 reloadCheckpoints()
                 reloadThreads()
@@ -3692,7 +3692,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                     capturedAt: currentTime()
                 ))
             } catch {
-                checkpointStatusMessage = "Revert failed: \(error.localizedDescription)"
+                checkpointStatusMessage = L("Revert failed: %1$@", error.localizedDescription)
             }
         }
     }
@@ -3704,8 +3704,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     nonisolated public static func providerThreadSnapshotFailureMessage(lastConfirmedAt: Date?) -> String {
         let confirmed = lastConfirmedAt.map {
             $0.formatted(date: .omitted, time: .standard)
-        } ?? "not yet confirmed this session"
-        return "Provider snapshot unavailable. Showing persisted local state; last provider confirmation: \(confirmed)."
+        } ?? L("not yet confirmed this session")
+        return L("Provider snapshot unavailable. Showing persisted local state; last provider confirmation: %1$@.", confirmed)
     }
 
     /// An interrupted session must remain disconnected until the user chooses
@@ -4227,7 +4227,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             _ = persistThreadConfig()
         } catch {
             if statusMessage.isEmpty {
-                statusMessage = "Could not repair Distill thread routing: \(error)"
+                statusMessage = L("Could not repair Distill thread routing: %1$@", error)
             }
         }
     }
@@ -4683,7 +4683,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                     contentLimit: AssistantTimelineState.liveTextLimit
                 )
             } catch {
-                payload.failure = "Could not load messages: \(error)"
+                payload.failure = L("Could not load messages: %1$@", error)
             }
             return payload
         }.value
@@ -4753,7 +4753,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                     currentGeneration: self.loadingOlderGeneration
                   ) else { return }
             guard let loaded = payload.page else {
-                self.olderMessageLoadFailure = payload.failure ?? "Could not load older messages"
+                self.olderMessageLoadFailure = payload.failure ?? L("Could not load older messages")
                 return
             }
             self.messages = Self.mergeOlderMessagePage(
@@ -4983,18 +4983,18 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     /// `!selectedThreadRunIsStartingOrRunning` guard keeps the neutral copy during
     /// the brief window a resume run is starting.
     public var composerPlaceholder: String {
-        if activeReplyTarget != nil { return "Reply…" }
+        if activeReplyTarget != nil { return L("Reply…") }
         if let placeholder = embedding?.composerPlaceholder { return placeholder }
-        let defaultPlaceholder = "Ask \(provider.rawValue.capitalized) for changes…"
+        let defaultPlaceholder = L("Ask %1$@ for changes…", provider.rawValue.capitalized)
         guard !selectedThreadRunIsStartingOrRunning,
               let reason = incompleteTurnReason else { return defaultPlaceholder }
         switch reason {
         case .backgroundAwait:
-            return "Waiting on a background task — send to redirect…"
+            return L("Waiting on a background task — send to redirect…")
         case .workflowHandoff:
-            return "Paused mid-workflow — send to redirect…"
+            return L("Paused mid-workflow — send to redirect…")
         case .uncalledToolInvocation:
-            return "Tool call was not executed — send to redirect…"
+            return L("Tool call was not executed — send to redirect…")
         }
     }
 
@@ -5094,7 +5094,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     public func saveLatestProposedPlan(to url: URL) throws -> URL {
         guard let plan = latestProposedPlan else {
             throw NSError(domain: "RemoteCode.AgentApp", code: 404, userInfo: [
-                NSLocalizedDescriptionKey: "No proposed plan is available to save."
+                NSLocalizedDescriptionKey: L("No proposed plan is available to save.")
             ])
         }
         try plan.markdown.data(using: .utf8)?.write(to: url, options: .atomic)
@@ -5193,7 +5193,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 // callback action (no newer action stomped it via a sync write).
                 if self.selectedThreadId == threadId {
                     if issuedSeq == self.callbackActionSeq {
-                        self.timeline.apply(.error(message: "Provider request response failed: \(error)", recoverable: true))
+                        self.timeline.apply(.error(message: L("Provider request response failed: %1$@", error), recoverable: true))
                         self.lastErrorRecoverable = false
                     }
                     self.timeline.apply(.requestResolved(requestId: request.id, state: .stale))
@@ -5225,7 +5225,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 }
             } catch {
                 if self.selectedThreadId == threadId {
-                    self.timeline.apply(.error(message: "Provider user-input response failed: \(error)", recoverable: true))
+                    self.timeline.apply(.error(message: L("Provider user-input response failed: %1$@", error), recoverable: true))
                     if let idx = self.timeline.pendingUserInputs.firstIndex(where: { $0.id == request.id }) {
                         self.timeline.pendingUserInputs[idx].state = .stale
                         self.timeline.pendingUserInputs[idx].resolvedAtMs = Int64(Date().timeIntervalSince1970 * 1000)
@@ -5242,7 +5242,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         guard request.state == .pending else { return }
         if let snapshot = selectedProviderSnapshot,
            !snapshot.effectiveCapabilities.supportsUserInput {
-            statusMessage = "\(providerDisplayName(provider)) does not support interactive questions for this session."
+            statusMessage = L("%1$@ does not support interactive questions for this session.", providerDisplayName(provider))
             return
         }
         guard let threadId = selectedThreadId else { return }
@@ -5257,7 +5257,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 }
             } catch {
                 if self.selectedThreadId == threadId {
-                    self.timeline.apply(.error(message: "Provider user-input cancellation failed: \(error)", recoverable: true))
+                    self.timeline.apply(.error(message: L("Provider user-input cancellation failed: %1$@", error), recoverable: true))
                     if let index = self.timeline.pendingUserInputs.firstIndex(where: { $0.id == request.id }) {
                         self.timeline.pendingUserInputs[index].state = .stale
                         self.timeline.pendingUserInputs[index].resolvedAtMs = Int64(Date().timeIntervalSince1970 * 1000)
@@ -5460,8 +5460,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 self.availableModelsAreFallback = isFallback
                 self.modelListStatusMessage = m.isEmpty
                     ? (self.provider == .distill
-                        ? "No models yet. Connect an account on the start screen, then retry."
-                        : "No models returned for \(self.providerDisplayName(self.provider)). Retry from the model menu.")
+                        ? L("No models yet. Connect an account on the start screen, then retry.")
+                        : L("No models returned for %1$@. Retry from the model menu.", self.providerDisplayName(self.provider)))
                     : nil
                 // B8: a provider switch must leave a model valid for that
                 // provider — never a stale id from the other provider.
@@ -5479,7 +5479,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             }
         } catch {
             await MainActor.run {
-                self.modelListStatusMessage = "Model list failed. Retry from the model menu."
+                self.modelListStatusMessage = L("Model list failed. Retry from the model menu.")
                 self.availableModelsAreFallback = false
             }
         }
@@ -5517,7 +5517,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             // Fail open for composer usability: keep a resolved binary fallback so
             // send is not stuck on missingSnapshot after a transient probe failure.
             let fallback = await Self.localFallbackProviderSnapshots()
-            self.providerSnapshotStatusMessage = "Provider snapshot failed. Retry from the model menu."
+            self.providerSnapshotStatusMessage = L("Provider snapshot failed. Retry from the model menu.")
             if self.providerSnapshots.isEmpty {
                 self.applyProviderSnapshots(fallback)
             }
@@ -5909,13 +5909,13 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             return AgentProviderRunPreflightError.missingSnapshot.description
         }
         if !snapshot.enabled || snapshot.status == .disabled {
-            return snapshot.statusDetail ?? "\(snapshot.displayName) is disabled."
+            return snapshot.statusDetail ?? L("%1$@ is disabled.", snapshot.displayName)
         }
         if !snapshot.installed || snapshot.status == .unavailable {
-            return snapshot.statusDetail ?? "\(snapshot.displayName) is unavailable."
+            return snapshot.statusDetail ?? L("%1$@ is unavailable.", snapshot.displayName)
         }
         if snapshot.authenticated == false {
-            return "\(snapshot.displayName) is not authenticated. Sign in to continue."
+            return L("%1$@ is not authenticated. Sign in to continue.", snapshot.displayName)
         }
         return nil
     }
@@ -5945,7 +5945,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         guard !options.isEmpty else { return nil }
         guard !options.contains(where: { $0.id == model }) else { return nil }
         guard !(customModelsByProvider[provider] ?? []).contains(model) else { return nil }
-        return "\(model) is not in the current model list"
+        return L("%1$@ is not in the current model list", model)
     }
 
     /// F10/F33: `availableModelsAreFallback` describes the VM's own fetch, but
@@ -6039,14 +6039,14 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         if let effort = distillMainEffortSelection.effort,
            !supportedReasoningEffortsForSelectedModel.isEmpty,
            !supportedReasoningEffortsForSelectedModel.contains(effort) {
-            return "Main effort \(effort.displayName) is unavailable for the selected Distill model. Choose Auto or a supported effort."
+            return L("Main effort %1$@ is unavailable for the selected Distill model. Choose Auto or a supported effort.", effort.displayName)
         }
         if let reasoningModel, let effort = distillReasoningEffortSelection.effort {
             if !distillReasoningEfforts.isEmpty, !distillReasoningEfforts.contains(effort) {
-                return "Worker effort \(effort.displayName) is unavailable for \(reasoningModel). Choose Auto or a supported effort."
+                return L("Worker effort %1$@ is unavailable for %2$@. Choose Auto or a supported effort.", effort.displayName, reasoningModel)
             }
             if !selectedProviderCapabilities.supportsDistillReasoningModelEffort {
-                return "Update the Distill ACP harness to apply a separate Worker-model effort."
+                return L("Update the Distill ACP harness to apply a separate Worker-model effort.")
             }
         }
         return nil
@@ -6208,7 +6208,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         }
         if title.hasPrefix("Update") {
             guard let providerRecoveryAction else {
-                providerRecoveryStatusMessage = "Update unavailable: app router is not ready."
+                providerRecoveryStatusMessage = L("Update unavailable: app router is not ready.")
                 return
             }
             providerRecoveryActionRunning = true
@@ -6216,10 +6216,10 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             do {
                 let stdout = try await providerRecoveryAction(snapshot.provider, snapshot.id)
                     .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                providerRecoveryStatusMessage = stdout.isEmpty ? "Update completed." : stdout
+                providerRecoveryStatusMessage = stdout.isEmpty ? L("Update completed.") : stdout
                 await loadProviderSnapshots()
             } catch {
-                providerRecoveryStatusMessage = "Update failed: \(error)"
+                providerRecoveryStatusMessage = L("Update failed: %1$@", error)
             }
             return
         }
@@ -6238,26 +6238,26 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         case .grok:
             command = "curl -fsSL https://x.ai/cli/install.sh | bash"
         case .distill:
-            providerRecoveryStatusMessage = "Install Distill separately, then set its executable path in Settings."
+            providerRecoveryStatusMessage = L("Install Distill separately, then set its executable path in Settings.")
             return
         }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
-        providerRecoveryStatusMessage = "Copied: \(command)"
+        providerRecoveryStatusMessage = L("Copied: %1$@", command)
     }
 
     private func beginProviderSignIn(provider: AgentProvider, snapshotID: String?) {
         guard let providerSignInAction else {
-            providerRecoveryStatusMessage = "Sign-in unavailable: app router is not ready."
+            providerRecoveryStatusMessage = L("Sign-in unavailable: app router is not ready.")
             return
         }
         do {
             try providerSignInAction(provider)
             pendingSignInProvider = provider
             pendingSignInSnapshotID = snapshotID
-            providerRecoveryStatusMessage = "Opened \(providerDisplayName(provider)) sign-in in Terminal. Complete sign-in there, then choose Retry."
+            providerRecoveryStatusMessage = L("Opened %1$@ sign-in in Terminal. Complete sign-in there, then choose Retry.", providerDisplayName(provider))
         } catch {
-            providerRecoveryStatusMessage = "Could not open sign-in Terminal: \(error)"
+            providerRecoveryStatusMessage = L("Could not open sign-in Terminal: %1$@", error)
         }
     }
 
@@ -6273,7 +6273,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             do {
                 snapshots = try await providerSnapshotLoader()
             } catch {
-                providerRecoveryStatusMessage = "Could not refresh authentication status: \(error)"
+                providerRecoveryStatusMessage = L("Could not refresh authentication status: %1$@", error)
                 return false
             }
         } else {
@@ -6281,7 +6281,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             snapshots = providerSnapshots
         }
         guard !snapshots.isEmpty else {
-            providerRecoveryStatusMessage = "Could not refresh authentication status. Choose Retry to try again."
+            providerRecoveryStatusMessage = L("Could not refresh authentication status. Choose Retry to try again.")
             return false
         }
         applyProviderSnapshots(snapshots)
@@ -6292,14 +6292,14 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             return $0.provider == pendingSignInProvider
         }
         guard refreshed?.authenticated == true else {
-            providerRecoveryStatusMessage = "Sign-in is not confirmed yet. Complete it in Terminal, then choose Retry."
+            providerRecoveryStatusMessage = L("Sign-in is not confirmed yet. Complete it in Terminal, then choose Retry.")
             return false
         }
         self.pendingSignInProvider = nil
         pendingSignInSnapshotID = nil
         providerRecoveryStatusMessage = retryLastPromptWhenAuthenticated
-            ? "Authentication confirmed. Retrying the request."
-            : "Authentication confirmed. Retry your request when ready."
+            ? L("Authentication confirmed. Retrying the request.")
+            : L("Authentication confirmed. Retry your request when ready.")
         if retryLastPromptWhenAuthenticated {
             await retryLastPrompt()
         }
@@ -6334,7 +6334,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
 
     public var legacyProviderBannerText: String {
         let name = legacyProviderThreadProvider.map(providerDisplayName) ?? ""
-        return "This conversation used \(name). MacCode now runs Distill only, so it is read-only."
+        return L("This conversation used %1$@. MacCode now runs Distill only, so it is read-only.", name)
     }
 
     /// A thread locked to a bot that was deleted is read-only; the user continues without the bot.
@@ -6350,8 +6350,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         guard selectedThreadBotUnavailable,
               let id = selectedThreadId,
               case .bot(let botID) = threads.first(where: { $0.id == id })?.actor else { return false }
-        let label = botNameProvider(botID).map { "Bot \($0)" } ?? "Bot"
-        statusMessage = "\(label) has been deleted. Use \"Continue without bot\"."
+        let label = botNameProvider(botID).map { "Bot \($0)" } ?? L("Bot")
+        statusMessage = L("%1$@ has been deleted. Use \"Continue without bot\".", label)
         return true
     }
 
@@ -6380,18 +6380,18 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             ? nil
             : thread?.worktreePath ?? cwd
         if let workspace, !FileManager.default.fileExists(atPath: workspace) {
-            statusMessage = "Workspace removed"
+            statusMessage = L("Workspace removed")
             return true
         }
         guard (thread?.executionTarget ?? executionTarget(for: botID)) == .vm else { return false }
         guard let preflight = botVMPreflight else { return false }
         // The Docker check can retry for up to ~50 s; say what the send waits on.
-        let waitingMessage = "Waiting for the Bot computer…"
+        let waitingMessage = L("Waiting for the Bot computer…")
         if statusMessage.isEmpty { statusMessage = waitingMessage }
         let failure = await preflight(botID, workspace, thread?.id)
         if statusMessage == waitingMessage { statusMessage = "" }
         if let failure {
-            statusMessage = "VM unavailable: \(failure)"
+            statusMessage = L("VM unavailable: %1$@", failure)
             vmUnavailableBotID = botID
             return true
         }
@@ -6469,7 +6469,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             throw NSError(
                 domain: "RemoteCode.AgentAppViewModel",
                 code: 404,
-                userInfo: [NSLocalizedDescriptionKey: "A conversa sumiu antes de iniciar."]
+                userInfo: [NSLocalizedDescriptionKey: L("The conversation disappeared before it started.")]
             )
         }
         return lockedAt
@@ -6537,7 +6537,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         guard let botID = vmUnavailableBotID, let provision = botVMProvision else { return }
         Task {
             if let failure = await provision(botID) {
-                statusMessage = "VM unavailable: \(failure)"
+                statusMessage = L("VM unavailable: %1$@", failure)
             } else {
                 vmUnavailableBotID = nil
                 statusMessage = ""
@@ -6599,7 +6599,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
 
     /// Shown when Retry, Continue or a re-run is asked of a surface whose
     /// sends are intercepted (a bot group room or a member's private thread).
-    public static let interceptedRunRefusal = "Bots in a group answer from the group. Write in the group."
+    public static let interceptedRunRefusal = L("Bots in a group answer from the group. Write in the group.")
 
     /// True when sends are intercepted: nothing may start a provider run here.
     private func refuseInterceptedRun() -> Bool {
@@ -6610,7 +6610,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
 
     private func refuseLegacyProviderThreadRun() -> Bool {
         guard isLegacyProviderThread else { return false }
-        statusMessage = "This conversation is read-only. Start a new Distill conversation."
+        statusMessage = L("This conversation is read-only. Start a new Distill conversation.")
         return true
     }
     public var selectedThreadRunIsStartingOrRunning: Bool {
@@ -7084,7 +7084,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 reasoningModel: reasoningModel,
                 at: now
             ) else {
-                statusMessage = "Could not save thread configuration: thread not found."
+                statusMessage = L("Could not save thread configuration: thread not found.")
                 return false
             }
             try threadRepo.setRoutingConfiguration(
@@ -7118,7 +7118,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             return true
         } catch {
             if let stored = try? threadRepo.get(id: id) { restoreThreadConfiguration(from: stored) }
-            statusMessage = "Could not save thread configuration: \(error)"
+            statusMessage = L("Could not save thread configuration: %1$@", error)
             return false
         }
     }
@@ -7175,7 +7175,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             } else if let picker = try threadRepo.threadWithoutRouting(of: id) {
                 current = picker.effectiveRoutingConfiguration
             } else {
-                statusMessage = "Could not save Auto model routing: thread not found."
+                statusMessage = L("Could not save Auto model routing: thread not found.")
                 return false
             }
             let requestedMode: AgentRoutingMode = enabled ? .auto : .manual
@@ -7211,7 +7211,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 picker.updatedAt = updatedConfiguration.updatedAt
                 persisted = picker
             } else {
-                statusMessage = "Could not restore the persisted routing configuration."
+                statusMessage = L("Could not restore the persisted routing configuration.")
                 return false
             }
             routingMode = updatedConfiguration.mode
@@ -7233,7 +7233,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 picker.routingConfiguration = latestRouting
                 restoreThreadConfiguration(from: picker)
             }
-            statusMessage = "Could not save Auto model routing: \(error)"
+            statusMessage = L("Could not save Auto model routing: %1$@", error)
             return false
         }
     }
@@ -7323,7 +7323,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         guard !linkedBotVMRequiresFullAccess || mode == .fullAccess else { return }
         guard !activeRunConfigurationLocked else { return }
         guard supportedPermissionModesForSelectedProvider.contains(mode) else {
-            statusMessage = permissionModeUnavailableReason(mode) ?? "Permission mode is unavailable for this session."
+            statusMessage = permissionModeUnavailableReason(mode) ?? L("Permission mode is unavailable for this session.")
             return
         }
         permissionMode = mode
@@ -7350,7 +7350,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 permissionMode = mode
             }
         } catch {
-            statusMessage = "Could not save permission mode: \(error)"
+            statusMessage = L("Could not save permission mode: %1$@", error)
         }
     }
 
@@ -7367,7 +7367,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         guard provider == .distill else { return }
         if selection.isAutomatic,
            !selectedProviderCapabilities.supportsDistillMainEffortAuto {
-            statusMessage = "Update the Distill ACP session to enable Auto Main effort."
+            statusMessage = L("Update the Distill ACP session to enable Auto Main effort.")
             return
         }
         if let effort = selection.effort {
@@ -7460,7 +7460,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 worktreePath = stored.worktreePath
                 if let i = threads.firstIndex(where: { $0.id == id }) { threads[i] = stored }
             }
-            statusMessage = "Could not save thread execution settings: \(error)"
+            statusMessage = L("Could not save thread execution settings: %1$@", error)
             return false
         }
     }
@@ -7541,7 +7541,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         do {
             prunedThreadIDs = try threadRepo.upsertEnforcingWorkspaceThreadLimit(t)
         } catch {
-            statusMessage = "Could not create thread: \(error)"
+            statusMessage = L("Could not create thread: %1$@", error)
             return
         }
         if !prunedThreadIDs.isEmpty {
@@ -7650,7 +7650,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         let url = pullRequestURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !url.isEmpty else { return }
         guard let pullRequestThreadPreparer else {
-            pullRequestStatusMessage = "PR preparation unavailable: app router is not ready."
+            pullRequestStatusMessage = L("PR preparation unavailable: app router is not ready.")
             return
         }
         normalizeSelectedModelOptions()
@@ -7671,9 +7671,9 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             reloadThreads()
             onThreadLifecycle?(.created(threads.first(where: { $0.id == thread.id }) ?? thread))
             selectThread(thread.id)
-            pullRequestStatusMessage = "Opened \(thread.title)"
+            pullRequestStatusMessage = L("Opened %1$@", thread.title)
         } catch {
-            pullRequestStatusMessage = "PR preparation failed: \(error)"
+            pullRequestStatusMessage = L("PR preparation failed: %1$@", error)
         }
     }
 
@@ -7686,7 +7686,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             // run-start writes (PERSISTENCE-DATA-002). RPC already uses this UPDATE.
             try threadRepo.updateTitlePreservingActivity(id, title: title)
         } catch {
-            statusMessage = "Could not rename thread: \(error)"
+            statusMessage = L("Could not rename thread: %1$@", error)
             return
         }
         reloadThreads()
@@ -7703,7 +7703,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             // the rail instead of compiling the row for the lifecycle event.
             try threadRepo.setColor(id: id, color: color.isEmpty ? nil : color)
         } catch {
-            statusMessage = "Could not change thread color: \(error)"
+            statusMessage = L("Could not change thread color: %1$@", error)
             return
         }
         reloadThreads()
@@ -7716,7 +7716,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         do {
             try threadRepo.setPinned(id: id, pinned: pinned)
         } catch {
-            statusMessage = "Could not change pinned state: \(error)"
+            statusMessage = L("Could not change pinned state: %1$@", error)
             return
         }
         reloadThreads()
@@ -7731,7 +7731,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         do {
             try threadRepo.reorder(id: id, position: targetIndex)
         } catch {
-            statusMessage = "Could not reorder threads: \(error)"
+            statusMessage = L("Could not reorder threads: %1$@", error)
             return
         }
         reloadThreads()
@@ -7833,7 +7833,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             try await coordinator.stopAndAwaitTermination(threadIds: orderedIDs)
         } catch {
             timeline.apply(.error(
-                message: "Could not delete thread because its provider is still running: \(error.localizedDescription)",
+                message: L("Could not delete thread because its provider is still running: %1$@", error.localizedDescription),
                 recoverable: true
             ))
             lastErrorRecoverable = true
@@ -7855,7 +7855,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 )
             )
         } catch {
-            statusMessage = "Could not delete thread data: \(error)"
+            statusMessage = L("Could not delete thread data: %1$@", error)
             return false
         }
         if let handoffDeletion {
@@ -8182,7 +8182,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 }
             }
         } catch {
-            statusMessage = "Could not restore deleted thread data: \(error)"
+            statusMessage = L("Could not restore deleted thread data: %1$@", error)
             return false
         }
         if !prunedThreadIDs.isEmpty {
@@ -8276,9 +8276,9 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 loadAllMessages(toast.threadId)
                 reloadCheckpoints()
                 reloadThreads()
-                checkpointStatusMessage = "Restored."
+                checkpointStatusMessage = L("Restored.")
             } catch {
-                checkpointStatusMessage = "Undo failed: \(error.localizedDescription)"
+                checkpointStatusMessage = L("Undo failed: %1$@", error.localizedDescription)
             }
         }
         pendingCheckpointRevertUndo = nil
@@ -8318,7 +8318,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 approvals: timeline.pendingRequests
             )
             if !tlLines.isEmpty {
-                contents += "## Timeline\n\n"
+                contents += L("## Timeline\n\n")
                 contents += tlLines.joined(separator: "\n")
                 contents += "\n"
             }
@@ -8350,9 +8350,9 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             for message in rows {
                 let heading: String
                 switch message.role {
-                case .user: heading = "## User"
-                case .assistant: heading = "## Assistant"
-                case .system: heading = "## System"
+                case .user: heading = L("## User")
+                case .assistant: heading = L("## Assistant")
+                case .system: heading = L("## System")
                 }
                 lines.append(heading)
                 lines.append("")
@@ -8372,7 +8372,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             try messageRepo.append(m)
             messages.append(m)
         } catch {
-            statusMessage = "Could not save system note: \(error)"
+            statusMessage = L("Could not save system note: %1$@", error)
         }
     }
 
@@ -8383,17 +8383,17 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
               let src = threads.first(where: { $0.id == tid }) else { return }
         // Legacy-provider threads are read-only: a fork would start their old provider.
         guard src.provider.isSelectable else {
-            systemNote("This conversation is read-only. Start a new Distill conversation instead.")
+            systemNote(L("This conversation is read-only. Start a new Distill conversation instead."))
             return
         }
         guard selectedProviderCapabilities.supportsFork else {
-            systemNote(threadForkUnavailableReason ?? "Provider-side fork is unavailable for this session.")
+            systemNote(threadForkUnavailableReason ?? L("Provider-side fork is unavailable for this session."))
             return
         }
         let child = AgentThread(
             projectId: src.projectId,
             workspaceId: src.workspaceId ?? workspaceID,
-            title: "\(src.title) (fork)",
+            title: L("%1$@ (fork)", src.title),
             provider: src.provider,
             providerInstanceId: src.providerInstanceId,
             model: src.model,
@@ -8422,7 +8422,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             reloadThreads()
             selectThread(result.thread.id)
         } catch {
-            statusMessage = "Could not fork thread: \(error)"
+            statusMessage = L("Could not fork thread: %1$@", error)
         }
     }
 
@@ -8438,11 +8438,11 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         }
         guard let src = threads.first(where: { $0.id == tid }) ?? (try? threadRepo.get(id: tid)) else { return }
         guard src.provider.isSelectable else {
-            systemNote("This conversation is read-only. Start a new Distill conversation instead.")
+            systemNote(L("This conversation is read-only. Start a new Distill conversation instead."))
             return
         }
         guard selectedProviderCapabilities.supportsFork else {
-            systemNote(threadForkUnavailableReason ?? "Provider-side fork is unavailable for this session.")
+            systemNote(threadForkUnavailableReason ?? L("Provider-side fork is unavailable for this session."))
             return
         }
         // An embedded chat (Bot desk) has no host for a side pane: say so
@@ -8481,7 +8481,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
 
     /// `/btw` answer as a non-persisted inline transcript note.
     public func appendBtwNote(question: String, answer: String) {
-        appendInlineNoteToTranscript("BTW · \(question)\n\(answer)")
+        appendInlineNoteToTranscript(L("BTW · %1$@\n%2$@", question, answer))
     }
 
     /// Non-persisted inline transcript note: appended to the in-memory message
@@ -8504,7 +8504,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         // Static `/loop` subtitle until Distill advertises its own.
         return Dictionary(
             distillSlashCommands.compactMap { cmd in cmd.subtitle.map { (cmd.name.lowercased(), $0) } }
-                + [("loop", "Run a prompt on a recurring interval · [interval] <prompt>")],
+                + [("loop", L("Run a prompt on a recurring interval · [interval] <prompt>"))],
             uniquingKeysWith: { first, _ in first }
         )
     }
@@ -8553,24 +8553,24 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 $0.id.localizedCaseInsensitiveContains(arg) || $0.label.localizedCaseInsensitiveContains(arg)
             }) {
                 setModel(m.id)
-                systemNote("Model → \(m.label)")
+                systemNote(L("Model → %1$@", m.label))
             } else {
                 let names = availableModels.map { $0.label }.joined(separator: ", ")
-                systemNote(names.isEmpty ? "No models loaded yet." : "Models: \(names)")
+                systemNote(names.isEmpty ? L("No models loaded yet.") : L("Models: %1$@", names))
             }
         case "plan":
             guard supportsPlanInteractionForSelectedProvider else {
-                systemNote(planInteractionUnavailableReason ?? "Plan mode is unavailable for this session.")
+                systemNote(planInteractionUnavailableReason ?? L("Plan mode is unavailable for this session."))
                 return true
             }
             interactionMode = .plan
             permissionMode = .supervised
             persistThreadConfig()
-            systemNote("Plan mode on · permission: supervised")
+            systemNote(L("Plan mode on · permission: supervised"))
         case "default":
             interactionMode = .default
             persistThreadConfig()
-            systemNote("Default mode on")
+            systemNote(L("Default mode on"))
         case "status":
             systemNote(statusSummary())
         default:
@@ -8612,7 +8612,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             if let selectedThreadId { persistComposerDraft(for: selectedThreadId) }
         } catch {
             attachmentInputError = String(describing: error)
-            statusMessage = attachmentInputError ?? "Attachment failed."
+            statusMessage = attachmentInputError ?? L("Attachment failed.")
         }
     }
     public func insertDroppedFilePaths(_ paths: [String]) {
@@ -8678,7 +8678,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         guard eventWorkspaceID == workspaceID else { return }
         switch kind {
         case "agent.message.queue.failed":
-            let status = message ?? "The queued message could not start yet."
+            let status = message ?? L("The queued message could not start yet.")
             setQueueStatus(status, threadId: eventThreadId)
         case AgentQueueEventKinds.drained:
             setQueueStatus(nil, threadId: eventThreadId)
@@ -8922,7 +8922,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
            !followUpCanQueue,
            preparingRunThreads.contains(sendThreadId)
             || coordinator.isPreparingProviderStart(threadId: sendThreadId) {
-            statusMessage = "A run is already preparing. Stop it first, or wait."
+            statusMessage = L("A run is already preparing. Stop it first, or wait.")
             return
         }
         // Auto is still resolving providers/models — refuse send (button is also
@@ -8934,7 +8934,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             providerSnapshotsLoading: providerSnapshotsLoading,
             modelListLoading: modelListLoading
         ) {
-            statusMessage = "Automatic model routing is still loading. Try again in a moment."
+            statusMessage = L("Automatic model routing is still loading. Try again in a moment.")
             return
         }
         // Clear the composer immediately on send so the textarea empties before
@@ -9002,7 +9002,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 didLoadProviderSnapshotsThisSend = true
             }
             if !selectedProviderCanRun {
-                statusMessage = providerExecutionUnavailableReason ?? "The selected provider is unavailable."
+                statusMessage = providerExecutionUnavailableReason ?? L("The selected provider is unavailable.")
                 restoreComposerPromptAfterFailedSend(originalPrompt, expectedThreadId: sendThreadId)
                 return
             }
@@ -9231,7 +9231,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         let removed = messages.remove(at: index)
         Task { @MainActor [weak self] in
             guard await handler(id) == false, let self else { return }
-            statusMessage = "Could not clear the notification."
+            statusMessage = L("Could not clear the notification.")
             guard selectedThreadId == removed.threadId, !messages.contains(where: { $0.id == id }) else { return }
             let position = messages.firstIndex { $0.createdAt > removed.createdAt } ?? messages.endIndex
             messages.insert(removed, at: position)
@@ -9357,7 +9357,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                   stored.threadId == threadId,
                   stored.role == .assistant,
                   stored.content == content else {
-                statusMessage = "The bot reply could not be verified."
+                statusMessage = L("The bot reply could not be verified.")
                 return nil
             }
         } catch {
@@ -9368,7 +9368,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             do {
                 let unreadAt = Date()
                 guard let wrote = try threadRepo.markUnreadUpdatingActivity(of: threadId, at: unreadAt) else {
-                    statusMessage = "The bot reply thread is no longer available."
+                    statusMessage = L("The bot reply thread is no longer available.")
                     return nil
                 }
                 if wrote {
@@ -9495,7 +9495,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             // not sent now — confirm that explicitly near the composer.
             if isSelected { reloadQueuedMessages() }
             setQueueStatus(
-                "Queued — will run after the current turn.",
+                L("Queued — will run after the current turn."),
                 threadId: targetThreadId
             )
             // QA-MAC_AGENT-010: track queue depth for diagnostics.
@@ -9504,7 +9504,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             return true
         } catch {
             setQueueStatus(
-                "Queue send failed: \(error)",
+                L("Queue send failed: %1$@", error),
                 threadId: targetThreadId
             )
             return false
@@ -9749,7 +9749,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                     workspace: actorThread?.worktreePath ?? embedding?.executionCwd ?? cwd
                 )
                 if let holder = claimVM(botID, entry) {
-                    let notice = "The VM is busy in \(holder.title)"
+                    let notice = L("The VM is busy in %1$@", holder.title)
                     botVMClaimRefusal = (botID, notice, tid)
                     if selectedThreadId == tid { statusMessage = notice }
                     return nil
@@ -9867,7 +9867,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 if !cancelled.suppressLateCallback {
                     surfacePreparationStates[tid] = cancelled.state
                 }
-                statusMessage = "Run cancelled during preparation"
+                statusMessage = L("Run cancelled during preparation")
                 status = .cancelled
                 endSurfacePreparationIfOwned(threadId: tid, generation: acceptedGeneration)
             }
@@ -9928,7 +9928,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 throw NSError(
                     domain: "RemoteCode.AgentAppViewModel",
                     code: 404,
-                    userInfo: [NSLocalizedDescriptionKey: "Thread disappeared before provider start."]
+                    userInfo: [NSLocalizedDescriptionKey: L("Thread disappeared before provider start.")]
                 )
             }
             let pendingAt = Date()
@@ -9985,7 +9985,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                     }
                 }
                 if selectedThreadId == tid {
-                    statusMessage = "Failed to prepare run: \(error)"
+                    statusMessage = L("Failed to prepare run: %1$@", error)
                     status = .failed
                 }
             }
@@ -10035,7 +10035,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                     if prompt.isEmpty {
                         prompt = recoveryDisplayText ?? text
                     }
-                    statusMessage = "Provider started, but draft cleanup failed: \(error)"
+                    statusMessage = L("Provider started, but draft cleanup failed: %1$@", error)
                 }
             } else {
                 try? clearComposerDraft(threadId: tid, providerInstanceId: providerInstanceId)
@@ -10102,12 +10102,12 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 await MainActor.run {
                     if self.selectedThreadId == tid {
                         if wasCancelled {
-                            self.statusMessage = "Run cancelled during preparation"
+                            self.statusMessage = L("Run cancelled during preparation")
                             self.status = .cancelled
                         } else {
                             let detail = (error as? LocalizedError)?.errorDescription
                                 ?? error.localizedDescription
-                            self.statusMessage = "Failed to start: \(detail)"
+                            self.statusMessage = L("Failed to start: %1$@", detail)
                             self.status = .failed
                         }
                         if self.currentRunId == runId {
@@ -10157,7 +10157,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
               let plan = latestProposedPlan else { return }
         let targetThreadId: AgentThreadID
         if newThread {
-            createThread(title: "Implement plan")
+            createThread(title: L("Implement plan"))
             guard let selectedThreadId else { return }
             targetThreadId = selectedThreadId
         } else {
@@ -10195,7 +10195,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         do {
             try proposedPlanRepo?.markImplemented(threadId: sourceThreadId, planId: plan.id, implementationThreadId: targetThreadId)
         } catch {
-            statusMessage = "Plan started, but implementation state could not be saved: \(error)"
+            statusMessage = L("Plan started, but implementation state could not be saved: %1$@", error)
             return
         }
         var implemented = plan
@@ -10218,7 +10218,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     }
 
     nonisolated static func promptHistoryWriteErrorMessage(_ error: Error) -> String {
-        "Prompt history could not be saved: \(error.localizedDescription)."
+        L("Prompt history could not be saved: %1$@.", error.localizedDescription)
     }
 
     /// UX-MAC_AGENT-009: re-send the last prompt after a recoverable error
@@ -10261,7 +10261,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             pendingAttachmentRetryConfirmation = AttachmentRetryConfirmation(
                 prompt: last,
                 retryableAttachments: [],
-                unavailableAttachmentNames: ["previous attachments"]
+                unavailableAttachmentNames: [L("previous attachments")]
             )
             return
         }
@@ -10363,7 +10363,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     public func confirmRetryWithoutUnavailableAttachments() async {
         guard let pending = pendingAttachmentRetryConfirmation else { return }
         pendingAttachmentRetryConfirmation = nil
-        systemNote("Retry continuing without unavailable attachment(s): \(pending.unavailableAttachmentNames.joined(separator: ", ")).")
+        systemNote(L("Retry continuing without unavailable attachment(s): %1$@.", pending.unavailableAttachmentNames.joined(separator: ", ")))
         clearVisibleErrorForNewUserMessage()
         _ = await startProviderRun(
             text: pending.prompt,
@@ -10429,7 +10429,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 || coordinator.isPreparingProviderStart(threadId: tid)
                 || coordinator.activeRunId(threadId: tid) != nil
             if !coordinatorOwns {
-                statusMessage = "Stopped before the run started."
+                statusMessage = L("Stopped before the run started.")
                 return
             }
         }
@@ -10445,7 +10445,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 do {
                     try await self.coordinator.stopAndAwaitTermination(threadId: tid)
                 } catch {
-                    self.statusMessage = "Force stop: \(error.localizedDescription)"
+                    self.statusMessage = L("Force stop: %1$@", error.localizedDescription)
                 }
                 // If the coordinator still owns the run after the hard deadline,
                 // clear the UI latch so the user is not stuck on Stopping…
@@ -10460,13 +10460,13 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                     // durable pending/running row). That is not a stop timeout, so
                     // clear it silently instead of blaming the provider.
                     self.clearStaleRunProjection(threadId: tid)
-                    self.statusMessage = "This run had already finished."
+                    self.statusMessage = L("This run had already finished.")
                 } else {
                     // Loud failure: hard timeout still left ownership — drop the
                     // latch so Stop is usable again and surface the error.
                     self.isStopping = false
                     if self.statusMessage.isEmpty {
-                        self.statusMessage = "Stop is taking longer than expected. Try again or restart the agent."
+                        self.statusMessage = L("Stop is taking longer than expected. Try again or restart the agent.")
                     }
                 }
             }
@@ -10488,7 +10488,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             // overhead on every stale Stop.
             let guardStatus = coordinator.stopRun(threadId: tid)
             clearStaleRunProjection(threadId: tid, durableStatus: guardStatus)
-            statusMessage = "This run had already finished."
+            statusMessage = L("This run had already finished.")
             return
         }
         // Path B: scheduled runs are owned by the LaunchAgent. Prefer XPC stop
@@ -10500,7 +10500,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 if !accepted {
                     // Loud failure: do not leave the UI stuck on Stopping…
                     self.isStopping = false
-                    self.statusMessage = "Could not stop scheduled run (scheduler unavailable or run not owned)."
+                    self.statusMessage = L("Could not stop scheduled run (scheduler unavailable or run not owned).")
                 }
             }
             return
@@ -11529,7 +11529,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     public func continueInterruptedThread() async {
         guard let continuingThreadId = selectedThreadId else { return }
         guard !coordinator.hasProviderSession(threadId: continuingThreadId) else {
-            statusMessage = "The provider turn is still running."
+            statusMessage = L("The provider turn is still running.")
             return
         }
         let hadRecoverableContext = selectedThreadHasRecoverableContext
@@ -11940,7 +11940,7 @@ public enum AgentComposerSuggestions {
         guard let trigger = token.first, trigger == "/" || trigger == "$" else { return [] }
         let prefix = String(trigger)
         let query = String(token.dropFirst()).lowercased()
-        let display = snapshot?.displayName ?? "Provider"
+        let display = snapshot?.displayName ?? L("Provider")
         // extraCommands = provider built-ins the app doesn't own (e.g. `/mcp`).
         // extraSkillNames = project/user skills + commands discovered on disk so
         // the menu matches interactive claude's `/`, not just the cached probe.
@@ -11962,8 +11962,8 @@ public enum AgentComposerSuggestions {
                 : command
             guard !bare.isEmpty else { continue }
             let source = localSlashCommands.contains(command) || localSlashCommands.contains("/\(bare)")
-                ? "MacCode command"
-                : "\(display) command"
+                ? L("MacCode command")
+                : L("%1$@ command", display)
             candidates.append(Candidate(
                 bare: bare,
                 kind: .slashCommand,
@@ -11974,7 +11974,7 @@ public enum AgentComposerSuggestions {
             candidates.append(Candidate(
                 bare: skill,
                 kind: .skill,
-                subtitle: "\(display) skill"
+                subtitle: L("%1$@ skill", display)
             ))
         }
 
@@ -12211,7 +12211,7 @@ public enum AgentContextStatusPresentation {
     public static func message(usage: AssistantTokenUsage?, compactionSummary: String?) -> String? {
         let compacted = compactionSummary?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let usage else {
-            return compacted?.isEmpty == false ? "Context compacted: \(compacted!)" : nil
+            return compacted?.isEmpty == false ? L("Context compacted: %1$@", compacted!) : nil
         }
         // Occupancy percentage must come from per-request `contextTokens` only.
         // `totalTokens` can be session-cumulative billing (Claude modelUsage cache
@@ -12220,14 +12220,14 @@ public enum AgentContextStatusPresentation {
         if let occupancy = usage.contextTokens {
             if let window = usage.contextWindow, window > 0 {
                 let pct = min(100, max(0, Int((Double(occupancy) / Double(window) * 100).rounded())))
-                tokenText = "Context \(pct)% · \(occupancy) / \(window) tokens"
+                tokenText = L("Context %1$@% · %2$@ / %3$@ tokens", pct, occupancy, window)
             } else {
-                tokenText = "Context \(occupancy) tokens"
+                tokenText = L("Context %1$@ tokens", occupancy)
             }
         } else if let window = usage.contextWindow, window > 0 {
-            tokenText = "Session \(usage.totalTokens) / \(window) tokens"
+            tokenText = L("Session %1$@ / %2$@ tokens", usage.totalTokens, window)
         } else {
-            tokenText = "Session \(usage.totalTokens) tokens"
+            tokenText = L("Session %1$@ tokens", usage.totalTokens)
         }
         var parts = [tokenText]
         if usage.compactsAutomatically == true {
@@ -12309,7 +12309,7 @@ public struct AgentTimelineItemPresentation: Equatable, Sendable {
             // Most-informative field per tool family, in priority order.
             for key in ["command", "cmd", "script", "query", "pattern", "skill", "file_path", "path", "url", "prompt", "name"] {
                 if let value = (obj[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
-                    return AgentAppView.cappedVisibleText(value, limit: AgentAppView.commandPreviewCharacterLimit, truncatedLabel: "hidden from preview")
+                    return AgentAppView.cappedVisibleText(value, limit: AgentAppView.commandPreviewCharacterLimit, truncatedLabel: L("hidden from preview"))
                 }
             }
             // Prefer humanized meta for opaque task/timeout payloads over raw API keys.
@@ -12324,7 +12324,7 @@ public struct AgentTimelineItemPresentation: Equatable, Sendable {
             return digest.isEmpty ? nil : digest
         }
         // Non-JSON body is already a human-readable input/description.
-        return AgentAppView.cappedVisibleText(body, limit: AgentAppView.commandPreviewCharacterLimit, truncatedLabel: "hidden from preview")
+        return AgentAppView.cappedVisibleText(body, limit: AgentAppView.commandPreviewCharacterLimit, truncatedLabel: L("hidden from preview"))
     }
 
     // MARK: Tool card presentation (collapsed density)
@@ -12464,8 +12464,8 @@ public struct AgentTimelineItemPresentation: Equatable, Sendable {
 
     /// Leading/trailing streaming status — "Waiting" for task polls so color is not the only signal.
     static func toolStreamingStatusLabel(for item: AssistantItem) -> String {
-        if isTaskWaitTool(for: item) { return "Waiting" }
-        return "Running"
+        if isTaskWaitTool(for: item) { return L("Waiting") }
+        return L("Running")
     }
 
     /// Collapsed liveness copy when a long wait has not produced tool output yet.
@@ -12473,10 +12473,10 @@ public struct AgentTimelineItemPresentation: Equatable, Sendable {
     static func toolActivityHint(for item: AssistantItem, hasOutput: Bool) -> String? {
         guard item.state == .streaming, !hasOutput else { return nil }
         if isTaskWaitTool(for: item) {
-            return "No output yet · background task still running"
+            return L("No output yet · background task still running")
         }
         if isBackgroundTool(for: item) {
-            return "No output yet · command still running in background"
+            return L("No output yet · command still running in background")
         }
         return nil
     }
@@ -12526,7 +12526,7 @@ public struct AgentTimelineItemPresentation: Equatable, Sendable {
         if isBackgroundTool(for: item) { parts.append("background") }
         // Only claim active wait while streaming — completed polls must not say "waiting".
         if item.state == .streaming, isTaskWaitTool(for: item) {
-            parts.append("waiting for task output")
+            parts.append(L("waiting for task output"))
         }
         if let summary = toolCommandSummary(for: item), !summary.isEmpty {
             parts.append(summary)
@@ -12546,14 +12546,14 @@ public struct AgentTimelineItemPresentation: Equatable, Sendable {
     static func humanizedStructuredPreview(from obj: [String: Any]) -> String? {
         var parts: [String] = []
         if let ids = obj["task_ids"] as? [Any], !ids.isEmpty {
-            parts.append(ids.count == 1 ? "1 task" : "\(ids.count) tasks")
+            parts.append(ids.count == 1 ? L("1 task") : L("%1$@ tasks", ids.count))
         } else if let id = obj["task_id"] {
             let text = shortValue(id)
             if !text.isEmpty, text != "—" { parts.append("task \(text)") }
         }
         if let timeout = intMillis(from: obj["timeout_ms"]) ?? intMillis(from: obj["timeout"]) {
             if let label = formatDurationMs(timeout) {
-                parts.append("timeout \(label)")
+                parts.append(L("timeout %1$@", label))
             }
         }
         if let bashId = obj["bash_id"] {
@@ -12599,7 +12599,7 @@ public struct AgentTimelineItemPresentation: Equatable, Sendable {
             s = String(s.prefix(limit - 1)) + "…"
         }
         if elided > 0 {
-            return "\(s) · +\(elided) more"
+            return L("%1$@ · +%2$@ more", s, elided)
         }
         return s
     }
@@ -12647,8 +12647,8 @@ public struct AgentTimelineItemPresentation: Equatable, Sendable {
             }
         }
         switch item.type {
-        case .commandExecution: return "Shell"
-        default: return "Shell"
+        case .commandExecution: return L("Shell")
+        default: return L("Shell")
         }
     }
 
@@ -12811,7 +12811,7 @@ public struct AgentTimelineItemPresentation: Equatable, Sendable {
         }
         let head = clean[..<end]
         let dropped = max(1, clean.utf8.count - head.utf8.count)
-        return "\(head)\n… \(truncationSizeLabel(dropped)) more truncated in view …"
+        return L("%1$@\n… %2$@ more truncated in view …", head, truncationSizeLabel(dropped))
     }
 
     /// Human-readable size for a truncation marker.
@@ -12875,18 +12875,18 @@ public struct AgentTimelineItemPresentation: Equatable, Sendable {
         case .streaming:
             // Align L1 with trailing wait semantics — avoid "Running … Waiting".
             return toolStreamingStatusLabel(for: item)
-        case .failed: return "Failed"
-        case .cancelled: return "Cancelled"
+        case .failed: return L("Failed")
+        case .cancelled: return L("Cancelled")
         case .completed:
-            if isFreshSessionNotice(item) { return "New session" }
+            if isFreshSessionNotice(item) { return L("New session") }
             switch item.type {
-            case .fileChange: return "Changed"
-            case .webSearch: return "Searched"
-            case .imageView: return "Viewed"
-            case .review: return "Reviewed"
-            case .contextCompaction: return "Compacted"
-            case .error: return "Issue"
-            default: return "Ran"
+            case .fileChange: return L("Changed")
+            case .webSearch: return L("Searched")
+            case .imageView: return L("Viewed")
+            case .review: return L("Reviewed")
+            case .contextCompaction: return L("Compacted")
+            case .error: return L("Issue")
+            default: return L("Ran")
             }
         }
     }
@@ -13027,10 +13027,10 @@ private struct AgentTranscriptImageThumb: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Open \(displayName)")
+        .help(L("Open %1$@", displayName))
         .accessibilityIdentifier(accessibilityID)
-        .accessibilityLabel("Image \(displayName)")
-        .accessibilityHint("Opens the image")
+        .accessibilityLabel(L("Image %1$@", displayName))
+        .accessibilityHint(L("Opens the image"))
         .dsPointingHandCursor()
         .task(id: "\(url.path)#\(style == .featured ? 640 : 280)") { await loadThumbnail() }
     }
@@ -13078,7 +13078,7 @@ private struct AgentTranscriptImageThumbStrip: View {
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(presentations.count) image preview\(presentations.count == 1 ? "" : "s")")
+        .accessibilityLabel((presentations.count == 1 ? L("%1$@ image preview", presentations.count) : L("%1$@ image previews", presentations.count)))
     }
 }
 
@@ -13319,16 +13319,16 @@ public struct AgentAppView: View {
     }
 
     static let fullAccessScopeDescription =
-        "The agent runs tools, edits, and proposed plans without asking for this thread until you change it."
+        L("The agent runs tools, edits, and proposed plans without asking for this thread until you change it.")
 
     static let sessionApprovalHelp =
-        "Auto-approve requests for this thread until you change it"
+        L("Auto-approve requests for this thread until you change it")
 
     static let threadDeletionConfirmationDescription =
-        "Threads are deleted immediately. You can undo for 10 seconds; after that, their history is permanently deleted."
+        L("Threads are deleted immediately. You can undo for 10 seconds; after that, their history is permanently deleted.")
 
     static let emptyThreadSubtitle =
-        "Send a prompt to start a Distill thread."
+        L("Send a prompt to start a Distill thread.")
 
     static func attachmentRemovalAccessibilityLabel(path: String) -> String {
         "Remove attachment \((path as NSString).lastPathComponent)"
@@ -14152,7 +14152,7 @@ public struct AgentAppView: View {
     /// an exact grapheme delta would need the O(n) walk this avoids — so the
     /// marker reports a formatted size rather than overstating a character count
     /// for multi-byte transcripts.
-    static func cappedVisibleText(_ text: String, limit: Int, truncatedLabel: String = "truncated in live view") -> String {
+    static func cappedVisibleText(_ text: String, limit: Int, truncatedLabel: String = L("truncated in live view")) -> String {
         let limit = max(0, limit)
         guard limit > 0 else { return "" }
         guard text.utf8.count > limit else { return text }
@@ -14164,10 +14164,10 @@ public struct AgentAppView: View {
         }
         let head = text[..<end]
         let dropped = max(1, text.utf8.count - head.utf8.count)
-        return "\(head)\n... \(AgentTimelineItemPresentation.truncationSizeLabel(dropped)) more \(truncatedLabel) ..."
+        return L("%1$@\n... %2$@ more %3$@ ...", head, AgentTimelineItemPresentation.truncationSizeLabel(dropped), truncatedLabel)
     }
 
-    static func cappedOptionalVisibleText(_ text: String?, limit: Int, truncatedLabel: String = "truncated in live view") -> String? {
+    static func cappedOptionalVisibleText(_ text: String?, limit: Int, truncatedLabel: String = L("truncated in live view")) -> String? {
         guard let text else { return nil }
         return cappedVisibleText(text, limit: limit, truncatedLabel: truncatedLabel)
     }
@@ -14195,7 +14195,7 @@ public struct AgentAppView: View {
     /// Same O(n)→O(limit) rationale as `cappedVisibleText` — streaming Thought /
     /// tool bodies grow far past the live window; every paint must not re-scan the
     /// full held body just to decide whether to show the tail.
-    static func cappedVisibleTextTail(_ text: String, limit: Int, truncatedLabel: String = "of earlier output truncated in live view") -> String {
+    static func cappedVisibleTextTail(_ text: String, limit: Int, truncatedLabel: String = L("of earlier output truncated in live view")) -> String {
         let limit = max(0, limit)
         guard limit > 0 else { return "" }
         guard text.utf8.count > limit else { return text }
@@ -15627,8 +15627,8 @@ public struct AgentAppView: View {
                             }
                             .help(vm.parallelTaskContext.isEmpty ? vm.parallelTaskTitle : "\(vm.parallelTaskTitle)\n\(vm.parallelTaskContext)")
                             Spacer(minLength: DS.Space.sm)
-                            DSIconButton("xmark", help: "Close parallel conversation") { vm.closeParallelTask() }
-                                .accessibilityLabel("Close parallel conversation")
+                            DSIconButton("xmark", help: L("Close parallel conversation")) { vm.closeParallelTask() }
+                                .accessibilityLabel(L("Close parallel conversation"))
                                 .accessibilityIdentifier("agent.botTask.close")
                         }
                         .padding(.horizontal, DS.Space.lg).padding(.vertical, DS.Space.sm)
@@ -15695,8 +15695,8 @@ public struct AgentAppView: View {
         // P1: confirm before deleting threads — irreversible and instant otherwise.
         .confirmationDialog(
             pendingDeleteThreadIds.count == 1
-                ? "Delete this thread?"
-                : "Delete \(pendingDeleteThreadIds.count) threads?",
+                ? L("Delete this thread?")
+                : L("Delete %1$@ threads?", pendingDeleteThreadIds.count),
             isPresented: Binding(
                 get: { !pendingDeleteThreadIds.isEmpty },
                 set: { if !$0 { pendingDeleteThreadIds = [] } }
@@ -15709,7 +15709,7 @@ public struct AgentAppView: View {
             Text(Self.threadDeletionConfirmationDescription)
         }
         .confirmationDialog(
-            "Clear all notifications?",
+            L("Clear all notifications?"),
             isPresented: $pendingClearAllThreads,
             titleVisibility: .visible
         ) {
@@ -15744,7 +15744,7 @@ public struct AgentAppView: View {
             clearAllIdentifier: "agent.thread.clearAll",
             newIdentifier: "agent.thread.new",
             searchIdentifier: "agent.thread.search",
-            newHelp: "New thread (⌘N)",
+            newHelp: L("New thread (⌘N)"),
             showsTrailingHairline: true,
             onHide: {
                 threadRailIntent = .forcedHidden
@@ -15848,10 +15848,10 @@ public struct AgentAppView: View {
                         .accessibilityIdentifier("agent.thread.contextmenu.stop.\(t.id.value.uuidString)")
                     Divider()
                 }
-                Button(t.pinned ? "Unpin" : "Pin") { vm.setThreadPinned(t.id, !t.pinned) }
+                Button(t.pinned ? L("Unpin") : L("Pin")) { vm.setThreadPinned(t.id, !t.pinned) }
                 Divider()
                 Button(L("Rename…")) { renameText = t.title; renamingThreadId = t.id }
-                Menu("Color") {
+                Menu(L("Color")) {
                     Button { vm.setThreadColor(t.id, "") } label: {
                         TabColorMenuLabel.none
                     }
@@ -15886,8 +15886,8 @@ public struct AgentAppView: View {
             }
             .buttonStyle(.plain)
             .foregroundColor(DS.Palette.textTertiary)
-            .accessibilityLabel("Cancel rename")
-            .help("Cancel rename")
+            .accessibilityLabel(L("Cancel rename"))
+            .help(L("Cancel rename"))
         }
         .padding(.horizontal, DS.Space.md)
         .padding(.vertical, DS.Space.sm)
@@ -16038,17 +16038,17 @@ public struct AgentAppView: View {
                 }
                 // UX-MAC_AGENT-002: keep a new-thread affordance reachable while
                 // the rail's "+" button is collapsed away.
-                DSIconButton("plus", help: "New thread (⌘N)") { vm.createThread(title: "New thread") }
+                DSIconButton("plus", help: L("New thread (⌘N)")) { vm.createThread(title: "New thread") }
                     .accessibilityIdentifier("agent.thread.new.collapsed")
             }
             Image(systemName: "arrow.triangle.branch")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundColor(DS.Palette.textTertiary)
-            Text(vm.gitBranch ?? "no branch")
+            Text(vm.gitBranch ?? L("no branch"))
                 .font(DS.Font.caption2.monospaced())
                 .foregroundColor(DS.Palette.textSecondary)
                 .lineLimit(1).truncationMode(.middle)
-                .help(vm.gitBranch ?? "no branch")
+                .help(vm.gitBranch ?? L("no branch"))
             if let context = vm.contextHealthMessage {
                 Text("·").foregroundColor(DS.Palette.textTertiary)
                 Text(context)
@@ -16078,7 +16078,7 @@ public struct AgentAppView: View {
             }
             // Same action as `/side`; hidden where no host can open a side pane.
             if vm.onRequestSideChat != nil, !vm.selectedThreadIsEphemeral {
-                DSIconButton("rectangle.split.2x1", help: "Side chat (/side)") {
+                DSIconButton("rectangle.split.2x1", help: L("Side chat (/side)")) {
                     vm.requestSideChat(text: "")
                 }
                 .disabled(vm.selectedThreadId == nil)
@@ -16129,7 +16129,7 @@ public struct AgentAppView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityIdentifier("agent.botScreen.view")
-            Button(vm.botScreenControlled ? "Release" : "Take control") {
+            Button(vm.botScreenControlled ? L("Release") : L("Take control")) {
                 Task { await vm.toggleBotScreenControl() }
             }
             .buttonStyle(.bordered)
@@ -16168,7 +16168,7 @@ public struct AgentAppView: View {
     // UX-XPLAT-DELETE-UNDO: transient toast offering to restore a just-deleted
     // thread. The delete already happened; Undo re-inserts the snapshot.
     private func threadDeletionUndoBanner(_ undo: AgentAppViewModel.ThreadDeletionUndo) -> some View {
-        let message = undo.count > 1 ? "\(undo.count.formatted()) threads deleted" : "Thread deleted"
+        let message = undo.count > 1 ? L("%1$@ threads deleted", undo.count.formatted()) : L("Thread deleted")
         return HStack(spacing: DS.Space.sm) {
             Image(systemName: "trash")
                 .font(.system(size: 12, weight: .semibold))
@@ -16197,7 +16197,7 @@ public struct AgentAppView: View {
     }
 
     private func checkpointRevertUndoBanner(_ toast: AgentAppViewModel.CheckpointRevertUndoToast) -> some View {
-        let message = "Reverted to checkpoint \(toast.checkpointTurnCount.formatted())"
+        let message = L("Reverted to checkpoint %1$@", toast.checkpointTurnCount.formatted())
         return HStack(spacing: DS.Space.sm) {
             Image(systemName: "arrow.uturn.backward")
                 .font(.system(size: 12, weight: .semibold))
@@ -16234,14 +16234,14 @@ public struct AgentAppView: View {
             element: (app.mainWindow as NSResponder?) ?? app,
             notification: .announcementRequested,
             userInfo: [
-                .announcement: "\(message). Undo is available for \(Int(window)) seconds.",
+                .announcement: L("%1$@. Undo is available for %2$@ seconds.", message, Int(window)),
                 .priority: NSAccessibilityPriorityLevel.high.rawValue,
             ]
         )
     }
 
     private var modelLabel: String {
-        if vm.routingMode == .auto { return "Auto" }
+        if vm.routingMode == .auto { return L("Auto") }
         return vm.modelOptionsForSelectedProvider.first(where: { $0.id == vm.model })?.label ?? vm.model
     }
 
@@ -16254,7 +16254,7 @@ public struct AgentAppView: View {
         vm.routingMode == .auto && autoRoutingPrerequisitesLoading
     }
     private var effortLabel: String { vm.reasoningEffort.displayName }
-    private var serviceTierLabel: String { vm.serviceTier == .fast ? "Fast" : "Auto" }
+    private var serviceTierLabel: String { vm.serviceTier == .fast ? L("Fast") : L("Auto") }
     /// P3: VoiceOver label for the model picker pill that reads as structured
     /// text rather than the raw concatenated visual tokens.
     private var modelPillPresentation: AgentModelPillPresentation {
@@ -16313,7 +16313,7 @@ public struct AgentAppView: View {
     /// "1 shell" / "2 shells" — matches the Claude CLI's own wording so the two
     /// surfaces read the same. Pure, for unit testing the pluralization.
     nonisolated static func backgroundShellLabel(_ count: Int) -> String {
-        count == 1 ? "1 shell" : "\(count) shells"
+        count == 1 ? L("1 shell") : L("%1$@ shells", count)
     }
 
     private func statusTone(_ s: AgentRunStatus) -> DSPill.Tone {
@@ -16595,9 +16595,9 @@ public struct AgentAppView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text({
                         switch reason {
-                        case .workflowHandoff: return "Agent stopped mid-workflow"
-                        case .uncalledToolInvocation: return "Agent emitted an unexecuted tool call"
-                        case .backgroundAwait: return "Agent is waiting on a background task"
+                        case .workflowHandoff: return L("Agent stopped mid-workflow")
+                        case .uncalledToolInvocation: return L("Agent emitted an unexecuted tool call")
+                        case .backgroundAwait: return L("Agent is waiting on a background task")
                         }
                     }())
                         .font(DS.Font.caption.weight(.semibold))
@@ -16605,11 +16605,11 @@ public struct AgentAppView: View {
                     Text({
                         switch reason {
                         case .workflowHandoff:
-                            return "The run ended between phases. Resume it to finish the original task."
+                            return L("The run ended between phases. Resume it to finish the original task.")
                         case .uncalledToolInvocation:
-                            return "The run ended after printing tool markup instead of calling a tool. Resume it to continue."
+                            return L("The run ended after printing tool markup instead of calling a tool. Resume it to continue.")
                         case .backgroundAwait:
-                            return "The run ended while standing by. Resume it to check the task and finish."
+                            return L("The run ended while standing by. Resume it to check the task and finish.")
                         }
                     }())
                         .font(DS.Font.caption2)
@@ -16649,7 +16649,7 @@ public struct AgentAppView: View {
             .background(DS.Palette.bg)
             .accessibilityIdentifier("agent.pendingCallbacks")
             .confirmationDialog(
-                "Allow this agent to act without approvals for this thread until you change it?",
+                L("Allow this agent to act without approvals for this thread until you change it?"),
                 isPresented: Binding(
                     get: { pendingSessionApproval != nil },
                     set: { if !$0 { pendingSessionApproval = nil } }
@@ -16786,8 +16786,8 @@ public struct AgentAppView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("agent.workLog.toggle")
-                .accessibilityLabel(showWorkLog ? "Hide work log" : "Show work log")
-                .help(showWorkLog ? "Hide work log" : "Show work log")
+                .accessibilityLabel(showWorkLog ? L("Hide work log") : L("Show work log"))
+                .help(showWorkLog ? L("Hide work log") : L("Show work log"))
                 if showWorkLog {
                     VStack(alignment: .leading, spacing: DS.Space.sm) {
                         ForEach(activities) { activity in
@@ -16856,7 +16856,7 @@ public struct AgentAppView: View {
                 Image(systemName: stale ? "exclamationmark.triangle" : "checkmark.shield")
                     .font(.system(size: 12))
                     .foregroundColor(stale ? DS.Palette.warning : DS.Palette.accent)
-                Text(stale ? "Stale provider request" : "Provider approval")
+                Text(stale ? L("Stale provider request") : L("Provider approval"))
                     .font(DS.Font.caption.weight(.semibold))
                     .foregroundColor(DS.Palette.textSecondary)
                 // UX-MAC_AGENT-005: label what is being approved.
@@ -16952,13 +16952,13 @@ public struct AgentAppView: View {
 
     private func requestKindLabel(_ kind: AssistantRequestKind) -> String {
         switch kind {
-        case .commandExecution, .exec: return "Run command"
-        case .applyPatch: return "Apply patch"
-        case .fileChange: return "Edit file"
-        case .fileRead: return "Read file"
-        case .toolUserInput: return "Tool input"
-        case .authTokensRefresh: return "Refresh auth"
-        case .dynamic: return "Tool"
+        case .commandExecution, .exec: return L("Run command")
+        case .applyPatch: return L("Apply patch")
+        case .fileChange: return L("Edit file")
+        case .fileRead: return L("Read file")
+        case .toolUserInput: return L("Tool input")
+        case .authTokensRefresh: return L("Refresh auth")
+        case .dynamic: return L("Tool")
         }
     }
 
@@ -16989,8 +16989,8 @@ public struct AgentAppView: View {
                             .contentShape(Rectangle())
                     }
                     .foregroundColor(DS.Palette.textSecondary)
-                    .accessibilityLabel("Copy command")
-                    .help("Copy command")
+                    .accessibilityLabel(L("Copy command"))
+                    .help(L("Copy command"))
                 }
             case .applyPatch, .fileChange:
                 // Prefer Cursor-style edit card when the approval detail is a real patch.
@@ -17019,7 +17019,7 @@ public struct AgentAppView: View {
                             HStack(spacing: DS.Space.xs) {
                                 Image(systemName: expanded ? "chevron.down" : "chevron.right")
                                     .font(.system(size: 8)).foregroundColor(DS.Palette.textTertiary)
-                                Text(expanded ? "Hide diff" : "Show diff")
+                                Text(expanded ? L("Hide diff") : L("Show diff"))
                                     .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                             }
                         }
@@ -17055,7 +17055,7 @@ public struct AgentAppView: View {
                 Image(systemName: stale ? "exclamationmark.triangle" : "questionmark.circle")
                     .font(.system(size: 12))
                     .foregroundColor(stale ? DS.Palette.warning : DS.Palette.accent)
-                Text(stale ? "Stale provider question" : "Provider question")
+                Text(stale ? L("Stale provider question") : L("Provider question"))
                     .font(DS.Font.caption.weight(.semibold))
                     .foregroundColor(DS.Palette.textSecondary)
                 Spacer(minLength: 0)
@@ -17074,7 +17074,7 @@ public struct AgentAppView: View {
                 .disabled(vm.selectedProviderSnapshot.map {
                     !$0.effectiveCapabilities.supportsUserInput
                 } ?? false)
-                .help("Cancel only this question and keep the provider session available.")
+                .help(L("Cancel only this question and keep the provider session available."))
                 .accessibilityIdentifier("agent.pendingUserInput.cancel.\(request.id)")
             }
         }
@@ -17320,17 +17320,17 @@ public struct AgentAppView: View {
             }
             .buttonStyle(.plain)
             .foregroundColor(DS.Palette.textTertiary)
-            .accessibilityLabel("Copy message")
+            .accessibilityLabel(L("Copy message"))
             .accessibilityIdentifier("agent.assistantMessage.copy.\(identifierSuffix)")
-            .help("Copy message")
+            .help(L("Copy message"))
             Button { vm.onForkInNewChat?(identifierSuffix) } label: {
                 Image(systemName: "arrow.triangle.branch").font(.system(size: 10))
             }
             .buttonStyle(.plain)
             .foregroundColor(DS.Palette.textTertiary)
-            .accessibilityLabel("Branch in new chat")
+            .accessibilityLabel(L("Branch in new chat"))
             .accessibilityIdentifier("agent.assistantMessage.branch.\(identifierSuffix)")
-            .help("Branch in new chat")
+            .help(L("Branch in new chat"))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -17395,12 +17395,12 @@ public struct AgentAppView: View {
         nextCount: Int
     ) -> String {
         if revealedCount <= 0 {
-            return "Earlier in this thread · show \(nextCount) more"
+            return L("Earlier in this thread · show %1$@ more", nextCount)
         }
         if revealedCount < count {
-            return "Earlier in this thread · \(revealedCount) of \(count) shown · show more"
+            return L("Earlier in this thread · %1$@ of %2$@ shown · show more", revealedCount, count)
         }
-        return "Earlier in this thread · \(count) shown, read-only"
+        return L("Earlier in this thread · %1$@ shown, read-only", count)
     }
 
     nonisolated static func hiddenTranscriptRevealAccessibilityLabel(
@@ -17408,12 +17408,12 @@ public struct AgentAppView: View {
         revealedCount: Int
     ) -> String {
         if revealedCount <= 0 {
-            return "\(count) earlier items in this thread hidden"
+            return L("%1$@ earlier items in this thread hidden", count)
         }
         if revealedCount < count {
-            return "\(revealedCount) of \(count) earlier items in this thread visible"
+            return L("%1$@ of %2$@ earlier items in this thread visible", revealedCount, count)
         }
-        return "\(count) earlier items in this thread visible, read-only"
+        return L("%1$@ earlier items in this thread visible, read-only", count)
     }
 
     private func hiddenLiveTurnItemsRow(_ count: Int) -> some View {
@@ -17440,8 +17440,8 @@ public struct AgentAppView: View {
             sideChatEmptyConversation
         } else {
             AgentNewConversationEmptyState(
-                title: vm.embedding?.emptyConversationTitle ?? "No messages",
-                subtitle: vm.embedding?.emptyConversationSubtitle ?? "Start a new agent run."
+                title: vm.embedding?.emptyConversationTitle ?? L("No messages"),
+                subtitle: vm.embedding?.emptyConversationSubtitle ?? L("Start a new agent run.")
             )
             .frame(maxWidth: .infinity, minHeight: 280, alignment: .center)
         }
@@ -17449,8 +17449,8 @@ public struct AgentAppView: View {
     private var sideChatEmptyConversation: some View {
         DSEmptyState(
             icon: "plus.circle",
-            title: "Side chat",
-            subtitle: "Side chats are temporary and disappear when you close the app."
+            title: L("Side chat"),
+            subtitle: L("Side chats are temporary and disappear when you close the app.")
         )
         .frame(maxWidth: .infinity, minHeight: 280, alignment: .center)
     }
@@ -17464,7 +17464,7 @@ public struct AgentAppView: View {
                 Circle()
                     .fill(running ? DS.Palette.warning : DS.Palette.textTertiary)
                     .frame(width: 6, height: 6)
-                Text(running ? "Parent thread running" : "Parent thread idle")
+                Text(running ? L("Parent thread running") : L("Parent thread idle"))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
                 Spacer(minLength: 0)
@@ -17499,9 +17499,9 @@ public struct AgentAppView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(DS.Palette.textTertiary)
-                .accessibilityLabel("Dismiss error")
+                .accessibilityLabel(L("Dismiss error"))
                 .accessibilityIdentifier("agent.error.dismiss")
-                .help("Dismiss error")
+                .help(L("Dismiss error"))
             }
             if let recoveryAction {
                 Button {
@@ -17522,7 +17522,7 @@ public struct AgentAppView: View {
                         : "agent.error.recovery.\(recoveryAction.rawValue)"
                 )
                 .confirmationDialog(
-                    "Retry without unavailable attachments?",
+                    L("Retry without unavailable attachments?"),
                     isPresented: Binding(
                         get: { vm.pendingAttachmentRetryConfirmation != nil },
                         set: { if !$0 { vm.cancelRetryWithoutUnavailableAttachments() } }
@@ -17703,7 +17703,7 @@ public struct AgentAppView: View {
                         .foregroundColor(DS.Palette.textTertiary)
                         .italic()
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityLabel("Content omitted: message body was too large to display")
+                        .accessibilityLabel(L("Content omitted: message body was too large to display"))
                 } else if let task = BotParallelTask.parse(msg.content) {
                     AgentBotTaskLink(task: task, loadStatus: { task in
                         guard let source = vm.selectedThreadId,
@@ -18013,8 +18013,8 @@ public struct AgentAppView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(expanded ? "Hide work details" : "Show work details")
-            .accessibilityLabel(expanded ? "Hide work details" : "Show work details")
+            .help(expanded ? L("Hide work details") : L("Show work details"))
+            .accessibilityLabel(expanded ? L("Hide work details") : L("Show work details"))
             .accessibilityIdentifier(live ? "agent.liveWork.\(turn.turnId)" : "agent.completedWork.\(turn.turnId)")
 
             if expanded {
@@ -18096,7 +18096,7 @@ public struct AgentAppView: View {
                         Image(systemName: expanded ? "chevron.down" : "chevron.right")
                             .font(.system(size: 8)).foregroundColor(DS.Palette.textTertiary)
                     }
-                    Text(streaming ? "Thinking…" : "Thought")
+                    Text(streaming ? L("Thinking…") : L("Thought"))
                         .font(DS.Font.caption2.weight(.semibold))
                         .foregroundColor(DS.Palette.textTertiary)
                     Spacer(minLength: 0)
@@ -18104,7 +18104,7 @@ public struct AgentAppView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(streaming ? "" : (text.isEmpty ? "" : (expanded ? "Hide reasoning" : "Show reasoning")))
+            .help(streaming ? "" : (text.isEmpty ? "" : (expanded ? L("Hide reasoning") : L("Show reasoning"))))
             if expanded, !text.isEmpty {
                 AgentSelectablePlainText(
                     text: text,
@@ -18149,7 +18149,7 @@ public struct AgentAppView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .help("Open image")
+                    .help(L("Open image"))
                     .accessibilityIdentifier("agent.image.open.\(item.id)")
                     Button {
                         NSWorkspace.shared.activateFileViewerSelecting([imagePresentation.resourceURL])
@@ -18161,7 +18161,7 @@ public struct AgentAppView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .help("Reveal in Finder")
+                    .help(L("Reveal in Finder"))
                     .accessibilityIdentifier("agent.image.reveal.\(item.id)")
                 }
             }
@@ -18268,7 +18268,7 @@ public struct AgentAppView: View {
                             .padding(.vertical, 1)
                             .background(DS.Palette.accent.opacity(0.12))
                             .clipShape(Capsule())
-                            .accessibilityLabel("Background")
+                            .accessibilityLabel(L("Background"))
                     }
                     Spacer(minLength: 0)
                     // Single status word on L1 (verb). Trailing: elapsed for live waits,
@@ -18278,7 +18278,7 @@ public struct AgentAppView: View {
                             Text(duration)
                                 .font(DS.Font.caption2.monospacedDigit().weight(.medium))
                                 .foregroundColor(DS.Palette.accent)
-                                .accessibilityLabel("elapsed \(duration)")
+                                .accessibilityLabel(L("elapsed %1$@", duration))
                         } else {
                             Text(streamingStatus)
                                 .font(DS.Font.caption2.weight(.semibold))
@@ -18308,14 +18308,14 @@ public struct AgentAppView: View {
             .buttonStyle(.plain)
             .help(canExpand
                   ? (expanded
-                     ? "Hide details"
-                     : (hasOutput ? "Show command and output" : "Show status and details"))
-                  : "No further detail")
+                     ? L("Hide details")
+                     : (hasOutput ? L("Show command and output") : L("Show status and details")))
+                  : L("No further detail"))
             .accessibilityLabel(
                 AgentTimelineItemPresentation.toolAccessibilityLabel(for: item, nowMs: nowMs)
             )
             .accessibilityHint(canExpand
-                               ? (expanded ? "Collapse tool details" : "Expand tool details")
+                               ? (expanded ? L("Collapse tool details") : L("Expand tool details"))
                                : "")
 
             // L2: collapsed command summary (not the full cd && … | distill pipeline).
@@ -18340,9 +18340,9 @@ public struct AgentAppView: View {
                                 .contentShape(Rectangle())
                         }
                         .dsPointingHandCursor()
-                        .help("Copy full command")
+                        .help(L("Copy full command"))
                         .accessibilityIdentifier("agent.tool.copyCommand.\(item.id)")
-                        .accessibilityLabel("Copy full command")
+                        .accessibilityLabel(L("Copy full command"))
                     }
                     if let target = AgentTimelineItemPresentation.toolOpenTarget(for: item) {
                         Button {
@@ -18359,7 +18359,7 @@ public struct AgentAppView: View {
                         }
                         .buttonStyle(.plain)
                         .dsPointingHandCursor()
-                        .help("Open in split panel")
+                        .help(L("Open in split panel"))
                         .accessibilityIdentifier("agent.tool.openInSplit.\(item.id)")
                     }
                 }
@@ -18482,7 +18482,7 @@ public struct AgentAppView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(expanded ? "Collapse" : "Expand \(items.count) items")
+            .help(expanded ? L("Collapse") : L("Expand %1$@ items", items.count))
 
             // UX: image citations show thumbnails in the transcript immediately —
             // no need to expand "Running 2 images…" to see what the agent viewed.
@@ -18609,9 +18609,9 @@ public struct AgentAppView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundColor(DS.Palette.textTertiary)
-                        .accessibilityLabel("Dismiss queue status")
+                        .accessibilityLabel(L("Dismiss queue status"))
                         .accessibilityIdentifier("agent.queue.status.inline.dismiss")
-                        .help("Dismiss")
+                        .help(L("Dismiss"))
                     }
                 }
                 ForEach(vm.queuedMessages, id: \.id) { message in
@@ -18624,8 +18624,8 @@ public struct AgentAppView: View {
             .background(DS.Palette.bg)
             .confirmationDialog(
                 queuedMessagePendingCancel?.durableState == .prepared
-                    ? "Remove message with unresolved provider acceptance?"
-                    : "Cancel queued message?",
+                    ? L("Remove message with unresolved provider acceptance?")
+                    : L("Cancel queued message?"),
                 isPresented: Binding(
                     get: { queuedMessagePendingCancel != nil },
                     set: { if !$0 { queuedMessagePendingCancel = nil } }
@@ -18633,8 +18633,8 @@ public struct AgentAppView: View {
             ) {
                 Button(
                     queuedMessagePendingCancel?.durableState == .prepared
-                        ? "Remove from queue"
-                        : "Cancel queued message",
+                        ? L("Remove from queue")
+                        : L("Cancel queued message"),
                     role: .destructive
                 ) {
                     if let queuedMessagePendingCancel {
@@ -18699,9 +18699,9 @@ public struct AgentAppView: View {
             }
             .buttonStyle(.plain)
             .foregroundColor(DS.Palette.textTertiary)
-            .accessibilityLabel("Dismiss error")
+            .accessibilityLabel(L("Dismiss error"))
             .accessibilityIdentifier("\(identifier).dismiss")
-            .help("Dismiss error")
+            .help(L("Dismiss error"))
         }
         .padding(.horizontal, DS.Space.lg)
         .padding(.vertical, DS.Space.sm)
@@ -18734,9 +18734,9 @@ public struct AgentAppView: View {
             }
             .buttonStyle(.plain)
             .foregroundColor(DS.Palette.textTertiary)
-            .accessibilityLabel("Dismiss history notice")
+            .accessibilityLabel(L("Dismiss history notice"))
             .accessibilityIdentifier("\(identifier).dismiss")
-            .help("Dismiss history notice")
+            .help(L("Dismiss history notice"))
         }
         .padding(.horizontal, DS.Space.lg)
         .padding(.vertical, DS.Space.sm)
@@ -18765,9 +18765,9 @@ public struct AgentAppView: View {
             }
             .buttonStyle(.plain)
             .foregroundColor(DS.Palette.textTertiary)
-            .accessibilityLabel("Dismiss error")
+            .accessibilityLabel(L("Dismiss error"))
             .accessibilityIdentifier(identifier)
-            .help("Dismiss error")
+            .help(L("Dismiss error"))
         }
     }
 
@@ -18800,7 +18800,7 @@ public struct AgentAppView: View {
                         )
                     }
                     if !message.attachments.isEmpty {
-                        Label(L("%1$@ attachment%2$@", message.attachments.count, message.attachments.count == 1 ? "" : "s"), systemImage: "paperclip")
+                        Label((message.attachments.count == 1 ? L("%1$@ attachment", message.attachments.count) : L("%1$@ attachments", message.attachments.count)), systemImage: "paperclip")
                             .font(DS.Font.caption)
                             .foregroundColor(DS.Palette.textTertiary)
                     }
@@ -18836,7 +18836,7 @@ public struct AgentAppView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .disabled((message.durableState ?? .queued) != .queued)
-                    .accessibilityLabel("Edit queued message \(message.position)")
+                    .accessibilityLabel(L("Edit queued message %1$@", message.position))
                     .accessibilityIdentifier("agent.queued.edit.\(message.id.value.uuidString)")
                     Button {
                         if message.durableState == .prepared {
@@ -18862,8 +18862,8 @@ public struct AgentAppView: View {
                     .foregroundColor(DS.Palette.danger)
                     .accessibilityLabel(
                         message.durableState == .prepared
-                            ? "Remove queued message \(message.position) with unresolved provider acceptance"
-                            : "Cancel queued message \(message.position)"
+                            ? L("Remove queued message %1$@ with unresolved provider acceptance", message.position)
+                            : L("Cancel queued message %1$@", message.position)
                     )
                     .accessibilityIdentifier("agent.queued.cancel.\(message.id.value.uuidString)")
                 }
@@ -18915,7 +18915,7 @@ public struct AgentAppView: View {
             attachmentChipPrefix: "agent.attachment.",
             attachmentsIdentifier: "agent.attachments",
             runStatusCaption: vm.selectedThreadIsStoppableBusy
-                ? (vm.selectedThreadIsPreparingRun ? "Preparing" : "Running")
+                ? (vm.selectedThreadIsPreparingRun ? L("Preparing") : L("Running"))
                 : nil,
             onFileDrop: { vm.insertDroppedFilePaths($0) },
             attachUnavailableReason: composerChromeMode == .relay
@@ -18964,8 +18964,8 @@ public struct AgentAppView: View {
                         serviceTierLabel: vm.serviceTier == .fast ? serviceTierLabel : nil,
                         isRunning: vm.selectedThreadRunIsStartingOrRunning,
                         isDisabled: vm.selectedThreadRunIsStartingOrRunning || !vm.selectedProviderCanRun,
-                        emptyListTitle: vm.modelListLoading ? "Loading models..." : "No models available",
-                        workerEmptyListTitle: vm.modelListLoading ? "Loading models..." : "No models yet. Connect an account on the start screen.",
+                        emptyListTitle: vm.modelListLoading ? L("Loading models...") : L("No models available"),
+                        workerEmptyListTitle: vm.modelListLoading ? L("Loading models...") : L("No models yet. Connect an account on the start screen."),
                         menuWidth: compactModelMenuWidth,
                         mainIdentifier: "agent.model.menu", mainPopoverIdentifier: "agent.model.popover",
                         workerIdentifier: "agent.reasoningModel.menu", workerPopoverIdentifier: "agent.reasoningModel.popover",
@@ -18979,7 +18979,7 @@ public struct AgentAppView: View {
                         mainFooter: {
                             if vm.supportsCustomModelForSelectedProvider {
                                 if showCustomModelField { customModelInlineField }
-                                else { compactMenuRow("Custom...", selected: false) {
+                                else { compactMenuRow(L("Custom..."), selected: false) {
                                     customModelDraft = vm.modelOptionsForSelectedProvider.contains(where: { $0.id == vm.model }) ? "" : vm.model
                                     showCustomModelField = true
                                 }.disabled(vm.selectedThreadRunIsStartingOrRunning || !vm.selectedProviderCanRun) }
@@ -19012,7 +19012,7 @@ public struct AgentAppView: View {
     private func changedFilesStrip(_ s: GitSummary) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: DS.Space.sm) {
-                Text(L("%1$@ file%2$@ changed", s.files.count, s.files.count == 1 ? "" : "s"))
+                Text((s.files.count == 1 ? L("%1$@ file changed", s.files.count) : L("%1$@ files changed", s.files.count)))
                     .font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary)
                     // IMP-MAC_AGENT-008: per-file +/- breakdown on hover, so users
                     // can preview the changed-files detail without leaving the
@@ -19029,8 +19029,8 @@ public struct AgentAppView: View {
                         .foregroundColor(DS.Palette.accent)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Review changes in the Git panel")
-                .help("Review changes in the Git panel")
+                .accessibilityLabel(L("Review changes in the Git panel"))
+                .help(L("Review changes in the Git panel"))
             }
             .padding(.horizontal, DS.Space.lg).padding(.vertical, DS.Space.md)
             Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
@@ -19043,7 +19043,7 @@ public struct AgentAppView: View {
         let maxRows = 20
         var rows = s.files.prefix(maxRows).map { "\($0.path)  +\($0.additions) −\($0.deletions)" }
         if s.files.count > maxRows {
-            rows.append("… \(s.files.count - maxRows) more")
+            rows.append(L("… %1$@ more", s.files.count - maxRows))
         }
         return rows.joined(separator: "\n")
     }
@@ -19207,7 +19207,7 @@ public struct AgentAppView: View {
             if item.offersCopy {
                 AgentChatCopyButton(text: item.message) { AgentChatCopyWordLabel(copied: $0) }
                 .font(DS.Font.caption)
-                .accessibilityLabel("Copy")
+                .accessibilityLabel(L("Copy"))
                 .accessibilityIdentifier("\(item.id).copy")
             }
             if item.offersRetry {
@@ -19227,7 +19227,7 @@ public struct AgentAppView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(DS.Palette.textTertiary)
-                .accessibilityLabel("Dismiss")
+                .accessibilityLabel(L("Dismiss"))
                 .accessibilityIdentifier("\(item.id).dismiss")
             }
         }
@@ -19294,7 +19294,7 @@ public struct AgentAppView: View {
             unavailableReason: { vm.permissionModeUnavailableReason($0) },
             disabled: vm.activeRunConfigurationLocked || !vm.selectedProviderCanRun,
             help: vm.providerExecutionUnavailableReason
-                ?? (vm.activeRunConfigurationLocked ? "Permission is fixed for the active run" : "Permission mode"),
+                ?? (vm.activeRunConfigurationLocked ? L("Permission is fixed for the active run") : L("Permission mode")),
             accessibilityIdentifier: "agent.permission.menu",
             onSelect: { vm.setPermissionMode($0) }
         )
@@ -19305,7 +19305,7 @@ public struct AgentAppView: View {
             AgentComposerCapsule {
                 AgentComposerCapsuleLabel(
                     icon: vm.executionMode == .worktree ? "arrow.triangle.branch" : "folder",
-                    title: vm.executionMode == .worktree ? "Worktree" : "Local",
+                    title: vm.executionMode == .worktree ? L("Worktree") : L("Local"),
                     chevron: true
                 )
             }
@@ -19313,7 +19313,7 @@ public struct AgentAppView: View {
         .buttonStyle(.plain).fixedSize()
         .disabled(vm.executionLocked || !vm.selectedProviderCanRun)
         .help(vm.providerExecutionUnavailableReason
-            ?? (vm.executionLocked ? "Execution mode locks after the first message" : "Execution mode"))
+            ?? (vm.executionLocked ? L("Execution mode locks after the first message") : L("Execution mode")))
         .accessibilityIdentifier("agent.execution.menu")
         .sheet(isPresented: $showExecutionSheet) { executionSheet }
     }
@@ -19321,30 +19321,30 @@ public struct AgentAppView: View {
     private var executionSheet: some View {
         AgentChoiceSheet(
             icon: "folder",
-            title: "Where should it run?",
-            subtitle: "Choose how changes land in this workspace.",
+            title: L("Where should it run?"),
+            subtitle: L("Choose how changes land in this workspace."),
             width: 520,
             accessibilityIdentifier: "agent.execution.sheet",
             onClose: { showExecutionSheet = false }
         ) {
             VStack(alignment: .leading, spacing: DS.Space.xl) {
                 VStack(alignment: .leading, spacing: DS.Space.md) {
-                    AgentChoiceSectionHeader("Mode")
+                    AgentChoiceSectionHeader(L("Mode"))
                     AgentChoiceCard(
-                        title: "Local",
-                        subtitle: "Edit files directly in this workspace.",
+                        title: L("Local"),
+                        subtitle: L("Edit files directly in this workspace."),
                         selected: vm.executionMode == .local,
-                        disabledReason: vm.executionLocked ? "Execution mode locks after the first message" : nil,
+                        disabledReason: vm.executionLocked ? L("Execution mode locks after the first message") : nil,
                         accessibilityIdentifier: "agent.execution.local",
                         action: { vm.setExecutionMode(.local) }
                     ) {
                         AgentChoiceIconTile(systemName: "folder")
                     }
                     AgentChoiceCard(
-                        title: "Worktree",
-                        subtitle: "Work in an isolated git worktree, then review the changes.",
+                        title: L("Worktree"),
+                        subtitle: L("Work in an isolated git worktree, then review the changes."),
                         selected: vm.executionMode == .worktree,
-                        disabledReason: vm.executionLocked ? "Execution mode locks after the first message" : nil,
+                        disabledReason: vm.executionLocked ? L("Execution mode locks after the first message") : nil,
                         accessibilityIdentifier: "agent.execution.worktree",
                         action: { vm.setExecutionMode(.worktree) }
                     ) {
@@ -19353,7 +19353,7 @@ public struct AgentAppView: View {
                 }
                 if vm.executionMode == .worktree {
                     VStack(alignment: .leading, spacing: DS.Space.md) {
-                        AgentChoiceSectionHeader("Base branch")
+                        AgentChoiceSectionHeader(L("Base branch"))
                         TextField(L("Base branch"), text: Binding(
                             get: { vm.baseBranch },
                             set: { vm.setBaseBranch($0) }
@@ -19370,7 +19370,7 @@ public struct AgentAppView: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: DS.Space.md) {
-                    AgentChoiceSectionHeader("Open a pull request")
+                    AgentChoiceSectionHeader(L("Open a pull request"))
                     TextField(L("PR URL"), text: $vm.pullRequestURL)
                         .textFieldStyle(.plain)
                         .font(DS.Font.bodyDense)
@@ -19378,7 +19378,7 @@ public struct AgentAppView: View {
                         .padding(.vertical, DS.Space.sm)
                         .background(RoundedRectangle(cornerRadius: DS.Radius.control).fill(DS.Palette.surfaceRaised))
                         .overlay(RoundedRectangle(cornerRadius: DS.Radius.control).strokeBorder(DS.Palette.line, lineWidth: DS.Border.hairline))
-                    Button(vm.pullRequestPreparing ? "Opening..." : "Open PR as thread") {
+                    Button(vm.pullRequestPreparing ? L("Opening...") : L("Open PR as thread")) {
                         Task { await vm.preparePullRequestThread() }
                     }
                     .disabled(vm.pullRequestPreparing || vm.pullRequestURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.executionLocked)
@@ -19520,7 +19520,7 @@ public struct AgentAppView: View {
         }
         // Source/account selection lives on the dedicated left capsule so the
         // model popover stays model/effort/tier only.
-        .help("Model · reasoning effort · service tier")
+        .help(L("Model · reasoning effort · service tier"))
     }
 
     /// Loading / retry / fallback header shared by the Main and Reasoning
@@ -19535,7 +19535,7 @@ public struct AgentAppView: View {
             // P2: retry stays enabled while running so a model-list failure
             // mid-run can be recovered without stopping the agent.
             if vm.modelListStatusMessage != nil || vm.providerSnapshotStatusMessage != nil {
-                compactMenuRow("Retry loading models", selected: false) {
+                compactMenuRow(L("Retry loading models"), selected: false) {
                     Task {
                         await vm.loadProviderSnapshots()
                         await vm.loadModels()
@@ -19565,7 +19565,7 @@ public struct AgentAppView: View {
                 Text(L("Live model list unavailable. Refresh to check available models."))
                     .font(DS.Font.caption)
                     .foregroundColor(DS.Palette.textSecondary)
-                compactMenuRow("Refresh model list", selected: false) {
+                compactMenuRow(L("Refresh model list"), selected: false) {
                     // F11: reloads snapshots (the rows the picker shows)
                     // and bypasses the discovery TTL, not just loadModels.
                     Task { await vm.refreshModelList() }
@@ -19596,7 +19596,7 @@ public struct AgentAppView: View {
             toggleDisabled: running || !presentation.autoToggleEnabled,
             showsAutoRouting: showsAutoRouting,
             // The shared Main section owns its title and subtitle.
-            title: "Model"
+            title: L("Model")
         ) {
             // UX-MAC_AGENT-016: readable while running; mutation rows disable below.
             if running {
@@ -19616,7 +19616,7 @@ public struct AgentAppView: View {
                             .font(DS.Font.caption)
                             .foregroundColor(DS.Palette.warning)
                     }
-                    compactMenuSection("Model")
+                    compactMenuSection(L("Model"))
                     let visibleModelCount = showAllModelOptions ? modelOptions.count : min(3, modelOptions.count)
                     let visibleCustomModelCount = showAllModelOptions ? customModels.count : max(0, 3 - visibleModelCount)
                     let visibleModels = Array(modelOptions.prefix(visibleModelCount))
@@ -19636,7 +19636,7 @@ public struct AgentAppView: View {
                         .disabled(configurationLocked)
                     }
                     if modelOptions.count + customModels.count > 3, !showAllModelOptions {
-                        compactMenuRow("More...", selected: false) {
+                        compactMenuRow(L("More..."), selected: false) {
                             showAllModelOptions = true
                         }
                     }
@@ -19645,7 +19645,7 @@ public struct AgentAppView: View {
                     if showCustomModelField {
                         customModelInlineField
                     } else {
-                        compactMenuRow("Custom...", selected: false) {
+                        compactMenuRow(L("Custom..."), selected: false) {
                             customModelDraft = vm.modelOptionsForSelectedProvider.contains(where: { $0.id == vm.model }) ? "" : vm.model
                             showCustomModelField = true
                         }
@@ -19657,7 +19657,7 @@ public struct AgentAppView: View {
                 compactMenuDivider
             }
             if vm.provider != .distill && vm.routingMode == .manual && vm.supportsReasoningForSelectedModel {
-                compactMenuSection("Reasoning effort")
+                compactMenuSection(L("Reasoning effort"))
                 ForEach(vm.supportedReasoningEffortsForSelectedModel, id: \.self) { effort in
                     compactMenuRow(effort.displayName, selected: effort == vm.reasoningEffort) {
                         vm.setReasoningEffort(effort)
@@ -19670,13 +19670,13 @@ public struct AgentAppView: View {
                 }
             }
             if vm.routingMode == .manual && vm.supportsServiceTierForSelectedModel {
-                compactMenuSection("Service tier")
-                compactMenuRow("Auto", selected: vm.serviceTier == .auto) {
+                compactMenuSection(L("Service tier"))
+                compactMenuRow(L("Auto"), selected: vm.serviceTier == .auto) {
                     vm.setServiceTier(.auto)
                     showModelOptions = false
                 }
                 .disabled(configurationLocked)
-                compactMenuRow("Fast", selected: vm.serviceTier == .fast) {
+                compactMenuRow(L("Fast"), selected: vm.serviceTier == .fast) {
                     vm.setServiceTier(.fast)
                     showModelOptions = false
                 }
@@ -19781,19 +19781,19 @@ public struct AgentAppView: View {
         titles.append(contentsOf: modelOptions.prefix(visibleModelCount).map(\.label))
         titles.append(contentsOf: customModels.prefix(visibleCustomModelCount))
         if vm.supportsCustomModelForSelectedProvider {
-            titles.append("Custom...")
+            titles.append(L("Custom..."))
         }
         if modelOptions.count + customModels.count > 3, !showAllModelOptions {
-            titles.append("More...")
+            titles.append(L("More..."))
         }
         if vm.routingMode == .manual && vm.supportsReasoningForSelectedModel {
             titles.append(contentsOf: vm.supportedReasoningEffortsForSelectedModel.map(\.displayName))
         }
         if vm.routingMode == .manual && vm.supportsServiceTierForSelectedModel {
-            titles.append(contentsOf: ["Auto", "Fast"])
+            titles.append(contentsOf: [L("Auto"), L("Fast")])
         }
         if vm.providerRecoveryActionTitle != nil {
-            titles.append(vm.providerRecoveryActionRunning ? "Working..." : (vm.providerRecoveryActionTitle ?? ""))
+            titles.append(vm.providerRecoveryActionRunning ? L("Working...") : (vm.providerRecoveryActionTitle ?? ""))
         }
         let signature = titles.joined(separator: "\u{1}")
         if modelMenuWidthCache.signature == signature {
@@ -19942,7 +19942,7 @@ public struct AgentAppView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(DS.Palette.accent)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(plan.implementedAtMs == nil ? "Proposed plan" : "Implementation started")
+                    Text(plan.implementedAtMs == nil ? L("Proposed plan") : L("Implementation started"))
                         .font(DS.Font.caption.weight(.semibold))
                         .foregroundColor(DS.Palette.textSecondary)
                     Text(plan.exportTitle)
@@ -19990,7 +19990,7 @@ public struct AgentAppView: View {
                     Button {
                         proposedPlanExpanded.toggle()
                     } label: {
-                        Label(proposedPlanExpanded ? "Collapse" : "Show all",
+                        Label(proposedPlanExpanded ? L("Collapse") : L("Show all"),
                               systemImage: proposedPlanExpanded ? "chevron.up" : "chevron.down")
                     }
                     .buttonStyle(.bordered)
@@ -20016,9 +20016,9 @@ private extension AssistantPlanStepStatus {
 
     var label: String {
         switch self {
-        case .pending: return "Pending"
-        case .inProgress: return "In progress"
-        case .completed: return "Done"
+        case .pending: return L("Pending")
+        case .inProgress: return L("In progress")
+        case .completed: return L("Done")
         }
     }
 
@@ -20162,7 +20162,7 @@ private struct AskUserQuestionOtherField: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Other")
+            .accessibilityLabel(L("Other"))
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityIdentifier("agent.askOther.\(request.id).\(question.id)")
             TextField(L("Other…"), text: draft)
@@ -20518,18 +20518,18 @@ public enum AgentSourceCapsulePresentation {
         providerLocked: Bool,
         unavailableReason: String?
     ) -> String {
-        if runLocked { return "Account is fixed while a run is active" }
+        if runLocked { return L("Account is fixed while a run is active") }
         if providerLocked {
-            return "Account is fixed after the first message. Start a new thread to use a different account."
+            return L("Account is fixed after the first message. Start a new thread to use a different account.")
         }
         if let unavailableReason, !unavailableReason.isEmpty { return unavailableReason }
-        if !canSwitch { return "Account / source for this agent run" }
-        return "Choose the provider or account that runs this thread"
+        if !canSwitch { return L("Account / source for this agent run") }
+        return L("Choose the provider or account that runs this thread")
     }
 
     public static func switchHint(canSwitch: Bool, helpText: String) -> String {
         canSwitch
-            ? "Choose which Distill instance runs this thread"
+            ? L("Choose which Distill instance runs this thread")
             : helpText
     }
 
@@ -20546,11 +20546,11 @@ public enum AgentSourceCapsulePresentation {
         entryCount: Int
     ) -> LockNotice? {
         if runLocked {
-            return LockNotice(text: "Account is fixed while a run is active", isWarning: false, wraps: false)
+            return LockNotice(text: L("Account is fixed while a run is active"), isWarning: false, wraps: false)
         }
         if providerLocked {
             return LockNotice(
-                text: "Account is fixed after the first message. Start a new thread to use a different account.",
+                text: L("Account is fixed after the first message. Start a new thread to use a different account."),
                 isWarning: false,
                 wraps: true
             )
@@ -20559,7 +20559,7 @@ public enum AgentSourceCapsulePresentation {
             return LockNotice(text: unavailableReason, isWarning: true, wraps: true)
         }
         if entryCount <= 1 {
-            return LockNotice(text: "Only one account is available", isWarning: false, wraps: false)
+            return LockNotice(text: L("Only one account is available"), isWarning: false, wraps: false)
         }
         return nil
     }
@@ -20650,7 +20650,7 @@ private struct AgentThreadDropDelegate: DropDelegate {
 
 public enum AgentAppSurfaceCheckpointRevealError: LocalizedError {
     case notFound
-    public var errorDescription: String? { "Checkpoint not found for this run and file." }
+    public var errorDescription: String? { L("Checkpoint not found for this run and file.") }
 }
 
 public enum AgentAppSurfaceMessageRevealError: LocalizedError {
@@ -20660,9 +20660,9 @@ public enum AgentAppSurfaceMessageRevealError: LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .messageNotFound(let id): return "Message not found: \(id.value.uuidString)"
+        case .messageNotFound(let id): return L("Message not found: %1$@", id.value.uuidString)
         case .historyLoadFailed(let message): return message
-        case .selectionChanged: return "Message reveal superseded by a newer thread selection or request"
+        case .selectionChanged: return L("Message reveal superseded by a newer thread selection or request")
         }
     }
 }
@@ -20679,7 +20679,7 @@ public final class AgentAppSurface: NSObject, Surface {
     /// Set by AppCommandRouter immediately after subscribe (mirrors Feed pattern).
     public var onClose: (() -> Void)?
 
-    public init(workspaceID: WorkspaceID, cwd: String, coordinator: AgentRunCoordinator, threadRepo: AgentThreadRepository, messageRepo: AgentMessageRepository, draftRepo: AgentThreadDraftRepository? = nil, attachmentStore: AgentAttachmentStore? = nil, queuedMessageRepo: AgentQueuedMessageRepository? = nil, providerSessionRepo: ProviderSessionRuntimeRepository? = nil, pendingCallbackRepo: ProviderPendingCallbackRepository? = nil, proposedPlanRepo: AgentProposedPlanRepository? = nil, checkpointRepo: AgentTurnCheckpointRepository? = nil, promptHistoryStore: PromptHistoryStore? = nil, customModelStore: AgentCustomModelStore? = nil, planNotesStore: PlanNotesStore? = nil, title: String = "Agent App", initialThreadId: AgentThreadID? = nil, sideThreadId: AgentThreadID? = nil, orchestrationRuntime: AgentOrchestrationRuntime = AgentOrchestrationRuntime(), openAccountsSettings: (() -> Void)? = nil) {
+    public init(workspaceID: WorkspaceID, cwd: String, coordinator: AgentRunCoordinator, threadRepo: AgentThreadRepository, messageRepo: AgentMessageRepository, draftRepo: AgentThreadDraftRepository? = nil, attachmentStore: AgentAttachmentStore? = nil, queuedMessageRepo: AgentQueuedMessageRepository? = nil, providerSessionRepo: ProviderSessionRuntimeRepository? = nil, pendingCallbackRepo: ProviderPendingCallbackRepository? = nil, proposedPlanRepo: AgentProposedPlanRepository? = nil, checkpointRepo: AgentTurnCheckpointRepository? = nil, promptHistoryStore: PromptHistoryStore? = nil, customModelStore: AgentCustomModelStore? = nil, planNotesStore: PlanNotesStore? = nil, title: String = L("Agent App"), initialThreadId: AgentThreadID? = nil, sideThreadId: AgentThreadID? = nil, orchestrationRuntime: AgentOrchestrationRuntime = AgentOrchestrationRuntime(), openAccountsSettings: (() -> Void)? = nil) {
         var metadata = ["workspace": workspaceID.value.uuidString, "cwd": cwd]
         if let binding = sideThreadId ?? initialThreadId { metadata["selected_thread"] = binding.value.uuidString }
         self.descriptor = SurfaceDescriptor(type: .agentApp, title: title, iconName: "sparkle", metadata: metadata)
@@ -20770,7 +20770,7 @@ private struct TabColorMenuLabel: View {
     }
 
     static var none: TabColorMenuLabel {
-        TabColorMenuLabel(title: "None", swatchImage: noneSwatchImage())
+        TabColorMenuLabel(title: L("None"), swatchImage: noneSwatchImage())
     }
 
     var body: some View {

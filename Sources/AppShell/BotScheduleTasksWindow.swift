@@ -43,8 +43,8 @@ public struct BotScheduleTaskItem: Identifiable, Equatable {
     /// Next run is when this task would actually fire, not whether it is armed.
     /// An enabled task still does not run while global autonomy is paused.
     public func nextRunLabel(isAutonomyActive: Bool, now: Date = Date()) -> String {
-        if !isEnabled { return "Paused" }
-        if !isAutonomyActive { return "Scheduler paused" }
+        if !isEnabled { return L("Paused") }
+        if !isAutonomyActive { return L("Scheduler paused") }
         guard let next = resolvedSpec?.nextOccurrence(after: now) else { return "—" }
         return next.formatted(.dateTime.month(.abbreviated).day().hour().minute())
     }
@@ -157,8 +157,8 @@ enum BotScheduleScope {
     }
 
     static func footerLine(all: Int, active: Int) -> String {
-        let tasks = all == 1 ? "1 task" : "\(all) tasks"
-        let live = active == 1 ? "1 active" : "\(active) active"
+        let tasks = all == 1 ? L("1 task") : L("%1$@ tasks", all)
+        let live = active == 1 ? L("1 active") : L("%1$@ active", active)
         return "\(tasks) · \(live)"
     }
 }
@@ -228,7 +228,7 @@ public struct BotScheduleTasksRootView: View {
 
     private var subtitle: String {
         if scopeBotID != nil, vm.isAutonomyActive {
-            return "Tasks this bot runs automatically while MacCode is open"
+            return L("Tasks this bot runs automatically while MacCode is open")
         }
         return vm.scheduleTasksSubtitle
     }
@@ -278,8 +278,8 @@ public struct BotScheduleTasksRootView: View {
                 if scopeBotID != nil, scopedSource.isEmpty {
                     DSEmptyState(
                         icon: "calendar.badge.clock",
-                        title: "No scheduled tasks yet",
-                        subtitle: "Create a task to have this bot work on a schedule."
+                        title: L("No scheduled tasks yet"),
+                        subtitle: L("Create a task to have this bot work on a schedule.")
                     ) {
                         Button {
                             if let scopeBotID {
@@ -294,10 +294,10 @@ public struct BotScheduleTasksRootView: View {
                 } else {
                     DSEmptyState(
                         icon: "calendar.badge.clock",
-                        title: vm.scheduleTaskSearchText.isEmpty ? "No scheduled tasks" : "No matching tasks",
+                        title: vm.scheduleTaskSearchText.isEmpty ? L("No scheduled tasks") : L("No matching tasks"),
                         subtitle: vm.scheduleTaskSearchText.isEmpty
-                            ? "Create a task to run a bot automatically while MacCode is open."
-                            : "Try another search or clear the status filter."
+                            ? L("Create a task to run a bot automatically while MacCode is open.")
+                            : L("Try another search or clear the status filter.")
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -333,7 +333,7 @@ public struct BotScheduleTasksRootView: View {
         AgentKillSwitchControl(
             isActive: vm.isAutonomyActive,
             identifier: "bots.scheduleTasks.globalActive",
-            accessibilityLabel: vm.isAutonomyActive ? "Schedules active" : "Schedules paused",
+            accessibilityLabel: vm.isAutonomyActive ? L("Schedules active") : L("Schedules paused"),
             onChange: { vm.setAutonomyActive($0) }
         )
     }
@@ -365,17 +365,17 @@ public struct BotScheduleTasksRootView: View {
     private var searchField: some View {
         AgentListSearchField(
             text: $vm.scheduleTaskSearchText,
-            placeholder: "Search tasks",
+            placeholder: L("Search tasks"),
             identifier: "bots.scheduleTasks.search",
-            accessibilityLabel: "Search tasks"
+            accessibilityLabel: L("Search tasks")
         )
-        .accessibilityLabel("Search tasks")
+        .accessibilityLabel(L("Search tasks"))
     }
 
     private var footerBar: some View {
         AgentListFooterBar(
             caption: footerCaption,
-            pillTitle: vm.isAutonomyActive ? "Scheduler online" : "Scheduler paused",
+            pillTitle: vm.isAutonomyActive ? L("Scheduler online") : L("Scheduler paused"),
             pillTone: vm.isAutonomyActive ? .success : .warning
         )
         .accessibilityLabel(footerCaption)
@@ -440,31 +440,31 @@ struct BotScheduleTaskCard: View {
                             .foregroundColor(DS.Palette.textSecondary)
                             .accessibilityIdentifier("bots.scheduleTasks.starting")
                     } else {
-                        DSPill("Running", tone: .success)
+                        DSPill(L("Running"), tone: .success)
                     }
                 }
                 .accessibilityIdentifier("bots.scheduleTasks.running")
             } else if item.isEnabled {
-                DSPill("Active", tone: .success)
+                DSPill(L("Active"), tone: .success)
             } else {
-                DSPill("Paused", tone: .neutral)
+                DSPill(L("Paused"), tone: .neutral)
             }
         } meta: {
             HStack(alignment: .center, spacing: DS.Space.xl) {
                 AgentOverviewMetaColumn(
-                    title: "Schedule",
-                    value: item.scheduleNote.isEmpty ? "When noted in the task" : item.scheduleNote
+                    title: L("Schedule"),
+                    value: item.scheduleNote.isEmpty ? L("When noted in the task") : item.scheduleNote
                 )
                 AgentOverviewMetaColumn(
-                    title: "Next run",
+                    title: L("Next run"),
                     value: item.nextRunLabel(isAutonomyActive: isAutonomyActive)
                 )
                 AgentOverviewMetaColumn(
-                    title: "Last run",
+                    title: L("Last run"),
                     value: ScheduleLastRunLabel.text(date: lastRun?.executedAt, failed: lastRun?.result == "failed"),
                     valueColor: lastRun?.result == "failed" ? DS.Palette.danger : DS.Palette.text,
                     action: lastRun?.conversationID == nil ? nil : onOpenLastRun,
-                    actionHelp: "Open the conversation of this run"
+                    actionHelp: L("Open the conversation of this run")
                 )
                 HStack(spacing: DS.Space.xs) {
                     Image(systemName: "clock")
@@ -476,11 +476,11 @@ struct BotScheduleTaskCard: View {
                         .monospacedDigit()
                 }
                 .frame(width: 44, alignment: .trailing)
-                .accessibilityLabel("\(runCount) runs")
+                .accessibilityLabel(L("%1$@ runs", runCount))
             }
         } trailing: {
             Menu {
-                Button(item.isEnabled ? "Pause" : "Resume", action: onToggle)
+                Button(item.isEnabled ? L("Pause") : L("Resume"), action: onToggle)
                 Button(L("Run Now"), action: onRunNow).disabled(isRunning)
                 Button(L("Edit"), action: onEdit)
                 Divider()
@@ -493,7 +493,7 @@ struct BotScheduleTaskCard: View {
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
-            .accessibilityLabel("Task actions")
+            .accessibilityLabel(L("Task actions"))
         }
     }
 }
@@ -530,15 +530,15 @@ struct BotScheduleTaskEditorView: View {
 
     var body: some View {
         ScheduleEditorPage(
-            title: draft.isNew ? "New Scheduled Task" : "Edit Scheduled Task",
-            subtitle: "Run a Bot on a schedule, with its own identity, memory and tools.",
-            saveTitle: "Save",
+            title: draft.isNew ? L("New Scheduled Task") : L("Edit Scheduled Task"),
+            subtitle: L("Run a Bot on a schedule, with its own identity, memory and tools."),
+            saveTitle: L("Save"),
             saveIdentifier: "bots.scheduleTasks.save",
             onBack: onBack,
             onSave: { onSave(draft) },
             content: {
                 ScheduleEditorSection("Task", identifier: "bots.scheduleTasks.editorSection.Task") {
-                    ScheduleEditorRow("Bot", showsDivider: false) {
+                    ScheduleEditorRow(L("Bot"), showsDivider: false) {
                         Picker("", selection: $draft.botID) {
                             ForEach(bots, id: \.id) { bot in
                                 Text(bot.name).tag(bot.id)
@@ -550,15 +550,15 @@ struct BotScheduleTaskEditorView: View {
                     }
                     VStack(alignment: .leading, spacing: DS.Space.md) {
                         ScheduleEditorTextField(
-                            placeholder: "Name, e.g. Morning scan",
+                            placeholder: L("Name, e.g. Morning scan"),
                             text: $draft.name,
                             identifier: "bots.scheduleTasks.editor.name"
                         )
                         ScheduleEditorPromptBox(
-                            placeholder: "Describe what the Bot should do",
+                            placeholder: L("Describe what the Bot should do"),
                             text: $draft.prompt,
                             identifier: "bots.scheduleTasks.editor.instruction",
-                            label: "Instruction"
+                            label: L("Instruction")
                         )
                     }
                     .padding(DS.Space.md)
@@ -581,14 +581,14 @@ struct BotScheduleTaskEditorView: View {
                         ),
                         identifierPrefix: "bots.scheduleTasks.editor"
                     )
-                    ScheduleEditorRow("Concurrent runs", hint: "How many runs of this task may be active at once") {
+                    ScheduleEditorRow(L("Concurrent runs"), hint: L("How many runs of this task may be active at once")) {
                         ScheduleConcurrencyPicker(selection: Binding(
                             get: { draft.spec.effectiveMaxConcurrentRuns },
                             set: { draft.spec.maxConcurrentRuns = $0 }
                         ))
                         .accessibilityIdentifier("bots.scheduleTasks.editor.concurrency")
                     }
-                    ScheduleEditorRow("Use Bot default location", hint: "Where the run executes: Mac, a VM or a workspace") {
+                    ScheduleEditorRow(L("Use Bot default location"), hint: L("Where the run executes: Mac, a VM or a workspace")) {
                         Toggle(L("Use bot default"), isOn: Binding(
                             get: { draft.spec.executionDestination == nil },
                             set: { draft.spec.executionDestination = $0 ? nil : ((try? destinationStore.executionDestination(botID: draft.botID)) ?? .mac) }
@@ -608,7 +608,7 @@ struct BotScheduleTaskEditorView: View {
                     }
                 }
                 ScheduleEditorSection("Status", identifier: "bots.scheduleTasks.editorSection.Status") {
-                    ScheduleEditorRow("Active", hint: "Paused tasks keep their schedule but do not run", showsDivider: false) {
+                    ScheduleEditorRow(L("Active"), hint: L("Paused tasks keep their schedule but do not run"), showsDivider: false) {
                         Toggle(L("Active"), isOn: $draft.isEnabled)
                             .labelsHidden()
                             .toggleStyle(.switch)
@@ -637,20 +637,20 @@ struct BotScheduleSpecEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.xxl) {
-            editorGroup("Details") {
+            editorGroup(L("Details")) {
                 if AgentSourceCapsulePresentation.isVisible(entryCount: specSourceEntries.count) {
-                    formRow("Provider") {
+                    formRow(L("Provider")) {
                         specSourceCapsule
                             .accessibilityIdentifier("bots.scheduleTasks.editor.provider")
                     }
                 }
                 if spec.provider != .distill {
-                    formRow("Model routing") {
+                    formRow(L("Model routing")) {
                         HStack(spacing: DS.Space.sm) {
                             if providersLoading {
                                 ProgressView()
                                     .controlSize(.small)
-                                    .accessibilityLabel("Loading providers")
+                                    .accessibilityLabel(L("Loading providers"))
                             }
                             Toggle(L("Auto"), isOn: Binding(
                                 get: { spec.routingMode == .auto },
@@ -665,7 +665,7 @@ struct BotScheduleSpecEditor: View {
                     }
                 }
                 if spec.provider != .distill && spec.routingMode == .auto {
-                    formRow("Model") {
+                    formRow(L("Model")) {
                         Text(L("Auto selects the best model for the selected provider at run time."))
                             .font(DS.Font.caption)
                             .foregroundColor(DS.Palette.textSecondary)
@@ -674,9 +674,9 @@ struct BotScheduleSpecEditor: View {
                     }
                 } else if spec.provider == .distill {
                     // Same Main / Worker pills and modal sheets as the Agent App and Bot Desk composer.
-                    formRow("Model") { specDistillModelPills }
+                    formRow(L("Model")) { specDistillModelPills }
                 } else {
-                    formRow("Model") {
+                    formRow(L("Model")) {
                         Button {
                             showModelOptions.toggle()
                         } label: {
@@ -691,7 +691,7 @@ struct BotScheduleSpecEditor: View {
                 }
             }
 
-            editorGroup("Frequency") {
+            editorGroup(L("Frequency")) {
                 ScheduledFrequencyEditor(
                     rules: $spec.frequencyRules,
                     timeZoneIdentifier: $spec.timeZoneIdentifier,
@@ -754,9 +754,9 @@ struct BotScheduleSpecEditor: View {
             ? AgentDistillModelCatalog.selectableModels(models)
             : models
         let title = selectableModels.first(where: { $0.id == spec.model })?.label
-            ?? (spec.model.isEmpty ? (spec.provider == .distill ? "Select Main model" : "Model") : spec.model)
+            ?? (spec.model.isEmpty ? (spec.provider == .distill ? L("Select Main model") : L("Model")) : spec.model)
         let effort = spec.provider == .distill
-            ? (spec.distillMainEffortSelection ?? .fixed(spec.reasoningEffort)).effort?.displayName ?? "Auto"
+            ? (spec.distillMainEffortSelection ?? .fixed(spec.reasoningEffort)).effort?.displayName ?? L("Auto")
             : spec.reasoningEffort.displayName
         return AgentModelPillPresentation(title: title, effort: effort)
     }
@@ -779,9 +779,9 @@ struct BotScheduleSpecEditor: View {
             mainUnavailable: mainUnavailable,
             isRunning: false,
             isDisabled: false,
-            emptyListTitle: providersLoading ? "Loading models..." : "No models available",
+            emptyListTitle: providersLoading ? L("Loading models...") : L("No models available"),
             workerEmptyListTitle: providersLoading
-                ? "Loading models..." : "No models yet. Connect an account on the start screen.",
+                ? L("Loading models...") : L("No models yet. Connect an account on the start screen."),
             menuWidth: AgentModelMenuWidth.estimatedWidth(
                 titles: selectable.map(\.label), min: AgentModelMenuWidth.distillMin, max: AgentModelMenuWidth.distillMax
             ),
@@ -848,7 +848,7 @@ struct BotScheduleSpecEditor: View {
                     mainFooter: { EmptyView() }
                 )
             } else {
-                AgentCompactMenuSection("Model")
+                AgentCompactMenuSection(L("Model"))
                 ForEach(AgentDistillModelCatalog.selectableModels(models), id: \.id) { model in
                     AgentCompactMenuRow(model.label, selected: model.id == spec.model) {
                         spec.model = model.id
@@ -859,7 +859,7 @@ struct BotScheduleSpecEditor: View {
                     }
                 }
                 AgentCompactMenuDivider()
-                AgentCompactMenuSection("Reasoning")
+                AgentCompactMenuSection(L("Reasoning"))
                 ForEach(AgentReasoningEffort.allCases, id: \.self) { effort in
                     AgentCompactMenuRow(effort.displayName, selected: effort == spec.reasoningEffort) {
                         spec.reasoningEffort = effort
@@ -1030,7 +1030,7 @@ struct BotScheduleTaskDetailScreen: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Back to scheduled tasks")
+            .accessibilityLabel(L("Back to scheduled tasks"))
             .accessibilityIdentifier("bots.scheduleTasks.detail.back")
 
             HStack(spacing: DS.Space.md) {
@@ -1046,7 +1046,7 @@ struct BotScheduleTaskDetailScreen: View {
                     .buttonStyle(DSPrimaryButtonStyle())
                     .disabled(vm.isRoutineRunning(id: item.id))
                     .accessibilityIdentifier("bots.scheduleTasks.detail.runNow")
-                Button(item.isEnabled ? "Pause" : "Resume") {
+                Button(item.isEnabled ? L("Pause") : L("Resume")) {
                     vm.setRoutineEnabled(id: item.id, enabled: !item.isEnabled)
                 }
                 .buttonStyle(DSSecondaryButtonStyle())
@@ -1068,7 +1068,7 @@ struct BotScheduleTaskDetailScreen: View {
                         )
                 }
                 .menuStyle(.borderlessButton)
-                .accessibilityLabel("More actions")
+                .accessibilityLabel(L("More actions"))
             }
         }
     }
@@ -1076,11 +1076,11 @@ struct BotScheduleTaskDetailScreen: View {
     @ViewBuilder
     private var statusPill: some View {
         if vm.isRoutineRunning(id: item.id) {
-            DSPill("Running", tone: .success)
+            DSPill(L("Running"), tone: .success)
         } else if item.isEnabled {
-            DSPill("Active", tone: .success)
+            DSPill(L("Active"), tone: .success)
         } else {
-            DSPill("Paused", tone: .neutral)
+            DSPill(L("Paused"), tone: .neutral)
         }
     }
 
@@ -1088,8 +1088,8 @@ struct BotScheduleTaskDetailScreen: View {
         let workspace = vm.executionWorkspaces.first { $0.id == item.workspaceID }?.name ?? "—"
         let model: String = {
             guard let spec else { return "—" }
-            if spec.provider != .distill && spec.routingMode == .auto { return "Auto" }
-            return spec.model.isEmpty ? "Default model" : spec.model
+            if spec.provider != .distill && spec.routingMode == .auto { return L("Auto") }
+            return spec.model.isEmpty ? L("Default model") : spec.model
         }()
         return VStack(alignment: .leading, spacing: DS.Space.lg) {
             HStack(alignment: .top, spacing: DS.Space.xl) {
@@ -1100,11 +1100,11 @@ struct BotScheduleTaskDetailScreen: View {
                     .background(DS.Palette.accent.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
                     .accessibilityHidden(true)
-                metaCell("Workspace", workspace)
-                metaCell("Bot", "\(item.botName) · @\(item.botHandle)")
+                metaCell(L("Workspace"), workspace)
+                metaCell(L("Bot"), "\(item.botName) · @\(item.botHandle)")
                 metaCell("Provider", spec?.provider.rawValue.capitalized ?? "—")
-                metaCell("Model", model)
-                metaCell("Reasoning", spec?.reasoningEffort.displayName ?? "—")
+                metaCell(L("Model"), model)
+                metaCell(L("Reasoning"), spec?.reasoningEffort.displayName ?? "—")
                 metaCell("Schedule", item.scheduleNote.isEmpty ? "—" : item.scheduleNote)
                 metaCell("Time zone", spec?.timeZoneIdentifier ?? "—")
             }
@@ -1225,7 +1225,7 @@ struct BotScheduleTaskDetailScreen: View {
         if row.canOpen {
             Button { vm.openRoutineRunConversation(row.record, botID: item.botID) } label: { content }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Open agent task \(taskTitle(row))")
+                .accessibilityLabel(L("Open agent task %1$@", taskTitle(row)))
                 .accessibilityIdentifier("bots.scheduleTasks.detail.openRun")
         } else {
             content.accessibilityElement(children: .combine)
@@ -1238,12 +1238,12 @@ struct BotScheduleTaskDetailScreen: View {
 
     private func statusPill(_ status: BotRoutineRunRow.Status) -> some View {
         switch status {
-        case .completed: return AnyView(DSPill("Completed", tone: .success))
-        case .failed: return AnyView(DSPill("Failed", tone: .danger))
-        case .running: return AnyView(DSPill("Running", tone: .warning))
-        case .started: return AnyView(DSPill("Started", tone: .neutral))
-        case .cancelled: return AnyView(DSPill("Cancelled", tone: .neutral))
-        case .skipped: return AnyView(DSPill("Skipped", tone: .neutral))
+        case .completed: return AnyView(DSPill(L("Completed"), tone: .success))
+        case .failed: return AnyView(DSPill(L("Failed"), tone: .danger))
+        case .running: return AnyView(DSPill(L("Running"), tone: .warning))
+        case .started: return AnyView(DSPill(L("Started"), tone: .neutral))
+        case .cancelled: return AnyView(DSPill(L("Cancelled"), tone: .neutral))
+        case .skipped: return AnyView(DSPill(L("Skipped"), tone: .neutral))
         }
     }
 }

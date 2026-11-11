@@ -168,10 +168,10 @@ public struct AgentKillSwitchControl: View {
                     .background(tone.opacity(0.16))
                     .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(isActive ? "Active" : "Paused")
+                    Text(isActive ? L("Active") : L("Paused"))
                         .font(DS.Font.captionStrong)
                         .foregroundColor(DS.Palette.text)
-                    Text(isActive ? "Schedules on" : "Travel pause")
+                    Text(isActive ? L("Schedules on") : L("Travel pause"))
                         .font(DS.Font.caption2)
                         .foregroundColor(DS.Palette.textTertiary)
                 }
@@ -190,8 +190,8 @@ public struct AgentKillSwitchControl: View {
             .tint(DS.Palette.success)
             .accessibilityIdentifier(identifier)
             .accessibilityLabel(accessibilityLabel)
-            .accessibilityValue(isActive ? "On" : "Off")
-            .accessibilityHint("Disables all automatic scheduled runs without deleting tasks")
+            .accessibilityValue(isActive ? "On" : L("Off"))
+            .accessibilityHint(L("Disables all automatic scheduled runs without deleting tasks"))
         }
         .padding(.leading, DS.Space.lg)
         .padding(.trailing, DS.Space.md)
@@ -206,8 +206,8 @@ public struct AgentKillSwitchControl: View {
         )
         .animation(DS.Motion.micro, value: isActive)
         .help(isActive
-              ? "Schedules are running. Turn off to pause all automatic runs (e.g. while traveling)."
-              : "All automatic runs are paused. Turn on when you return.")
+              ? L("Schedules are running. Turn off to pause all automatic runs (e.g. while traveling).")
+              : L("All automatic runs are paused. Turn on when you return."))
         .contentShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
     }
 }
