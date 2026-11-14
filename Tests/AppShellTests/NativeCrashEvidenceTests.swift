@@ -185,6 +185,19 @@ final class PreviousRunExitStatusTests: XCTestCase {
         )
     }
 
+    /// LaunchServices appends an instance UUID to the label of some launches.
+    /// MacCode pid 73479 ran under such a label, so its exit(1) was recorded
+    /// as `launchd=unknown` and the next launch could not say how it had died.
+    func testParsesLaunchdExitReasonUnderALabelWithAnInstanceUUID() {
+        let output = """
+        2026-11-14 13:11:24.977 Df launchd[1:5ba5143] [gui/501/application.io.remotecode.desktop.806341756.806342527.7091F708-6936-4118-80DD-74A44F1024A9 [73479]:] exited due to exit(1), ran for 66780440ms
+        """
+        XCTAssertEqual(
+            PreviousRunExitStatus.launchdExitReason(inLogOutput: output, pid: 73479, bundleIdentifier: bundleId),
+            "exited due to exit(1), ran for 66780440ms"
+        )
+    }
+
     /// RemoteCode launched from a terminal has no launchd exit line; if its pid
     /// is later reused by another launchd job, that job's exit is not ours.
     func testIgnoresTheSamePidUnderAnotherLaunchdLabel() {

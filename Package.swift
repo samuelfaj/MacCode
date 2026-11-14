@@ -122,7 +122,14 @@ let package = Package(
                 .linkedFramework("IOSurface"),
                 .linkedFramework("UniformTypeIdentifiers"),
                 .linkedFramework("Carbon"),
-                .linkedFramework("GameController")
+                .linkedFramework("GameController"),
+                // GhosttyKit's Breakpad serves its Mach exception port with
+                // libsystem's exc_server, which finds catch_exception_raise
+                // through dlsym. Nothing references it statically, so a
+                // release link dead-strips it; libsystem then ends the app
+                // with exit(1) on the first exception message, including one
+                // from a child process that inherited the port.
+                .unsafeFlags(["-Xlinker", "-u", "-Xlinker", "_catch_exception_raise"], .when(platforms: [.macOS]))
             ]
         ),
         .executableTarget(

@@ -1,4 +1,5 @@
 import Darwin
+import Foundation
 import os
 
 private let crashHandlerLog = Logger(subsystem: "io.remotecode.surfaces", category: "crash-handlers")
@@ -97,13 +98,28 @@ struct NativeCrashHandlerSnapshot: Equatable {
 /// Wraps GhosttyKit's one-time global initialization so its embedded crash
 /// reporter cannot keep the host's crash handlers (see
 /// `NativeCrashHandlerSnapshot`).
+///
+/// GhosttyKit starts the reporter on a thread of its own, so it can take the
+/// handlers after `end()` already put them back. They would then stay taken
+/// for the life of the process, and every child process spawned from then on
+/// inherits the reporter's exception port: a crash in any tool run from a
+/// terminal or an agent is delivered to the app first. `end()` therefore keeps
+/// watching for a while and restores again.
 final class GhosttyCrashHandlerGuard {
     struct Report: Equatable {
         /// Ghostty replaced at least one crash handler while initializing.
         let changedDuringInit: Bool
         /// The handlers equal the pre-init snapshot after `end()`.
         let restored: Bool
+        /// Times the handlers were put back after `end()` returned.
+        var lateRestores = 0
     }
+
+    /// How long `end()` keeps undoing a late install, and how often it looks.
+    static let lateInstallWatchDuration: TimeInterval = 30
+    static let lateInstallPollInterval: TimeInterval = 0.01
+    /// Runs the late-install checks.
+    static let watchQueue = DispatchQueue(label: "io.remotecode.surfaces.crash-handler-watch", qos: .userInitiated)
 
     private static let reportLock = OSAllocatedUnfairLock<Report?>(initialState: nil)
 
@@ -120,15 +136,50 @@ final class GhosttyCrashHandlerGuard {
         GhosttyCrashHandlerGuard(before: .capture())
     }
 
-    func end() {
+    /// Restores the handlers now, then again whenever they stop matching the
+    /// snapshot during the next `duration`. Returns the watch so a test can
+    /// cancel it.
+    @discardableResult
+    func end(
+        watchingFor duration: TimeInterval = GhosttyCrashHandlerGuard.lateInstallWatchDuration,
+        every interval: TimeInterval = GhosttyCrashHandlerGuard.lateInstallPollInterval
+    ) -> DispatchSourceTimer {
         let during = NativeCrashHandlerSnapshot.capture()
         before.restore()
         let report = Report(changedDuringInit: during != before, restored: NativeCrashHandlerSnapshot.capture() == before)
         Self.reportLock.withLock { $0 = report }
+        // notice, not info: info is not persisted, and this line tells a later
+        // triage whether Ghostty had installed its reporter by now.
         if report.restored {
-            crashHandlerLog.info("ghostty.crash_handlers_restored changed=\(report.changedDuringInit, privacy: .public)")
+            crashHandlerLog.notice("ghostty.crash_handlers_restored changed=\(report.changedDuringInit, privacy: .public)")
         } else {
             crashHandlerLog.fault("ghostty.crash_handlers_restore_failed changed=\(report.changedDuringInit, privacy: .public)")
         }
+        return watchForLateInstall(duration: duration, interval: interval)
+    }
+
+    private func watchForLateInstall(duration: TimeInterval, interval: TimeInterval) -> DispatchSourceTimer {
+        let before = self.before
+        let started = DispatchTime.now()
+        let timer = DispatchSource.makeTimerSource(queue: Self.watchQueue)
+        timer.schedule(deadline: started + interval, repeating: interval)
+        timer.setEventHandler {
+            // Not once: the reporter takes SIGABRT and the exception ports in
+            // separate steps, so a single restore can land between them.
+            if NativeCrashHandlerSnapshot.capture() != before {
+                before.restore()
+                let count = Self.reportLock.withLock { report -> Int in
+                    report?.lateRestores += 1
+                    return report?.lateRestores ?? 0
+                }
+                let elapsedMs = (DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1_000_000
+                crashHandlerLog.notice("ghostty.crash_handlers_late_restore count=\(count, privacy: .public) afterMs=\(elapsedMs, privacy: .public)")
+            }
+            if DispatchTime.now() >= started + duration {
+                timer.cancel()
+            }
+        }
+        timer.resume()
+        return timer
     }
 }
