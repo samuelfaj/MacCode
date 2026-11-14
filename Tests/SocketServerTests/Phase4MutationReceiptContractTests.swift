@@ -1296,7 +1296,8 @@ final class Phase4MutationReceiptContractTests: XCTestCase {
         // + fs.mkdir, git.fetch/pull and ssh.files.remote.mkdir/rename/delete (iOS controls),
         // + bot.notice.reply.
         // + host.chat.image (agents post local images to their own chat).
-        XCTAssertEqual(canonical.count, 201)
+        // + bot.conversation.set_pinned/rename/delete (desk thread context menu on iPhone).
+        XCTAssertEqual(canonical.count, 204)
         XCTAssertEqual(JSONRPCDispatcher.hostMutationMethods, canonical,
                        "every and only canonical host mutators must enter the Phase 4 gate")
     }

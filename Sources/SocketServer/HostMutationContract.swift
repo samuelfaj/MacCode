@@ -182,6 +182,9 @@ public enum HostMutationContract {
     bot.docker.clear
     bot.notify.set
     bot.conversation.fork
+    bot.conversation.set_pinned
+    bot.conversation.rename
+    bot.conversation.delete
     bot.verbosity.set
     bot.caveman.set
     bot.factory_reset
@@ -521,6 +524,12 @@ public enum HostMutationContract {
                 return [.uuid("bot_id"), .uuid("conversation_id")]
             case "bot.notice.clear":
                 return [.uuid("bot_id"), .uuid("message_id")]
+            case "bot.conversation.set_pinned":
+                return [.uuid("bot_id"), .uuid("conversation_id"), .bool("pinned")]
+            case "bot.conversation.rename":
+                return [.uuid("bot_id"), .uuid("conversation_id"), .string("title", nonempty: true)]
+            case "bot.conversation.delete":
+                return [.uuid("bot_id"), .uuid("conversation_id")]
             case "bot.team.create":
                 return [.string("name", nonempty: true)]
             case "bot.team.update":

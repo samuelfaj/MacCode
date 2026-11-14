@@ -1309,6 +1309,7 @@ public final class BotRemoteControlAuthority: @unchecked Sendable {
                 "title": conversation.title,
                 "bot_id": botID,
                 "updated_at": conversation.updatedAt.timeIntervalSince1970,
+                "pinned": conversation.pinned || conversationID == inboxID,
             ]
             if row["id"] as? String == inboxID {
                 row["kind"] = "titio_inbox"

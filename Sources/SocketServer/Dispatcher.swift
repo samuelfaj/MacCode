@@ -1104,6 +1104,9 @@ public final class JSONRPCDispatcher {
         "bot.docker.clear",
         "bot.notify.set",
         "bot.conversation.fork",
+        "bot.conversation.set_pinned",
+        "bot.conversation.rename",
+        "bot.conversation.delete",
         "bot.verbosity.set",
         "bot.caveman.set",
         "bot.factory_reset",
@@ -1688,7 +1691,8 @@ public final class JSONRPCDispatcher {
             case "bot.queue.remove", "bot.queue.update", "bot.queue.reorder", "bot.queue.force_now":
                 kind = .botQueueUpdated
             case "bot.conversation.select": kind = .botConversationSelected
-            case "bot.conversation.create", "bot.conversation.clear_all":
+            case "bot.conversation.create", "bot.conversation.clear_all", "bot.conversation.set_pinned",
+                 "bot.conversation.rename", "bot.conversation.delete":
                 kind = .botConversationUpdated
             case "bot.routine.run": kind = .botRoutineRunRequested
             case "bot.routine.create", "bot.routine.update", "bot.routine.enable", "bot.routine.delete":

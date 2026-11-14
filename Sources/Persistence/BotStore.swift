@@ -995,6 +995,46 @@ public final class BotStore: @unchecked Sendable {
         forgetLinkedThreads(deskThreads)
     }
 
+    /// Targeted writes: a full upsert would persist derived unread/attention
+    /// and bump `updated_at`, reordering the rail for a pin or rename.
+    @discardableResult
+    public func setConversationPinned(id: BotConversationID, pinned: Bool) throws -> BotConversation? {
+        try updateConversationColumn("pinned", id: id) { try $0.bind(1, pinned) }
+    }
+
+    @discardableResult
+    public func setConversationTitle(id: BotConversationID, title: String) throws -> BotConversation? {
+        try updateConversationColumn("title", id: id) { try $0.bind(1, title) }
+    }
+
+    private func updateConversationColumn(
+        _ column: String,
+        id: BotConversationID,
+        bind: (SQLiteStatement) throws -> Void
+    ) throws -> BotConversation? {
+        try db.performSync { database in
+            let statement = try database.prepare("UPDATE bot_conversations SET \(column) = ? WHERE id = ?;")
+            defer { statement.reset() }
+            try bind(statement)
+            try statement.bind(2, id.value.uuidString.lowercased())
+            _ = try statement.step()
+        }
+        return try conversation(id: id)
+    }
+
+    /// Removes one conversation row (routing and context rows cascade). The
+    /// linked thread is the caller's to delete.
+    public func deleteConversation(id: BotConversationID) throws {
+        let threadID = try conversation(id: id)?.linkedAgentThreadID
+        try db.performSync { database in
+            let statement = try database.prepare("DELETE FROM bot_conversations WHERE id = ?;")
+            defer { statement.reset() }
+            try statement.bind(1, id.value.uuidString.lowercased())
+            _ = try statement.step()
+        }
+        if let threadID { forgetLinkedThreads([threadID]) }
+    }
+
     public func upsertConversation(_ conversation: BotConversation) throws {
         try db.performSync { database in
             guard let bot = try loadBot(id: conversation.botID, database: database), bot.deletedAt == nil else {

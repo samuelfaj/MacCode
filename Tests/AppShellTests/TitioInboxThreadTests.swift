@@ -608,4 +608,43 @@ final class TitioInboxThreadTests: XCTestCase {
         ))
         XCTAssertEqual(items.map(\.id), ["bot.conversation:\(other.id.value.uuidString)"])
     }
+
+    func test_deskThreadPinRenameDeleteAndInboxStaysPinnedFirst() async throws {
+        // WHY: users manage desk threads from the rail's context menu; the
+        // Notifications inbox must stay pinned and undeletable whatever they do.
+        let (context, router, vm) = try makeFixture()
+        defer { withExtendedLifetime(vm) {} }
+        let target = try XCTUnwrap(router.resolveTitioInbox(language: .en))
+        let store = context.botStore
+        let older = BotConversation(botID: target.botID, title: "Older", updatedAt: Date(timeIntervalSince1970: 1))
+        let newer = BotConversation(botID: target.botID, title: "Newer", updatedAt: Date(timeIntervalSince1970: 2))
+        try store.upsertConversation(older)
+        try store.upsertConversation(newer)
+        vm.reload()
+        _ = try router.openBotsDesk(botID: target.botID)
+        await vm.waitForNavigationFreshnessForTesting()
+
+        let inbox = try XCTUnwrap(vm.filteredDeskConversations.first { $0.id == target.conversationID })
+        XCTAssertFalse(inbox.pinned, "stored flag is not what keeps it pinned")
+        XCTAssertTrue(vm.isDeskConversationPinned(inbox))
+        XCTAssertEqual(vm.filteredDeskConversations.first?.id, target.conversationID, "inbox leads")
+
+        vm.setDeskThreadPinned(older.id, true)
+        XCTAssertEqual(try store.conversation(id: older.id)?.pinned, true)
+        XCTAssertEqual(try store.conversation(id: older.id)?.updatedAt, older.updatedAt, "pin does not reorder by recency")
+        XCTAssertEqual(vm.filteredDeskConversations.map(\.id), [target.conversationID, older.id, newer.id], "pinned before newer")
+        vm.setDeskThreadPinned(older.id, false)
+        XCTAssertEqual(try store.conversation(id: older.id)?.pinned, false)
+
+        vm.setDeskThreadPinned(target.conversationID, false)
+        vm.renameDeskThread(target.conversationID, to: "Hacked")
+        await vm.deleteDeskThread(target.conversationID)
+        XCTAssertEqual(try store.conversation(id: target.conversationID)?.title, "Notifications")
+
+        vm.renameDeskThread(newer.id, to: "  Renamed  ")
+        XCTAssertEqual(try store.conversation(id: newer.id)?.title, "Renamed")
+        await vm.deleteDeskThread(newer.id)
+        XCTAssertNil(try store.conversation(id: newer.id))
+        XCTAssertFalse(vm.filteredDeskConversations.contains { $0.id == newer.id })
+    }
 }

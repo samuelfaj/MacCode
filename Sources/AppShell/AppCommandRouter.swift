@@ -4374,6 +4374,51 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         ])
     }
 
+    /// `bot.conversation.set_pinned {bot_id, conversation_id, pinned}`,
+    /// `bot.conversation.rename {…, title}` and `bot.conversation.delete {…}`
+    /// from a paired device: the same actions as the Mac desk rail's context
+    /// menu. Titio's Notifications inbox is always pinned and never changes.
+    func mutatePairedBotConversation(method: String, params: [String: JSONValue]) async throws -> JSONValue {
+        guard let botID = params["bot_id"]?.stringValue.flatMap(UUID.init).map(BotID.init),
+              let conversationID = params["conversation_id"]?.stringValue.flatMap(UUID.init).map(BotConversationID.init) else {
+            throw JSONRPCError.invalidParams
+        }
+        guard let vm = botsViewModel, let store = context?.botStore else {
+            throw JSONRPCError(code: -32091, message: "Bot runtime is unavailable.")
+        }
+        guard let conversation = try store.conversation(id: conversationID),
+              conversation.botID == botID, conversation.groupID == nil else {
+            throw JSONRPCError.invalidParams
+        }
+        guard conversationID != vm.titioInboxConversationID else {
+            throw JSONRPCError(code: -32602, message: "Titio's Notifications thread cannot be changed.")
+        }
+        var readback: [String: JSONValue] = ["conversation_id": .string(conversationID.value.uuidString.lowercased())]
+        switch method {
+        case "bot.conversation.set_pinned":
+            guard let pinned = params["pinned"]?.boolValue else { throw JSONRPCError.invalidParams }
+            vm.setDeskThreadPinned(conversationID, pinned)
+            readback["pinned"] = .bool(try store.conversation(id: conversationID)?.pinned ?? false)
+        case "bot.conversation.rename":
+            guard let title = params["title"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty else { throw JSONRPCError.invalidParams }
+            vm.renameDeskThread(conversationID, to: title)
+            readback["title"] = .string(try store.conversation(id: conversationID)?.title ?? title)
+        default:
+            guard await vm.deleteDeskThread(conversationID) else {
+                throw JSONRPCError(code: -32603, message: "Could not delete this thread on the Mac.")
+            }
+            readback["deleted"] = .bool(true)
+        }
+        return .object([
+            "request_id": .string(params["client_request_id"]?.stringValue ?? UUID().uuidString.lowercased()),
+            "receipt_id": .string(UUID().uuidString.lowercased()),
+            "status": .string("completed"),
+            "bot_id": .string(botID.value.uuidString.lowercased()),
+            "readback": .object(readback),
+        ])
+    }
+
     public func dispatchPairedBotRemote(method: String, params: [String: JSONValue]) async throws -> JSONValue {
         if BotTeamGroupService.handles(method) {
             guard let ctx = context, ctx.hostsBotGroupConversations else {
@@ -4389,6 +4434,9 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         }
         if method == "bot.conversation.fork" {
             return try await forkPairedBotConversation(params: params)
+        }
+        if ["bot.conversation.set_pinned", "bot.conversation.rename", "bot.conversation.delete"].contains(method) {
+            return try await mutatePairedBotConversation(method: method, params: params)
         }
         let authority = try pairedBotAuthority()
         let foundation = Self.foundationObject(params)

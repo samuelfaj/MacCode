@@ -305,6 +305,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             // Titio's notice hub: catch-up flush, banner re-post, retention and
             // its event subscriptions (hub spec §3 step 5).
             context?.titioNoticeCenter.start()
+            // Titio always has its pinned Notifications thread, even before the first notice.
+            _ = router?.resolveTitioInbox(language: TitioNoticeCopy.language(forPreferences: Locale.preferredLanguages))
             // The roster may have loaded before Titio existed (first launch).
             router?.botsViewModel?.reload()
         }

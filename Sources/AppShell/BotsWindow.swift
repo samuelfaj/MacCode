@@ -5782,9 +5782,98 @@ public final class BotsViewModel: ObservableObject {
             AgentChatThreadRailCopy.matches(title: $0.title, query: deskThreadSearchQuery)
         }
         let live = liveDeskThreadIDs()
-        return AgentChatThreadRailCopy.orderingActiveFirst(matching) {
+        let ordered = AgentChatThreadRailCopy.orderingActiveFirst(matching) {
             isDeskConversationRunning($0, liveThreadIDs: live)
         }
+        return ordered.filter(isDeskConversationPinned) + ordered.filter { !isDeskConversationPinned($0) }
+    }
+
+    /// Titio's Notifications inbox is always pinned, whatever its stored flag.
+    public func isDeskConversationPinned(_ conversation: BotConversation) -> Bool {
+        conversation.pinned || conversation.id == titioInboxConversationID
+    }
+
+    public func setDeskThreadPinned(_ id: BotConversationID, _ pinned: Bool) {
+        guard id != titioInboxConversationID else { return }
+        do {
+            guard let updated = try botStore.setConversationPinned(id: id, pinned: pinned) else { return }
+            adoptEditedDeskConversation(updated)
+        } catch {
+            errorMessage = L("Could not change pinned state: %1$@", error)
+        }
+    }
+
+    public func renameDeskThread(_ id: BotConversationID, to newTitle: String) {
+        let title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, id != titioInboxConversationID else { return }
+        do {
+            if let threadID = deskLinkedThreadID(for: id) {
+                _ = try resolvedRouter()?.renameAgentThread(thread: threadID, title: title)
+            }
+            guard let updated = try botStore.setConversationTitle(id: id, title: title) else { return }
+            adoptEditedDeskConversation(updated)
+        } catch {
+            errorMessage = L("Could not rename thread: %1$@", error)
+        }
+    }
+
+    /// Deletes one desk conversation and its linked thread (stopping a live
+    /// run first). The Notifications inbox cannot be deleted.
+    @discardableResult
+    public func deleteDeskThread(_ id: BotConversationID) async -> Bool {
+        guard id != titioInboxConversationID,
+              let conversation = conversations.first(where: { $0.id == id })
+                ?? ((try? botStore.conversation(id: id)) ?? nil) else { return false }
+        do {
+            if let threadID = conversation.linkedAgentThreadID {
+                guard let router = resolvedRouter() else { throw JSONRPCError.internalError }
+                try await router.deleteAgentThread(thread: threadID)
+                clearDeskObservedEvents(threadID: threadID)
+                settledTerminalRunIDByThread[threadID] = nil
+            }
+            try botStore.deleteConversation(id: id)
+        } catch {
+            errorMessage = L("Could not delete thread: %1$@", error.localizedDescription)
+            return false
+        }
+        deskRoutingByConversation[id] = nil
+        messagesByConversation[id] = nil
+        attentionItems.removeAll { $0.conversationID == id }
+        let wasSelected = selectedConversation?.id == id
+        conversations.removeAll { $0.id == id }
+        let botID = conversation.botID
+        if selectedConversationByBot[botID] == id { selectedConversationByBot[botID] = nil }
+        if wasSelected {
+            if let next = filteredDeskConversations.first {
+                selectDeskThread(next.id)
+            } else {
+                selectedConversation = nil
+                deskMessages = []
+                messagesByBot[botID] = []
+                messagesConversationIDByBot[botID] = nil
+                deskTimelineRejoinToken &+= 1
+            }
+        }
+        rememberStudioSupport(for: botID)
+        applyAttentionState(for: botID, conversations: conversations)
+        Self.publishDestAttentionChanged()
+        EventBus.shared.publish(kind: .botConversationUpdated, payload: .object([
+            "method": .string("bot.conversation.delete"),
+            "bot_id": .string(botID.value.uuidString.lowercased()),
+            "conversation_id": .string(id.value.uuidString.lowercased()),
+        ]))
+        return true
+    }
+
+    private func adoptEditedDeskConversation(_ updated: BotConversation) {
+        if let index = conversations.firstIndex(where: { $0.id == updated.id }) { conversations[index] = updated }
+        if selectedConversation?.id == updated.id { selectedConversation = updated }
+        patchStudioSupportConversation(updated, botID: updated.botID)
+        EventBus.shared.publish(kind: .botConversationUpdated, payload: .object([
+            "method": .string("bot.conversation.update"),
+            "bot_id": .string(updated.botID.value.uuidString.lowercased()),
+            "conversation_id": .string(updated.id.value.uuidString.lowercased()),
+        ]))
     }
 
     public var deskThreadActiveCount: Int {
@@ -13978,6 +14067,9 @@ private struct BotsStudioReactiveScope<Content: View>: View {
 public struct BotsRootView: View {
     @ObservedObject private var vm: BotsViewModel
     @State private var pendingClearAllDeskThreads = false
+    @State private var pendingDeleteDeskThread: BotConversationID?
+    @State private var renamingDeskThread: BotConversationID?
+    @State private var deskRenameText = ""
     /// Studio's measured width; below `studioCompactWidth` its columns stack.
     @State private var studioWidth: CGFloat = 1_000
     private static let studioCompactWidth: CGFloat = 640
@@ -15076,6 +15168,36 @@ public struct BotsRootView: View {
         } message: {
             Text(L("Deletes every thread for this teammate. A live run will be stopped first. This cannot be undone."))
         }
+        .confirmationDialog(
+            L("Delete thread?"),
+            isPresented: Binding(
+                get: { pendingDeleteDeskThread != nil },
+                set: { if !$0 { pendingDeleteDeskThread = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button(L("Delete"), role: .destructive) {
+                if let id = pendingDeleteDeskThread { Task { await vm.deleteDeskThread(id) } }
+                pendingDeleteDeskThread = nil
+            }
+            Button(L("Cancel"), role: .cancel) { pendingDeleteDeskThread = nil }
+        } message: {
+            Text(L("Deletes this thread and its messages. A live run will be stopped first. This cannot be undone."))
+        }
+        .alert(
+            L("Rename thread"),
+            isPresented: Binding(
+                get: { renamingDeskThread != nil },
+                set: { if !$0 { renamingDeskThread = nil } }
+            )
+        ) {
+            TextField(L("Thread name"), text: $deskRenameText)
+            Button(L("Rename")) {
+                if let id = renamingDeskThread { vm.renameDeskThread(id, to: deskRenameText) }
+                renamingDeskThread = nil
+            }
+            Button(L("Cancel"), role: .cancel) { renamingDeskThread = nil }
+        }
     }
 
     /// Unlinked conversation: no thread exists yet. The first send creates it
@@ -15617,7 +15739,7 @@ public struct BotsRootView: View {
         let rowID = conversation.id.value.uuidString
         let status: AgentChatThreadStatusMark = {
             if running { return .running }
-            if conversation.pinned {
+            if vm.isDeskConversationPinned(conversation) {
                 return .symbol(name: "pin.fill", color: DS.Palette.textTertiary, size: 9)
             }
             if !unread {
@@ -15648,6 +15770,29 @@ public struct BotsRootView: View {
             trailing: { EmptyView() }
         )
         .help(conversation.title.isEmpty ? AgentThreadTitle.defaultTitle : conversation.title)
+        .contextMenu {
+            let isInbox = conversation.id == vm.titioInboxConversationID
+            if running {
+                Button(L("Stop"), role: .destructive) { vm.stopDeskThread(conversation.id) }
+                    .accessibilityIdentifier("bots.desk.thread.contextmenu.stop.\(rowID)")
+                Divider()
+            }
+            if !isInbox {
+                Button(conversation.pinned ? L("Unpin") : L("Pin")) {
+                    vm.setDeskThreadPinned(conversation.id, !conversation.pinned)
+                }
+                .accessibilityIdentifier("bots.desk.thread.contextmenu.pin.\(rowID)")
+                Divider()
+                Button(L("Rename…")) {
+                    deskRenameText = conversation.title
+                    renamingDeskThread = conversation.id
+                }
+                .accessibilityIdentifier("bots.desk.thread.contextmenu.rename.\(rowID)")
+                Divider()
+                Button(L("Delete"), role: .destructive) { pendingDeleteDeskThread = conversation.id }
+                    .accessibilityIdentifier("bots.desk.thread.contextmenu.delete.\(rowID)")
+            }
+        }
     }
 
     private var filesTab: some View {
