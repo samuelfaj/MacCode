@@ -165,7 +165,8 @@ public enum PreviousRunExitStatus {
         ]
     }
 
-    /// LaunchServices labels an app's job `application.<bundle id>.<numbers>`.
+    /// LaunchServices labels an app's job `application.<bundle id>.<numbers>`,
+    /// sometimes followed by `.<instance UUID>`.
     static func launchdLabelPrefix(_ bundleIdentifier: String) -> String {
         "application.\(bundleIdentifier)."
     }
@@ -179,12 +180,15 @@ public enum PreviousRunExitStatus {
         for line in output.split(separator: "\n") {
             guard let tagRange = line.range(of: tag) else { continue }
             // The label is the last path component before the pid; the rest of
-            // it must be LaunchServices' numbers, so `<id>.debug` and helper
-            // jobs with the reused pid do not match.
+            // it must be LaunchServices' numbers, plus the instance UUID it
+            // appends to some launches, so `<id>.debug` and helper jobs with
+            // the reused pid do not match.
             let label = line[..<tagRange.lowerBound].split(separator: "/").last ?? ""
             guard label.hasPrefix(labelPrefix) else { continue }
-            let suffix = label.dropFirst(labelPrefix.count)
-            guard !suffix.isEmpty, suffix.allSatisfy({ $0.isNumber || $0 == "." }) else { continue }
+            let suffix = label.dropFirst(labelPrefix.count).split(separator: ".", omittingEmptySubsequences: false)
+            guard suffix.allSatisfy({ part in
+                !part.isEmpty && (part.allSatisfy(\.isNumber) || UUID(uuidString: String(part)) != nil)
+            }) else { continue }
             let reason = line[tagRange.upperBound...].trimmingCharacters(in: .whitespaces)
             if reason.hasPrefix("exited") {
                 return reason.replacingOccurrences(of: "\"", with: "'")
