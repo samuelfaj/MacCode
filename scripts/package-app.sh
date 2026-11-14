@@ -138,6 +138,14 @@ if [ ! -x "$SCHEDULED_TASK_AGENT" ]; then echo "missing $SCHEDULED_TASK_AGENT"; 
 if [ ! -x "$CLI" ]; then echo "missing $CLI"; exit 1; fi
 if [ ! -x "$DISTILL_SERVICE" ]; then echo "missing $DISTILL_SERVICE"; exit 1; fi
 if [ ! -x "$RUN_AS_USER_HELPER" ]; then echo "missing $RUN_AS_USER_HELPER"; exit 1; fi
+# GhosttyKit's Breakpad serves its Mach exception port with libsystem's
+# exc_server, which looks catch_exception_raise up with dlsym. Child processes
+# inherit that port, so without the symbol a crash in any tool run from a
+# terminal or an agent ends the app with exit(1) and no crash report.
+if ! nm -gU "$BIN" | grep ' _catch_exception_raise$' >/dev/null; then
+  echo "[package] $BIN does not export catch_exception_raise (dead-stripped?); see Package.swift" >&2
+  exit 1
+fi
 DATABASE_SCHEMA_VERSION="$("$BIN" --database-schema-version)"
 if ! [[ "$DATABASE_SCHEMA_VERSION" =~ ^[0-9]+$ ]]; then
   echo "[package] invalid database schema version: $DATABASE_SCHEMA_VERSION" >&2
