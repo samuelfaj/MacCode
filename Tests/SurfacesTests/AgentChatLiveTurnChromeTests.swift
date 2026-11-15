@@ -845,6 +845,37 @@ final class AgentChatLiveTurnChromeTests: XCTestCase {
         XCTAssertTrue(timeline.turns.allSatisfy(\.finished))
     }
 
+    /// Live incident 2026-11-15: the Bot desk showed only Distill's
+    /// "Verification: UNVERIFIED (no repository)" line as the reply. A thought
+    /// from Distill's hidden final-check round sat between the answer and that
+    /// line, so the line was picked as the final answer and the real one went
+    /// into the Worked disclosure.
+    func test_answerStaysVisibleWhenDistillStatusLineFollowsAThought() throws {
+        let answer = "The server answers now, but it refused the password."
+        let status = "\n\nVerification: UNVERIFIED (no repository)"
+        let mapper = DistillACPEventMapper(sessionId: "s")
+        var timeline = AssistantTimelineState()
+        for event in mapper.beginTurn() { timeline.apply(event) }
+        for (kind, text) in [("agent_message_chunk", answer),
+                             ("agent_thought_chunk", "Nothing else is left to do."),
+                             ("agent_message_chunk", status)] {
+            for event in mapper.consumeSessionUpdate(["sessionUpdate": kind,
+                                                      "content": ["type": "text", "text": text]]) {
+                timeline.apply(event)
+            }
+        }
+        for event in mapper.finishTurn(stopReason: "end_turn", usage: nil) { timeline.apply(event) }
+
+        let turn = try XCTUnwrap(timeline.turns.last)
+        let renderable = AgentAppView.renderableItems(in: turn)
+        XCTAssertEqual(AgentAppView.completedVisibleAssistantItems(in: turn, renderableItems: renderable).map(\.body),
+                       [answer + status],
+                       "the answer must be the visible reply, with its status line under it")
+        XCTAssertEqual(AgentAppView.completedWorkItems(in: turn, renderableItems: renderable).map(\.type),
+                       [.reasoning],
+                       "only the thought belongs in the Worked disclosure")
+    }
+
     func test_completingATurnClosesAnEarlierEmptyOrphanTurn() {
         var timeline = AssistantTimelineState()
         timeline.apply(.turnStarted(turnId: "orphan"))
