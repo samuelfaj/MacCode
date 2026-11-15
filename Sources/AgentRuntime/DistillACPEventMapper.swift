@@ -57,6 +57,11 @@ public final class DistillACPEventMapper: @unchecked Sendable {
     /// the trailing phase is empty after control-token strip (pure `<|eos|>`)
     /// so finishTurn does not yield a nil final after a turn that already spoke.
     private var lastNonEmptyAssistantPhase = ""
+    /// The assistant message a thought closed, while no tool call or other
+    /// text has followed it. Distill appends its verification status line to
+    /// the turn's final message, but a thought can land in between; the line
+    /// then goes onto this message instead of opening one of its own.
+    private var answerClosedByThought: (itemId: String, text: String)?
     private var finished = false
     private var seenEventIds: DistillACPRecentEventIDs
     /// Shell-detached work distill does NOT track: a tool_call whose rawInput
@@ -148,6 +153,7 @@ public final class DistillACPEventMapper: @unchecked Sendable {
             finished = false
             currentAssistantPhase = ""
             lastNonEmptyAssistantPhase = ""
+            answerClosedByThought = nil
             finalAssistantMessage = nil
             sawDetachedShellSpawn = false
             openToolCallIds.removeAll(keepingCapacity: false)
@@ -170,6 +176,7 @@ public final class DistillACPEventMapper: @unchecked Sendable {
         finished = true
         currentAssistantPhase = ""
         lastNonEmptyAssistantPhase = ""
+        answerClosedByThought = nil
         finalAssistantMessage = nil
         sawDetachedShellSpawn = false
         openToolCallIds.removeAll(keepingCapacity: false)
@@ -205,6 +212,9 @@ public final class DistillACPEventMapper: @unchecked Sendable {
             guard !text.isEmpty else { return events }
             if !currentAssistantPhase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 lastNonEmptyAssistantPhase = currentAssistantPhase
+                if let assistantItemId {
+                    answerClosedByThought = (assistantItemId, currentAssistantPhase)
+                }
             }
             closeAssistant(&events)
             currentAssistantPhase = ""
@@ -215,6 +225,18 @@ public final class DistillACPEventMapper: @unchecked Sendable {
             let text = Self.contentText(update["content"])
             guard !text.isEmpty else { return events }
             closeReasoning(&events)
+            if assistantItemId == nil, let answer = answerClosedByThought {
+                answerClosedByThought = nil
+                if Self.isVerificationStatus(text) {
+                    // Live incident 2026-11-15: a thought from Distill's hidden
+                    // final-check round arrived between the answer and this line.
+                    // As a message of its own the line became the turn's final
+                    // message and the answer was demoted to the work log.
+                    currentAssistantPhase = answer.text + text
+                    events.append(.itemDelta(itemId: answer.itemId, bodyAppend: text, outputAppend: nil, summary: nil))
+                    break
+                }
+            }
             let itemId = openAssistant(&events, now: now)
             currentAssistantPhase += text
             events.append(.itemDelta(itemId: itemId, bodyAppend: text, outputAppend: nil, summary: nil))
@@ -228,6 +250,7 @@ public final class DistillACPEventMapper: @unchecked Sendable {
                 lastNonEmptyAssistantPhase = currentAssistantPhase
             }
             currentAssistantPhase = ""
+            answerClosedByThought = nil
             let id = update["toolCallId"] as? String ?? UUID().uuidString
             let title = update["title"] as? String ?? "Distill tool"
             openToolCallIds.insert(id)
@@ -423,6 +446,7 @@ public final class DistillACPEventMapper: @unchecked Sendable {
         self.turnId = nil
         currentAssistantPhase = ""
         lastNonEmptyAssistantPhase = ""
+        answerClosedByThought = nil
         sawDetachedShellSpawn = false
         return events
     }
@@ -452,6 +476,7 @@ public final class DistillACPEventMapper: @unchecked Sendable {
         finished = false
         currentAssistantPhase = ""
         lastNonEmptyAssistantPhase = ""
+        answerClosedByThought = nil
         sawDetachedShellSpawn = false
         events.append(.turnStarted(turnId: id))
     }
@@ -506,6 +531,18 @@ public final class DistillACPEventMapper: @unchecked Sendable {
         }
         // Fallback when the peer advertises the common wire id without catalog seed.
         return normalized.caseInsensitiveCompare("plan") == .orderedSame
+    }
+
+    /// Whether `chunk` is the status Distill's UltraCode turn review appends to
+    /// the turn's final message: one chunk that opens with a blank line, lists
+    /// any open review gaps, and ends with `Verification: REVIEWED` or
+    /// `Verification: UNVERIFIED (reason)`.
+    static func isVerificationStatus(_ chunk: String) -> Bool {
+        guard chunk.hasPrefix("\n\n") else { return false }
+        let body = chunk.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard body.hasPrefix("Verification: ") || body.hasPrefix("Open review gaps:") else { return false }
+        guard let lastLine = body.split(separator: "\n").last else { return false }
+        return lastLine == "Verification: REVIEWED" || lastLine.hasPrefix("Verification: UNVERIFIED (")
     }
 
     private static func contentText(_ value: Any?) -> String {
