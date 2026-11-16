@@ -876,6 +876,45 @@ final class AgentChatLiveTurnChromeTests: XCTestCase {
                        "only the thought belongs in the Worked disclosure")
     }
 
+    /// Live incident 2026-11-15: Distill's final check sent the model back to
+    /// work after its answer, and the turn ended on a short note about what
+    /// had been missing. The note was picked as the final answer and the real
+    /// one went into the Worked disclosure. Distill now marks the answer.
+    func test_answerStaysVisibleWhenDistillsFinalCheckSendsTheModelBackToWork() throws {
+        let answer = "All six rooms are measured. The stairs are still blocked."
+        let note = "The gate findings were missing from each room's notes. They are there now."
+        let text = { (kind: String, text: String) -> [String: Any] in
+            ["sessionUpdate": kind, "content": ["type": "text", "text": text]]
+        }
+        var mark = text("agent_message_chunk", "")
+        mark["_meta"] = ["turnAnswer": true]
+        let updates: [[String: Any]] = [
+            text("agent_message_chunk", answer),
+            mark,
+            text("agent_thought_chunk", "One note is missing."),
+            ["sessionUpdate": "tool_call", "toolCallId": "t1", "title": "run_terminal_command",
+             "rawInput": ["command": "true"]],
+            ["sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"],
+            text("agent_message_chunk", note)
+        ]
+        let mapper = DistillACPEventMapper(sessionId: "s")
+        var timeline = AssistantTimelineState()
+        for event in mapper.beginTurn() { timeline.apply(event) }
+        for update in updates {
+            for event in mapper.consumeSessionUpdate(update) { timeline.apply(event) }
+        }
+        for event in mapper.finishTurn(stopReason: "end_turn", usage: nil) { timeline.apply(event) }
+
+        let turn = try XCTUnwrap(timeline.turns.last)
+        let renderable = AgentAppView.renderableItems(in: turn)
+        XCTAssertEqual(AgentAppView.completedVisibleAssistantItems(in: turn, renderableItems: renderable).map(\.body),
+                       [answer + "\n\n" + note],
+                       "the visible reply must be the answer with the note under it")
+        XCTAssertEqual(AgentAppView.completedWorkItems(in: turn, renderableItems: renderable).map(\.type),
+                       [.reasoning, .tool],
+                       "only the thought and the tool call belong in the Worked disclosure")
+    }
+
     func test_completingATurnClosesAnEarlierEmptyOrphanTurn() {
         var timeline = AssistantTimelineState()
         timeline.apply(.turnStarted(turnId: "orphan"))
