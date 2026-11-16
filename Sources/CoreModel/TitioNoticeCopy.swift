@@ -835,8 +835,19 @@ public enum TitioNoticeCopy {
     }
 
     /// Titio's own replies get only this banner: title "Titio", body = first line of the reply.
-    public static func directReplyBanner(replyText: String) -> (title: String, body: String) {
-        (bannerTitle, preview(replyText))
+    /// A reply that is only the background-await marker says, in the user's
+    /// language, that Titio is still waiting on work instead of showing the marker.
+    public static func directReplyBanner(replyText: String, language: TitioNoticeLanguage = .en) -> (title: String, body: String) {
+        let body = preview(replyText)
+        guard body.isEmpty, BackgroundAwaitContinuation.isAwaitingBackgroundWork(replyText) else { return (bannerTitle, body) }
+        return (bannerTitle, t(language, [
+            .pt: "Ainda trabalhando: esperando uma tarefa em segundo plano terminar.",
+            .en: "Still working: waiting for a background task to finish.",
+            .es: "Sigo trabajando: esperando a que termine una tarea en segundo plano.",
+            .fr: "Toujours en cours : j’attends la fin d’une tâche en arrière-plan.",
+            .ar: "ما زلت أعمل: أنتظر انتهاء مهمة في الخلفية.",
+            .zh: "仍在处理：正在等待后台任务完成。",
+        ]))
     }
 
     /// The first visible line as plain text (`MarkdownPlainText`), max 178 chars.

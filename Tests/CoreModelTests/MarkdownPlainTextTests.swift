@@ -44,6 +44,14 @@ final class MarkdownPlainTextTests: XCTestCase {
         XCTAssertEqual(MarkdownPlainText.firstLine("`**literal**` stays"), "**literal** stays", "code text is verbatim")
     }
 
+    func test_hostMarkerIsNeverThePreview() {
+        // WHY: the owner got a push whose whole body was "[[RC_AWAITING]]";
+        // the reader must see the agent's words, never the machine marker.
+        XCTAssertEqual(MarkdownPlainText.firstLine("[[RC_AWAITING]]\nEsperando o build terminar."), "Esperando o build terminar.")
+        XCTAssertEqual(MarkdownPlainText.firstLine("[[RC_AWAITING]] Build rodando"), "Build rodando")
+        XCTAssertEqual(MarkdownPlainText.firstLine("[[RC_AWAITING]]"), "")
+    }
+
     func test_clipAndEmpty() {
         XCTAssertEqual(MarkdownPlainText.firstLine(String(repeating: "a", count: 400), maxCharacters: 178).count, 178)
         XCTAssertEqual(MarkdownPlainText.firstLine("   \n\n  "), "")

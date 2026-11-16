@@ -458,6 +458,12 @@ final class TitioNoticeCopyTests: XCTestCase {
         XCTAssertEqual(TitioNoticeCopy.preview("**Scout** needs you: *Ship it?*\nmore"), "Scout needs you: Ship it?")
         XCTAssertEqual(TitioNoticeCopy.preview(String(repeating: "a", count: 400)).count, 178)
         XCTAssertEqual(TitioNoticeCopy.directReplyBanner(replyText: "Pronto, abri o **Deploy**.\nDetalhes…").body, "Pronto, abri o Deploy.")
+        // WHY: the owner got a push reading only "[[RC_AWAITING]]"; the marker
+        // is never shown, and a marker-only reply says what is happening in his language.
+        XCTAssertEqual(TitioNoticeCopy.directReplyBanner(replyText: "[[RC_AWAITING]]\nO build ainda está rodando.", language: .pt).body,
+                       "O build ainda está rodando.")
+        XCTAssertEqual(TitioNoticeCopy.directReplyBanner(replyText: "[[RC_AWAITING]]", language: .pt).body,
+                       "Ainda trabalhando: esperando uma tarefa em segundo plano terminar.")
         XCTAssertEqual(TitioNoticeCopy.inboxTitle(language: .pt), "Notificações")
     }
 

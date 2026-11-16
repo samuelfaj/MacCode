@@ -7,11 +7,12 @@ public enum MarkdownPlainText {
     /// The first visible line of `text` with its Markdown removed, collapsed
     /// to single spaces. Skips blank lines, fence markers, rules, table
     /// separators and any ```choices card. `maxCharacters` clips with "…".
+    /// Host-internal markers such as `[[RC_AWAITING]]` are never visible.
     public static func firstLine(_ text: String, maxCharacters: Int? = nil) -> String {
         var fence: (marker: Character, length: Int, hidden: Bool)?
         var found = ""
         // Stops at the first visible line: a long message is never split whole.
-        text.enumerateLines { raw, stop in
+        BackgroundAwaitContinuation.strippingAwaitingMarker(text).enumerateLines { raw, stop in
             let line = raw.trimmingCharacters(in: .whitespaces)
             if let open = fence {
                 if isFenceClose(line, marker: open.marker, length: open.length) {

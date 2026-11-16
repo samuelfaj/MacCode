@@ -1811,7 +1811,7 @@ public actor TitioNoticeCenter {
               RemoteCodeNotificationContent.AgentAppPushPolicy.allowsNotification(
                 isAction: false, workspaceId: workspaceID?.value.uuidString, settings: settings
               ) else { return }
-        let banner = TitioNoticeCopy.directReplyBanner(replyText: reply.text)
+        let banner = TitioNoticeCopy.directReplyBanner(replyText: reply.text, language: language())
         guard !banner.body.isEmpty else { return }
         let identifier = "titio.reply.\(reply.runID.value.uuidString)"
         let binding = hooks.pushBinding()
