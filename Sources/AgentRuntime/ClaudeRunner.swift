@@ -378,6 +378,9 @@ public final class ClaudeRunner: AgentProviderRunner, @unchecked Sendable {
     static func automaticallyAllowedTools(environment: [String: String]) -> [String] {
         var tools = BotSelfConfigMCPAdmit.claudeAutomaticallyAllowedTools
         if environment[AgentSkillInstaller.computerUseHostAdmissionEnvironmentKey] == "1" {
+            // The server may be the installed mac-use release, whose tools have other names
+            // (see ManagedMacUse), so the server is allowed as a whole as well as by tool.
+            tools.append("mcp__\(ComputerUseMCPAdmit.serverName)")
             tools += ManagedComputerUseMCP.advertisedToolNames.map {
                 "mcp__\(ComputerUseMCPAdmit.serverName)__\($0)"
             }

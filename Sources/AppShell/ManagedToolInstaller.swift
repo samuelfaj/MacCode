@@ -18,6 +18,13 @@ private actor ManagedToolInstalls {
         defer { running[key] = nil }
         try await task.value
     }
+
+    /// The release each tool was last brought to in this launch, so a periodic check that finds
+    /// nothing new does not download the skill and register the server again.
+    private var current: [String: String] = [:]
+
+    func isCurrent(_ key: String, tag: String) -> Bool { current[key] == tag }
+    func markCurrent(_ key: String, tag: String) { current[key] = tag }
 }
 
 func sleepSeconds(_ seconds: TimeInterval) async throws {
@@ -59,9 +66,10 @@ func retryingTransientFailures<T>(
 }
 
 /// Installs the latest GitHub release of mac-use (on the Mac, registered in
-/// Distill) and linux-use (into the bot VMs' read-only agent kit) once per
-/// launch, in the background. Every asset is checked against the release's
-/// SHA256SUMS before anything is replaced; a failure keeps what is installed.
+/// Distill) and linux-use (into the bot VMs' read-only agent kit) at launch
+/// and then periodically, in the background. Every asset is checked against
+/// the release's SHA256SUMS before anything is replaced; a failure keeps what
+/// is installed.
 enum ManagedToolInstaller {
     struct Release: Equatable {
         let tag: String
@@ -84,7 +92,23 @@ enum ManagedToolInstaller {
     // MARK: mac-use
 
     static func macUseRoot(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        home.appendingPathComponent(".local/share/mac-use", isDirectory: true)
+        ManagedMacUse.root(home: home)
+    }
+
+    /// A release published while MacCode is open must reach it without a restart: the app stays
+    /// open for days, and agents were left on a broken mac-use until the next launch.
+    static let refreshInterval: TimeInterval = 6 * 60 * 60
+
+    /// Runs `install` now and again after every `interval`, until the task is cancelled.
+    static func keepCurrent(
+        interval: TimeInterval = refreshInterval,
+        sleep: (TimeInterval) async throws -> Void = sleepSeconds,
+        install: () async -> Void
+    ) async {
+        while !Task.isCancelled {
+            await install()
+            do { try await sleep(interval) } catch { return }
+        }
     }
 
     static func installMacUse(distillBinary: String?, environment: [String: String]) async throws {
@@ -99,7 +123,10 @@ enum ManagedToolInstaller {
         let release = try await latestRelease(repo: "samuelfaj/mac-use")
         let version = release.tag.hasPrefix("v") ? String(release.tag.dropFirst()) : release.tag
         let root = macUseRoot()
-        let binary = root.appendingPathComponent("\(version)/mac-use-mcp")
+        let binary = root.appendingPathComponent("\(version)/\(ManagedMacUse.binaryName)")
+        let installKey = "mac-use:\(DistillProvisioner.homeURL(environment: environment).path)"
+        if await ManagedToolInstalls.shared.isCurrent(installKey, tag: release.tag),
+           FileManager.default.isExecutableFile(atPath: binary.path) { return }
         if !FileManager.default.isExecutableFile(atPath: binary.path) {
             let extracted = try await downloadVerifiedTarball(
                 release, asset: "mac-use-mcp-v\(version)-macos-arm64.tar.gz"
@@ -120,6 +147,7 @@ enum ManagedToolInstaller {
             let status = try run(distillBinary, ["mcp", "add", "mac-use", "--", binary.path], environment: environment)
             guard status == 0 else { throw Failure(L("distill mcp add mac-use exited %1$@", status)) }
         }
+        await ManagedToolInstalls.shared.markCurrent(installKey, tag: release.tag)
         managedToolLog.info("managed.tools.mac_use_ready version=\(version, privacy: .public)")
     }
 
@@ -264,9 +292,10 @@ enum ManagedToolInstaller {
 }
 
 extension AppContext {
-    /// Once per launch, in the background: installs Distill if missing, then
-    /// the latest mac-use and linux-use. Same gate as the Distill updater, so
-    /// the isolated sandbox, the scheduled-task agent and unit tests skip it.
+    /// At launch and then every `ManagedToolInstaller.refreshInterval`, in the
+    /// background: installs Distill if missing, then the latest mac-use and
+    /// linux-use. Same gate as the Distill updater, so the isolated sandbox,
+    /// the scheduled-task agent and unit tests skip it.
     @discardableResult
     func startManagedToolInstalls(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         guard Self.shouldReconcileManagedDistillIntegration(
@@ -277,13 +306,15 @@ extension AppContext {
         let appSupport = appSupportDirectory
         let configured = (try? settingsRepo.get("cli.distill.path")) ?? nil
         Task.detached(priority: .utility) {
-            let binary: String?
-            do { binary = try DistillProvisioner.ensureInstalled(override: configured).binaryPath }
-            catch {
-                managedToolLog.error("managed.tools.distill_install_failed error=\(String(describing: error), privacy: .public)")
-                binary = nil
+            await ManagedToolInstaller.keepCurrent {
+                let binary: String?
+                do { binary = try DistillProvisioner.ensureInstalled(override: configured).binaryPath }
+                catch {
+                    managedToolLog.error("managed.tools.distill_install_failed error=\(String(describing: error), privacy: .public)")
+                    binary = nil
+                }
+                await ManagedToolInstaller.runAll(appSupport: appSupport, distillBinary: binary, distillEnvironment: environment)
             }
-            await ManagedToolInstaller.runAll(appSupport: appSupport, distillBinary: binary, distillEnvironment: environment)
         }
         return true
     }
