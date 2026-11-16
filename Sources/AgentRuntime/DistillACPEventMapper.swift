@@ -76,6 +76,7 @@ public final class DistillACPEventMapper: @unchecked Sendable {
     /// Used by the turn-inactivity watchdog to avoid false `.completed` while
     /// a long quiet tool is still in flight (starsac-class mid-CI cut).
     private var openToolCallIds = Set<String>()
+    private var lastAvailableCommandsPayloadJSON: String?
     private let lock = NSLock()
 
     public init(sessionId: String) {
@@ -392,7 +393,13 @@ public final class DistillACPEventMapper: @unchecked Sendable {
             let hint = (raw["input"] as? [String: Any])?["hint"] as? String
             return DistillACPAvailableCommand(name: name, description: raw["description"] as? String, hint: hint)
         }
-        events.append(Self.runtimeEvent(method: "available_commands_update", payload: update))
+        // Distill re-sends the same ~200 KB list many times per run; each copy
+        // became a stream row plus a provider log row. Only a change is news.
+        let event = Self.runtimeEvent(method: "available_commands_update", payload: update)
+        guard case .providerRuntime(let runtime) = event,
+              runtime.payloadJSON != lastAvailableCommandsPayloadJSON else { return }
+        lastAvailableCommandsPayloadJSON = runtime.payloadJSON
+        events.append(event)
     }
 
     private func applyCurrentModeUpdate(_ update: [String: Any], events: inout [AssistantEvent]) {
