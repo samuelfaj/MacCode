@@ -28,7 +28,6 @@ final class DistillACPAvailableCommandsDedupeTests: XCTestCase {
     func test_repeatedIdenticalListIsEmittedOnce() {
         let mapper = DistillACPEventMapper(sessionId: "s")
         XCTAssertEqual(commandEvents(mapper.consumeSessionUpdate(update(["goal", "review"]))).count, 1)
-        _ = mapper.beginTurn()
         for _ in 0..<5 {
             XCTAssertTrue(commandEvents(mapper.consumeSessionUpdate(update(["goal", "review"]))).isEmpty,
                           "an unchanged list must not become another persisted row")
@@ -46,6 +45,20 @@ final class DistillACPAvailableCommandsDedupeTests: XCTestCase {
 
         XCTAssertEqual(commandEvents(mapper.consumeSessionUpdate(update(["goal"]))).count, 1,
                        "going back to an earlier list is a change too")
+    }
+
+    /// The composer only hears the list live, for the thread on screen. A new
+    /// turn announces it once more so a composer that missed it catches up.
+    func test_eachTurnAnnouncesTheListOnce() {
+        let mapper = DistillACPEventMapper(sessionId: "s")
+        _ = mapper.consumeSessionUpdate(update(["goal"]))
+        _ = mapper.beginTurn()
+        XCTAssertEqual(commandEvents(mapper.consumeSessionUpdate(update(["goal"]))).count, 1)
+        XCTAssertTrue(commandEvents(mapper.consumeSessionUpdate(update(["goal"]))).isEmpty)
+        _ = mapper.finishTurn(stopReason: "end_turn", usage: nil)
+        _ = mapper.beginTurn()
+        XCTAssertEqual(commandEvents(mapper.consumeSessionUpdate(update(["goal"]))).count, 1,
+                       "the next turn must refresh a composer that missed the first copy")
     }
 
     /// Each session gets its own mapper, so a new session still announces

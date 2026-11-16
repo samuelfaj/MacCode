@@ -158,6 +158,9 @@ public final class DistillACPEventMapper: @unchecked Sendable {
             finalAssistantMessage = nil
             sawDetachedShellSpawn = false
             openToolCallIds.removeAll(keepingCapacity: false)
+            // Re-announce once per turn: the composer only learns the list
+            // from live events of the thread on screen and may have missed it.
+            lastAvailableCommandsPayloadJSON = nil
             events.append(.turnStarted(turnId: id))
         }
         return events
