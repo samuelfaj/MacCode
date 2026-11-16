@@ -451,4 +451,52 @@ final class BotDeskRoutingParityTests: XCTestCase {
         XCTAssertEqual(try f.context.botStore.listDeskRoutingJSON().count, 2,
                        "only live conversations get a row")
     }
+
+    func test_sendReusesTheLinkedThreadWhenTheRouteNamesItsDefaultInstanceByTheOtherId() throws {
+        // WHY: a send from Activity or a paired device moved the Bot conversation to a
+        // brand-new thread, so the chat lost its transcript and Activity listed the
+        // conversation twice. A route saved before the first run names the default
+        // instance by the raw provider id ("distill"); the Agent App rewrites the thread
+        // to the snapshot id ("distill-acp") on its first send. Both are one source.
+        let f = try makeFixture()
+        let bot = try f.vm.create(name: "Piper", title: "Scout")
+        var chat = BotConversation(botID: bot.id, title: "Chat")
+        try f.context.botStore.upsertConversation(chat)
+        var route = f.vm.frozenDeskRouting(for: chat)
+        route.providerInstanceID = AgentProvider.distill.rawValue
+        let first = try f.vm.ensureLinkedThread(
+            bot: bot, conversation: chat, routing: route, router: f.router, markStarted: false
+        )
+        chat = first.conversation
+        var painted = try XCTUnwrap(try f.context.threadRepo.get(id: first.thread.id))
+        painted.providerInstanceId = "distill-acp"
+        try f.context.threadRepo.upsert(painted)
+
+        let aliasRoute = try f.vm.ensureLinkedThread(
+            bot: bot, conversation: chat, routing: route, router: f.router, markStarted: false
+        )
+        XCTAssertEqual(aliasRoute.thread.id, first.thread.id, "the raw provider id is the thread's own instance")
+        XCTAssertEqual(aliasRoute.conversation.linkedAgentThreadID, first.thread.id)
+
+        painted.providerInstanceId = AgentProvider.distill.rawValue
+        try f.context.threadRepo.upsert(painted)
+        route.providerInstanceID = "distill-acp"
+        let aliasThread = try f.vm.ensureLinkedThread(
+            bot: bot, conversation: chat, routing: route, router: f.router, markStarted: false
+        )
+        XCTAssertEqual(aliasThread.thread.id, first.thread.id, "a thread stored under the raw id is the default instance")
+
+        // A second account is a real switch: it still gets its own thread.
+        let work = AgentProviderSnapshotFactory.snapshot(
+            provider: .distill,
+            models: [AgentModelDescriptor(id: "main-a", label: "Main A", provider: .distill)],
+            binaryPath: "/usr/bin/true", authenticated: true, id: "distill-work"
+        )
+        f.vm.replaceProvidersForTests(f.vm.providers + [work])
+        route.providerInstanceID = "distill-work"
+        let switched = try f.vm.ensureLinkedThread(
+            bot: bot, conversation: chat, routing: route, router: f.router, markStarted: false
+        )
+        XCTAssertNotEqual(switched.thread.id, first.thread.id, "another instance must not reuse this account's session")
+    }
 }

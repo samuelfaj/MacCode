@@ -919,6 +919,36 @@ final class ActivityWindowModelTests: XCTestCase {
         XCTAssertEqual(model.detail?.state, "running")
     }
 
+    func testKeptFinishedRowIsReplacedByTheSameBotConversationsNextRunOnAnotherThread() async {
+        // WHY: a Bot conversation can move to a new agent thread (another account or provider).
+        // Matching the next run by thread alone kept the finished row beside the running one, and the
+        // detail pane stayed on the old thread, where the message just sent never appeared.
+        let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
+        defaults.set("running", forKey: "activity.tab")
+        var phase = 0
+        var listCalls = 0
+        var first = item("run:a", state: "running"); first.thread_id = "thread-1"; first.conversation_id = "conversation-1"
+        var next = item("run:b", state: "running"); next.thread_id = "thread-2"; next.conversation_id = "conversation-1"
+        var other = item("run:c", state: "running"); other.thread_id = "thread-3"; other.conversation_id = "conversation-2"
+        let model = ActivityViewModel(service: ActivityClient(
+            list: { _ in listCalls += 1; return self.page(phase == 0 ? [first] : phase == 1 ? [other] : [other, next]) },
+            setViewed: { _ in self.updated([]) }, acknowledge: { _ in .object([:]) }
+        ), defaults: defaults)
+        model.refreshAfterFrame()
+        await waitUntil("loaded") { model.page.items.count == 1 && !model.loading }
+        model.openDetail(first)
+        phase = 1
+        model.refreshAfterFrame()
+        await waitUntil("finished kept") { listCalls == 2 && !model.loading }
+        XCTAssertEqual(model.selectedID, "run:a", "another conversation's run must not take the kept row's place")
+        phase = 2
+        model.refreshAfterFrame()
+        await waitUntil("next run") { listCalls == 3 && !model.loading }
+        XCTAssertEqual(Set(model.page.items.map(\.id)), ["run:b", "run:c"], "one conversation, one row")
+        XCTAssertEqual(model.selectedID, "run:b")
+        XCTAssertEqual(model.detail?.thread_id, "thread-2", "the pane follows the conversation to its new thread")
+    }
+
     func testSearchKeepsOpenRowWhileItMatchesAndClearsOnlyWhenItDropsOut() async {
         // WHY: typing in search cleared the open detail on every keystroke, even when the row still matched.
         let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
