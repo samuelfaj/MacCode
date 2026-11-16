@@ -43,7 +43,7 @@ struct ActivityWireItem: Codable, Identifiable, Equatable, Sendable {
         let interval = finish.timeIntervalSince(start)
         guard interval.isFinite, interval >= 0, interval < Double(Int.max) else { return nil }
         let seconds = Int(interval)
-        return seconds >= 3_600 ? "\(seconds / 3_600)h \(seconds % 3_600 / 60)m" : "\(seconds / 60)m \(seconds % 60)s"
+        return seconds >= 3_600 ? L("%1$@h %2$@m", seconds / 3_600, seconds % 3_600 / 60) : L("%1$@m %2$@s", seconds / 60, seconds % 60)
     }
     var isNew: Bool { viewed_at == nil }
     var isMarkable: Bool { kind != "request" && ["completed", "failed", "interrupted", "stopped"].contains(state) }
@@ -55,6 +55,12 @@ struct ActivityWireItem: Codable, Identifiable, Equatable, Sendable {
     /// A run kept open after it left Running is a local row; dismissing it only drops it from the list.
     var isClearable: Bool { needs_action || isKeptFinished }
     var isKeptFinished: Bool { state == "finished" }
+    /// Same conversation as `other`: its thread, or the Bot conversation both belong to.
+    /// A Bot conversation can move to a new thread, so the thread alone is not enough.
+    func continues(_ other: ActivityWireItem) -> Bool {
+        if let thread_id, thread_id == other.thread_id { return true }
+        return conversation_id != nil && conversation_id == other.conversation_id
+    }
     var occurredDate: Date? { ActivityViewModel.parseDate(occurred_at) }
     var displayTitle: String {
         let collapsed = title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
@@ -79,6 +85,7 @@ struct ActivityWireItem: Codable, Identifiable, Equatable, Sendable {
         case "running": L("Running")
         case "expired": L("Request expired")
         case "needs_you": kind == "agent" ? L("Run interrupted") : L("Review required")
+        case "finished": L("Finished")
         default: state.capitalized
         }
     }
@@ -113,10 +120,10 @@ enum ActivityTimeLabel {
     /// A timestamp ahead of the clock reads as "now" instead of a negative age.
     static func compact(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
         let seconds = now.timeIntervalSince(date)
-        if seconds < 60 { return "now" }
-        if seconds < 3_600 { return "\(Int(seconds / 60))m" }
-        if seconds < 86_400 { return "\(Int(seconds / 3_600))h" }
-        if seconds < 7 * 86_400 { return "\(Int(seconds / 86_400))d" }
+        if seconds < 60 { return L("now") }
+        if seconds < 3_600 { return L("%1$@m", Int(seconds / 60)) }
+        if seconds < 86_400 { return L("%1$@h", Int(seconds / 3_600)) }
+        if seconds < 7 * 86_400 { return L("%1$@d", Int(seconds / 86_400)) }
         let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
         return date.formatted(sameYear ? .dateTime.month(.abbreviated).day() : .dateTime.month(.abbreviated).year())
     }
@@ -435,8 +442,7 @@ final class ActivityViewModel: ObservableObject {
                     // A row the user dismissed is not kept; only one that left the list for other reasons is.
                     // A new run of the same conversation replaces the kept row, so the list never shows it twice.
                     if self.detail == nil, let openedDetail, openedDetail.id == selectedID,
-                       let threadID = openedDetail.thread_id,
-                       let successor = next.items.first(where: { $0.thread_id == threadID }) {
+                       let successor = next.items.first(where: { $0.continues(openedDetail) }) {
                         self.selectedID = successor.id
                         self.scrollID = successor.id
                         self.detail = successor
@@ -1121,7 +1127,7 @@ struct ActivityRootView: View {
     }
 
     private var searchField: some View {
-        SidebarSearchField(placeholder: "Search title or summary", text: $model.search, focusRequest: $searchFocusRequest, accessibilityIdentifier: "activity.search")
+        SidebarSearchField(placeholder: L("Search title or summary"), text: $model.search, focusRequest: $searchFocusRequest, accessibilityIdentifier: "activity.search")
     }
 
     @ViewBuilder

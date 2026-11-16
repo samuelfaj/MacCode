@@ -193,6 +193,62 @@ final class ActivityWindowSnapshotTests: XCTestCase {
         XCTAssertGreaterThan(inkSamples(in: bitmap, columns: 0.4...1), 150, "the conversation must paint in the detail pane")
     }
 
+    /// WHY: Activity showed a Bot conversation with a bare text box: no model, effort, mode, permission
+    /// or account options, and its sends took another path than the Desk (they could move the
+    /// conversation to a new thread). The pane must host the Desk's own Agent App on that thread.
+    func testBotConversationWithoutAWorkspaceGetsTheBotDesksOwnComposer() async throws {
+        let directory = NSTemporaryDirectory() + "activity-bot-conversation-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let context = try AppContext(channel: .debug, appSupportOverride: directory)
+        let router = AppCommandRouter(context: context)
+        context.router = router
+        let bots = BotsViewModel(context: context, router: router)
+        router.botsViewModel = bots
+        let bot = try bots.create(name: "Piper", title: "Scout")
+        var chat = BotConversation(botID: bot.id, title: "Chat")
+        try context.botStore.upsertConversation(chat)
+        chat = try bots.ensureLinkedThread(
+            bot: bot, conversation: chat, routing: bots.frozenDeskRouting(for: chat), router: router, markStarted: false
+        ).conversation
+        let threadID = try XCTUnwrap(chat.linkedAgentThreadID)
+        try context.messageRepo.append(AgentMessage(threadId: threadID, role: .user, content: "Summarize the open pull requests."))
+        try context.messageRepo.append(AgentMessage(threadId: threadID, role: .assistant, content: "Three are open; two are ready to merge."))
+        let selectionBefore = bots.selectedConversation?.id
+
+        var row = item("run:bot", state: "completed", title: "Chat", workspace: nil, summary: "Three are open")
+        row.thread_id = threadID.value.uuidString
+        let conversation = try XCTUnwrap(router.makeActivityConversation(row))
+        XCTAssertTrue(conversation.showsComposer, "a Bot conversation must reply with the Desk's composer and its options")
+        XCTAssertNil(conversation.botTarget, "no reduced text-only composer beside it")
+        let agent = conversation.viewModel
+        XCTAssertEqual(agent.embedding?.pinnedThreadId, threadID, "the reply runs on the conversation's own thread")
+        XCTAssertNotNil(agent.embedding?.promptTransform, "a send must compile the Bot's brain like the Desk")
+        XCTAssertEqual(agent.embedding?.ownsComposerDraft, true, "the unsent draft is the one the Desk shows")
+        XCTAssertEqual(agent.composerPlaceholder, BotsViewModel.deskComposerPlaceholder(botName: bot.name))
+        XCTAssertNotNil(agent.providerLaunchConfig, "sends need the Desk's provider launch wiring")
+        XCTAssertNil(bots.deskAgentVM, "Activity must not mount or replace the Desk's own conversation")
+        XCTAssertEqual(bots.selectedConversation?.id, selectionBefore, "Activity must not move the Desk's selection")
+
+        var made: [String] = []
+        let bitmap = try await render(
+            "bot-conversation", items: [row], counts: ActivityWireCounts(finished: 1), size: CGSize(width: 1_300, height: 800),
+            selecting: "run:bot", makeConversation: { item in made.append(item.id); return router.makeActivityConversation(item) }
+        )
+        XCTAssertEqual(made, ["run:bot"], "one conversation per selected thread, built once")
+        XCTAssertGreaterThan(inkSamples(in: bitmap, columns: 0.4...1), 150, "the conversation and its composer must paint in the detail pane")
+        conversation.close()
+
+        // A conversation that moved to another thread leaves the old thread read-only: a reply
+        // there would not reach the Bot's conversation.
+        var moved = chat
+        moved.linkedAgentThreadID = nil
+        try context.botStore.upsertConversation(moved)
+        let orphan = try XCTUnwrap(router.makeActivityConversation(row))
+        XCTAssertFalse(orphan.showsComposer)
+        XCTAssertNil(orphan.botTarget)
+        orphan.close()
+    }
+
     /// WHY: a terminal run used to show only "Open terminal" and an empty summary; the right pane
     /// must show the terminal's own output, like a chat item shows its conversation.
     func testTerminalItemShowsItsLiveOutputInTheDetailPane() async throws {

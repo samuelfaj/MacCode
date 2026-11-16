@@ -9,7 +9,8 @@ final class ActivityConversation {
     let viewModel: AgentAppViewModel
     /// True when the pane shows the same composer a workspace tab would.
     let showsComposer: Bool
-    /// Set for a Bot conversation without an open workspace: replies go through the Bot runtime.
+    /// Set for a Bot conversation the Desk's Agent App cannot host here (Titio's inbox, a
+    /// group room): replies go through the Bot runtime.
     let botTarget: ActivityBotTarget?
     private let onClose: () -> Void
 
@@ -40,8 +41,9 @@ enum ActivityBotSendError: LocalizedError {
 extension AppCommandRouter {
     /// A thread whose workspace is open gets a real Agent App wired exactly like a
     /// workspace tab (composer, bot prompts, queue, providers), but never registered as
-    /// a tab. A thread with no open workspace (a General Bot's Desk thread) stays a
-    /// read-only pinned view: its replies need the Desk's own wiring.
+    /// a tab. A Bot conversation with no open workspace gets the Desk's own Agent App,
+    /// so its reply has the Desk's composer options and runs on the same thread.
+    /// Anything else stays a read-only pinned view.
     func makeActivityConversation(_ item: ActivityWireItem) -> ActivityConversation? {
         guard let context, let threadID = item.thread_id.flatMap(UUID.init(uuidString:)).map(AgentThreadID.init),
               let thread = try? context.threadRepo.get(id: threadID) else { return nil }
@@ -62,6 +64,10 @@ extension AppCommandRouter {
                 agent.close()
                 context?.threadRepo.setLiveSurfaceBinding(surfaceID: agent.descriptor.id, threadID: nil)
             }
+        }
+        let linked = (try? context.botStore.conversationsLinked(to: [threadID]))?[threadID]
+        if let linked, let desk = botsViewModel?.makeActivityDeskAgent(conversation: linked, thread: thread) {
+            return ActivityConversation(viewModel: desk.viewModel, showsComposer: true, onClose: desk.close)
         }
         let viewModel = AgentAppViewModel(
             workspaceID: thread.workspaceId ?? BotsViewModel.botDeskWorkspaceID,
@@ -93,7 +99,7 @@ extension AppCommandRouter {
             try self?.markAgentThreadRead(thread: id)
         }
         var botTarget: ActivityBotTarget?
-        if let linked = (try? context.botStore.conversationsLinked(to: [threadID]))?[threadID] {
+        if let linked {
             botTarget = ActivityBotTarget(
                 botID: linked.botID,
                 conversationID: linked.id,

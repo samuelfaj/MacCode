@@ -8841,7 +8841,7 @@ public final class BotsViewModel: ObservableObject {
     /// One placeholder for the Desk composer before and after the thread is
     /// linked: in a Bot chat the Bot is who you talk to, not the provider.
     static func deskComposerPlaceholder(botName: String) -> String {
-        "Message \(displayName(botName))…"
+        L("Message %1$@…", displayName(botName))
     }
 
     static func cancelsWindowLeadingTitlebarGutter(presentsAsDetachedWindow: Bool) -> Bool {
@@ -11457,6 +11457,30 @@ public final class BotsViewModel: ObservableObject {
         // first paint, the hand-off gate and the first runtime value. This
         // runs on the click, on the queue the stream writer also uses.
         let thread: AgentThread? = try? context.threadRepo.get(id: threadID)
+        let vm = makeDeskAgentVM(
+            bot: bot, conversation: live, threadID: threadID, thread: thread, router: router, isTitioInbox: isTitioInbox
+        )
+        deskAgentKey = key
+        deskAgentVM = vm
+        if isTitioInbox { bindTitioReplyDraft(vm, conversationID: live.id, threadID: threadID) }
+        deskQueueSubscription = subscribeDeskQueueEvents(threadID: threadID, vm: vm)
+        observeDeskThreadRuntime(threadID, in: vm, row: thread)
+        lastDeskAgentSyncThreadReadCountForTesting =
+            context.threadRepo.durableGetCountForTesting - threadReadsBefore
+    }
+
+    /// The Agent App a Bot conversation's linked thread runs in: the Desk's
+    /// composer, brain compile, queue and VM gates. The Desk mounts it for the
+    /// open conversation and Activity for the one its detail pane shows, so a
+    /// reply runs the same way from both.
+    private func makeDeskAgentVM(
+        bot: BotDefinition,
+        conversation live: BotConversation,
+        threadID: AgentThreadID,
+        thread: AgentThread?,
+        router: AppCommandRouter,
+        isTitioInbox: Bool
+    ) -> AgentAppViewModel {
         let workspaceCwd = workspaceExecutionCwd(for: thread)
         let deskCwd: String
         if let workspaceCwd {
@@ -11590,10 +11614,12 @@ public final class BotsViewModel: ObservableObject {
         }
         vm.hidesToolActivity = Self.deskHidesToolActivity(bot)
         vm.refreshProviderSnapshotsInBackground()
-        deskAgentKey = key
-        deskAgentVM = vm
-        if isTitioInbox { bindTitioReplyDraft(vm, conversationID: live.id, threadID: threadID) }
-        deskQueueSubscription = EventBus.shared.subscribeFromCurrent(filter: .agentThreadAndQueue) { [weak vm] event in
+        return vm
+    }
+
+    /// The pinned thread's queue lifecycle: an embedded Agent App has no surface to hear it.
+    private func subscribeDeskQueueEvents(threadID: AgentThreadID, vm: AgentAppViewModel) -> UUID {
+        EventBus.shared.subscribeFromCurrent(filter: .agentThreadAndQueue) { [weak vm] event in
             let payload = event.payload.objectValue
             guard let raw = payload?["thread_id"]?.stringValue,
                   UUID(uuidString: raw) == threadID.value else { return }
@@ -11603,9 +11629,29 @@ public final class BotsViewModel: ObservableObject {
                 vm.reloadQueuedMessages()
             }
         }.id
-        observeDeskThreadRuntime(threadID, in: vm, row: thread)
-        lastDeskAgentSyncThreadReadCountForTesting =
-            context.threadRepo.durableGetCountForTesting - threadReadsBefore
+    }
+
+    /// Activity's detail pane for a Bot conversation with no open workspace: the
+    /// Desk's own Agent App on the conversation's linked `thread`, so the reply has
+    /// the Desk's composer options and runs on the same thread. Mounting it never
+    /// moves the Desk's selection. Nil for Titio's inbox and group rooms, whose
+    /// sends need the open Desk.
+    func makeActivityDeskAgent(
+        conversation: BotConversation,
+        thread: AgentThread
+    ) -> (viewModel: AgentAppViewModel, close: () -> Void)? {
+        guard conversation.groupID == nil, conversation.id != titioInboxConversationID,
+              let router = resolvedRouter(),
+              let bot = bots.first(where: { $0.id == conversation.botID }) ?? (try? botStore.get(id: conversation.botID)),
+              bot.deletedAt == nil else { return nil }
+        let vm = makeDeskAgentVM(
+            bot: bot, conversation: conversation, threadID: thread.id, thread: thread, router: router, isTitioInbox: false
+        )
+        let subscription = subscribeDeskQueueEvents(threadID: thread.id, vm: vm)
+        return (vm, {
+            EventBus.shared.unsubscribe(subscription)
+            vm.dispose()
+        })
     }
 
     /// Desk send gate: nil when Docker reports the bot's container running.
@@ -12424,7 +12470,7 @@ public final class BotsViewModel: ObservableObject {
             guard let existing = try context.threadRepo.get(id: linked),
                   !threadBelongsToAnotherBot(linked, botID: bot.id),
                   existing.provider == routing.provider,
-                  existing.providerInstanceId == routing.providerInstanceID else { return nil }
+                  isSameProviderInstance(existing.providerInstanceId, routing.providerInstanceID, provider: routing.provider) else { return nil }
             let existingRunAsUser = existing.runAsUser ?? AgentRunAsUser.current()
             guard existingRunAsUser.uid == routing.runAsUser.uid,
                   existingRunAsUser.shortName == routing.runAsUser.shortName else { return nil }
@@ -12496,6 +12542,22 @@ public final class BotsViewModel: ObservableObject {
             adoptFollowThroughConversation(liveConversation)
         }
         return (thread, liveConversation)
+    }
+
+    /// The raw provider id ("distill") and the snapshot id ("distill-acp") name one
+    /// default instance: the router stores the first on a new thread and the Agent App
+    /// the second on its first send. Comparing them as text moved the conversation to
+    /// a new thread on the next send. Only another known instance is another source.
+    private func isSameProviderInstance(_ stored: String?, _ requested: String, provider: AgentProvider) -> Bool {
+        func source(_ id: String) -> String? {
+            if let snapshot = AgentProviderSnapshotSelection.resolve(snapshots: providers, provider: provider, instanceId: id) {
+                return snapshot.id
+            }
+            // No snapshot loaded yet: the raw provider id still means the default instance.
+            return id == provider.rawValue ? nil : id
+        }
+        let (storedSource, requestedSource) = (source(stored ?? provider.rawValue), source(requested))
+        return storedSource == requestedSource || storedSource == nil || requestedSource == nil
     }
 
     /// Plan A: a new desk conversation of a Docker-desktop bot on Distill runs
