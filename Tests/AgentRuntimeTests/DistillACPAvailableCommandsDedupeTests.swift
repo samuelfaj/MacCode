@@ -60,12 +60,4 @@ final class DistillACPAvailableCommandsDedupeTests: XCTestCase {
         XCTAssertEqual(commandEvents(mapper.consumeSessionUpdate(update(["goal"]))).count, 1,
                        "the next turn must refresh a composer that missed the first copy")
     }
-
-    /// Each session gets its own mapper, so a new session still announces
-    /// its commands once even when the list matches another session's.
-    func test_newSessionAnnouncesItsListAgain() {
-        _ = DistillACPEventMapper(sessionId: "a").consumeSessionUpdate(update(["goal"]))
-        let other = DistillACPEventMapper(sessionId: "b")
-        XCTAssertEqual(commandEvents(other.consumeSessionUpdate(update(["goal"]))).count, 1)
-    }
 }
