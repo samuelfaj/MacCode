@@ -9,6 +9,25 @@ final class ManagedToolInstallerTests: XCTestCase {
             XCTFail("Missing Distill must not coalesce into a successful registered install")
         } catch { XCTAssertTrue(String(describing: error).contains("Distill")) }
     }
+    func test_installsAreRepeatedWhileTheAppStaysOpen() async {
+        // WHY: MacCode stays open for days. Checked only at launch, a fixed mac-use release
+        // did not reach the agents until the next restart.
+        final class Log: @unchecked Sendable { var installs = 0; var waits: [TimeInterval] = [] }
+        let log = Log()
+        struct Stop: Error {}
+        await ManagedToolInstaller.keepCurrent(
+            interval: 60,
+            sleep: { seconds in
+                log.waits.append(seconds)
+                if log.waits.count == 3 { throw Stop() }
+            },
+            install: { log.installs += 1 }
+        )
+        XCTAssertEqual(log.installs, 3, "one install at launch, then one after each wait")
+        XCTAssertEqual(log.waits, [60, 60, 60])
+        XCTAssertGreaterThanOrEqual(ManagedToolInstaller.refreshInterval, 60 * 60, "GitHub's anonymous API allows 60 calls an hour")
+    }
+
     func test_directoryReplacementKeepsTheNewToolsOnReinstall() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

@@ -191,6 +191,12 @@ struct RemoteCodeDistillServiceMain {
 
     /// RemoteCode-owned computer-use MCP (stdio). HID calls share ComputerUseHostQueue.
     private static func runComputerUseMCP() async {
+        // The newest installed mac-use release takes over when there is one (see ManagedMacUse);
+        // it speaks the same protocol on the same stdio. execv returns only if it could not start.
+        if let binary = ManagedMacUse.serverBinary() {
+            var argv: [UnsafeMutablePointer<CChar>?] = [strdup(binary.path), nil]
+            execv(binary.path, &argv)
+        }
         let server = ManagedComputerUseMCP()
         while let line = readLine(strippingNewline: true) {
             if let response = await server.handle(line) {

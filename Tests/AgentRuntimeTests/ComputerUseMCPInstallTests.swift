@@ -121,6 +121,10 @@ final class ComputerUseMCPInstallTests: XCTestCase {
         let dockerAllowed = Set(ClaudeRunner.automaticallyAllowedTools(environment: [:]))
         XCTAssertEqual(hostAllowed.intersection(nativeNames), nativeNames)
         XCTAssertTrue(dockerAllowed.isDisjoint(with: nativeNames))
+        // WHY: the server can be the installed mac-use release, whose tool names differ from
+        // the built-in ones. Allowed only by name, every mac-use tool would ask for approval.
+        XCTAssertTrue(hostAllowed.contains("mcp__\(ComputerUseMCPAdmit.serverName)"))
+        XCTAssertFalse(dockerAllowed.contains("mcp__\(ComputerUseMCPAdmit.serverName)"))
     }
 
     func test_defaultAdmitPathCoversClaudeCodexAndGrok() {
