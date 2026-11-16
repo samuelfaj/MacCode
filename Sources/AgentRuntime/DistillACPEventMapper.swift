@@ -62,6 +62,14 @@ public final class DistillACPEventMapper: @unchecked Sendable {
     /// the turn's final message, but a thought can land in between; the line
     /// then goes onto this message instead of opening one of its own.
     private var answerClosedByThought: (itemId: String, text: String)?
+    /// The message Distill marked as the turn's answer, with its text so far.
+    /// Distill sends the mark when its final check makes the model go back to
+    /// work after answering. Assistant text that follows the tool calls is
+    /// appended to this message instead of opening one of its own, so the
+    /// turn ends showing the answer with what was added to it, not the
+    /// closing note alone. `phaseOpen` is false until the next text arrives
+    /// after a thought or a tool call; that text starts a new paragraph.
+    private var turnAnswer: (itemId: String, text: String, phaseOpen: Bool)?
     private var finished = false
     private var seenEventIds: DistillACPRecentEventIDs
     /// Shell-detached work distill does NOT track: a tool_call whose rawInput
@@ -154,6 +162,7 @@ public final class DistillACPEventMapper: @unchecked Sendable {
             currentAssistantPhase = ""
             lastNonEmptyAssistantPhase = ""
             answerClosedByThought = nil
+            turnAnswer = nil
             finalAssistantMessage = nil
             sawDetachedShellSpawn = false
             openToolCallIds.removeAll(keepingCapacity: false)
@@ -177,6 +186,7 @@ public final class DistillACPEventMapper: @unchecked Sendable {
         currentAssistantPhase = ""
         lastNonEmptyAssistantPhase = ""
         answerClosedByThought = nil
+        turnAnswer = nil
         finalAssistantMessage = nil
         sawDetachedShellSpawn = false
         openToolCallIds.removeAll(keepingCapacity: false)
@@ -218,13 +228,41 @@ public final class DistillACPEventMapper: @unchecked Sendable {
             }
             closeAssistant(&events)
             currentAssistantPhase = ""
+            turnAnswer?.phaseOpen = false
             let itemId = openReasoning(&events, now: now)
             events.append(.itemDelta(itemId: itemId, bodyAppend: text, outputAppend: nil, summary: nil))
 
         case "agent_message_chunk":
             let text = Self.contentText(update["content"])
+            if Self.marksTurnAnswer(update) {
+                // The mark rides an empty chunk, sent while the answer is
+                // still the open message or right after a thought closed it.
+                if let assistantItemId {
+                    turnAnswer = (assistantItemId, currentAssistantPhase, true)
+                } else if let answer = answerClosedByThought {
+                    turnAnswer = (answer.itemId, answer.text, false)
+                    answerClosedByThought = nil
+                }
+            }
             guard !text.isEmpty else { return events }
             closeReasoning(&events)
+            if assistantItemId == nil, let answer = turnAnswer {
+                // Live incident 2026-11-15: Distill's final check sent the model
+                // back to work after a 7,018-character answer, and the turn
+                // ended on a 416-character note about what had been missing.
+                // As a message of its own the note became the turn's final
+                // message and the answer was demoted to the work log.
+                var appended = text
+                if !answer.phaseOpen {
+                    let body = String(text.drop(while: \.isWhitespace))
+                    guard !body.isEmpty else { return events }
+                    appended = "\n\n" + body
+                }
+                currentAssistantPhase = answer.text + appended
+                turnAnswer = (answer.itemId, currentAssistantPhase, true)
+                events.append(.itemDelta(itemId: answer.itemId, bodyAppend: appended, outputAppend: nil, summary: nil))
+                break
+            }
             if assistantItemId == nil, let answer = answerClosedByThought {
                 answerClosedByThought = nil
                 if Self.isVerificationStatus(text) {
@@ -239,6 +277,9 @@ public final class DistillACPEventMapper: @unchecked Sendable {
             }
             let itemId = openAssistant(&events, now: now)
             currentAssistantPhase += text
+            if turnAnswer?.itemId == itemId {
+                turnAnswer?.text = currentAssistantPhase
+            }
             events.append(.itemDelta(itemId: itemId, bodyAppend: text, outputAppend: nil, summary: nil))
 
         case "tool_call":
@@ -251,6 +292,7 @@ public final class DistillACPEventMapper: @unchecked Sendable {
             }
             currentAssistantPhase = ""
             answerClosedByThought = nil
+            turnAnswer?.phaseOpen = false
             let id = update["toolCallId"] as? String ?? UUID().uuidString
             let title = update["title"] as? String ?? "Distill tool"
             openToolCallIds.insert(id)
@@ -447,6 +489,7 @@ public final class DistillACPEventMapper: @unchecked Sendable {
         currentAssistantPhase = ""
         lastNonEmptyAssistantPhase = ""
         answerClosedByThought = nil
+        turnAnswer = nil
         sawDetachedShellSpawn = false
         return events
     }
@@ -477,6 +520,7 @@ public final class DistillACPEventMapper: @unchecked Sendable {
         currentAssistantPhase = ""
         lastNonEmptyAssistantPhase = ""
         answerClosedByThought = nil
+        turnAnswer = nil
         sawDetachedShellSpawn = false
         events.append(.turnStarted(turnId: id))
     }
@@ -531,6 +575,12 @@ public final class DistillACPEventMapper: @unchecked Sendable {
         }
         // Fallback when the peer advertises the common wire id without catalog seed.
         return normalized.caseInsensitiveCompare("plan") == .orderedSame
+    }
+
+    /// Whether a message chunk carries Distill's mark for the turn's answer:
+    /// `_meta.turnAnswer` on the chunk, which Distill sends with no text.
+    static func marksTurnAnswer(_ update: [String: Any]) -> Bool {
+        (update["_meta"] as? [String: Any])?["turnAnswer"] as? Bool == true
     }
 
     /// Whether `chunk` is the status Distill's UltraCode turn review appends to
