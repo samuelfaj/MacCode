@@ -5158,6 +5158,47 @@ final class DispatcherTests: XCTestCase {
                      "an expired active-run credential must never cross the readback boundary")
     }
 
+    /// WHY: iPhone timeline and Bot desk catch-ups send this legacy read with
+    /// event_limit 500. The host read the whole thread and cut the suffix in
+    /// Swift, so SQLite sorted every stored row (8 MB thread: ~9 MB temp file)
+    /// on each catch-up; macOS filed disk-write reports with this frame on top
+    /// (2026-11-13). The limit must reach the repository query.
+    @MainActor
+    func testLegacyThreadReadPushesEventLimitIntoTheSnapshotRead() async throws {
+        let router = FakeRouter()
+        let thread = AgentThreadID()
+        router.readAgentEvents = [
+            .turnStarted(turnId: "turn-1"),
+            .turnStarted(turnId: "turn-2"),
+            .turnStarted(turnId: "turn-3")
+        ]
+        let dispatcher = JSONRPCDispatcher(router: router)
+
+        let bounded = await dispatcher.dispatch(JSONRPCRequest(
+            jsonrpc: "2.0", id: .number(1), method: "agent.thread.read",
+            params: [
+                "thread_id": .string(thread.value.uuidString),
+                "include_event_watermark": .bool(true),
+                "event_limit": .number(2)
+            ]
+        ))
+        XCTAssertEqual(router.lastMirrorSnapshotEventRowLimit, 2,
+                       "the repository must read only the requested suffix")
+        let result = try XCTUnwrap(bounded.result?.objectValue)
+        XCTAssertEqual(result["events"]?.arrayValue?.count, 2)
+        XCTAssertEqual(result["events_truncated"], .bool(true))
+
+        _ = await dispatcher.dispatch(JSONRPCRequest(
+            jsonrpc: "2.0", id: .number(2), method: "agent.thread.read",
+            params: [
+                "thread_id": .string(thread.value.uuidString),
+                "include_event_watermark": .bool(true)
+            ]
+        ))
+        XCTAssertNil(router.lastMirrorSnapshotEventRowLimit,
+                     "without event_limit the legacy read stays a full read")
+    }
+
     @MainActor
     func testAgentThreadReadCanBoundLargeMobileRecoverySnapshots() async throws {
         let router = FakeRouter()
