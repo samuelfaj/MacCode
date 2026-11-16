@@ -4713,21 +4713,22 @@ public final class JSONRPCDispatcher {
                 }
                 guard let tid = params["thread_id"]?.stringValue.flatMap(UUID.init).map(AgentThreadID.init) else { throw JSONRPCError.invalidParams }
                 if params["include_event_watermark"]?.boolValue == true {
-                    let snapshot = try await router.readAgentThreadMirrorSnapshot(
-                        thread: tid,
-                        eventRowLimit: nil,
-                        maxPayloadBytes: nil
-                    )
                     let eventLimit = params["event_limit"]?.intValue
                     if let eventLimit, !(1...5_000).contains(eventLimit) {
                         throw JSONRPCError.invalidParams
                     }
-                    let events = eventLimit.map { Array(snapshot.events.suffix($0)) }
-                        ?? snapshot.events
+                    // Push the limit into SQL. Reading the whole thread to keep
+                    // a 500-event suffix sorted ~9 MB through a temp file on
+                    // every iPhone catch-up.
+                    let snapshot = try await router.readAgentThreadMirrorSnapshot(
+                        thread: tid,
+                        eventRowLimit: eventLimit,
+                        maxPayloadBytes: nil
+                    )
                     var payload: [String: JSONValue] = [
-                        "events": decorateReplayedRunErrors(encode(events)),
+                        "events": decorateReplayedRunErrors(encode(snapshot.events)),
                         "event_watermark": .number(Double(snapshot.eventWatermark)),
-                        "events_truncated": .bool(events.count < snapshot.events.count)
+                        "events_truncated": .bool(snapshot.sourceHadOlderEvents)
                     ]
                     appendActiveDelegation(to: &payload, thread: tid)
                     return .init(id: id, result: .object(payload))

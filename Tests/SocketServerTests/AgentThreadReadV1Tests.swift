@@ -283,8 +283,8 @@ final class AgentThreadReadV1Tests: XCTestCase {
                        "legacy watermark shape must not gain v1 keys")
         XCTAssertEqual(result["events"]?.arrayValue?.count, 2)
         XCTAssertEqual(result["events_truncated"], .bool(true))
-        XCTAssertNil(router.lastMirrorSnapshotEventRowLimit,
-                       "legacy watermark path must not push a SQL row limit")
+        XCTAssertEqual(router.lastMirrorSnapshotEventRowLimit, 2,
+                       "legacy event_limit reaches SQL; the shape stays legacy")
         XCTAssertNil(router.lastMirrorSnapshotMaxPayloadBytes)
         XCTAssertNil(result["response_truncated"])
         XCTAssertNil(result["truncation_reason"])
