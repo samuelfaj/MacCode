@@ -1399,6 +1399,11 @@ public final class DirectHTTPServer: @unchecked Sendable {
     /// Host API version (discovery `api_version`, welcome `apiVersion`).
     static let hostAPIVersion = "2"
 
+    /// Live Activity token and transport contract this host speaks. The phone
+    /// sends its push-to-start and activity-update tokens only when it reads 2
+    /// here; without it every delivery falls back to the legacy single token.
+    static let liveActivityProtocolVersion = 2
+
     nonisolated static func capabilitiesProjection(
         loopbackOnly: Bool,
         attachmentUpload:
@@ -1493,6 +1498,7 @@ public final class DirectHTTPServer: @unchecked Sendable {
                 "read_only": false,
                 "methods": ["git.status", "git.branches", "git.checkout", "git.create_branch", "git.commit", "git.log", "git.diff", "git.fetch", "git.pull", "git.push", "git.pull_request_url", "git.delivery_plan", "git.deliver"],
             ],
+            "live_activity": ["protocol_version": liveActivityProtocolVersion],
             "feature_flags": ["remote_access_enabled": !loopbackOnly]
         ], treaty: .v1)
     }

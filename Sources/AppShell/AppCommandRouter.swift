@@ -10606,14 +10606,21 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                 try store.upsert(target)
             }
         }
-        // Persist the legacy target before answering ok: iOS must not believe a
-        // push registration landed when the settings write failed.
-        try store.save(
-            pushToken: pushToken,
-            pushTokenType: pushTokenType,
-            liveActivityToken: liveActivityToken,
-            deviceId: deviceID
-        )
+        // A typed Live Activity registration sends the activity token as
+        // `push_token` too. The legacy target's push token is the one alerts and
+        // silent wakes are sent to, so that registration must not replace it.
+        let carriesActivityTokenOnly = tokenPurpose == PrivatePushTokenPurpose.pushToStart.rawValue
+            || tokenPurpose == PrivatePushTokenPurpose.activityUpdate.rawValue
+        if !carriesActivityTokenOnly {
+            // Persist the legacy target before answering ok: iOS must not believe a
+            // push registration landed when the settings write failed.
+            try store.save(
+                pushToken: pushToken,
+                pushTokenType: pushTokenType,
+                liveActivityToken: liveActivityToken,
+                deviceId: deviceID
+            )
+        }
         var result: [String: JSONValue] = [
             "ok": .bool(true),
             "push_token_type": .string(pushTokenType)

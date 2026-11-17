@@ -578,6 +578,43 @@ final class AppIdentityNotificationTests: XCTestCase {
         XCTAssertEqual(afterUpsert.first?.token, "start-token-rotated")
     }
 
+    func testLiveActivityTokenRegistrationKeepsTheAlertPushToken() throws {
+        // WHY: the phone registers a Live Activity token with that same token as
+        // `push_token`. Alerts and silent wakes go to the legacy target's push
+        // token, so storing the activity token there would send every later
+        // notification to a token Apple rejects.
+        let dir = NSTemporaryDirectory() + "RC2LiveActivityKeepsAlert-" + UUID().uuidString
+        let ctx = try AppContext(channel: .debug, appSupportOverride: dir)
+        let router = AppCommandRouter(context: ctx)
+        ctx.router = router
+        _ = try router.privatePushTokenUpdate(
+            pushToken: "apns-alert-token", pushTokenType: "apns", liveActivityToken: nil, deviceID: "device-1"
+        )
+
+        for (purpose, token, activityID) in [("push_to_start", "start-token", nil), ("activity_update", "update-token", "activity-1")] as [(String, String, String?)] {
+            _ = try router.privatePushTokenUpdate(
+                pushToken: token,
+                pushTokenType: "apns",
+                liveActivityToken: token,
+                deviceID: "device-1",
+                tokenPurpose: purpose,
+                environment: "sandbox",
+                serverID: "server-1",
+                activityID: activityID,
+                contractVersion: 2,
+                capabilities: ["live_activity_v2"]
+            )
+        }
+
+        let store = PrivatePushTargetStore(repo: ctx.settingsRepo)
+        XCTAssertEqual(store.load()?.pushToken, "apns-alert-token")
+        XCTAssertEqual(
+            Set(try store.records().map { "\($0.purpose.rawValue):\($0.token)" }),
+            ["push_to_start:start-token", "activity_update:update-token"],
+            "both Live Activity tokens must still be stored for delivery"
+        )
+    }
+
     func testUpdateTokenRPCAckReturnsMacAuthoritativeOwnershipInSnakeCase() throws {
         let dir = NSTemporaryDirectory() + "RC2LiveActivityOwnershipAck-" + UUID().uuidString
         let ctx = try AppContext(channel: .debug, appSupportOverride: dir)
@@ -1009,6 +1046,28 @@ final class AppIdentityNotificationTests: XCTestCase {
 
         XCTAssertNil(targetStore.load(),
                      "a backend token-drop response on the Live Activity path must clear the stale push target, mirroring the alert path")
+    }
+
+    func testAlertTokenIsNotSentToTheLiveActivityRegistry() async throws {
+        // WHY: a phone that speaks Live Activity v2 also sends its alert token as a
+        // typed v2 registration. That token is not a Live Activity token; treating
+        // it as a failed registration reported an error on every alert token
+        // publish once the Mac advertises v2.
+        let dir = NSTemporaryDirectory() + "RC2LiveActivityV2AlertToken-" + UUID().uuidString
+        let ctx = try AppContext(channel: .debug, appSupportOverride: dir)
+        let accountStore = PrivateAccountSessionStore(repo: ctx.settingsRepo)
+        let targetStore = PrivatePushTargetStore(repo: ctx.settingsRepo)
+        let api = RecordingPrivateAccountAPI()
+        accountStore.save(api.session)
+        let bridge = PrivateNotificationBridge(accountStore: accountStore, pushTargetStore: targetStore, api: api)
+
+        try await bridge.registerLiveActivityTokenV2(PrivatePushTargetRecord(
+            deviceId: "device-1", serverId: "server-1", purpose: .alert,
+            environment: .sandbox, token: "apns-alert-token",
+            contractVersion: 2, capabilities: ["live_activity_v2"]
+        ))
+
+        XCTAssertTrue(api.liveActivityV2TokenRegistrations.isEmpty)
     }
 
     func testPrivateNotificationBridgeRegistersTypedLiveActivityTokenWithAuthenticatedBackend() async throws {

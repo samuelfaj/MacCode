@@ -3007,6 +3007,10 @@ public final class JSONRPCDispatcher {
                         ])
                     ]),
                     "agent": .object(agentCapabilities),
+                    // Same value as DirectHTTPServer.capabilitiesProjection.
+                    "live_activity": .object([
+                        "protocol_version": .number(Double(DirectHTTPServer.liveActivityProtocolVersion))
+                    ]),
                     "message_transport":
                         AgentMessageTransport.capabilityMarker,
                     "browser_automation": .object([

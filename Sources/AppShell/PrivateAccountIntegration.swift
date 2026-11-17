@@ -1909,6 +1909,9 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
     }
 
     public func registerLiveActivityTokenV2(_ target: PrivatePushTargetRecord) async throws {
+        // An alert token is not a Live Activity token. The phone registers it
+        // with the backend itself, so the Live Activity registry has no entry for it.
+        if target.purpose == .alert { return }
         guard target.supportsLiveActivityV2,
               let session = accountStore.load(),
               session.user.subscribed else { throw PrivateAccountAPIError.invalidResponse }
@@ -1921,7 +1924,7 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
             guard target.ownership != nil else { throw LiveActivityTokenBindingError.unknownAuthoritativeScope }
             tokenKind = .update
         case .alert:
-            throw PrivateAccountAPIError.invalidResponse
+            return
         }
 
         let ack = try await sessionRefresher.perform(session: session) { accessToken in
