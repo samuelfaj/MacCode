@@ -1183,7 +1183,6 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                             filter: .agentThreadAndQueue
                         ) { [weak agent] ev in
                             guard Self.shouldAdmitAgentLifecycleEvent(
-                                kind: ev.kind,
                                 payload: ev.payload,
                                 workspaceID: wid
                             ) else { return }
@@ -3458,7 +3457,6 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             filter: .agentThreadAndQueue
         ) { [weak agent] ev in
             guard Self.shouldAdmitAgentLifecycleEvent(
-                kind: ev.kind,
                 payload: ev.payload,
                 workspaceID: workspace
             ) else { return }
@@ -10994,17 +10992,6 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
 
     /// Reject only events that carry a valid, known workspace identity for a
     /// different Agent surface. Legacy or malformed payloads stay fail-open.
-    /// Token usage shares the `agent.thread.` prefix but changes no rail row or
-    /// queue, and arrives several times a second while a run streams.
-    nonisolated static func shouldAdmitAgentLifecycleEvent(
-        kind: String,
-        payload: JSONValue,
-        workspaceID: WorkspaceID
-    ) -> Bool {
-        guard kind != RemoteCodeEventKind.agentThreadTokenUsage.rawValue else { return false }
-        return shouldAdmitAgentLifecycleEvent(payload: payload, workspaceID: workspaceID)
-    }
-
     nonisolated static func shouldAdmitAgentLifecycleEvent(
         payload: JSONValue,
         workspaceID: WorkspaceID

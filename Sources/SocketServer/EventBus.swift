@@ -1675,11 +1675,16 @@ public enum EventStreamFilter: Sendable, Equatable {
     }
 
     /// Agent App surface subscription: thread lifecycle + queue only.
-    public static let agentThreadAndQueue = EventStreamFilter.kindPrefixes([
-        "agent.thread.",
-        "agent.message.queue",
-        "agent.message.queued"
-    ])
+    /// `agent.thread.token_usage` is excluded: it streams several times a second
+    /// during a run, no thread row or queue carries it, and every subscriber
+    /// here answers an admitted event with a rail or queue reload.
+    public static let agentThreadAndQueue = EventStreamFilter.kindPrefixes(
+        RemoteCodeEventKind.allCases
+            .map(\.rawValue)
+            .filter { $0.hasPrefix("agent.thread.") && $0 != RemoteCodeEventKind.agentThreadTokenUsage.rawValue }
+            .sorted()
+            + ["agent.message.queue", "agent.message.queued"]
+    )
 
     /// Files tab subscription: state + edit lifecycle only.
     /// Stream kinds (`agent.item.delta` / `surface.output`) must not hop
