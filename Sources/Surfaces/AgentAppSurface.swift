@@ -11256,6 +11256,20 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         }
     }
 
+    /// Distill subagents keep reporting after the turn that started them ended;
+    /// fold that into the status the Subagents popover reads, never into a run.
+    nonisolated public func runCoordinator(_ c: AgentRunCoordinator, didReceiveOutOfTurn event: ProviderRuntimeEvent, threadId: AgentThreadID) {
+        guard event.provider == .distill,
+              DistillLiveStatus.isCarrierMethod(event.method),
+              Self.acceptsStreamEvent(eventThreadId: threadId, interestedThreadId: currentInterestedThreadId()) else { return }
+        Task { @MainActor in
+            guard !self.isDisposed, self.selectedThreadId == threadId else { return }
+            var next = self.distillLive ?? DistillLiveStatus()
+            next.apply(method: event.method, payloadJSON: event.payloadJSON)
+            if next != self.distillLive { self.distillLive = next }
+        }
+    }
+
     private func applyDistillRuntime(_ runtime: ProviderRuntimeEvent, run: AgentRunID, threadId: AgentThreadID) {
         guard !isDisposed, selectedThreadId == threadId else { return }
         if runtime.method == "_remotecode/operation",
