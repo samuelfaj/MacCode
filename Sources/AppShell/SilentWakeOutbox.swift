@@ -20,6 +20,10 @@ public struct SilentWakeOutboxRecord: Codable, Equatable, Sendable {
     public let nextAttemptAt: Date?
     /// Wall-clock enqueue time for offline backlog age bounds.
     public let enqueuedAt: Date
+    /// Bounded thread delta (`PushConnectionHints.delta`) of the original send,
+    /// so a replay still tells the phone which thread changed and to which seq.
+    /// Nil on records stored before the delta was kept.
+    public let delta: [String: String]?
 
     public init(
         coalesceClass: MaterialWakeCoalesceClass,
@@ -29,7 +33,8 @@ public struct SilentWakeOutboxRecord: Codable, Equatable, Sendable {
         idempotencyKey: String,
         attempts: Int = 0,
         nextAttemptAt: Date? = nil,
-        enqueuedAt: Date = Date()
+        enqueuedAt: Date = Date(),
+        delta: [String: String] = [:]
     ) {
         self.coalesceClass = coalesceClass.rawValue
         self.hostHint = hostHint
@@ -42,6 +47,7 @@ public struct SilentWakeOutboxRecord: Codable, Equatable, Sendable {
         self.attempts = attempts
         self.nextAttemptAt = nextAttemptAt
         self.enqueuedAt = enqueuedAt
+        self.delta = delta.isEmpty ? nil : delta
     }
 
     public init(
@@ -55,7 +61,8 @@ public struct SilentWakeOutboxRecord: Codable, Equatable, Sendable {
         idempotencyKey: String,
         attempts: Int = 0,
         nextAttemptAt: Date? = nil,
-        enqueuedAt: Date = Date()
+        enqueuedAt: Date = Date(),
+        delta: [String: String] = [:]
     ) {
         self.coalesceClass = coalesceClass
         self.hostHint = hostHint
@@ -68,6 +75,7 @@ public struct SilentWakeOutboxRecord: Codable, Equatable, Sendable {
         self.attempts = attempts
         self.nextAttemptAt = nextAttemptAt
         self.enqueuedAt = enqueuedAt
+        self.delta = delta.isEmpty ? nil : delta
     }
 
     /// Unique per enqueued unit. Incorporates `idempotencyKey` so the identity
@@ -186,7 +194,8 @@ public final class SilentWakeOutboxStore: @unchecked Sendable {
                 idempotencyKey: record.idempotencyKey,
                 attempts: 0,
                 nextAttemptAt: nil,
-                enqueuedAt: stamp
+                enqueuedAt: stamp,
+                delta: record.delta ?? [:]
             )
             // Coalesce by class (lane), not unique recordID: only the newest
             // pending item per class needs to survive. recordID is per-unit so
@@ -249,7 +258,8 @@ public final class SilentWakeOutboxStore: @unchecked Sendable {
                 idempotencyKey: existing.idempotencyKey,
                 attempts: existing.attempts + 1,
                 nextAttemptAt: nextAttemptAt,
-                enqueuedAt: existing.enqueuedAt
+                enqueuedAt: existing.enqueuedAt,
+                delta: existing.delta ?? [:]
             )
             try saveUnlocked(records)
             return records[index]

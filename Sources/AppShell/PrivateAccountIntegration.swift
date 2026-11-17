@@ -1752,7 +1752,8 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
                     hostHint: hostHint,
                     force: force,
                     payload: contract,
-                    idempotencyKey: idempotencyKey
+                    idempotencyKey: idempotencyKey,
+                    delta: delta
                 )
                 do {
                     try silentWakeOutbox.accept(record)
@@ -1782,7 +1783,7 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
         }
         var contract = record.payload
         contract.catchUp = true
-        let data = await withConnectionHints(contract.asPushData())
+        let data = await withConnectionHints(contract.asPushData().merging(record.delta ?? [:]) { current, _ in current })
         HostWakeMetrics.shared.increment(.silentAttempt)
         do {
             let result = try await sessionRefresher.perform(session: session) { accessToken in
