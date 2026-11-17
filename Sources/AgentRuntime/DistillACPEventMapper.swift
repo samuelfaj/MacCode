@@ -48,6 +48,12 @@ public final class DistillACPEventMapper: @unchecked Sendable {
     public private(set) var latestUsage: AssistantTokenUsage?
     public private(set) var finalAssistantMessage: String?
 
+    /// MacCode opened this turn in Plan interaction mode. The agent can also
+    /// switch itself into plan mode (`enter_plan_mode`); its to-do progress is
+    /// then work, not a plan the user asked to review.
+    private var planReviewRequested = false
+    /// The latest steps of a Plan review turn, proposed once when the turn completes.
+    private var reviewPlanSteps: [AssistantPlanStep] = []
     private var threadEmitted = false
     private var turnId: String?
     private var reasoningItemId: String?
@@ -125,6 +131,12 @@ public final class DistillACPEventMapper: @unchecked Sendable {
     public func setPlanReviewModeId(_ modeId: String?) {
         lock.lock(); defer { lock.unlock() }
         planReviewModeId = modeId
+    }
+
+    /// Set before each prompt: whether the user asked this turn for a plan.
+    public func setPlanReviewRequested(_ requested: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        planReviewRequested = requested
     }
 
     /// True when the open turn has already produced speakable assistant text.
@@ -354,17 +366,13 @@ public final class DistillACPEventMapper: @unchecked Sendable {
                     steps: steps,
                     updatedAtMs: now
                 )))
-                // Plan interaction mode still needs a reviewable proposed plan
-                // for Approve / full-access auto-implement after the plan turn.
-                if Self.isPlanReviewMode(currentModeId, planReviewModeId: planReviewModeId) {
-                    let markdown = steps.enumerated().map { index, step in
-                        "\(index + 1). [\(step.status.rawValue)] \(step.title)"
-                    }.joined(separator: "\n")
-                    events.append(.proposedPlan(AssistantProposedPlan(
-                        id: "distill-plan-\(turnId ?? UUID().uuidString)",
-                        turnId: turnId,
-                        markdown: markdown
-                    )))
+                // A Plan turn the user asked for is proposed once, when it
+                // completes (finishTurn). Every update was a proposal before, so
+                // Full access queued one "Implement this proposed plan now" per
+                // update, each with an unfinished plan.
+                if planReviewRequested,
+                   Self.isPlanReviewMode(currentModeId, planReviewModeId: planReviewModeId) {
+                    reviewPlanSteps = steps
                 }
             }
 
@@ -494,6 +502,20 @@ public final class DistillACPEventMapper: @unchecked Sendable {
             final = BackgroundAwaitContinuation.prefixingAwaitingMarker(final)
         }
         finalAssistantMessage = final
+        // Only a completed Plan turn proposes: Full access implements a
+        // proposal right away, and a cancelled plan must not be implemented.
+        if DistillACPTerminalClassifier.isCompletedStopReason(stopReason), !reviewPlanSteps.isEmpty {
+            let markdown = reviewPlanSteps.enumerated().map { index, step in
+                "\(index + 1). [\(step.status.rawValue)] \(step.title)"
+            }.joined(separator: "\n")
+            events.append(.proposedPlan(AssistantProposedPlan(
+                id: "distill-plan-\(turnId)",
+                turnId: turnId,
+                markdown: markdown
+            )))
+        }
+        reviewPlanSteps = []
+        planReviewRequested = false
         events.append(.turnCompleted(turnId: turnId, finalMessage: finalAssistantMessage))
         self.turnId = nil
         currentAssistantPhase = ""

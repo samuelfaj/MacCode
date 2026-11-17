@@ -1882,6 +1882,7 @@ public final class DistillACPAdapter: AgentProviderAdapter, ProviderBackgroundWo
                     session.mapper.setCurrentModeId(requestedMode)
                 }
             }
+            session.mapper.setPlanReviewRequested(request.interactionMode == .plan)
             let acceptance = PromptAcceptanceGate()
             beforePromptWriteForTesting?()
             try synchronized {
@@ -2002,6 +2003,12 @@ public final class DistillACPAdapter: AgentProviderAdapter, ProviderBackgroundWo
                 emit(Self.runtimeEvent(method: resolvedMethod, payload: resolvedPayload), session: session)
             }
             return
+        }
+        // The agent can switch modes itself (enter_plan_mode). Track it, so the
+        // next turn sets the session back to the mode the user chose.
+        if update["sessionUpdate"] as? String == "current_mode_update",
+           let modeId = update["currentModeId"] as? String {
+            synchronized { session.mode = modeId }
         }
         for event in session.mapper.consumeSessionUpdate(update) { emit(event, session: session) }
     }

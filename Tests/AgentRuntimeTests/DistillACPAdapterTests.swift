@@ -202,7 +202,8 @@ final class DistillACPAdapterTests: ProviderProcessTestCase {
         setModelDelay: TimeInterval = 0,
         sessionOpenJSON: String? = nil,
         ultracodeReplyJSON: String = #"{"jsonrpc":"2.0","id":message["id"],"result":{"enabled":params.get("enabled")}}"#,
-        executionModeReplyJSON: String = #"{"jsonrpc":"2.0","id":message["id"],"result":{"mode":params.get("mode")}}"#
+        executionModeReplyJSON: String = #"{"jsonrpc":"2.0","id":message["id"],"result":{"mode":params.get("mode")}}"#,
+        firstPromptUpdateJSON: String? = nil
     ) throws -> (harness: URL, requests: URL) {
         let requestsURL = root.appendingPathComponent("requests.jsonl")
         let harnessURL = root.appendingPathComponent("distill-agent")
@@ -210,6 +211,8 @@ final class DistillACPAdapterTests: ProviderProcessTestCase {
         #!/usr/bin/env python3
         import json, pathlib, sys, time
         requests = pathlib.Path(\(String(reflecting: requestsURL.path)))
+        first_prompt_update = \(String(reflecting: firstPromptUpdateJSON ?? ""))
+        prompts = 0
         def send(value): print(json.dumps(value), flush=True)
         for line in sys.stdin:
             message = json.loads(line)
@@ -241,11 +244,50 @@ final class DistillACPAdapterTests: ProviderProcessTestCase {
             elif method in ("session/set_mode", "session/set_config_option"):
                 send({"jsonrpc":"2.0", "id":message["id"], "result":{}})
             elif method == "session/prompt":
+                prompts += 1
+                if prompts == 1 and first_prompt_update:
+                    send({"jsonrpc":"2.0", "method":"session/update", "params":{"sessionId":"worker-session","update":json.loads(first_prompt_update)}})
                 send({"jsonrpc":"2.0", "id":message["id"], "result":{"stopReason":"end_turn"}})
         """
         try harness.write(to: harnessURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: harnessURL.path)
         return (harnessURL, requestsURL)
+    }
+
+    func test_agentSwitchingItselfIntoPlanModeIsUndoneOnTheNextTurn_becauseTheUserChoseFullAccess() async throws {
+        // WHY: live 2026-11-17, the agent entered plan mode itself mid-turn. MacCode
+        // tracked only the modes it set, so the next turn (the queued "Implement")
+        // was sent while Distill was still in plan mode, where edits are refused.
+        let root = try makeTempRoot("distill-acp-agent-plan-mode")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let modes = #"{"modes":{"currentModeId":"bypassPermissions","availableModes":[{"id":"default","name":"Default"},{"id":"plan","name":"Plan"},{"id":"bypassPermissions","name":"Full access"}]}}"#
+        let (harness, requestsURL) = try writeWorkerHarness(
+            root: root, initializeCapabilities: "{}", workerResult: "{}", sessionOpenJSON: modes,
+            firstPromptUpdateJSON: #"{"sessionUpdate":"current_mode_update","currentModeId":"plan"}"#
+        )
+        let adapter = DistillACPAdapter(binaryNameOverride: harness.path)
+        defer { adapter.stopAll() }
+        let threadID = AgentThreadID()
+        func request(providerThreadId: String? = nil) -> AgentRunRequest {
+            AgentRunRequest(threadId: threadID, provider: .distill, model: "grok-4.6", cwd: root.path, prompt: "Go",
+                            providerThreadId: providerThreadId, permissionMode: .fullAccess)
+        }
+        let first = DistillACPAdapterEventBox()
+        _ = try await adapter.startSession(request()) { first.append($0) }
+        let firstFinished = try await first.waitForFinish()
+        let second = DistillACPAdapterEventBox()
+        _ = try await adapter.sendTurn(request(providerThreadId: firstFinished.providerThreadId)) { second.append($0) }
+        _ = try await second.waitForFinish()
+
+        let requests = try recordedRequests(requestsURL)
+        let methods = requests.compactMap { $0["method"] as? String }
+        let setModes = requests.filter { $0["method"] as? String == "session/set_mode" }
+            .compactMap { ($0["params"] as? [String: Any])?["modeId"] as? String }
+        XCTAssertEqual(setModes, ["bypassPermissions"], methods.joined(separator: ","))
+        let prompts = methods.indices.filter { methods[$0] == "session/prompt" }
+        let setMode = try XCTUnwrap(methods.firstIndex(of: "session/set_mode"))
+        XCTAssertEqual(prompts.count, 2)
+        XCTAssertTrue(prompts[0] < setMode && setMode < prompts[1], "the mode is restored before the next prompt")
     }
 
     private func recordedRequests(_ url: URL) throws -> [[String: Any]] {
