@@ -52,6 +52,31 @@ final class ClientPerfReportTests: XCTestCase {
         XCTAssertNil(fileText())
     }
 
+    private func server() -> DirectHTTPServer {
+        DirectHTTPServer(port: UInt16.random(in: 33000...44000), loopbackOnly: true, dispatcher: dispatcher(), bootEpoch: 1)
+    }
+
+    private let body = Data(#"{"jsonrpc":"2.0","id":1,"method":"client.perf.report","params":{"lines":["{\"m\":\"x\"}"]}}"#.utf8)
+
+    // WHY: a loopback-only host trusts tokenless Mac-local HTTP callers for the
+    // rest of the API, and they reach the dispatcher with an identity. Seen in
+    // the sandbox app: a curl with no bearer wrote the log. Perf reports must
+    // come from a paired phone's verified bearer.
+    func test_tokenlessLoopbackHTTPCallIsRefused() async throws {
+        let data = await server().dispatchRPC(bodyData: body)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual((object["error"] as? [String: Any])?["code"] as? Int, -32098)
+        XCTAssertNil(fileText())
+    }
+
+    func test_bearerVerifiedHTTPCallIsAppended() async throws {
+        let paired = DirectRPCPrincipal(ownerFingerprint: "phone-owner", grantedCapabilities: "read")
+        let data = await server().dispatchRPC(bodyData: body, principal: paired)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual((object["result"] as? [String: Any])?["accepted"] as? Int, 1)
+        XCTAssertEqual(fileText(), "{\"m\":\"x\"}\n")
+    }
+
     // WHY: 64 KB per call. An oversize call is refused whole, so the file never
     // holds a partial report.
     func test_callOverSixtyFourKilobytesIsRefusedWhole() async {
