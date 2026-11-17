@@ -1293,6 +1293,8 @@ public final class AgentOrchestrationRuntime: @unchecked Sendable {
     private let costEstimator: (@Sendable (AgentOrchestrationAdmissionReceipt, AssistantTokenUsage?) -> Int?)?
     private let externalLeaseDuration: TimeInterval
     private let processIsAlive: @Sendable (Int32) -> Bool
+    private let nativeChildLivenessLock = NSLock()
+    private var nativeChildLiveness: (@Sendable (AgentOrchestrationAdmissionReceipt) -> Bool)?
     private let reservationLock = NSLock()
     private var reservations: [String: (tokens: Int?, costMicros: Int?, deadlineAt: Date?)] = [:]
     /// Records whether `activityReceipts` (JSON/SQLite decode) ran on the MainActor.
@@ -1321,6 +1323,121 @@ public final class AgentOrchestrationRuntime: @unchecked Sendable {
         policyDigest = Self.sha256Hex(
             "\(Self.packageID)|\(Self.requiredPackageRevision)|\(Self.policyContractVersion)"
         )
+    }
+
+    /// Host answer to "is the provider still running this native subagent?".
+    ///
+    /// WHY: Distill ends its turn while its subagents keep running in the same
+    /// process. A child whose parent turn ended is then still live, and only
+    /// the provider session that runs it can say so. Called inside receipt
+    /// transactions, so the answer must not take locks that wait on receipts.
+    public func setProviderNativeChildLiveness(
+        _ liveness: (@Sendable (AgentOrchestrationAdmissionReceipt) -> Bool)?
+    ) {
+        nativeChildLivenessLock.withLock { nativeChildLiveness = liveness }
+    }
+
+    /// A child the host recorded from the provider's own lifecycle events
+    /// (`recordProviderNativeChild`). It carries no delegation authority.
+    public static func isProviderNativeChild(_ receipt: AgentOrchestrationAdmissionReceipt) -> Bool {
+        receipt.decisionReason == "external-controlled-child"
+            && receipt.parentReceiptId != nil
+            && receipt.delegationCapabilitySHA256 == nil
+            && receipt.finalizationCapabilitySHA256 == nil
+            && receipt.nodeId.hasPrefix("native.")
+    }
+
+    /// Records a native child the provider spawned after its parent turn ended:
+    /// a background workflow moving on to its next phase. That turn's receipt
+    /// is already finalized, so it is not required to be active. The child
+    /// holds no delegation authority, and the provider session decides its
+    /// liveness. Host-observed provider events only; never reachable over IPC.
+    /// Returns nil when the parent turn is not on this thread's ledger.
+    func recordProviderNativeChildOfEndedTurn(
+        runId: AgentRunID,
+        threadId: AgentThreadID,
+        provider: AgentProvider,
+        providerInstanceId: String,
+        model: String,
+        nodeId: String,
+        parentRunId: AgentRunID
+    ) throws -> AgentOrchestrationAdmissionReceipt? {
+        let trimmedNodeId = nodeId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedNodeId.hasPrefix("native."),
+              trimmedNodeId.utf8.count <= 128,
+              trimmedNodeId.unicodeScalars.allSatisfy({ Self.safeNodeIdScalars.contains($0) }) else {
+            throw AgentOrchestrationAdmissionError.invalidChildAdmission("node id must be a provider-native token")
+        }
+        do {
+            return try repository.withReceiptMutation { () -> AgentOrchestrationAdmissionReceipt? in
+                if let existing = try repository.receiptUnlocked(runId: runId) {
+                    return existing.threadId == threadId ? existing : nil
+                }
+                guard let parent = try repository.receiptUnlocked(runId: parentRunId),
+                      parent.threadId == threadId else {
+                    return nil
+                }
+                let admittedAt = now()
+                let child = AgentOrchestrationAdmissionReceipt(
+                    parentReceiptId: parent.id,
+                    runId: runId,
+                    threadId: threadId,
+                    nodeId: trimmedNodeId,
+                    attemptId: runId.value,
+                    routingRevision: parent.routingRevision,
+                    policyDigest: parent.policyDigest,
+                    policyVersion: parent.policyVersion,
+                    packageRevision: parent.packageRevision,
+                    provider: provider,
+                    providerInstanceId: providerInstanceId,
+                    model: model,
+                    reasoningEffort: nil,
+                    capabilitySnapshotId: parent.capabilitySnapshotId,
+                    decisionReason: "external-controlled-child",
+                    admittedAt: admittedAt,
+                    lifecycleStatus: .accepted,
+                    deadlineAt: admittedAt.addingTimeInterval(externalLeaseDuration),
+                    permissionMode: parent.permissionMode,
+                    delegationCapabilitySHA256: nil,
+                    finalizationCapabilitySHA256: nil,
+                    ownerProcessID: ProcessInfo.processInfo.processIdentifier
+                )
+                try repository.appendAdmissionUnlocked(child)
+                return child
+            }
+        } catch let error as AgentOrchestrationAdmissionError {
+            throw error
+        } catch {
+            throw AgentOrchestrationAdmissionError.receiptPersistenceFailed(String(describing: error))
+        }
+    }
+
+    /// Records the provider's own report that a native child ended.
+    ///
+    /// Also applies to a child already demoted to `unknown`: the provider's
+    /// report replaces the host's uncertainty. Host-observed provider events
+    /// only, like `recordProviderNativeChild`; never reachable over IPC.
+    func finalizeProviderNativeChild(
+        runId: AgentRunID,
+        threadId: AgentThreadID,
+        status: AgentRunStatus
+    ) throws {
+        switch status {
+        case .completed, .failed, .cancelled:
+            break
+        case .pending, .running, .interrupted:
+            return
+        }
+        let reservationId = try repository.withReceiptMutation { () -> String? in
+            guard let receipt = try repository.receiptUnlocked(runId: runId),
+                  receipt.threadId == threadId,
+                  Self.isProviderNativeChild(receipt),
+                  receipt.lifecycleStatus != .finalized else {
+                return nil
+            }
+            return try finalizeReceiptUnlocked(receipt, status: status, usage: nil, qualityOutcome: nil)
+        }
+        if let reservationId { releaseReservation(reservationId) }
     }
 
     /// Lookup the durable admission receipt for a run, if any.
@@ -2587,6 +2704,7 @@ public final class AgentOrchestrationRuntime: @unchecked Sendable {
                 reconcileIndexes = Array(receipts.indices)
             }
 
+            let nativeChildIsLive = nativeChildLivenessLock.withLock { nativeChildLiveness }
             var activeMemo: [UUID: Bool] = [:]
             func isEffectivelyActive(
                 _ receipt: AgentOrchestrationAdmissionReceipt,
@@ -2610,6 +2728,12 @@ public final class AgentOrchestrationRuntime: @unchecked Sendable {
                     return false
                 }
                 guard let parentReceiptId = receipt.parentReceiptId else {
+                    activeMemo[receipt.id] = true
+                    return true
+                }
+                // Distill ends the parent turn while its subagents keep running;
+                // the provider session running the child decides, not the parent.
+                if Self.isProviderNativeChild(receipt), nativeChildIsLive?(receipt) == true {
                     activeMemo[receipt.id] = true
                     return true
                 }

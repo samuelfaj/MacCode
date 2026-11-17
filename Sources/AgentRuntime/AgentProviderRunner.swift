@@ -475,6 +475,37 @@ public extension AgentProviderAdapter {
     }
 }
 
+/// Native subagent lifecycle a provider reported while no turn of the thread was open.
+public struct ProviderOutOfTurnSubagentUpdate: Sendable {
+    public let threadId: AgentThreadID
+    public let event: AssistantEvent
+    /// The run whose turn last ran in the reporting process: the parent of a
+    /// subagent spawned after that turn ended (a background workflow's next phase).
+    public let lastRunId: AgentRunID?
+    /// False for rows a new process reported while loading the session; those only end work.
+    public let isLive: Bool
+
+    public init(threadId: AgentThreadID, event: AssistantEvent, lastRunId: AgentRunID?, isLive: Bool) {
+        self.threadId = threadId
+        self.event = event
+        self.lastRunId = lastRunId
+        self.isLive = isLive
+    }
+}
+
+/// A provider whose native subagents and background work outlive the turn
+/// that started them: Distill ends a turn while its subagents, background
+/// tasks and workflows keep running, and wakes the agent itself when they end.
+public protocol ProviderBackgroundWorkReporting: AnyObject {
+    /// Native subagent lifecycle reported while no turn of the thread was open:
+    /// after the turn ended, or while a new process loaded the session.
+    var onOutOfTurnSubagentLifecycle: (@Sendable (ProviderOutOfTurnSubagentUpdate) -> Void)? { get set }
+    /// True while the thread's live session still reports this native subagent running.
+    func isNativeSubagentRunning(threadId: AgentThreadID, childRunId: AgentRunID) -> Bool
+    /// True while the thread's live session still runs work it will wake the agent for.
+    func hasLiveBackgroundWork(threadId: AgentThreadID) -> Bool
+}
+
 public final class OneShotProviderAdapter: AgentProviderAdapter, @unchecked Sendable {
     public let runner: AgentProviderRunner
     private let lock = NSLock()

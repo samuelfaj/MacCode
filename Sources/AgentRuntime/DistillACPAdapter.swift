@@ -110,7 +110,7 @@ struct DistillACPHistoryRetention: Sendable {
     }
 }
 
-public final class DistillACPAdapter: AgentProviderAdapter, @unchecked Sendable {
+public final class DistillACPAdapter: AgentProviderAdapter, ProviderBackgroundWorkReporting, @unchecked Sendable {
     /// Discovery is still a provider runtime. It must enter the same durable
     /// ownership ledger as interactive distill sessions so a host crash cannot
     /// leave it untracked.
@@ -239,6 +239,10 @@ public final class DistillACPAdapter: AgentProviderAdapter, @unchecked Sendable 
         var wakeFailed: Set<String> = []
         /// Wake the watchdog closed with tools still open; its real terminal clears them.
         var abandonedWake: (promptId: String, generation: UInt64)?
+        /// Subagents, background tasks, workflows and agent turns this process still runs.
+        var backgroundWork = DistillBackgroundWork()
+        /// The run whose turn last ran in this process.
+        var lastRunId: AgentRunID?
 
         init(
             threadId: AgentThreadID,
@@ -339,6 +343,10 @@ public final class DistillACPAdapter: AgentProviderAdapter, @unchecked Sendable 
     private var pendingSeedLoops: [AgentThreadID: [DistillLoopState]] = [:]
     private var onLoopsChangedStorage: (@Sendable (AgentThreadID, [DistillLoopState]) -> Void)?
     private var onProviderInitiatedTurnStorage: (@Sendable (AgentThreadID, String, String) -> Void)?
+    private var onOutOfTurnSubagentLifecycleStorage: (@Sendable (ProviderOutOfTurnSubagentUpdate) -> Void)?
+    /// After its last report, background work counts as running this long: the
+    /// agent turn Distill starts when a subagent finishes follows the finish.
+    private let backgroundWorkQuietPeriod: TimeInterval
     /// Called with the thread's full loop list whenever a scheduler notification changes it.
     public var onLoopsChanged: (@Sendable (AgentThreadID, [DistillLoopState]) -> Void)? {
         get { synchronized { onLoopsChangedStorage } }
@@ -394,9 +402,11 @@ public final class DistillACPAdapter: AgentProviderAdapter, @unchecked Sendable 
         discoveryRunAsUser: AgentRunAsUser? = nil,
         modelCacheTTL: TimeInterval = 300,
         maxReadableEvents: Int = AgentRunCoordinator.hotReplayEventCount,
-        maxReadableBytes: Int64 = AgentRunCoordinator.hotReplayEventBytes
+        maxReadableBytes: Int64 = AgentRunCoordinator.hotReplayEventBytes,
+        backgroundWorkQuietPeriod: TimeInterval = 30
     ) {
         self.binaryNameOverride = binaryNameOverride
+        self.backgroundWorkQuietPeriod = max(0, backgroundWorkQuietPeriod)
         self.cancellationGracePeriod = max(0.01, cancellationGracePeriod)
         self.turnInactivityTimeout = max(0.01, turnInactivityTimeout)
         self.openToolQuietLimit = max(0, openToolQuietLimit)
@@ -1061,14 +1071,37 @@ public final class DistillACPAdapter: AgentProviderAdapter, @unchecked Sendable 
 
     public func listSessions() -> [AgentProviderSessionSummary] {
         lock.lock(); defer { lock.unlock() }
+        let now = Date()
         return sessions.values.map {
             AgentProviderSessionSummary(
                 threadId: $0.threadId,
                 provider: .distill,
                 status: $0.status,
                 providerThreadId: $0.providerThreadId,
+                // Releasing the session stops the process, and its background work with it.
                 toolsMayStillRun: $0.abandonedOpenToolsGeneration != nil
+                    || $0.backgroundWork.isBusy(now: now, quietPeriod: backgroundWorkQuietPeriod)
             )
+        }
+    }
+
+    /// Native subagent lifecycle reported while no turn of the thread was open.
+    public var onOutOfTurnSubagentLifecycle: (@Sendable (ProviderOutOfTurnSubagentUpdate) -> Void)? {
+        get { synchronized { onOutOfTurnSubagentLifecycleStorage } }
+        set { synchronized { onOutOfTurnSubagentLifecycleStorage = newValue } }
+    }
+
+    public func isNativeSubagentRunning(threadId: AgentThreadID, childRunId: AgentRunID) -> Bool {
+        synchronized {
+            guard let session = sessions[threadId], session.isLive else { return false }
+            return session.backgroundWork.isRunning(subagent: childRunId.value.uuidString)
+        }
+    }
+
+    public func hasLiveBackgroundWork(threadId: AgentThreadID) -> Bool {
+        synchronized {
+            guard let session = sessions[threadId], session.isLive else { return false }
+            return session.backgroundWork.isBusy(now: Date(), quietPeriod: backgroundWorkQuietPeriod)
         }
     }
 
@@ -1615,6 +1648,7 @@ public final class DistillACPAdapter: AgentProviderAdapter, @unchecked Sendable 
             session.lastEventAt = Date()
             session.promptFailureDetail = nil
             session.onEvent = onEvent
+            session.lastRunId = request.runId
             cancelTurnWatchdogLocked(session: session)
             return session.promptGeneration
         }
@@ -1945,6 +1979,7 @@ public final class DistillACPAdapter: AgentProviderAdapter, @unchecked Sendable 
             return
         }
         foldLoops(method: method, params: params, session: session)
+        observeBackgroundWork(method: method, params: params, session: session, live: true)
         if routeWakeNotification(method: method, params: params, session: session) { return }
         guard method == "session/update",
               let params = params as? [String: Any],
@@ -1969,6 +2004,60 @@ public final class DistillACPAdapter: AgentProviderAdapter, @unchecked Sendable 
             return
         }
         for event in session.mapper.consumeSessionUpdate(update) { emit(event, session: session) }
+    }
+
+    /// Tracks the work this process keeps running between turns, and sends native
+    /// subagent lifecycle that no open turn will carry to the receipt ledger.
+    ///
+    /// WHY: a turn's events stop at its terminal, so a subagent that finished
+    /// after its parent turn ended, or that a new process reported cancelled
+    /// while loading the session, used to stay `unknown` in Subagents forever.
+    /// Load-time rows (`live == false`) only retire work: a new process never
+    /// inherits the work its predecessor was running.
+    private func observeBackgroundWork(method: String, params: Any?, session: Session, live: Bool) {
+        guard let (update, promptId) = Self.sessionUpdate(
+            method: method,
+            params: params,
+            providerThreadId: session.providerThreadId
+        ) else { return }
+        let now = Date()
+        let delivery: (sink: @Sendable (ProviderOutOfTurnSubagentUpdate) -> Void, lastRunId: AgentRunID?)? = synchronized {
+            session.backgroundWork.apply(update: update, promptId: promptId, live: live, at: now)
+            guard !live || session.turnTerminalEmitted,
+                  let sink = onOutOfTurnSubagentLifecycleStorage else { return nil }
+            return (sink, session.lastRunId)
+        }
+        guard let delivery,
+              let kind = update["sessionUpdate"] as? String,
+              kind == "subagent_spawned" || kind == "subagent_progress" || kind == "subagent_finished" else { return }
+        delivery.sink(ProviderOutOfTurnSubagentUpdate(
+            threadId: session.threadId,
+            event: Self.runtimeEvent(
+                method: "x.ai/session_notification",
+                payload: ["sessionId": session.providerThreadId, "update": update]
+            ),
+            lastRunId: delivery.lastRunId,
+            isLive: live
+        ))
+    }
+
+    /// The update a `session/update` or Distill session notification (live or
+    /// legacy `_x.ai`, plain or nested `{method, params}`) carries for this
+    /// session, with the prompt Distill was running when it sent it.
+    private static func sessionUpdate(
+        method: String,
+        params: Any?,
+        providerThreadId: String
+    ) -> (update: [String: Any], promptId: String?)? {
+        let (resolvedMethod, resolvedParams) = isDistillExtNotificationMethod(method)
+            ? unwrapDistillExtNotification(method: method, params: params)
+            : (method, params)
+        let name = resolvedMethod.hasPrefix("_") ? String(resolvedMethod.dropFirst()) : resolvedMethod
+        guard name == "session/update" || name == "x.ai/session_notification" || name == "x.ai/session/update",
+              let dict = resolvedParams as? [String: Any],
+              dict["sessionId"] as? String == providerThreadId,
+              let update = dict["update"] as? [String: Any] else { return nil }
+        return (update, (dict["_meta"] as? [String: Any])?["promptId"] as? String)
     }
 
     private func foldLoops(method: String, params: Any?, session: Session) {
@@ -2189,6 +2278,7 @@ public final class DistillACPAdapter: AgentProviderAdapter, @unchecked Sendable 
             session.lastEventAt = Date()
             session.promptFailureDetail = nil
             session.attachedPromptId = promptId
+            session.lastRunId = request.runId
             session.attachReplaying = true
             session.replayBuffer = []
             session.replayTerminal = nil
@@ -2286,6 +2376,7 @@ public final class DistillACPAdapter: AgentProviderAdapter, @unchecked Sendable 
     /// Does not publish timeline events onto the follow-up run's onEvent path.
     private func hydrateNotification(method: String, params: Any?, session: Session) {
         foldLoops(method: method, params: params, session: session)
+        observeBackgroundWork(method: method, params: params, session: session, live: false)
         guard method == "session/update",
               let params = params as? [String: Any],
               params["sessionId"] as? String == session.providerThreadId,
@@ -2307,6 +2398,7 @@ public final class DistillACPAdapter: AgentProviderAdapter, @unchecked Sendable 
     /// pollution / wire re-rendering of historical text).
     private func recordHydratedTimeline(method: String, params: Any?, session: Session) {
         foldLoops(method: method, params: params, session: session)
+        observeBackgroundWork(method: method, params: params, session: session, live: false)
         guard method == "session/update",
               let params = params as? [String: Any],
               params["sessionId"] as? String == session.providerThreadId,

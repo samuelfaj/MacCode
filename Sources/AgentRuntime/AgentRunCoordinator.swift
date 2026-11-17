@@ -281,6 +281,13 @@ public protocol AgentRunObserver: AnyObject {
     func runCoordinator(_ c: AgentRunCoordinator, didReceive event: AssistantEvent, run: AgentRunID, threadId: AgentThreadID)
     func runCoordinator(_ c: AgentRunCoordinator, didFinish runId: AgentRunID, threadId: AgentThreadID, status: AgentRunStatus, finalMessage: String?, providerThreadId: String?)
     func runCoordinator(_ c: AgentRunCoordinator, didChangeStatus status: AgentRunStatus, runId: AgentRunID, threadId: AgentThreadID)
+    /// A provider update for a thread with no open turn: Distill subagents keep
+    /// reporting after the turn that started them ended. Not part of any run.
+    func runCoordinator(_ c: AgentRunCoordinator, didReceiveOutOfTurn event: ProviderRuntimeEvent, threadId: AgentThreadID)
+}
+
+public extension AgentRunObserver {
+    func runCoordinator(_ c: AgentRunCoordinator, didReceiveOutOfTurn event: ProviderRuntimeEvent, threadId: AgentThreadID) {}
 }
 
 public struct AgentThreadForkResult: Sendable, Equatable {
@@ -738,6 +745,9 @@ public final class AgentRunCoordinator: @unchecked Sendable {
     /// background job is auto-nudged to resume. Gives the background job time to make
     /// progress before the agent polls it. Injectable so tests drive it to ~0.
     public var backgroundAwaitContinuationDelay: TimeInterval = 45
+    /// How often a due auto-continuation re-checks a provider that is still
+    /// running background work for the thread. Injectable so tests drive it to ~0.
+    public var backgroundWorkRecheckInterval: TimeInterval = 30
     /// Backoff before each automatic resume of a turn that failed on a transient
     /// network error (e.g. Distill "error decoding response body"). The count
     /// bounds the retries; injectable so tests drive it to ~0.
@@ -816,16 +826,47 @@ public final class AgentRunCoordinator: @unchecked Sendable {
             botSecretStore: botSecretStore
         )
         self.providers = providerAdapters
+        for (provider, adapter) in providerAdapters {
+            registerBackgroundWorkReporting(adapter, as: provider)
+        }
     }
 
     public func replaceProvider(_ provider: AgentProvider, runner: AgentProviderRunner) {
-        lock.lock(); defer { lock.unlock() }
-        providers[provider] = OneShotProviderAdapter(runner: runner)
+        lock.lock()
+        let adapter = OneShotProviderAdapter(runner: runner)
+        providers[provider] = adapter
+        lock.unlock()
+        registerBackgroundWorkReporting(adapter, as: provider)
     }
 
     public func replaceProviderAdapter(_ provider: AgentProvider, adapter: AgentProviderAdapter) {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
         providers[provider] = adapter
+        lock.unlock()
+        registerBackgroundWorkReporting(adapter, as: provider)
+    }
+
+    /// Adapters whose native subagents and background work outlive a turn.
+    /// Own leaf lock: the receipt runtime asks it from inside receipt transactions.
+    private let backgroundWorkReportersLock = NSLock()
+    private var backgroundWorkReporters: [AgentProvider: ProviderBackgroundWorkReporting] = [:]
+
+    private func registerBackgroundWorkReporting(_ adapter: AgentProviderAdapter, as provider: AgentProvider) {
+        let reporter = adapter as? ProviderBackgroundWorkReporting
+        reporter?.onOutOfTurnSubagentLifecycle = { [weak self] report in
+            self?.persistOutOfTurnProviderNativeSubagentLifecycle(report)
+        }
+        backgroundWorkReportersLock.withLock { backgroundWorkReporters[provider] = reporter }
+        guard reporter != nil else { return }
+        orchestrationRuntime?.setProviderNativeChildLiveness { [weak self] receipt in
+            guard let self, let childRunId = receipt.runId,
+                  let reporter = self.backgroundWorkReporter(for: receipt.provider) else { return false }
+            return reporter.isNativeSubagentRunning(threadId: receipt.threadId, childRunId: childRunId)
+        }
+    }
+
+    private func backgroundWorkReporter(for provider: AgentProvider) -> ProviderBackgroundWorkReporting? {
+        backgroundWorkReportersLock.withLock { backgroundWorkReporters[provider] }
     }
 
     public func addObserver(_ observer: AgentRunObserver) {
@@ -4007,12 +4048,25 @@ public final class AgentRunCoordinator: @unchecked Sendable {
             reason: reason
         )
         agentRunLog.info("run.autoContinue.scheduled thread=\(threadId.value.uuidString, privacy: .public) attempt=\(attempt, privacy: .public) reason=\(reason.rawValue, privacy: .public)")
+        let provider = runMetadata.provider
         Task { [weak self] in
             guard let self else { return }
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: UInt64((delay * 1_000_000_000).rounded()))
             }
             guard self.backgroundAwaitContinuationStillValid(threadId: threadId, token: token) else { return }
+            // Distill wakes the agent itself when its background work ends, and
+            // this run would restart the provider process and kill that work.
+            var loggedWait = false
+            while self.backgroundWorkReporter(for: provider)?.hasLiveBackgroundWork(threadId: threadId) == true {
+                if !loggedWait {
+                    loggedWait = true
+                    agentRunLog.info("run.autoContinue.waiting_background_work thread=\(threadId.value.uuidString, privacy: .public)")
+                }
+                let interval = max(0.01, self.backgroundWorkRecheckInterval)
+                try? await Task.sleep(nanoseconds: UInt64((interval * 1_000_000_000).rounded()))
+                guard self.backgroundAwaitContinuationStillValid(threadId: threadId, token: token) else { return }
+            }
             if let claim = self.autoContinuationClaimsBotVM {
                 guard await claim(threadId, request.runId) else { return }
             }
@@ -7195,42 +7249,34 @@ public final class AgentRunCoordinator: @unchecked Sendable {
             ?? "unknown"
         for update in updates {
             do {
-                _ = try orchestrationRuntime.recordProviderNativeChild(
-                    runId: update.childRunId,
-                    threadId: threadId,
-                    provider: update.provider,
-                    providerInstanceId: update.provider == parentProvider
-                        ? parentProviderInstanceId
-                        : update.provider.rawValue,
-                    model: update.provider == parentProvider ? parentModel : "unknown",
-                    // Provider-native lifecycle events do not acknowledge the
-                    // child's actual effort. Keep it unknown instead of
-                    // presenting the parent's request as provider evidence.
-                    reasoningEffort: nil,
-                    nodeId: update.nodeId,
-                    parentRunId: parentRunId
-                )
-                switch update.phase {
-                case .unknown:
-                    try orchestrationRuntime.markReceiptUnknown(runId: update.childRunId)
-                case .completed:
-                    try orchestrationRuntime.finalizeReceipt(
+                // A subagent an earlier turn spawned (Distill keeps them running
+                // between turns) already has its receipt under that turn, and
+                // re-recording it under this run is refused: only its
+                // transition applies, or its real end never lands.
+                if let known = try orchestrationRuntime.receipt(runId: update.childRunId) {
+                    guard known.threadId == threadId else { continue }
+                } else {
+                    _ = try orchestrationRuntime.recordProviderNativeChild(
                         runId: update.childRunId,
-                        status: .completed
+                        threadId: threadId,
+                        provider: update.provider,
+                        providerInstanceId: update.provider == parentProvider
+                            ? parentProviderInstanceId
+                            : update.provider.rawValue,
+                        model: update.provider == parentProvider ? parentModel : "unknown",
+                        // Provider-native lifecycle events do not acknowledge the
+                        // child's actual effort. Keep it unknown instead of
+                        // presenting the parent's request as provider evidence.
+                        reasoningEffort: nil,
+                        nodeId: update.nodeId,
+                        parentRunId: parentRunId
                     )
-                case .failed:
-                    try orchestrationRuntime.finalizeReceipt(
-                        runId: update.childRunId,
-                        status: .failed
-                    )
-                case .cancelled:
-                    try orchestrationRuntime.finalizeReceipt(
-                        runId: update.childRunId,
-                        status: .cancelled
-                    )
-                case .active:
-                    break
                 }
+                try applyProviderNativeSubagentTransition(
+                    update,
+                    threadId: threadId,
+                    runtime: orchestrationRuntime
+                )
             } catch {
                 emitPersistenceIssue(
                     "subagent.lifecycle",
@@ -7239,6 +7285,82 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                     threadId: threadId
                 )
             }
+        }
+    }
+
+    private func applyProviderNativeSubagentTransition(
+        _ update: ProviderNativeSubagentUpdate,
+        threadId: AgentThreadID,
+        runtime: AgentOrchestrationRuntime
+    ) throws {
+        let status: AgentRunStatus
+        switch update.phase {
+        case .active:
+            return
+        case .unknown:
+            try runtime.markReceiptUnknown(runId: update.childRunId)
+            return
+        case .completed:
+            status = .completed
+        case .failed:
+            status = .failed
+        case .cancelled:
+            status = .cancelled
+        }
+        try runtime.finalizeProviderNativeChild(
+            runId: update.childRunId,
+            threadId: threadId,
+            status: status
+        )
+    }
+
+    /// Native subagent lifecycle a provider reported while no turn of the
+    /// thread was open: a subagent that finished after its parent turn ended,
+    /// one a new process reported cancelled while loading the session, or one
+    /// a background workflow spawned for its next phase. A live report about
+    /// a new child is admitted under the turn that last ran in that process;
+    /// load-time rows only end children the ledger already holds.
+    private func persistOutOfTurnProviderNativeSubagentLifecycle(_ report: ProviderOutOfTurnSubagentUpdate) {
+        let threadId = report.threadId
+        guard let orchestrationRuntime,
+              case .providerRuntime(let runtimeEvent) = report.event,
+              ProviderNativeSubagentLifecycle.isPotentialLifecycleEvent(report.event) else { return }
+        let updates = ProviderNativeSubagentLifecycle.updates(
+            from: report.event,
+            parentProvider: runtimeEvent.provider
+        )
+        for update in updates {
+            do {
+                if let known = try orchestrationRuntime.receipt(runId: update.childRunId) {
+                    guard known.threadId == threadId else { continue }
+                } else {
+                    guard report.isLive, let parentRunId = report.lastRunId,
+                          try orchestrationRuntime.recordProviderNativeChildOfEndedTurn(
+                            runId: update.childRunId,
+                            threadId: threadId,
+                            provider: update.provider,
+                            providerInstanceId: update.provider.rawValue,
+                            model: "unknown",
+                            nodeId: update.nodeId,
+                            parentRunId: parentRunId
+                          ) != nil else { continue }
+                }
+                try applyProviderNativeSubagentTransition(
+                    update,
+                    threadId: threadId,
+                    runtime: orchestrationRuntime
+                )
+            } catch {
+                emitPersistenceIssue(
+                    "subagent.lifecycle.out_of_turn",
+                    error: error,
+                    runId: update.childRunId,
+                    threadId: threadId
+                )
+            }
+        }
+        if report.isLive {
+            notifyObserversOfOutOfTurnEvent(runtimeEvent, threadId: threadId)
         }
     }
 
@@ -8027,6 +8149,12 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         let observers = observerRefs.compactMap(\.value)
         lock.unlock()
         return observers
+    }
+
+    private func notifyObserversOfOutOfTurnEvent(_ event: ProviderRuntimeEvent, threadId: AgentThreadID) {
+        for observer in observersSnapshot() {
+            observer.runCoordinator(self, didReceiveOutOfTurn: event, threadId: threadId)
+        }
     }
 
     private func providerSessionRuntimePayloadJSON(
