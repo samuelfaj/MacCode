@@ -265,3 +265,166 @@ final class DurableDomainRevisionsTests: XCTestCase {
         XCTAssertThrowsError(try makeLedger(store, boot: 1, bus: EventBus(), previousBootClean: false))
     }
 }
+
+@MainActor
+private final class DurableRevisionRouter: FakeRouter, ConnectionSnapshotRouting {
+    var workspaceName = "Main"
+
+    func readConnectionSnapshotState() async throws -> ConnectionSnapshotReadState {
+        snapshotState(workspaceName: workspaceName)
+    }
+}
+
+/// V2/V3 on the wire: a client that saw `snapshot.domain_revisions.durable_v1`
+/// sends the revisions it learned on the previous boot; the restarted Mac
+/// answers only the domains that changed. Servers without the ledger keep the
+/// old welcome and revisions, so old clients see no difference.
+@MainActor
+final class DurableDomainRevisionsWireTests: XCTestCase {
+    private func startServer(
+        router: DurableRevisionRouter,
+        bootEpoch: UInt64,
+        durable: ConnectionDurableDomainRevisions?
+    ) async throws -> (DirectHTTPServer, UInt16) {
+        let port = UInt16.random(in: 33_000...44_000)
+        let server = DirectHTTPServer(
+            port: port,
+            loopbackOnly: true,
+            dispatcher: JSONRPCDispatcher(router: router),
+            serverId: "durable-host",
+            bootEpoch: bootEpoch
+        )
+        server.durableDomainRevisions = durable
+        try server.start()
+        try await Task.sleep(nanoseconds: 80_000_000)
+        return (server, port)
+    }
+
+    private func ledger(_ store: RevisionStore, boot: UInt64, clean: Bool) throws -> ConnectionDurableDomainRevisions {
+        try ConnectionDurableDomainRevisions(
+            bootEpoch: boot,
+            bootFloor: EventBus.shared.currentSeq,
+            previousBootClean: clean,
+            load: { store.load() },
+            save: { try store.save($0) }
+        )
+    }
+
+    private func welcomeCapabilities(port: UInt16) async throws -> [String] {
+        var request = URLRequest(url: URL(string: "ws://127.0.0.1:\(port)/v1/ws")!)
+        request.setValue("\(EventBus.shared.currentSeq)", forHTTPHeaderField: "x-rc2-since-seq")
+        let socket = URLSession.shared.webSocketTask(with: request)
+        socket.resume()
+        defer { socket.cancel(with: .normalClosure, reason: nil) }
+        let data: Data
+        switch try await socket.receive() {
+        case .data(let value): data = value
+        case .string(let value): data = Data(value.utf8)
+        @unknown default: data = Data()
+        }
+        let welcome = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try XCTUnwrap(welcome["capabilities"] as? [String])
+    }
+
+    private func rpc(port: UInt16, method: String, params: [String: Any]) async throws -> [String: Any] {
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/v1/rpc")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "jsonrpc": "2.0", "id": UUID().uuidString, "method": method, "params": params,
+        ])
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func snapshot(port: UInt16, known: [String: Any]?, previousBoot: UInt64) async throws -> [String: Any] {
+        var params: [String: Any] = ["supportedStateVersion": 3, "expectedBootEpoch": previousBoot]
+        params["knownDomainRevisions"] = known
+        let response = try await rpc(port: port, method: "sync.snapshot", params: params)
+        XCTAssertNil(response["error"], "\(response)")
+        return try XCTUnwrap((response["result"] as? [String: Any])?["state"] as? [String: Any])
+    }
+
+    /// `sync.snapshot.begin` + every chunk, decoded like the iOS assembler.
+    private func chunkedSnapshot(port: UInt16, known: [String: Any], previousBoot: UInt64) async throws -> [String: JSONValue] {
+        let begin = try await rpc(port: port, method: "sync.snapshot.begin", params: [
+            "supportedStateVersion": 3, "expectedBootEpoch": previousBoot, "knownDomainRevisions": known,
+        ])
+        let manifest = try XCTUnwrap(begin["result"] as? [String: Any], "\(begin)")
+        let transferId = try XCTUnwrap(manifest["transferId"] as? String)
+        let chunkCount = try XCTUnwrap((manifest["chunkCount"] as? NSNumber)?.intValue)
+        var frameData = Data()
+        for index in 0..<chunkCount {
+            let chunk = try await rpc(port: port, method: "sync.snapshot.chunk", params: [
+                "transferId": transferId, "chunkIndex": index,
+            ])
+            let body = try XCTUnwrap(chunk["result"] as? [String: Any], "\(chunk)")
+            frameData.append(try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(body["payloadBase64"] as? String))))
+        }
+        guard case .snapshot(let frame) = try ConnectionTransportFrame.decodeStrict(frameData) else {
+            XCTFail("assembled bytes must be a snapshot frame")
+            return [:]
+        }
+        return try XCTUnwrap(frame.state.objectValue)
+    }
+
+    func test_restartedMac_answersPreviousBootKnownRevisionsWithOnlyChangedDomains() async throws {
+        let router = DurableRevisionRouter()
+        let store = RevisionStore()
+
+        // Boot 41: the client takes a full snapshot.
+        let firstLedger = try ledger(store, boot: 41, clean: false)
+        let (first, firstPort) = try await startServer(router: router, bootEpoch: 41, durable: firstLedger)
+        let capabilities = try await welcomeCapabilities(port: firstPort)
+        XCTAssertTrue(capabilities.contains(ConnectionDurableDomainRevisions.capability),
+                      "iOS sends previous-boot revisions only when welcome lists the capability")
+        let full = try await snapshot(port: firstPort, known: nil, previousBoot: 41)
+        XCTAssertNil(full["partial"])
+        let known = try XCTUnwrap(full["domainRevisions"] as? [String: Any])
+        // Same boot, old-client path still works on durable values.
+        let sameBoot = try await snapshot(port: firstPort, known: known, previousBoot: 41)
+        XCTAssertEqual(sameBoot["includedDomains"] as? [String], [])
+        first.stop()
+        firstLedger.seal(bus: EventBus.shared.snapshotMetadata().domainRevisions)
+
+        // Boot 42, nothing changed: revisions-only partial on both snapshot RPCs.
+        let secondLedger = try ledger(store, boot: 42, clean: true)
+        let (second, secondPort) = try await startServer(router: router, bootEpoch: 42, durable: secondLedger)
+        let unchanged = try await snapshot(port: secondPort, known: known, previousBoot: 41)
+        XCTAssertEqual(unchanged["partial"] as? Bool, true)
+        XCTAssertEqual(unchanged["includedDomains"] as? [String], [])
+        XCTAssertNil(unchanged["workspaces"])
+        XCTAssertEqual(unchanged["domainRevisions"] as? NSDictionary, known as NSDictionary,
+                       "revisions are neither lowered nor bumped by the restart")
+        let chunked = try await chunkedSnapshot(port: secondPort, known: known, previousBoot: 41)
+        XCTAssertEqual(chunked["includedDomains"], .array([]))
+        second.stop()
+        secondLedger.seal(bus: EventBus.shared.snapshotMetadata().domainRevisions)
+
+        // Boot 43 after a change made while the Mac was restarting.
+        router.workspaceName = "Renamed while restarting"
+        let thirdLedger = try ledger(store, boot: 43, clean: true)
+        let (third, thirdPort) = try await startServer(router: router, bootEpoch: 43, durable: thirdLedger)
+        defer { third.stop() }
+        let changed = try await snapshot(port: thirdPort, known: known, previousBoot: 42)
+        XCTAssertEqual(changed["includedDomains"] as? [String], ["shell"])
+        let workspaces = try XCTUnwrap(changed["workspaces"] as? [[String: Any]])
+        XCTAssertEqual(workspaces.first?["name"] as? String, "Renamed while restarting")
+        let chunkedChanged = try await chunkedSnapshot(port: thirdPort, known: known, previousBoot: 42)
+        XCTAssertEqual(chunkedChanged["includedDomains"], .array([.string("shell")]))
+    }
+
+    func test_withoutDurableRevisions_welcomeAndRevisionsKeepTheOldShape() async throws {
+        let router = DurableRevisionRouter()
+        let (server, port) = try await startServer(router: router, bootEpoch: 7, durable: nil)
+        defer { server.stop() }
+        let capabilities = try await welcomeCapabilities(port: port)
+        XCTAssertEqual(capabilities, DirectHTTPServer.welcomeCapabilities())
+        XCTAssertFalse(capabilities.contains(ConnectionDurableDomainRevisions.capability))
+        let state = try await snapshot(port: port, known: nil, previousBoot: 7)
+        let revisions = try XCTUnwrap(state["domainRevisions"] as? [String: Any])
+        let bus = EventBus.shared.snapshotMetadata().domainRevisions
+        XCTAssertEqual((revisions["agentThreads"] as? NSNumber)?.int64Value, bus.agentThreads)
+        XCTAssertEqual((revisions["shell"] as? NSNumber)?.int64Value, bus.shell)
+    }
+}

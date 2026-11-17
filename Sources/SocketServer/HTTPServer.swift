@@ -1067,11 +1067,15 @@ public final class DirectHTTPServer: @unchecked Sendable {
     /// only when the host can apply interest control (preserves old-peer shape
     /// when the flag is false).
     public static func welcomeCapabilities(
-        streamInterestSupported: Bool = DirectHTTPServer.supportsStreamInterestControl
+        streamInterestSupported: Bool = DirectHTTPServer.supportsStreamInterestControl,
+        durableDomainRevisions: Bool = false
     ) -> [String] {
         var caps = baselineWelcomeCapabilities
         if streamInterestSupported {
             caps.append(streamInterestCapability)
+        }
+        if durableDomainRevisions {
+            caps.append(ConnectionDurableDomainRevisions.capability)
         }
         return caps
     }
@@ -1636,7 +1640,8 @@ public final class DirectHTTPServer: @unchecked Sendable {
     public let serverId: String
     public let bootEpoch: UInt64
     /// Set before `start()`. When present, `sync.snapshot` revisions survive
-    /// a Mac restart; nil keeps EventBus revisions (valid only within one boot).
+    /// a Mac restart and welcome lists `snapshot.domain_revisions.durable_v1`;
+    /// nil keeps EventBus revisions (valid only within one boot).
     public var durableDomainRevisions: ConnectionDurableDomainRevisions?
 
     /// True while the Mac relay host socket is open (`/v1/discovery` `relay`).
@@ -2924,7 +2929,9 @@ public final class DirectHTTPServer: @unchecked Sendable {
                 // the event-only WebSocket transport.
                 // stream.interest.v1 only when the host applies rc2.interest
                 // (see welcomeCapabilities); old peers ignore unknown caps.
-                capabilities: Self.welcomeCapabilities(),
+                capabilities: Self.welcomeCapabilities(
+                    durableDomainRevisions: durableDomainRevisions != nil
+                ),
                 apiVersion: welcomeIdentityRequested ? Self.hostAPIVersion : nil,
                 capabilitiesDigest: welcomeIdentityRequested
                     ? Self.capabilitiesProjection(
