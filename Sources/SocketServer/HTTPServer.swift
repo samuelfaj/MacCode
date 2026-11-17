@@ -1048,6 +1048,7 @@ public final class DirectHTTPServer: @unchecked Sendable {
         ConnectionSnapshotThreadWindow.capability,
         DurableReplayContract.capability,
         ConnectionClientFeatures.resumeHead,
+        ClientPerfReport.capability,
     ]
 
     /// Every WS filter (including the default `.full`) may skip sequences:
@@ -4481,6 +4482,12 @@ public final class DirectHTTPServer: @unchecked Sendable {
         if ["bot.conversation.enqueue", "bot.conversation.export.preview", "bot.conversation.export"].contains(method), !principal.isAuthenticated {
             return rpcErrorObject(JSONRPCError(code: -32098,
                 message: "Contextual data operations require an authenticated paired connection."), id: wireID)
+        }
+        // Perf reports come from paired phones only: a tokenless loopback
+        // caller (trusted Mac-local otherwise) has no bearer and writes no log.
+        if method == ClientPerfReport.method, !principal.isAuthenticated {
+            return rpcErrorObject(JSONRPCError(code: -32098,
+                message: "Perf reports require an authenticated paired connection."), id: wireID)
         }
         if method == AgentCheckpointListContract.method {
             // Explicit v1 transport gate before any repository work.

@@ -297,7 +297,7 @@ public struct RemoteCodeNotificationContent: Equatable, Sendable {
         userInfo.removeValue(forKey: "finalMessageId")
         userInfo["activityDestination"] = "true"
         userInfo["outcome"] = "completed"
-        userInfo["runIds"] = contents.compactMap { $0.userInfo["runId"] }.joined(separator: ",")
+        userInfo["runIds"] = boundedRunIds(contents.compactMap { $0.userInfo["runId"] })
         return RemoteCodeNotificationContent(
             identifier: "workspace.\(first.userInfo["workspaceId"] ?? "none").runs.\(UUID().uuidString)",
             title: L("%1$@ runs completed", contents.count),
@@ -307,6 +307,24 @@ public struct RemoteCodeNotificationContent: Equatable, Sendable {
             userInfo: userInfo,
             soundEnabled: first.soundEnabled
         )
+    }
+
+    /// The private backend refuses a push whose `data` holds a value longer than
+    /// 512 characters, and with it the whole alert. Fourteen run ids already
+    /// pass that, so a burst of finished runs got no "runs completed" push.
+    static let pushDataValueLimit = 512
+
+    /// Comma-joined run ids, newest kept, within `pushDataValueLimit`.
+    static func boundedRunIds(_ runIds: [String]) -> String {
+        var kept: [String] = []
+        var length = 0
+        for runId in runIds.reversed() {
+            let added = runId.utf16.count + (kept.isEmpty ? 0 : 1)
+            guard length + added <= pushDataValueLimit else { break }
+            kept.append(runId)
+            length += added
+        }
+        return kept.reversed().joined(separator: ",")
     }
 
     public func withSound(_ enabled: Bool) -> RemoteCodeNotificationContent {

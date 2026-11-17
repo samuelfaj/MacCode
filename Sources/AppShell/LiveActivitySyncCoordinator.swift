@@ -395,6 +395,10 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
             var wasPresent = false
             var activityGeneration = initialActivityGeneration
             var stateRevision: UInt64 = 0
+            /// Status of the newest finished run. A terminal card retried by the
+            /// heartbeat, or ended by a later surface/Titio change, must still
+            /// show how the run ended, not the cause of the retry.
+            var lastFinishedStatus: AgentRunStatus?
 
             func presentNow() -> Bool {
                 if let titio { return titio.openDecisions > 0 || latest.activeRunCount > 0 }
@@ -418,6 +422,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
                     surface: surface,
                     titio: titio,
                     cause: cause,
+                    lastFinishedStatus: lastFinishedStatus,
                     event: event,
                     serverId: serverId,
                     bootEpoch: bootEpoch,
@@ -481,8 +486,10 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
                     }
                 case .projection(let projection, let cause, let now):
                     latest = projection
+                    if case .finished(let status) = cause { lastFinishedStatus = status }
                     if cause == .launchReconciliation {
                         surface = nil
+                        lastFinishedStatus = nil
                         activityGeneration &+= 1
                         tokenScopeBinder.recordGeneration(activityGeneration)
                         stateRevision = 0
@@ -550,6 +557,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
         surface: PetLiveActivityCopy.Output?,
         titio: TitioInboxSnapshot?,
         cause: LiveActivitySyncCause,
+        lastFinishedStatus: AgentRunStatus? = nil,
         event: PrivateLiveActivityEvent,
         serverId: String,
         bootEpoch: UInt64,
@@ -558,6 +566,11 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
         now: Date
     ) -> LiveActivitySyncDelivery {
         let sessionId = "\(serverId):\(bootEpoch):\(activityGeneration)"
+        // The run outcome a card shows once nothing runs: this command's own
+        // finish, else the newest finish seen (a heartbeat retry carries none).
+        let finishedStatus: AgentRunStatus?
+        if case .finished(let status) = cause { finishedStatus = status } else { finishedStatus = lastFinishedStatus }
+        let finishedFailed = finishedStatus == .failed || finishedStatus == .interrupted
         let title: String
         let statusLine: String
         let preview: String
@@ -572,7 +585,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
         // has host-owned runs (Ready for you vs LA split-brain).
         if let titio {
             count = projection.activeRunCount
-            phase = count > 0 || titio.openDecisions > 0 ? .running : .completed
+            phase = count > 0 || titio.openDecisions > 0 ? .running : finishedFailed ? .failed : .completed
             title = "Titio"
             if titio.openDecisions > 0 {
                 statusLine = titio.openDecisions == 1 ? L("1 question needs you") : L("%1$@ questions need you", titio.openDecisions)
@@ -623,8 +636,8 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
             workspaceId = surface.workspaceId
             runStartDate = surface.runStartDate.map { $0.timeIntervalSince1970 }
         } else {
-            if case .finished(.completed) = cause {
-                phase = .completed
+            if let finishedStatus {
+                phase = finishedStatus == .completed ? .completed : .failed
             } else {
                 phase = .failed
             }
@@ -640,7 +653,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
             title: title,
             statusLine: statusLine,
             preview: preview,
-            petState: titio.map { $0.openDecisions > 0 ? "question" : count > 0 ? "coding" : "success" },
+            petState: titio.map { $0.openDecisions > 0 ? "question" : count > 0 ? "coding" : phase == .failed ? "failed" : "success" },
             titioFocus: event != .end && phase == .running ? titio?.focus : nil,
             phase: phase,
             activeThreadCount: count,
