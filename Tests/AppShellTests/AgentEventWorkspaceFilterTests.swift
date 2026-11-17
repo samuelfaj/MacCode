@@ -64,6 +64,21 @@ final class AgentEventWorkspaceFilterTests: XCTestCase {
         )
     }
 
+    /// Token usage arrives several times a second during a run and carries no
+    /// workspace_id, so it used to pass this gate on every open Agent tab and
+    /// trigger a rail + queue reload per event (CPU spikes in the running app
+    /// line up with token_usage events). Rail rows hold no token data, so the
+    /// event must not reach the lifecycle reload path.
+    func test_tokenUsageNeverTriggersRailReload() {
+        let payload: JSONValue = .object(["thread_id": .string("t"), "total_tokens": .number(1)])
+        XCTAssertFalse(
+            AppCommandRouter.shouldAdmitAgentLifecycleEvent(kind: "agent.thread.token_usage", payload: payload, workspaceID: workspaceID)
+        )
+        XCTAssertTrue(
+            AppCommandRouter.shouldAdmitAgentLifecycleEvent(kind: "agent.thread.updated", payload: payload, workspaceID: workspaceID)
+        )
+    }
+
     func test_foreignWorkspaceEventIsRejectedBeforeMainDispatch() {
         let payload: JSONValue = .object([
             "workspace_id": .string(foreignWorkspaceID.value.uuidString),
