@@ -7,7 +7,7 @@ import Foundation
 /// and workflows keep running inside the same agent process, and it wakes the
 /// agent on its own when they finish. Restarting that process kills the work
 /// ("interrupted by process restart"), so the host has to know it is running.
-struct DistillBackgroundWork: Equatable, Sendable {
+struct DistillBackgroundWork: Sendable {
     /// Distill's agent-initiated turn families (`PromptOrigin::from_prompt_id`).
     static let agentTurnPromptPrefixes = [
         "task-completed-", "subagent-completed-", "workflow-completed-",
@@ -49,9 +49,11 @@ struct DistillBackgroundWork: Equatable, Sendable {
     /// Folds one `session/update` or `x.ai/session_notification` update.
     /// A replayed or load-time update (`live == false`) can only retire work:
     /// a new process never inherits the work its predecessor was running.
+    /// Runs for every streamed chunk, so an ordinary update costs one switch.
     mutating func apply(update: [String: Any], promptId: String?, live: Bool, at now: Date) {
-        let before = self
         let kind = update["sessionUpdate"] as? String
+        var reported = true
+        var turnChanged = false
         switch kind {
         case "subagent_spawned", "subagent_progress":
             if live, let id = Self.subagentID(update) { subagents.insert(id) }
@@ -77,8 +79,9 @@ struct DistillBackgroundWork: Equatable, Sendable {
                 }
             }
         case "turn_completed":
+            reported = false
             if let id = Self.string(update["prompt_id"]), Self.isAgentTurnPromptID(id) {
-                agentTurns.remove(id)
+                turnChanged = agentTurns.remove(id) != nil
                 if !completedAgentTurns.contains(id) {
                     completedAgentTurns.append(id)
                     if completedAgentTurns.count > Self.completedAgentTurnMemory {
@@ -87,24 +90,18 @@ struct DistillBackgroundWork: Equatable, Sendable {
                 }
             }
         default:
-            break
+            reported = false
+            // Distill stamps every update with the prompt it runs; its own turns
+            // use a family prefix, so a user prompt id fails on the first bytes.
+            if live, let promptId, Self.isAgentTurnPromptID(promptId) {
+                let id = promptId.lowercased()
+                if !completedAgentTurns.contains(id) {
+                    turnChanged = agentTurns.insert(id).inserted
+                }
+            }
         }
-        if live, kind != "turn_completed", let promptId = Self.string(promptId),
-           Self.isAgentTurnPromptID(promptId), !completedAgentTurns.contains(promptId) {
-            agentTurns.insert(promptId)
-        }
-        if live, self != before || Self.reportsBackgroundWork(kind) {
+        if live, reported || turnChanged {
             lastReportAt = now
-        }
-    }
-
-    private static func reportsBackgroundWork(_ kind: String?) -> Bool {
-        switch kind {
-        case "subagent_spawned", "subagent_progress", "subagent_finished",
-             "task_backgrounded", "task_completed", "background_tasks", "workflow_updated":
-            return true
-        default:
-            return false
         }
     }
 

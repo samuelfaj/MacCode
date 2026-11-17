@@ -7254,7 +7254,8 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                 // re-recording it under this run is refused: only its
                 // transition applies, or its real end never lands.
                 if let known = try orchestrationRuntime.receipt(runId: update.childRunId) {
-                    guard known.threadId == threadId else { continue }
+                    guard known.threadId == threadId,
+                          AgentOrchestrationRuntime.isProviderNativeChild(known) else { continue }
                 } else {
                     _ = try orchestrationRuntime.recordProviderNativeChild(
                         runId: update.childRunId,
@@ -7332,7 +7333,8 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         for update in updates {
             do {
                 if let known = try orchestrationRuntime.receipt(runId: update.childRunId) {
-                    guard known.threadId == threadId else { continue }
+                    guard known.threadId == threadId,
+                          AgentOrchestrationRuntime.isProviderNativeChild(known) else { continue }
                 } else {
                     guard report.isLive, let parentRunId = report.lastRunId,
                           try orchestrationRuntime.recordProviderNativeChildOfEndedTurn(

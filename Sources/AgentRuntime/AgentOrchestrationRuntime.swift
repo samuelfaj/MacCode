@@ -1371,7 +1371,7 @@ public final class AgentOrchestrationRuntime: @unchecked Sendable {
         do {
             return try repository.withReceiptMutation { () -> AgentOrchestrationAdmissionReceipt? in
                 if let existing = try repository.receiptUnlocked(runId: runId) {
-                    return existing.threadId == threadId ? existing : nil
+                    return existing.threadId == threadId && Self.isProviderNativeChild(existing) ? existing : nil
                 }
                 guard let parent = try repository.receiptUnlocked(runId: parentRunId),
                       parent.threadId == threadId else {
