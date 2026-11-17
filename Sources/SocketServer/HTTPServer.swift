@@ -1048,6 +1048,7 @@ public final class DirectHTTPServer: @unchecked Sendable {
         ConnectionSnapshotThreadWindow.capability,
         DurableReplayContract.capability,
         ConnectionClientFeatures.resumeHead,
+        ClientPerfReport.capability,
     ]
 
     /// Every WS filter (including the default `.full`) may skip sequences:

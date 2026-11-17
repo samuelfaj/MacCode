@@ -1221,16 +1221,20 @@ public final class JSONRPCDispatcher {
         // service; those are captured into the receipt, not re-derived here.
         $0.hasPrefix("bot.") && !$0.hasPrefix("bot.team.") && !$0.hasPrefix("bot.group.")
     })
+    /// `client.perf.report` sink (`~/Library/Logs/RemoteCode/ios-perf.jsonl`).
+    let perfReportLog: ClientPerfReportLog
     public init(
         router: CommandRouting,
         commandReceiptMetrics: CommandReceiptMetrics = CommandReceiptMetrics(),
         agentAttachmentUploadCapability:
-            AgentAttachmentUploadCapabilityAdvertisement? = nil
+            AgentAttachmentUploadCapabilityAdvertisement? = nil,
+        perfReportLog: ClientPerfReportLog = .shared
     ) {
         self.router = router
         self.commandReceiptMetrics = commandReceiptMetrics
         self.agentAttachmentUploadCapability =
             agentAttachmentUploadCapability
+        self.perfReportLog = perfReportLog
     }
 
     /// Default wall budget for one `sync.snapshot` state capture (including
@@ -2943,6 +2947,15 @@ public final class JSONRPCDispatcher {
                 return .init(id: id, result: .array(results))
             case "system.ping":
                 return .init(id: id, result: .object(["pong": .bool(true), "ts": .number(Date().timeIntervalSince1970)]))
+            case ClientPerfReport.method:
+                // Paired phones only: HTTP/WS carry the bearer-verified identity;
+                // local IPC and the Unix socket have none. Writes only the log.
+                guard eventIdentity != nil else {
+                    throw JSONRPCError(code: -32098, message: "Perf reports require an authenticated paired connection.")
+                }
+                let report = try ClientPerfReport.payload(from: params)
+                try await perfReportLog.append(report.data)
+                return .init(id: id, result: .object(["accepted": .number(Double(report.count))]))
             case "system.capabilities":
                 var agentCapabilities: [String: JSONValue] = [
                     "providers": .array([.string("codex"), .string("claude"), .string("grok")]),
@@ -5746,7 +5759,8 @@ public final class JSONRPCDispatcher {
         "ssh", "fs", "files",
         "workspace", "window", "surface", "pane",
         "agent", "git", "project", "browser", "mirror",
-        "notification", "private", "sync", "token_saver", "bot", "scheduled_task"
+        "notification", "private", "sync", "token_saver", "bot", "scheduled_task",
+        "client"
     ]
     // PERF: nested-run RPC params validate subagent_node_id on every nested
     // agent.create/send; `"-_.".unicodeScalars.contains` built a temporary
@@ -5789,7 +5803,7 @@ public final class JSONRPCDispatcher {
             return "file"
         }
         if isReadOnlyBatchMethod(method)
-            || ["bot.conversation.export.preview", "bot.conversation.export"].contains(method) {
+            || ["bot.conversation.export.preview", "bot.conversation.export", ClientPerfReport.method].contains(method) {
             return "read"
         }
         return "write"
