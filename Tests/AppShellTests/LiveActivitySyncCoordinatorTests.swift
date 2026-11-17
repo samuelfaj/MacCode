@@ -479,6 +479,80 @@ final class LiveActivitySyncCoordinatorTests: XCTestCase {
         XCTAssertTrue(try store.pending().isEmpty)
     }
 
+    func testRejectedDeliveryIsDroppedSoNewerDeliveriesOfTheLaneStillGoOut() async throws {
+        // WHY: a delivery the backend refuses for good (404: the token it carries
+        // is no longer the device's) was retried forever. A lane sends its oldest
+        // session first, so that one record held every newer start, update and
+        // end of the device behind it: the card on the phone stopped changing.
+        let tmp = NSTemporaryDirectory() + "rc2-live-activity-outbox-rejected-" + UUID().uuidString
+        let (_, db) = try Bootstrap(channel: .debug, appSupportOverride: tmp).run()
+        let store = LiveActivityAcceptanceOutboxStore(settings: SettingsRepository(db: db))
+        let clock = ManualOutboxClock(now: Date(timeIntervalSince1970: 3_000))
+        let scheduler = ManualOutboxScheduler()
+        let staleEnd = makeDelivery(event: .end, generation: 3, revision: 1)
+        let start = makeDelivery(event: .start, generation: 4, revision: 1)
+        let update = makeDelivery(event: .update, generation: 4, revision: 2)
+        try store.enqueue(staleEnd, targets: [makeTarget(for: staleEnd, token: "token-rotated-away")])
+        try store.enqueue(start, targets: [makeTarget(for: start, token: "token-current")])
+        try store.enqueue(update, targets: [makeTarget(for: update, token: "token-current")])
+        let sender = ScriptedOutboxSender(
+            failures: [staleEnd.idempotencyKey: (PrivateAccountAPIError.http(404), .max)]
+        )
+        let outbox = LiveActivityAcceptanceOutbox(
+            store: store,
+            now: { clock.read() },
+            retryDelay: { _ in 60 },
+            schedule: { delay, callback in scheduler.schedule(delay, callback) },
+            send: { record in try await sender.send(record) }
+        )
+
+        outbox.resumePending()
+        await outbox.flush()
+
+        XCTAssertEqual(
+            sender.attempts,
+            [staleEnd.idempotencyKey, start.idempotencyKey, update.idempotencyKey],
+            "the rejected end must not hold the current start and update behind it"
+        )
+        XCTAssertTrue(try store.pending().isEmpty)
+
+        clock.advance(by: 120)
+        scheduler.fireAll()
+        await outbox.flush()
+        XCTAssertEqual(sender.attempts.count, 3, "a rejected delivery must never be sent again")
+    }
+
+    func testServerFailureKeepsTheDeliveryAndRetriesIt() async throws {
+        // WHY: only an answer that refuses the request for good may drop it. A 503
+        // says the backend could not take it now; dropping there would lose the
+        // final state of the card.
+        let tmp = NSTemporaryDirectory() + "rc2-live-activity-outbox-503-" + UUID().uuidString
+        let (_, db) = try Bootstrap(channel: .debug, appSupportOverride: tmp).run()
+        let store = LiveActivityAcceptanceOutboxStore(settings: SettingsRepository(db: db))
+        let clock = ManualOutboxClock(now: Date(timeIntervalSince1970: 4_000))
+        let scheduler = ManualOutboxScheduler()
+        let end = makeDelivery(event: .end, generation: 3, revision: 2)
+        let sender = ScriptedOutboxSender(
+            failures: [end.idempotencyKey: (PrivateAccountAPIError.http(503), 1)]
+        )
+        let outbox = LiveActivityAcceptanceOutbox(
+            store: store,
+            now: { clock.read() },
+            retryDelay: { _ in 10 },
+            schedule: { delay, callback in scheduler.schedule(delay, callback) },
+            send: { record in try await sender.send(record) }
+        )
+
+        try outbox.accept(end, targets: [makeTarget(for: end)])
+        await outbox.flush()
+        XCTAssertEqual(try store.pending().map(\.delivery.idempotencyKey), [end.idempotencyKey])
+
+        clock.advance(by: 10)
+        await outbox.flush()
+        XCTAssertEqual(sender.attempts, [end.idempotencyKey, end.idempotencyKey])
+        XCTAssertTrue(try store.pending().isEmpty)
+    }
+
     func testTerminalProjectionBypassesBlackHoledStartAndRetiresItAfterAck() async throws {
         let tmp = NSTemporaryDirectory() + "rc2-live-activity-outbox-terminal-" + UUID().uuidString
         let (_, db) = try Bootstrap(channel: .debug, appSupportOverride: tmp).run()
@@ -2308,6 +2382,32 @@ private final class OutboxSender: @unchecked Sendable {
     }
 
     var attempts: [LiveActivitySyncDelivery] { lock.withLock { values } }
+}
+
+/// Fails the deliveries named in `failures` the given number of times and
+/// accepts everything else.
+private final class ScriptedOutboxSender: @unchecked Sendable {
+    private let lock = NSLock()
+    private var failures: [String: (error: Error, remaining: Int)]
+    private var keys: [String] = []
+
+    init(failures: [String: (Error, Int)]) {
+        self.failures = failures.mapValues { (error: $0.0, remaining: $0.1) }
+    }
+
+    func send(_ record: LiveActivityAcceptanceRecord) async throws -> PrivateLiveActivityV2DeliveryAck {
+        let key = record.delivery.idempotencyKey
+        let failure = lock.withLock { () -> Error? in
+            keys.append(key)
+            guard let scripted = failures[key], scripted.remaining > 0 else { return nil }
+            failures[key] = (error: scripted.error, remaining: scripted.remaining - 1)
+            return scripted.error
+        }
+        if let failure { throw failure }
+        return PrivateLiveActivityV2DeliveryAck(id: "ack-\(key)", status: "queued", attempts: 0, nextAttemptAt: nil)
+    }
+
+    var attempts: [String] { lock.withLock { keys } }
 }
 
 private final class ManualOutboxClock: @unchecked Sendable {

@@ -853,6 +853,19 @@ private actor LiveActivityAcceptanceLaneScheduler {
         case exceeded
     }
 
+    private static let log = Logger(
+        subsystem: "io.remotecode.app",
+        category: "live-activity-acceptance"
+    )
+
+    /// HTTP answers that refuse this exact request for good: 400 (the backend
+    /// rejects the body) and 404 (it no longer knows the token the record
+    /// carries). Every other failure can change on a retry and stays retryable.
+    private static func isDefinitiveRejection(_ error: Error) -> Bool {
+        guard case .http(let status)? = error as? PrivateAccountAPIError else { return false }
+        return status == 400 || status == 404
+    }
+
     private let store: LiveActivityAcceptanceOutboxStore
     private let now: LiveActivityAcceptanceOutbox.Now
     private let retryDelay: LiveActivityAcceptanceOutbox.RetryDelay
@@ -982,6 +995,23 @@ private actor LiveActivityAcceptanceLaneScheduler {
             }
         case .failed(let error):
             onError(error, record.delivery)
+            if Self.isDefinitiveRejection(error) {
+                // A retry cannot succeed, and a lane sends its oldest session
+                // first: keeping this record would hold every newer start,
+                // update and end of the device behind it.
+                Self.log.error(
+                    "live-activity delivery rejected, dropped key=\(record.delivery.idempotencyKey, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
+                do {
+                    try store.acknowledge(record)
+                } catch {
+                    onError(error, record.delivery)
+                }
+                break
+            }
+            Self.log.error(
+                "live-activity delivery failed attempt=\(record.attempts + 1, privacy: .public) key=\(record.delivery.idempotencyKey, privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
             let delay = retryDelay(record.attempts + 1)
             do {
                 let failed = try store.recordFailure(
