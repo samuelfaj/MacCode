@@ -1,13 +1,18 @@
 {
   "manifest_version": 3,
-  "name": "MacCode Computer Use",
-  "version": "1.0.0",
-  "description": "Let MacCode work in its own background tabs using this Chrome profile. Selecting a tab gives you control.",
+  "name": "__MSG_extensionName__",
+  "version": "1.5.0",
+  "default_locale": "en",
+  "description": "__MSG_extensionDescription__",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwpxN6ZS4vOygMi6r4ma0W/FJ8asEx+S0RI2aTiMgBZt9kdKx65qD6xdJzv4EaMNWb3fkrzm2tIqaMeXKgbYtktKcSn8i+kzjAD3J4fXxHHNR5Er6qsknbjEO/opsDlD8DV5zLfURAniQNTzfUkXZWw+8HSRmquwTO5Xe/guFA0oV3ocG3SQOdZZvPI8h6c0ADXMabYL7EK4SNulmi/Ov8Mcm1UUxyhwuQlqSe5otywV9EMiQ8ic/7q2NQglIcRk623CjCh6Qmm4ww1PkAtn8L+i8heRWkjEpj7rpTCss96JyQ2KZvM3oTyd1jdRMYHXv1+qPwylDT5L00ELLv1YYUwIDAQAB",
   "permissions": [
     "nativeMessaging",
     "tabs",
-    "scripting"
+    "tabGroups",
+    "scripting",
+    "alarms",
+    "debugger",
+    "downloads"
   ],
   "host_permissions": [
     "http://*/*",
@@ -18,6 +23,6 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Connect MacCode Computer Use"
+    "default_title": "__MSG_actionTitle__"
   }
 }

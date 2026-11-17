@@ -44,10 +44,11 @@ final class ChromeExtensionSetup: ObservableObject {
         },
         connected: @escaping @Sendable () async -> Bool = {
             await Task.detached(priority: .utility) {
-                let reply = try? ChromeProfileConnection.request([
-                    "operation": "browser_status", "session": UUID().uuidString,
-                ])
-                return reply?["ok"] as? Bool == true && reply?["connected"] as? Bool == true
+                // A status answer within 2 s: a raw bridge request waits up to 40 s for a busy page.
+                // An outdated copy loaded in Chrome counts as not connected, so setup copies the
+                // current files again, which is what that state asks the user to do.
+                let state = ChromeProfileConnection.extensionStatus()["state"] as? String
+                return state == "connected" || state == "busy"
             }.value
         },
         openSetup: @escaping @MainActor (URL) async throws -> Void = { folder in

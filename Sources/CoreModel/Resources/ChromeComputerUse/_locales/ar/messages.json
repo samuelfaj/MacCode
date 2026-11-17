@@ -1,0 +1,17 @@
+{
+  "extensionName": {
+    "message": "استخدام الحاسوب في MacCode"
+  },
+  "extensionDescription": {
+    "message": "يتيح لـ MacCode العمل في علامات تبويب خلفية خاصة به باستخدام ملف Chrome الشخصي هذا. تحديد علامة تبويب يعيد إليك التحكم فيها."
+  },
+  "actionTitle": {
+    "message": "ربط استخدام الحاسوب في MacCode"
+  },
+  "connectedTitle": {
+    "message": "MacCode متصل. يعيد الاتصال تلقائيًا."
+  },
+  "disconnectedTitle": {
+    "message": "MacCode غير متصل. تجري إعادة الاتصال تلقائيًا؛ انقر لإعادة المحاولة الآن."
+  }
+}

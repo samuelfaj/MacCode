@@ -99,17 +99,22 @@ final class BotGuestAgentKitTests: XCTestCase {
         // later re-vendor knows what to carry over.
         let source = try kitSource()
         let upstream = try String(contentsOf: source.appendingPathComponent("linux-use/UPSTREAM"), encoding: .utf8)
-        XCTAssertTrue(upstream.contains("commit ee0231ce80c56bbeec2daa68363c9e4477a4a923"))
-        XCTAssertTrue(upstream.contains("upstream server.py sha256 7a9ca52161ab0355ee27568c4cfe2b590a062067436888166ec83f64f6c9ae3a"))
-        let server = try Data(contentsOf: source.appendingPathComponent("linux-use/server.py"))
-        let digest = SHA256.hash(data: server).map { String(format: "%02x", $0) }.joined()
-        XCTAssertTrue(upstream.contains("\nserver.py sha256 \(digest)\n"), "server.py changed without updating UPSTREAM")
+        XCTAssertTrue(upstream.contains("release v1.4.0, commit dba0828af6ae6edc0cc19168079a581895757a47"))
+        XCTAssertTrue(upstream.contains("upstream server.py sha256 00298bbe19ef18d1f1273391aa6500a2f29ddb3d2990ea35d0f794b289ee196a"))
+        // server.py imports its sibling modules from its own folder; a sibling from another
+        // release would break it in the guest, so each one is pinned to the recorded bytes.
+        for name in ["server.py", "cua_native.py", "atspi_tree.py", "subtask.py"] {
+            let file = try Data(contentsOf: source.appendingPathComponent("linux-use/\(name)"))
+            let digest = SHA256.hash(data: file).map { String(format: "%02x", $0) }.joined()
+            XCTAssertTrue(upstream.contains("\n\(name) sha256 \(digest)\n"), "\(name) changed without updating UPSTREAM")
+            XCTAssertTrue(BotGuestAgentKit.files.contains { $0.path == "linux-use/\(name)" }, "\(name) is not copied into the guest")
+        }
     }
 
     func test_vendoredLinuxUse_offersTheGuestAgentOnlyToolsThatCanWork() throws {
-        // The guest has no Chrome extension: an agent offered browser_* or
-        // jev_decide spends turns on tools that can only fail. Browsing goes
-        // through the guest's Playwright MCP instead.
+        // The guest has no Chrome extension and no decision-model key: an agent
+        // offered browser_*, page, jev_decide or run_subtask spends turns on tools
+        // that can only fail. Browsing goes through the guest's Playwright MCP instead.
         let python = "/usr/bin/python3"
         guard FileManager.default.isExecutableFile(atPath: python) else {
             throw XCTSkip("\(python) is not available to run the vendored linux-use server")
@@ -119,11 +124,15 @@ final class BotGuestAgentKitTests: XCTestCase {
             #"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
             #"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"browser_open","arguments":{"url":"https://example.com"}}}"#,
             #"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"jev_decide","arguments":{"goal":"x"}}}"#,
+            #"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"run_subtask","arguments":{"goal":"x"}}}"#,
         ]
         let process = Process()
         process.executableURL = URL(fileURLWithPath: python)
-        process.arguments = ["-I", try kitSource().appendingPathComponent("linux-use/server.py").path]
-        process.environment = ["PATH": "/usr/bin:/bin", "HOME": support.path]
+        // Not -I: isolated mode drops the script's folder from sys.path, and server.py imports
+        // cua_native, atspi_tree and subtask from there, as the guest's `python3 server.py` does.
+        process.arguments = [try kitSource().appendingPathComponent("linux-use/server.py").path]
+        // No __pycache__ in the app's resource folder: the kit copies exactly `files`.
+        process.environment = ["PATH": "/usr/bin:/bin", "HOME": support.path, "PYTHONDONTWRITEBYTECODE": "1"]
         let input = Pipe(), output = Pipe()
         process.standardInput = input
         process.standardOutput = output
@@ -145,11 +154,12 @@ final class BotGuestAgentKitTests: XCTestCase {
 
         let tools = try XCTUnwrap((replies[2]?["result"] as? [String: Any])?["tools"] as? [[String: Any]])
         let names = Set(tools.compactMap { $0["name"] as? String })
-        XCTAssertTrue(names.isSuperset(of: ["screenshot", "list_windows", "left_click", "type", "key", "doctor"]), "\(names)")
-        XCTAssertTrue(names.filter { $0.hasPrefix("browser_") || $0 == "jev_decide" }.isEmpty, "\(names)")
-        for id in [3, 4] {
+        XCTAssertTrue(names.isSuperset(of: ["screenshot", "list_windows", "click", "type_text", "press_key", "doctor",
+                                            "get_ui_tree", "click_element", "set_value", "run_steps"]), "\(names)")
+        XCTAssertTrue(names.filter { $0.hasPrefix("browser_") || ["page", "jev_decide", "run_subtask"].contains($0) }.isEmpty, "\(names)")
+        for (id, tool) in [(3, "browser_open"), (4, "jev_decide"), (5, "run_subtask")] {
             let error = replies[id]?["error"] as? [String: Any]
-            XCTAssertEqual(error?["message"] as? String, id == 3 ? "unknown tool: browser_open" : "unknown tool: jev_decide")
+            XCTAssertEqual(error?["message"] as? String, "unknown tool: \(tool)")
         }
         let instructions = try XCTUnwrap((replies[1]?["result"] as? [String: Any])?["instructions"] as? String)
         for absent in ["Chrome", "Jev", "browser_", "SKILL.md"] {

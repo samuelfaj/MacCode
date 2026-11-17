@@ -1,0 +1,17 @@
+{
+  "extensionName": {
+    "message": "Utilisation de l'ordinateur MacCode"
+  },
+  "extensionDescription": {
+    "message": "Permet à MacCode de travailler dans ses propres onglets en arrière-plan avec ce profil Chrome. Sélectionner un onglet vous en redonne le contrôle."
+  },
+  "actionTitle": {
+    "message": "Connecter l'utilisation de l'ordinateur MacCode"
+  },
+  "connectedTitle": {
+    "message": "MacCode connecté. Reconnexion automatique."
+  },
+  "disconnectedTitle": {
+    "message": "MacCode déconnecté. Reconnexion automatique en cours ; cliquez pour réessayer maintenant."
+  }
+}

@@ -147,14 +147,14 @@ final class BotComputerGuestSpecTests: XCTestCase {
         )
     }
 
-    func test_recipeRevision9ShipsTheInGuestAgentToolchain() throws {
+    func test_recipeRevision10ShipsTheInGuestAgentToolchain() throws {
         // WHY: the bot's agent runs inside this image. It needs git and ps for
         // its own shell, wmctrl + xwd for linux-use, and a pinned Playwright MCP
         // that only runs on Node >= 20 (bookworm's apt node is 18). Only the
         // revision bump makes existing guests pick the recipe up, and the tag
         // carries the revision so another app build on r4 never rebuilds it.
-        XCTAssertEqual(BotComputerGuestSpec.recipeRevision, "9")
-        XCTAssertEqual(BotComputerGuestSpec.imageTag, "remotecode/computer:r9")
+        XCTAssertEqual(BotComputerGuestSpec.recipeRevision, "10")
+        XCTAssertEqual(BotComputerGuestSpec.imageTag, "remotecode/computer:r10")
         XCTAssertEqual(BotComputerGuestSpec.runtimeRevision, "9")
         XCTAssertTrue(BotComputerGuestSpec.recipeFileNames.contains("context-network.sh"))
         let recipe = URL(fileURLWithPath: #filePath)
@@ -166,6 +166,14 @@ final class BotComputerGuestSpecTests: XCTestCase {
         for package in ["git", "procps", "wmctrl", "x11-apps", "xdotool", "imagemagick", "python3", "fluxbox"] {
             XCTAssertTrue(dockerfile.contains("        \(package) \\\n"), "missing apt package \(package)")
         }
+        // r10: linux-use 1.4 reads windows through AT-SPI (python3-gi, the Atspi typelib, the bus)
+        // and refuses mutations without xprintidle, its human-activity check.
+        for package in ["python3-gi", "gir1.2-atspi-2.0", "at-spi2-core", "dbus-x11", "xprintidle"] {
+            XCTAssertTrue(dockerfile.contains("        \(package) \\\n"), "missing apt package \(package)")
+        }
+        let start = try String(contentsOf: recipe.appendingPathComponent("start.sh"), encoding: .utf8)
+        XCTAssertTrue(start.contains("/usr/libexec/at-spi-bus-launcher --launch-immediately"),
+            "without the accessibility bus linux-use only has pixel tools")
         XCTAssertFalse(dockerfile.contains("        nodejs \\\n"), "apt nodejs is 18; Playwright refuses to start on it")
         XCTAssertTrue(dockerfile.contains("node-v24.21.0-linux-${node_arch}.tar.xz"))
         XCTAssertTrue(dockerfile.contains("sha256sum -c -"), "the Node download must be checksum-verified")
@@ -210,7 +218,7 @@ final class BotComputerGuestSpecTests: XCTestCase {
         XCTAssertEqual(options.capAdd, ["NET_ADMIN"])
         XCTAssertEqual(options.securityOptions, ["no-new-privileges:true"])
         XCTAssertEqual(options.tmpfs, ["/run:rw,nosuid,nodev,noexec,mode=0755"])
-        XCTAssertEqual(options.image, "remotecode/computer:r9")
+        XCTAssertEqual(options.image, "remotecode/computer:r10")
     }
 
     func test_createOptionsMountTheAgentKitReadOnlyAndRunAnInitWithTheHostAlias() throws {

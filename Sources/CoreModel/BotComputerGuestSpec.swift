@@ -3,7 +3,7 @@ import CryptoKit
 
 public enum BotComputerGuestSpec {
     /// Bump when start.sh / Dockerfile change. Missing label rebuilds the image.
-    public static let recipeRevision = "9"
+    public static let recipeRevision = "10"
     /// Versioned so two app builds on different revisions sharing one Docker
     /// daemon (e.g. the debug sandbox and the installed app) never rebuild the
     /// same tag back and forth.

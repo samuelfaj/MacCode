@@ -1,0 +1,17 @@
+{
+  "extensionName": {
+    "message": "MacCode Computer Use"
+  },
+  "extensionDescription": {
+    "message": "Let MacCode work in its own background tabs using this Chrome profile. Selecting a tab gives you control."
+  },
+  "actionTitle": {
+    "message": "Connect MacCode Computer Use"
+  },
+  "connectedTitle": {
+    "message": "MacCode connected. Reconnects automatically."
+  },
+  "disconnectedTitle": {
+    "message": "MacCode disconnected. Reconnecting automatically; click to retry now."
+  }
+}

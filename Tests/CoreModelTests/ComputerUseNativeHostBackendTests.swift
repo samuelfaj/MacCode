@@ -292,6 +292,8 @@ final class ComputerUseNativeHostBackendTests: XCTestCase {
     }
 
     func test_staleStateTokenExecutesNoMutation() async throws {
+        // WHY: a positional element id only means something in the observation it was read
+        // from. Once the window changed, pressing "ax_1" could press a different control.
         let probe = Probe()
         let backend = makeBackend(probe: probe)
         let token = try await stateToken(from: backend)
@@ -300,7 +302,7 @@ final class ComputerUseNativeHostBackendTests: XCTestCase {
         let result = await backend.invoke(
             name: "click_element",
             arguments: baseArguments(token: token).merging([
-                "role": "AXButton", "label": "Save"
+                "element_id": "ax_1"
             ]) { _, value in value }
         )
 
@@ -309,7 +311,10 @@ final class ComputerUseNativeHostBackendTests: XCTestCase {
         XCTAssertEqual(probe.semanticMutations, 0, "stale state must fail before any AX mutation")
     }
 
-    func test_semanticContentChangeWithStableGeometryRejectsStaleMutation() async throws {
+    func test_semanticContentChangeWithStableGeometryStillResolvesRoleAndLabel() async throws {
+        // WHY (mac-use v1.7.0 contract): in a live window the whole-tree token is stale before
+        // any action arrives, which made every Slack and Chrome action fail. A role+label
+        // selector is found again on the current tree, where it must still be the only match.
         let probe = Probe()
         let backend = makeBackend(probe: probe)
         let token = try await stateToken(from: backend, name: "doctor")
@@ -322,19 +327,20 @@ final class ComputerUseNativeHostBackendTests: XCTestCase {
             ]) { _, value in value }
         )
 
-        XCTAssertTrue(result.isError)
-        XCTAssertTrue(result.content.first?.text?.contains("stale_state_token") == true)
-        XCTAssertEqual(probe.semanticMutations, 0, "AX content changes must invalidate semantic tokens even when geometry is unchanged")
+        XCTAssertFalse(result.isError, result.content.first?.text ?? "")
+        XCTAssertEqual(probe.semanticMutations, 1)
     }
 
-    func test_pixelContentChangeWithStableGeometryRejectsStaleMutation() async throws {
+    func test_pixelContentChangeWithStableGeometryStillClicks() async throws {
+        // WHY (mac-use v1.7.0 contract): coordinates depend on the frame they were read from,
+        // not on what was drawn in it; a caret blink must not refuse every click. A moved or
+        // resized window still does (testScopedPixelTokenRejectsTargetGeometryDrift).
         let probe = Probe()
+        probe.windowBounds = CGRect(x: 100, y: 200, width: 640, height: 480)
+        probe.captureData = try makePNGBase64(width: 640, height: 480)
         let backend = makeBackend(probe: probe)
-        // Both screenshot and left_click use the pixel token capability. The
-        // only state change below is captured content; PID, title and bounds
-        // remain unchanged, so kind mismatch cannot explain the rejection.
         let token = try await stateToken(from: backend, name: "screenshot")
-        probe.captureData = try makePNGBase64(width: 1, height: 1, red: 240)
+        probe.captureData = try makePNGBase64(width: 640, height: 480, red: 240)
 
         let result = await backend.invoke(
             name: "left_click",
@@ -343,9 +349,8 @@ final class ComputerUseNativeHostBackendTests: XCTestCase {
             ]) { _, value in value }
         )
 
-        XCTAssertTrue(result.isError)
-        XCTAssertTrue(result.content.first?.text?.contains("stale_state_token") == true)
-        XCTAssertEqual(probe.leftClickMutations, 0, "pixel changes must invalidate pixel tokens even when geometry is unchanged")
+        XCTAssertFalse(result.isError, result.content.first?.text ?? "")
+        XCTAssertEqual(probe.leftClickMutations, 1)
     }
 
     func testUnavailableOrUndecodableCaptureCannotMintActionablePixelToken() async throws {
@@ -915,8 +920,11 @@ final class ComputerUseNativeHostBackendTests: XCTestCase {
         )
 
         XCTAssertTrue(result.isError)
-        XCTAssertTrue(result.content.first?.text?.contains("missing_state_token") == true)
+        // Input events need a visible window; the refusal names the way out.
+        XCTAssertTrue(result.content.first?.text?.contains("pixel_target_not_renderable") == true)
+        XCTAssertTrue(result.content.first?.text?.contains("restore_window first") == true)
         XCTAssertEqual(probe.pixelMutations, 0, "minimized pixels cannot be targeted without restoring the window")
+        XCTAssertEqual(probe.leftClickMutations, 0)
     }
 
     func testFocusOnlyActionsExecuteNoMutation() async throws {
@@ -1298,7 +1306,9 @@ final class ComputerUseNativeHostBackendTests: XCTestCase {
         XCTAssertFalse(result.isError)
         XCTAssertEqual(probe.semanticMutations, 1)
         XCTAssertEqual(probe.activations, 0)
-        XCTAssertEqual(probe.uiTreeCalls, 1, "one fresh traversal validates the action without a duplicate preflight")
+        // One traversal validates the action (no duplicate preflight); one after it reports the
+        // settled window so the caller can see whether the app reacted.
+        XCTAssertEqual(probe.uiTreeCalls, 2)
     }
 
     private func stateToken(from backend: ComputerUseNativeHostBackend, name: String = "doctor") async throws -> String {
@@ -1462,7 +1472,7 @@ final class ComputerUseNativeHostBackendTests: XCTestCase {
             leftClick: { _, coordinate in
                 probe.leftClickMutations += 1
                 probe.lastLeftClickCoordinate = coordinate
-                return true
+                return .applied
             },
             typeText: { _, _ in
                 probe.typeTextMutations += 1
@@ -1472,7 +1482,7 @@ final class ComputerUseNativeHostBackendTests: XCTestCase {
                 probe.pixelMutations += 1
                 return true
             },
-            activate: { _ in probe.activations += 1 }
+            activate: { _ in probe.activations += 1; return true }
         ))
     }
 }

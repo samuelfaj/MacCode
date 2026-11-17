@@ -26,6 +26,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         conntrack \
         wmctrl \
         x11-apps \
+        python3-gi \
+        gir1.2-atspi-2.0 \
+        at-spi2-core \
+        dbus-x11 \
+        xprintidle \
     && rm -rf /var/lib/apt/lists/*
 
 # Playwright needs Node >= 20; bookworm ships 18. Pinned official build,

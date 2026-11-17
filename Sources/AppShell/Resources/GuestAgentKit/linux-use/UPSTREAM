@@ -1,13 +1,17 @@
 Vendored from https://github.com/samuelfaj/linux-use
-commit ee0231ce80c56bbeec2daa68363c9e4477a4a923
-upstream server.py sha256 7a9ca52161ab0355ee27568c4cfe2b590a062067436888166ec83f64f6c9ae3a
-server.py sha256 68b54c6e033765288f08c2505309d693d6784afebcf28ecbb45725208810adf5
-Only server.py is vendored: the Chrome extension and its native-messaging host
-are not part of the guest kit.
+release v1.4.0, commit dba0828af6ae6edc0cc19168079a581895757a47
+upstream server.py sha256 00298bbe19ef18d1f1273391aa6500a2f29ddb3d2990ea35d0f794b289ee196a
+server.py sha256 fa8f6d6c1d7c4a91c092d1c12d1416b5721934ed5fe96b8ee6e44afcf700304a
+cua_native.py sha256 80e1cc3a2b121e607383c3dfcc4dee920e8c6cf8cf824ddd4f83879f5dfd3c29
+atspi_tree.py sha256 3d3c39fae5072a0ca2499f72708fed4d690e24eec2da633cb2a0b24bd4dcd11d
+subtask.py sha256 a92d99c0b555d0c78ca218de348338a8ed9da3d777f411770022d6c9df0964bd
+cua_native.py, atspi_tree.py and subtask.py are upstream byte for byte; server.py
+imports them from its own folder, so the four files ship together. The Chrome
+extension and its native-messaging host are not part of the guest kit.
 
 Modified (every change is marked "RemoteCode guest kit" in server.py): with no
-extension in the guest, browser_open, browser_snapshot, browser_act,
-browser_close, browser_status and jev_decide could only fail, so they are
-removed from BASE_TOOLS (tools/list and doctor) and tools/call refuses any
-name outside BASE_TOOLS as an unknown tool. The initialize instructions keep
-only upstream's native X11 sentences (no skill, Chrome or Jev references).
+extension, skill or decision-model key in the guest, browser_*, page,
+jev_decide and run_subtask could only fail, so they are removed from BASE_TOOLS
+(tools/list and doctor) and tools/call refuses any name outside BASE_TOOLS as
+an unknown tool. The initialize instructions are GUEST_INSTRUCTIONS: the native
+X11 and AT-SPI guidance only (no skill, Chrome or Jev references).

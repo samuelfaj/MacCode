@@ -39,6 +39,15 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 xdpyinfo -display :1 >/dev/null
 
+# linux-use reads app windows through AT-SPI. The bus launcher publishes the bus on
+# the display's root window (AT_SPI_BUS), where apps started later and the agent's
+# MCP server, which only gets DISPLAY, find it. Without it linux-use falls back to
+# pixel tools, so a failure here must never stop the display.
+if command -v dbus-launch >/dev/null 2>&1 && [ -x /usr/libexec/at-spi-bus-launcher ]; then
+    eval "$(dbus-launch --sh-syntax)" || true
+    /usr/libexec/at-spi-bus-launcher --launch-immediately >/tmp/at-spi.log 2>&1 &
+fi
+
 fluxbox -display :1 -log /tmp/fluxbox.log >/tmp/fluxbox.out 2>&1 &
 # The browser restarts on its own. It must never be a `wait -n` job: a
 # Chromium crash or OOM kill would end the container and SIGKILL the agent

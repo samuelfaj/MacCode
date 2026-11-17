@@ -292,6 +292,22 @@ final class DistillGuestConfigTests: XCTestCase {
         XCTAssertFalse(toml.contains(BotBrowserCatalog.serverName), "the Mac browser relay is not used in the guest")
     }
 
+    /// The guest has no linux-use Chrome extension and no decision-model key. The downloaded
+    /// linux-use release lists those tools anyway, so Distill must hide every one of them, or the
+    /// agent spends turns on calls that can only fail.
+    func test_linuxUseToolsThatNeedTheExtensionOrAKeyAreDisabledInTheGuest() {
+        let disabled = body(of: "[disabled_mcp_tools]", in: render().toml)
+        let line = try? XCTUnwrap(disabled.first { $0.hasPrefix("linux-use = ") })
+        for tool in ["browser_open", "browser_snapshot", "browser_act", "browser_close", "browser_status",
+                     "browser_navigate", "browser_click", "browser_type", "browser_pointer", "browser_dialog",
+                     "browser_set_input_files", "browser_download", "page", "jev_decide", "run_subtask"] {
+            XCTAssertTrue(line?.contains("\"\(tool)\"") == true, "\(tool) is offered to the guest agent")
+        }
+        for usable in ["get_ui_tree", "click_element", "screenshot", "click", "verify_state"] {
+            XCTAssertFalse(line?.contains("\"\(usable)\"") == true, "\(usable) works in the guest and must stay offered")
+        }
+    }
+
     /// The agent's shell commands (and whatever they install) do not need the
     /// model keys or the gateway bearer; only Distill itself reads them.
     func test_shellCommandsDoNotInheritModelKeysOrTheGatewayBearer() {

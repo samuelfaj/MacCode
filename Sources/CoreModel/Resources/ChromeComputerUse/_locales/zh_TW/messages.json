@@ -1,0 +1,17 @@
+{
+  "extensionName": {
+    "message": "MacCode 電腦操作"
+  },
+  "extensionDescription": {
+    "message": "讓 MacCode 使用此 Chrome 設定檔在自己的背景分頁中工作。選取分頁即可收回控制權。"
+  },
+  "actionTitle": {
+    "message": "連接 MacCode 電腦操作"
+  },
+  "connectedTitle": {
+    "message": "MacCode 已連線。會自動重新連線。"
+  },
+  "disconnectedTitle": {
+    "message": "MacCode 已中斷連線。正在自動重新連線；按一下即可立即重試。"
+  }
+}

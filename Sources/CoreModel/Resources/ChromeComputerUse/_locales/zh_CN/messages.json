@@ -1,0 +1,17 @@
+{
+  "extensionName": {
+    "message": "MacCode 电脑使用"
+  },
+  "extensionDescription": {
+    "message": "让 MacCode 使用此 Chrome 个人资料在自己的后台标签页中工作。选择某个标签页即可收回控制权。"
+  },
+  "actionTitle": {
+    "message": "连接 MacCode 电脑使用"
+  },
+  "connectedTitle": {
+    "message": "MacCode 已连接。会自动重新连接。"
+  },
+  "disconnectedTitle": {
+    "message": "MacCode 已断开连接。正在自动重新连接；点击可立即重试。"
+  }
+}

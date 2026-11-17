@@ -1,0 +1,17 @@
+{
+  "extensionName": {
+    "message": "Uso do Computador do MacCode"
+  },
+  "extensionDescription": {
+    "message": "Permite que o MacCode trabalhe nas próprias abas em segundo plano usando este perfil do Chrome. Selecionar uma aba devolve o controle a você."
+  },
+  "actionTitle": {
+    "message": "Conectar o Uso do Computador do MacCode"
+  },
+  "connectedTitle": {
+    "message": "MacCode conectado. Reconecta automaticamente."
+  },
+  "disconnectedTitle": {
+    "message": "MacCode desconectado. Reconectando automaticamente; clique para tentar agora."
+  }
+}

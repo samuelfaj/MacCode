@@ -11,6 +11,10 @@ enum BotGuestAgentKit {
         ("bin/run-agent", 0o755),
         ("bin/kill-agent", 0o755),
         ("linux-use/server.py", 0o644),
+        // server.py imports these from its own folder.
+        ("linux-use/cua_native.py", 0o644),
+        ("linux-use/atspi_tree.py", 0o644),
+        ("linux-use/subtask.py", 0o644),
         ("linux-use/UPSTREAM", 0o644),
     ]
 

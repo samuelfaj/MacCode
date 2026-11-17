@@ -1,0 +1,17 @@
+{
+  "extensionName": {
+    "message": "Uso del ordenador de MacCode"
+  },
+  "extensionDescription": {
+    "message": "Permite que MacCode trabaje en sus propias pestañas en segundo plano con este perfil de Chrome. Al seleccionar una pestaña, recuperas el control."
+  },
+  "actionTitle": {
+    "message": "Conectar el uso del ordenador de MacCode"
+  },
+  "connectedTitle": {
+    "message": "MacCode conectado. Se reconecta automáticamente."
+  },
+  "disconnectedTitle": {
+    "message": "MacCode desconectado. Reconectando automáticamente; haz clic para reintentar ahora."
+  }
+}

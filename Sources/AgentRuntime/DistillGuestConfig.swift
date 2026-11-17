@@ -12,6 +12,13 @@ import Persistence
 /// gateway, which the guest reaches by bearer token over `host.docker.internal`.
 /// The file holds no secret: literal API keys move into the run's environment.
 public enum DistillGuestConfig {
+    /// linux-use tools that need its Chrome extension or a decision-model key (linux-use v1.4.0).
+    static let linuxUseToolsTheGuestCannotRun = [
+        "browser_open", "browser_snapshot", "browser_act", "browser_close", "browser_status", "browser_navigate",
+        "browser_click", "browser_type", "browser_pointer", "browser_dialog", "browser_set_input_files",
+        "browser_download", "page", "jev_decide", "run_subtask",
+    ]
+
     public struct GatewayServer: Equatable, Sendable {
         public var name: String
         public var toolTimeoutSeconds: Int
@@ -118,9 +125,10 @@ public enum DistillGuestConfig {
         out += "args = \(array([BotComputerGuestSpec.linuxUseServerPath]))\n"
         out += "env = { DISPLAY = \":1\" }\n"
 
-        // linux-use's browser and Jev tools need its Chrome extension or a key the guest lacks.
+        // linux-use's browser tools need its Chrome extension, and jev_decide and run_subtask a
+        // decision-model key; the guest has neither, so an agent offered them only gets failures.
         out += "\n[disabled_mcp_tools]\n"
-        out += "linux-use = \(array(["browser_open", "browser_snapshot", "browser_act", "browser_close", "browser_status", "jev_decide"]))\n"
+        out += "linux-use = \(array(linuxUseToolsTheGuestCannotRun))\n"
 
         out += "\n[mcp_servers.playwright]\n"
         out += "command = \"playwright-mcp\"\n"

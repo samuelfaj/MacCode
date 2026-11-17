@@ -83,10 +83,10 @@ final class BotComputerGuestRecipeTests: XCTestCase {
         // WHY: a bot's own image is reused while its revision label matches, so
         // a browser fix that does not bump the revision never reaches existing bots.
         let root = sourceURL("Sources/AppShell/Resources/ComputerGuest")
-        XCTAssertEqual(BotComputerGuestSpec.recipeRevision, "9")
+        XCTAssertEqual(BotComputerGuestSpec.recipeRevision, "10")
         XCTAssertEqual(
             BotComputerGuestSpec.recipeDigest(context: root),
-            "ce099759eac024c6217fdbc2e873855201c9efd609c94f7a250d0512655b6777",
+            "b85798ba3fd94a473cdc0fa74296290d9ab4a810fe7e160c75d0cbb63550c6db",
             "recipe files changed: bump recipeRevision, then update this digest"
         )
     }

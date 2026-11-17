@@ -11,7 +11,12 @@ struct RemoteCodeDistillServiceMain {
         let programName = (rawArgs.first as NSString?)?.lastPathComponent ?? ""
         if rawArgs.dropFirst().first == ChromeProfileConnection.hostArgument {
             do { try ChromeProfileConnection.runHost(origin: rawArgs.dropFirst(2).first ?? "") }
-            catch { FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8)) }
+            catch {
+                // The host exits after telling the caller why; Chrome starts a clean one when the
+                // extension reconnects.
+                FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
+                Darwin.exit(1)
+            }
             return
         }
         // Subagent telemetry, including the legacy `distill subagent` and
@@ -198,12 +203,19 @@ struct RemoteCodeDistillServiceMain {
             execv(binary.path, &argv)
         }
         let server = ManagedComputerUseMCP()
-        while let line = readLine(strippingNewline: true) {
-            if let response = await server.handle(line) {
-                FileHandle.standardOutput.write(Data((response + "\n").utf8))
+        // Read stdin off the main thread: the agent-cursor overlay is AppKit and needs the main
+        // run loop, which async main keeps running while this function stays suspended.
+        // EOF means the client went away, so close the tab it may have left open, then exit.
+        Task.detached {
+            while let line = readLine(strippingNewline: true) {
+                if let response = await server.handle(line) {
+                    FileHandle.standardOutput.write(Data((response + "\n").utf8))
+                }
             }
+            await server.closeBrowser()
+            Darwin.exit(0)
         }
-        await server.closeBrowser()
+        await withUnsafeContinuation { (_: UnsafeContinuation<Void, Never>) in }
     }
 
     /// Bot-owned Studio settings. Bound to RC_REMOTE_CODE_BOT_ID on the calling run.
