@@ -1547,6 +1547,49 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
     private static let silentCatchUpLock = NSLock()
     private static let silentCatchUpBucketSeconds: TimeInterval = 30
 
+    /// A wake the 30 s bucket refused. It is sent when the bucket turns, so the
+    /// coalesced burst still reaches the phone with its newest seq.
+    private struct TrailingSilentWake {
+        let hostHint: String
+        let payload: SilentCatchUpV1
+        let delta: [String: String]
+    }
+    private let trailingWakeLock = NSLock()
+    /// Newest refused wake per class; one pending timer per entry.
+    private var trailingWakes: [MaterialWakeCoalesceClass: TrailingSilentWake] = [:]
+    private var trailingWakeDelayOverride: TimeInterval?
+    /// Test seam: seconds before a refused wake is sent again (default: until
+    /// the next 30 s bucket).
+    var trailingWakeDelayForTests: TimeInterval? {
+        get { trailingWakeLock.withLock { trailingWakeDelayOverride } }
+        set { trailingWakeLock.withLock { trailingWakeDelayOverride = newValue } }
+    }
+
+    /// Keeps `wake` as the newest refused wake of its class and, for the first
+    /// one, schedules the send for when the bucket turns.
+    private func deferToNextBucket(_ wake: TrailingSilentWake, coalesceClass: MaterialWakeCoalesceClass, now: Date) {
+        let (needsTimer, delayOverride) = trailingWakeLock.withLock { () -> (Bool, TimeInterval?) in
+            defer { trailingWakes[coalesceClass] = wake }
+            return (trailingWakes[coalesceClass] == nil, trailingWakeDelayOverride)
+        }
+        guard needsTimer else { return }
+        let seconds = now.timeIntervalSince1970
+        let bucketEnd = (floor(seconds / Self.silentCatchUpBucketSeconds) + 1) * Self.silentCatchUpBucketSeconds
+        let delay = delayOverride ?? (bucketEnd - seconds + 0.05)
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
+            guard let self,
+                  let wake = self.trailingWakeLock.withLock({ self.trailingWakes.removeValue(forKey: coalesceClass) }) else { return }
+            await self.deliverSilentCatchUp(
+                hostHint: wake.hostHint,
+                force: false,
+                payload: wake.payload,
+                coalesceClass: coalesceClass,
+                delta: wake.delta
+            )
+        }
+    }
+
     /// Pure coalesce decision: per-class 30s buckets so attention is never
     /// swallowed by a prior run-progress wake in the same wall-clock window.
     /// Force always admits. Returns updated bucket map when send is allowed.
@@ -1708,8 +1751,17 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
             Self.log.info(
                 "silent_catchup coalesced class=\(coalesceClass.rawValue, privacy: .public) hostHint=\(hostHint, privacy: .public)"
             )
+            // The bucket keeps the oldest wake of a burst; the newest (often the
+            // final state) is sent when it turns, still inside the hourly budget.
+            deferToNextBucket(
+                TrailingSilentWake(hostHint: hostHint, payload: payload, delta: delta),
+                coalesceClass: coalesceClass,
+                now: now
+            )
             return
         }
+        // This send is newer than any wake of its class waiting for the bucket.
+        trailingWakeLock.withLock { _ = trailingWakes.removeValue(forKey: coalesceClass) }
         // F5: `force` bypassed the 30 s bucket above; nothing bypasses the hourly budget.
         let budgetDevice = Self.silentWakeBudgetDevice(target)
         guard admitSilentWakeToBudget(coalesceClass, device: budgetDevice) else { return }
