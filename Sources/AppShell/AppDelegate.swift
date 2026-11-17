@@ -70,6 +70,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     public var windowController: MainWindowController!
     public var socketServer: UnixSocketServer?
     public var httpServer: DirectHTTPServer?
+    /// Snapshot domain revisions that survive restarts (nil if not persistable).
+    private var durableDomainRevisions: ConnectionDurableDomainRevisions?
     /// GAP-5: `DirectHTTPServer.auth` is a weak ref. Without an owner the
     /// LocalAuthAdapter deallocates the instant launch returns, which
     /// silently disables pairing AND bypasses the LAN auth gate. The
@@ -268,10 +270,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         do {
             EventBus.shared.reloadFromPersistence(lastSeq: try context.eventLog.lastSeq(), recent: [])
             // C8: a clean previous quit lets its cursors resume from the log.
-            DurableReplayResumeRecord.restore(
+            let previousBootClean = DurableReplayResumeRecord.restore(
                 eventBus: .shared,
                 settings: context.settingsRepo,
                 bootEpoch: context.liveActivityHostIdentity.bootEpoch
+            )
+            // Before any boot event: revisions a client saw before the restart
+            // stay valid only for domains nothing touched since.
+            durableDomainRevisions = ConnectionDurableDomainRevisions.install(
+                settings: context.settingsRepo,
+                bootEpoch: context.liveActivityHostIdentity.bootEpoch,
+                eventBus: .shared,
+                previousBootClean: previousBootClean
             )
         } catch {
             appLifecycleLog.error("event_log.sequence_init_failed error=\(error.localizedDescription, privacy: .public)")
@@ -732,6 +742,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                 settings: context.settingsRepo,
                 bootEpoch: context.liveActivityHostIdentity.bootEpoch
             )
+            durableDomainRevisions?.seal(bus: EventBus.shared.snapshotMetadata().domainRevisions)
         }
     }
 
@@ -1452,6 +1463,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             attachmentUploadV2Store: attachmentUploadV2Store,
             attachmentUploadV3Store: attachmentUploadV3Store
         )
+        http.durableDomainRevisions = durableDomainRevisions
         try http.start()
         httpServer = http
         configureRelay()

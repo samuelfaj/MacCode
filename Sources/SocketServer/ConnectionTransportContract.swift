@@ -1,4 +1,6 @@
 import Foundation
+import CryptoKit
+import Persistence
 import RemoteCodeTreaty
 
 public struct ConnectionDomainRevisions: Codable, Equatable, Sendable {
@@ -61,6 +63,243 @@ public struct ConnectionDomainRevisions: Codable, Equatable, Sendable {
             browser: browser,
             files: files
         )
+    }
+
+    static let domainNames = ["shell", "surfaces", "agentThreads", "browser", "files"]
+
+    func revision(of domain: String) -> Int64 {
+        switch domain {
+        case "shell": return shell
+        case "surfaces": return surfaces
+        case "agentThreads": return agentThreads
+        case "browser": return browser
+        default: return files
+        }
+    }
+
+    init(byDomain: [String: Int64]) {
+        self.init(
+            shell: byDomain["shell"] ?? 0,
+            surfaces: byDomain["surfaces"] ?? 0,
+            agentThreads: byDomain["agentThreads"] ?? 0,
+            browser: byDomain["browser"] ?? 0,
+            files: byDomain["files"] ?? 0
+        )
+    }
+}
+
+/// Durable `domainRevisions`, advertised on welcome as `capability`.
+///
+/// EventBus revisions are event seqs, and seqs restart from the event log on
+/// each boot (live-only events are never logged), so after a Mac restart a
+/// revision a client already holds can be reused or lowered. Clients therefore
+/// dropped `knownDomainRevisions` on every new boot and downloaded everything.
+/// This ledger serves wire revisions from one persisted counter instead:
+/// - Within a boot a domain keeps its wire revision until its EventBus
+///   revision moves; it then takes the next counter value, which is above
+///   every wire revision any boot served.
+/// - The counter is reserved in blocks and persisted before a value in the
+///   block is served, so even a crash never lets a later boot reuse one.
+/// - A clean quit (`seal`) keeps each domain that did not change after its
+///   revision was served, with a digest of its snapshot content. The next
+///   boot keeps that revision only when the previous quit was clean, no event
+///   touched the domain since boot, and the content digest still matches.
+///   Anything else (crash, change, digest mismatch) gets a new revision.
+public final class ConnectionDurableDomainRevisions: @unchecked Sendable {
+    public static let capability = "snapshot.domain_revisions.durable_v1"
+    public static let settingsKey = "connection.domain_revisions.durable.v1"
+    static let reservationBlock: Int64 = 1_024
+    /// Builds before this ledger served EventBus seqs as revisions, and a crash
+    /// could have served seqs above the logged head. One jump past the head on
+    /// first use puts every durable revision above any of them.
+    static let legacyRevisionJump: Int64 = 1 << 32
+
+    struct Sealed: Codable, Equatable {
+        let revision: Int64
+        let digest: String
+    }
+
+    struct Stored: Codable, Equatable {
+        let bootEpoch: UInt64
+        /// Every wire revision ever served is at or below this.
+        let ceiling: Int64
+        /// Written only by a clean quit.
+        let sealed: [String: Sealed]?
+    }
+
+    private struct Live {
+        let revision: Int64
+        /// Normalized EventBus revision the wire revision stands for.
+        let mark: Int64
+        var digest: String?
+        /// Content to digest if the background digest has not run yet.
+        var pendingState: ConnectionSnapshotReadState?
+    }
+
+    private let lock = NSLock()
+    private let bootEpoch: UInt64
+    /// EventBus seq at install. Revisions at or below it were not published by
+    /// a live event of this boot, so they normalize to 0 ("unchanged since boot").
+    private let bootFloor: Int64
+    private let save: (String) throws -> Void
+    private var lastServed: Int64
+    private var reserved: Int64
+    private var candidates: [String: Sealed]
+    private var live: [String: Live] = [:]
+    private var sealedOnDisk = false
+
+    /// Fails when the boot record cannot be persisted; callers then keep the
+    /// EventBus revisions and do not advertise `capability`.
+    init(
+        bootEpoch: UInt64,
+        bootFloor: Int64,
+        previousBootClean: Bool,
+        load: () throws -> String?,
+        save: @escaping (String) throws -> Void
+    ) throws {
+        let stored = (try? load())
+            .flatMap { $0?.data(using: .utf8) }
+            .flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
+        self.bootEpoch = bootEpoch
+        self.bootFloor = bootFloor
+        self.save = save
+        lastServed = stored?.ceiling ?? max(0, bootFloor) + Self.legacyRevisionJump
+        if previousBootClean, let stored, stored.bootEpoch &+ 1 == bootEpoch {
+            candidates = stored.sealed ?? [:]
+        } else {
+            candidates = [:]
+        }
+        reserved = lastServed
+        // Unsealed until this boot quits cleanly: a crash keeps nothing.
+        try persist(ceiling: lastServed + Self.reservationBlock, sealed: nil)
+    }
+
+    /// Production install after the event log and C8 resume record are loaded.
+    public static func install(
+        settings: SettingsRepository,
+        bootEpoch: UInt64,
+        eventBus: EventBus,
+        previousBootClean: Bool
+    ) -> ConnectionDurableDomainRevisions? {
+        do {
+            return try ConnectionDurableDomainRevisions(
+                bootEpoch: bootEpoch,
+                bootFloor: eventBus.currentSeq,
+                previousBootClean: previousBootClean,
+                load: { try settings.get(settingsKey) },
+                save: { try settings.set(settingsKey, $0) }
+            )
+        } catch {
+            NSLog("[RC2.Snapshot] durable domain revisions disabled: %@", String(describing: error))
+            return nil
+        }
+    }
+
+    /// Wire revisions for one snapshot read. Throws only when a new counter
+    /// block cannot be persisted: serving it could later be reused.
+    func resolve(
+        bus: ConnectionDomainRevisions,
+        state: ConnectionSnapshotReadState
+    ) throws -> ConnectionDomainRevisions {
+        let marks = Dictionary(uniqueKeysWithValues: ConnectionDomainRevisions.domainNames.map {
+            ($0, normalized(bus.revision(of: $0)))
+        })
+        // Candidate digests are computed outside the lock (once per boot).
+        lock.lock()
+        let toVerify = candidates.keys.filter { live[$0] == nil && marks[$0] == 0 }
+        lock.unlock()
+        let digests = Dictionary(uniqueKeysWithValues: toVerify.map { ($0, Self.digest(of: state, domain: $0)) })
+
+        lock.lock()
+        defer { lock.unlock() }
+        var wire: [String: Int64] = [:]
+        var minted: [(domain: String, revision: Int64)] = []
+        for domain in ConnectionDomainRevisions.domainNames {
+            let mark = marks[domain] ?? 0
+            if let entry = live[domain], entry.mark == mark {
+                wire[domain] = entry.revision
+                continue
+            }
+            if live[domain] == nil, mark == 0, let carried = candidates[domain],
+               let digest = digests[domain] ?? nil, digest == carried.digest {
+                live[domain] = Live(revision: carried.revision, mark: 0, digest: digest)
+                wire[domain] = carried.revision
+                continue
+            }
+            if lastServed + 1 > reserved {
+                try persist(ceiling: lastServed + Self.reservationBlock, sealed: nil)
+            } else if sealedOnDisk {
+                try persist(ceiling: reserved, sealed: nil)
+            }
+            lastServed += 1
+            live[domain] = Live(revision: lastServed, mark: mark, digest: nil, pendingState: state)
+            wire[domain] = lastServed
+            minted.append((domain, lastServed))
+        }
+        if !minted.isEmpty {
+            // Digests matter only to the next boot: keep them off the response path.
+            Task.detached(priority: .utility) { [weak self] in
+                for (domain, revision) in minted {
+                    let digest = Self.digest(of: state, domain: domain)
+                    self?.recordDigest(digest, domain: domain, revision: revision)
+                }
+            }
+        }
+        return ConnectionDomainRevisions(byDomain: wire)
+    }
+
+    /// Call on a clean quit after the C8 resume record is written. Keeps each
+    /// domain whose EventBus revision did not move since its wire revision was
+    /// served (or, if never served this boot, since boot).
+    public func seal(bus: ConnectionDomainRevisions) {
+        lock.lock()
+        defer { lock.unlock() }
+        var sealed: [String: Sealed] = [:]
+        for domain in ConnectionDomainRevisions.domainNames {
+            let mark = normalized(bus.revision(of: domain))
+            if let entry = live[domain] {
+                guard entry.mark == mark,
+                      let digest = entry.digest
+                        ?? entry.pendingState.flatMap({ Self.digest(of: $0, domain: domain) }) else { continue }
+                sealed[domain] = Sealed(revision: entry.revision, digest: digest)
+            } else if mark == 0, let carried = candidates[domain] {
+                sealed[domain] = carried
+            }
+        }
+        do {
+            try persist(ceiling: reserved, sealed: sealed)
+        } catch {
+            NSLog("[RC2.Snapshot] durable domain revisions seal failed: %@", String(describing: error))
+        }
+    }
+
+    private func recordDigest(_ digest: String?, domain: String, revision: Int64) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard var entry = live[domain], entry.revision == revision else { return }
+        entry.digest = digest
+        entry.pendingState = nil
+        live[domain] = entry
+    }
+
+    private func normalized(_ busRevision: Int64) -> Int64 {
+        busRevision > bootFloor ? busRevision : 0
+    }
+
+    /// Caller holds `lock` (or is the initializer). `reserved` moves only
+    /// after the write succeeded.
+    private func persist(ceiling: Int64, sealed: [String: Sealed]?) throws {
+        let data = try JSONEncoder().encode(Stored(bootEpoch: bootEpoch, ceiling: ceiling, sealed: sealed))
+        try save(String(decoding: data, as: UTF8.self))
+        reserved = ceiling
+        sealedOnDisk = sealed != nil
+    }
+
+    static func digest(of state: ConnectionSnapshotReadState, domain: String) -> String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(state.domainContent(domain)) else { return nil }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
 
@@ -162,6 +401,21 @@ public struct ConnectionSnapshotReadState: Equatable, Sendable {
 
     func jsonValue(domainRevisions: ConnectionDomainRevisions) -> JSONValue {
         jsonValue(domainRevisions: domainRevisions, includeDomains: nil)
+    }
+
+    /// One domain's snapshot content (unbounded), for durable revision digests.
+    func domainContent(_ domain: String) -> JSONValue {
+        switch domain {
+        case "shell":
+            return .object([
+                "selectedWorkspaceId": selectedWorkspaceId.map(JSONValue.string) ?? .null,
+                "workspaces": .array(workspaces),
+            ])
+        case "surfaces": return .array(surfaces.map(\.jsonValue))
+        case "agentThreads": return .array(agentThreads.map(\.jsonValue))
+        case "browser": return .array(browserStates.map(\.jsonValue))
+        default: return .array(filesStates.map(\.jsonValue))
+        }
     }
 
     /// Applies `ConnectionSnapshotThreadWindow` to every agent-thread group.

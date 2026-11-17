@@ -1635,6 +1635,9 @@ public final class DirectHTTPServer: @unchecked Sendable {
     /// fail-closed until then).
     public let serverId: String
     public let bootEpoch: UInt64
+    /// Set before `start()`. When present, `sync.snapshot` revisions survive
+    /// a Mac restart; nil keeps EventBus revisions (valid only within one boot).
+    public var durableDomainRevisions: ConnectionDurableDomainRevisions?
 
     /// True while the Mac relay host socket is open (`/v1/discovery` `relay`).
     public var relayAvailable: @Sendable () -> Bool = { false }
@@ -4655,6 +4658,21 @@ public final class DirectHTTPServer: @unchecked Sendable {
 
     static let snapshotMainActorHopGraceNanoseconds: UInt64 = 1_000_000_000
 
+    /// Revisions to emit for one snapshot read, and the domains to include
+    /// (nil = full snapshot). Shared by `sync.snapshot` and `sync.snapshot.begin`.
+    /// `knownDomainRevisions` is accepted whatever boot the client saw it on:
+    /// with durable revisions a value from an earlier boot compares correctly.
+    private func snapshotDomainRevisions(
+        _ snapshot: EventBus.SnapshotBarrierResult<ConnectionSnapshotReadState>,
+        known: ConnectionDomainRevisions?
+    ) throws -> (ConnectionDomainRevisions, Set<String>?) {
+        let host = try durableDomainRevisions?.resolve(
+            bus: snapshot.metadata.domainRevisions,
+            state: snapshot.state
+        ) ?? snapshot.metadata.domainRevisions
+        return (host, known.map { host.domainsChanged(since: $0) })
+    }
+
     /// C-24: single-encode `sync.snapshot` JSON-RPC success path.
     private func dispatchSyncSnapshotRPCData(
         _ object: [String: Any],
@@ -4755,15 +4773,8 @@ public final class DirectHTTPServer: @unchecked Sendable {
 
         do {
             let snapshot = try await boundedConnectionSnapshotRead(phaseMetrics: phaseMetrics)
-            let hostRevisions = snapshot.metadata.domainRevisions
-            let includeDomains: Set<String>?
-            if let knownRevisions {
-                let changed = hostRevisions.domainsChanged(since: knownRevisions)
-                // Empty change set → still send revisions-only partial (cheap reconnect).
-                includeDomains = changed.isEmpty ? [] : changed
-            } else {
-                includeDomains = nil
-            }
+            // Empty change set → still send revisions-only partial (cheap reconnect).
+            let (hostRevisions, includeDomains) = try snapshotDomainRevisions(snapshot, known: knownRevisions)
             let readState = threadWindow.recentPerWorkspace.map {
                 snapshot.state.boundingAgentThreads(recentPerWorkspace: $0)
             } ?? snapshot.state
@@ -4922,14 +4933,7 @@ public final class DirectHTTPServer: @unchecked Sendable {
 
         do {
             let snapshot = try await boundedConnectionSnapshotRead(phaseMetrics: phaseMetrics)
-            let hostRevisions = snapshot.metadata.domainRevisions
-            let includeDomains: Set<String>?
-            if let knownRevisions {
-                let changed = hostRevisions.domainsChanged(since: knownRevisions)
-                includeDomains = changed.isEmpty ? [] : changed
-            } else {
-                includeDomains = nil
-            }
+            let (hostRevisions, includeDomains) = try snapshotDomainRevisions(snapshot, known: knownRevisions)
             let readState = threadWindow.recentPerWorkspace.map {
                 snapshot.state.boundingAgentThreads(recentPerWorkspace: $0)
             } ?? snapshot.state
