@@ -168,7 +168,9 @@ final class ActivityService: @unchecked Sendable {
             switch row.status {
             case "pending": state = .queued
             case "running": state = activeRunByThread[row.threadID.description] == row.runID ? .running : .needsYou
-            case "completed": state = .completed
+            // A run that ended while waiting on background work (the thread shows
+            // "Agent is waiting on a background task") is still working.
+            case "completed": state = !superseded && IncompleteTurnContinuation.isIncompleteTurn(result?.summary) ? .running : .completed
             case "failed": state = .failed
             case "interrupted": state = .interrupted
             case "cancelled": state = row.terminalReason == "userStop" ? .stopped : .interrupted
@@ -640,7 +642,7 @@ final class ActivityService: @unchecked Sendable {
     private static let terminalRunStatuses: Set<String> = ["completed", "failed", "interrupted", "cancelled"]
     /// Finished and not opened yet: the Just finished tab and the `new_results` count.
     private static func isJustFinished(_ item: AgentActivityItem) -> Bool {
-        item.finishedAt != nil && item.viewedAt == nil
+        item.finishedAt != nil && item.viewedAt == nil && item.state != .running
     }
 
     private static func isTerminal(_ state: AgentActivityState) -> Bool {
