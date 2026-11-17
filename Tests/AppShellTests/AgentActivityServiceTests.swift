@@ -306,6 +306,39 @@ final class AgentActivityServiceTests: XCTestCase {
         XCTAssertEqual(try decodePage(service(context).list(["section": .string("finished")])).items.count, 2, "Results still keeps both")
     }
 
+    func test_runWaitingOnBackgroundWorkCountsAsRunningNotAsAResult() throws {
+        // WHY: a run that ended with the background-await marker is still working (the
+        // thread says "Agent is waiting on a background task" and the host resumes it).
+        // Activity and the sidebar must count it as running, not as a finished result.
+        let context = try makeContext()
+        let waiting = try makeRun(context, thread: try makeThread(context), status: .completed, at: 100)
+        try insertResult(context, runID: waiting.id, summary: "[[RC_AWAITING]]\nStill waiting on the build.")
+        let done = try makeRun(context, thread: try makeThread(context), status: .completed, at: 200)
+        try insertResult(context, runID: done.id, summary: "All done.")
+
+        let page = try decodePage(service(context).list([:]))
+        XCTAssertEqual(page.items.first { $0.runID == waiting.id.value }?.state, .running)
+        XCTAssertEqual(page.items.first { $0.runID == done.id.value }?.state, .completed)
+        XCTAssertEqual(page.counts.running, 1)
+        XCTAssertEqual(page.counts.finished, 1)
+        XCTAssertEqual(page.counts.newResults, 1, "a waiting run is not a new result")
+        XCTAssertEqual(try decodePage(service(context).list(["section": .string("running")])).items.map(\.runID), [waiting.id.value])
+    }
+
+    func test_waitingRunSupersededByALaterRunIsNoLongerRunning() throws {
+        // WHY: once the thread starts a newer run, the older waiting run must not keep
+        // inflating the running count.
+        let context = try makeContext()
+        let thread = try makeThread(context)
+        let waiting = try makeRun(context, thread: thread, status: .completed, at: 100)
+        try insertResult(context, runID: waiting.id, summary: "[[RC_AWAITING]] waiting")
+        let later = try makeRun(context, thread: thread, status: .completed, at: 200)
+        try insertResult(context, runID: later.id, summary: "Finished.")
+
+        let page = try decodePage(service(context).list([:]))
+        XCTAssertEqual(page.counts.running, 0)
+    }
+
     func test_legacyTerminalRunViewedCreatesResultWithoutSummaryAndRestoreCanClear() throws {
         let context = try makeContext()
         let thread = try makeThread(context)
@@ -599,6 +632,12 @@ final class AgentActivityServiceTests: XCTestCase {
         try statement.bind(3, run.id.description)
         _ = try statement.step()
         return run
+    }
+    private func insertResult(_ context: AppContext, runID: AgentRunID, summary: String) throws {
+        let statement = try context.db.prepare("INSERT INTO agent_run_results(run_id, summary) VALUES (?, ?);")
+        try statement.bind(1, runID.description)
+        try statement.bind(2, summary)
+        _ = try statement.step()
     }
     private func insertResult(_ context: AppContext, runID: AgentRunID) throws {
         let statement = try context.db.prepare("INSERT OR IGNORE INTO agent_run_results(run_id) VALUES (?);")
