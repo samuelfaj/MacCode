@@ -121,6 +121,19 @@ final class EventStreamFilterDiagnosticsTests: XCTestCase {
                        "in-process prefix subscribers keep their own admission")
     }
 
+    /// Token usage streams several times a second during a run without a
+    /// workspace_id. Every Agent App surface and Bot desk subscribed with this
+    /// filter reloaded its thread rail or queue per event (CPU spikes in the
+    /// running app aligned with token_usage). Lifecycle kinds must still pass.
+    func test_agentThreadAndQueue_dropsTokenUsageButKeepsLifecycle() {
+        XCTAssertFalse(EventStreamFilter.agentThreadAndQueue.allows(event("agent.thread.token_usage")))
+        for kind in ["agent.thread.created", "agent.thread.updated", "agent.thread.deleted",
+                     "agent.thread.deleted_many", "agent.thread.renamed", "agent.thread.read",
+                     "agent.message.queued", "agent.message.queue.drained"] {
+            XCTAssertTrue(EventStreamFilter.agentThreadAndQueue.allows(event(kind)), kind)
+        }
+    }
+
     private func event(_ kind: String) -> EventBus.Event {
         EventBus.Event(seq: 1, kind: kind, payload: .object([:]), ts: 0)
     }
