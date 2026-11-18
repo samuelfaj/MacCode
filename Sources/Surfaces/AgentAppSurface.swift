@@ -11278,10 +11278,13 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         if distillLive?.runId == run, let current = distillLive {
             next = current
         } else {
-            // Goal and loops outlive a run; compaction/subagents do not.
+            // Goal and loops outlive a run; compaction/subagents do not. The session's
+            // model too: a resident session reports it again only when it changes, so the
+            // status line would name no model until the first model call.
             next = DistillLiveStatus(runId: run)
             next.goal = distillLive?.goal
             next.scheduledTasks = distillLive?.scheduledTasks ?? []
+            next.model = distillLive?.model
         }
         next.apply(method: runtime.method, payloadJSON: runtime.payloadJSON)
         if next != distillLive { distillLive = next }

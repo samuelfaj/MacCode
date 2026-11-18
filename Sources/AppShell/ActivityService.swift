@@ -14,12 +14,18 @@ final class ActivityService: @unchecked Sendable {
     /// Valid `TabColor` raw values only; a workspace without a known color has no entry.
     private let workspaceColors: [WorkspaceID: String]
     private let activeRunIDProvider: (AgentThreadID) -> AgentRunID?
+    /// Whether the host will still resume a thread whose latest run ended waiting on background work.
+    private let resumesAfterBackgroundWait: (AgentThreadID, AgentProvider) -> Bool
     private let registeredScripts: [AgentActivityItem]
     /// Live terminal and SSH tabs with a busy foreground job; never persisted.
     private let busySurfaces: [AgentActivityItem]
 
     @MainActor
-    init(context: AppContext, activeRunIDProvider: ((AgentThreadID) -> AgentRunID?)? = nil) {
+    init(
+        context: AppContext,
+        activeRunIDProvider: ((AgentThreadID) -> AgentRunID?)? = nil,
+        resumesAfterBackgroundWait: ((AgentThreadID, AgentProvider) -> Bool)? = nil
+    ) {
         db = context.db
         readDB = context.readDB
         let colors = context.state.workspaces.compactMapValues { TabColor.from($0.metadata["color"])?.rawValue }
@@ -29,6 +35,9 @@ final class ActivityService: @unchecked Sendable {
             context.coordinator.activeRunId(threadId: thread).map { (thread, $0) }
         })
         self.activeRunIDProvider = activeRunIDProvider ?? { activeRuns[$0] }
+        let coordinator = context.coordinator
+        self.resumesAfterBackgroundWait = resumesAfterBackgroundWait
+            ?? { coordinator.isResumingAfterBackgroundWait(threadId: $0, provider: $1) }
         registeredScripts = context.projectScriptRuns.activeSnapshot().map { script in
             AgentActivityItem(
                 id: "project-script:\(script.surfaceID.value.uuidString):\(script.startedAt.timeIntervalSince1970)",
@@ -46,12 +55,18 @@ final class ActivityService: @unchecked Sendable {
     }
 
     /// Database-only seam for parity tests and benches over a copy of real data.
-    init(db: SQLiteDB, readDB: SQLiteDB, activeRunIDProvider: @escaping (AgentThreadID) -> AgentRunID? = { _ in nil }) {
+    init(
+        db: SQLiteDB,
+        readDB: SQLiteDB,
+        activeRunIDProvider: @escaping (AgentThreadID) -> AgentRunID? = { _ in nil },
+        resumesAfterBackgroundWait: @escaping (AgentThreadID, AgentProvider) -> Bool = { _, _ in false }
+    ) {
         self.db = db
         self.readDB = readDB
         workspaceNames = [:]
         workspaceColors = [:]
         self.activeRunIDProvider = activeRunIDProvider
+        self.resumesAfterBackgroundWait = resumesAfterBackgroundWait
         registeredScripts = []
         busySurfaces = []
     }
@@ -168,9 +183,11 @@ final class ActivityService: @unchecked Sendable {
             switch row.status {
             case "pending": state = .queued
             case "running": state = activeRunByThread[row.threadID.description] == row.runID ? .running : .needsYou
-            // A run that ended while waiting on background work (the thread shows
-            // "Agent is waiting on a background task") is still working.
-            case "completed": state = !superseded && IncompleteTurnContinuation.isIncompleteTurn(result?.summary) ? .running : .completed
+            // A run that ended waiting on background work is still working only while the
+            // host will resume it. One nothing resumes (nudge cap, supervised, app restart)
+            // stayed "Running" for days, so it is a finished result.
+            case "completed": state = !superseded && IncompleteTurnContinuation.isIncompleteTurn(result?.summary)
+                && resumesAfterBackgroundWait(thread.id, thread.provider) ? .running : .completed
             case "failed": state = .failed
             case "interrupted": state = .interrupted
             case "cancelled": state = row.terminalReason == "userStop" ? .stopped : .interrupted
@@ -188,7 +205,7 @@ final class ActivityService: @unchecked Sendable {
                 id: "run:\(row.runID.description)", kind: .agent, runID: row.runID.value,
                 workspaceID: thread.workspaceId?.value, threadID: thread.id.value, state: state,
                 title: thread.title, workspaceName: workspaceName, workspaceColor: thread.workspaceId.flatMap { workspaceColors[$0] }, provider: thread.provider.rawValue,
-                summary: result?.summary ?? (state == .needsYou
+                summary: result?.summary.map(BackgroundAwaitContinuation.strippingAwaitingMarker) ?? (state == .needsYou
                     ? L("This run has no active process. Send a new message to resume, or dismiss this alert.")
                     : (terminal ? "No summary available for this run" : nil)),
                 occurredAt: row.finishedAt ?? row.startedAt, startedAt: row.startedAt, finishedAt: row.finishedAt,
@@ -235,6 +252,9 @@ final class ActivityService: @unchecked Sendable {
         let botNotificationMetadata = BotAttentionNotificationMetadataStore(db: readDB).all()
         let canonicalBotAttentionIDs = origins.botAttentionIDs
         for note in notifications {
+            // Activity lists conversations. A terminal that went idle ("Terminal is waiting
+            // for input") is a tab alert, not a result, and showed up as a "Notification" row.
+            if note.category == Self.terminalNotificationCategory { continue }
             let category = note.category.flatMap(PetNotificationCategory.init(rawValue:))
             let payload = Self.notificationPayload(note.body)
             if payload.runID.map(knownRunIDs.contains) == true { continue }
@@ -599,6 +619,9 @@ final class ActivityService: @unchecked Sendable {
     private static func orphanRunLedgerKey(_ runID: AgentRunID) -> String {
         "activity:orphan-run:\(runID.description)"
     }
+
+    /// Category `AppCommandRouter` writes when a busy terminal tab finishes.
+    static let terminalNotificationCategory = "terminal"
 
     private static let notificationFailureCategories: Set<PetNotificationCategory> = [
         .gitFailed, .projectScriptFailed, .sshTransferFailed, .providerUpdateFailed, .serverListenerFailed

@@ -332,7 +332,14 @@ public struct DistillLiveStatus: Equatable, Sendable {
             model = Self.string(update["model_id"]) ?? model
             effort = Self.string(update["reasoning_effort"]) ?? effort
         case "effort_applied":
-            // Per-call effort after Jev routing; the model label stays the catalog id from model_changed.
+            // Per-call model and effort after Jev routing. A resident session sends
+            // model_changed only when the model changes, so this is often the only report
+            // of the model in use ("auto (medium)" showed no model). The catalog id from
+            // model_changed stays while it names the same model.
+            if let used = Self.string(update["model_id"]),
+               model.flatMap(Self.bareModelId) != Self.bareModelId(used) {
+                model = used
+            }
             guard let level = Self.string(update["reasoning_effort"]) else { return }
             effort = update["auto"] as? Bool == true ? "auto (\(level))" : level
         case "goal_updated":
@@ -441,6 +448,11 @@ public struct DistillLiveStatus: Equatable, Sendable {
     private static func string(_ value: Any?) -> String? {
         guard let s = value as? String, !s.isEmpty else { return nil }
         return s
+    }
+
+    /// "claude/claude-sonnet-5-5" → "claude-sonnet-5-5".
+    private static func bareModelId(_ model: String) -> String {
+        model.split(separator: "/").last.map(String.init) ?? model
     }
 
     private static func lastString(_ value: Any?) -> String? {

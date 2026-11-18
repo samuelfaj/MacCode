@@ -306,28 +306,49 @@ final class AgentActivityServiceTests: XCTestCase {
         XCTAssertEqual(try decodePage(service(context).list(["section": .string("finished")])).items.count, 2, "Results still keeps both")
     }
 
-    func test_runWaitingOnBackgroundWorkCountsAsRunningNotAsAResult() throws {
-        // WHY: a run that ended with the background-await marker is still working (the
-        // thread says "Agent is waiting on a background task" and the host resumes it).
+    func test_runWaitingOnBackgroundWorkCountsAsRunningWhileTheHostWillResumeIt() throws {
+        // WHY: a run that ended with the background-await marker while the host still
+        // resumes it (nudge scheduled, or the provider runs the work) is still working.
         // Activity and the sidebar must count it as running, not as a finished result.
         let context = try makeContext()
-        let waiting = try makeRun(context, thread: try makeThread(context), status: .completed, at: 100)
+        let waitingThread = try makeThread(context)
+        let waiting = try makeRun(context, thread: waitingThread, status: .completed, at: 100)
         try insertResult(context, runID: waiting.id, summary: "[[RC_AWAITING]]\nStill waiting on the build.")
         let done = try makeRun(context, thread: try makeThread(context), status: .completed, at: 200)
         try insertResult(context, runID: done.id, summary: "All done.")
+        let resuming = ActivityService(context: context, activeRunIDProvider: { _ in nil },
+                                       resumesAfterBackgroundWait: { thread, _ in thread == waitingThread.id })
 
-        let page = try decodePage(service(context).list([:]))
+        let page = try decodePage(resuming.list([:]))
         XCTAssertEqual(page.items.first { $0.runID == waiting.id.value }?.state, .running)
         XCTAssertEqual(page.items.first { $0.runID == done.id.value }?.state, .completed)
         XCTAssertEqual(page.counts.running, 1)
         XCTAssertEqual(page.counts.finished, 1)
         XCTAssertEqual(page.counts.newResults, 1, "a waiting run is not a new result")
-        XCTAssertEqual(try decodePage(service(context).list(["section": .string("running")])).items.map(\.runID), [waiting.id.value])
+        XCTAssertEqual(try decodePage(resuming.list(["section": .string("running")])).items.map(\.runID), [waiting.id.value])
+    }
+
+    func test_waitingRunNothingWillResumeIsAFinishedResultNotRunning() throws {
+        // WHY: a day-old Bot conversation ending in "[[RC_AWAITING]]" sat under Running
+        // forever after the nudge cap, an app restart, or a supervised run, because nothing
+        // ever resumes it. Without a live resume it is a finished result, and the raw
+        // marker must not leak into the row summary.
+        let context = try makeContext()
+        let stale = try makeRun(context, thread: try makeThread(context), status: .completed, at: 100)
+        try insertResult(context, runID: stale.id, summary: "[[RC_AWAITING]] A rotina segue rodando.")
+
+        let page = try decodePage(ActivityService(context: context, activeRunIDProvider: { _ in nil },
+                                                  resumesAfterBackgroundWait: { _, _ in false }).list([:]))
+        let item = try XCTUnwrap(page.items.first { $0.runID == stale.id.value })
+        XCTAssertEqual(item.state, .completed)
+        XCTAssertEqual(page.counts.running, 0)
+        XCTAssertEqual(page.counts.newResults, 1)
+        XCTAssertEqual(item.summary, "A rotina segue rodando.")
     }
 
     func test_waitingRunSupersededByALaterRunIsNoLongerRunning() throws {
         // WHY: once the thread starts a newer run, the older waiting run must not keep
-        // inflating the running count.
+        // inflating the running count, even while a resume is still reported.
         let context = try makeContext()
         let thread = try makeThread(context)
         let waiting = try makeRun(context, thread: thread, status: .completed, at: 100)
@@ -335,8 +356,28 @@ final class AgentActivityServiceTests: XCTestCase {
         let later = try makeRun(context, thread: thread, status: .completed, at: 200)
         try insertResult(context, runID: later.id, summary: "Finished.")
 
-        let page = try decodePage(service(context).list([:]))
+        let page = try decodePage(ActivityService(context: context, activeRunIDProvider: { _ in nil },
+                                                  resumesAfterBackgroundWait: { _, _ in true }).list([:]))
         XCTAssertEqual(page.counts.running, 0)
+    }
+
+    func test_terminalTabNotificationsStayOutOfActivity() throws {
+        // WHY: Activity lists conversations. An idle terminal tab ("Terminal is waiting for
+        // input") showed up in Just finished as a "Notification" row with terminal output.
+        // It must not appear in any section or count; other notices still do.
+        let context = try makeContext()
+        let repository = NotificationRepository(db: context.db)
+        try repository.insert(AppNotification(id: "terminal-idle", surfaceId: SurfaceID(UUID()), title: "terminal finished",
+                                              body: "Terminal is waiting for input", category: ActivityService.terminalNotificationCategory))
+        try repository.insert(AppNotification(id: "git-done", title: "safe", category: PetNotificationCategory.gitCompleted.rawValue))
+
+        for section in ["all", "just_finished", "finished"] {
+            let ids = try decodePage(service(context).list(["section": .string(section)])).items.map(\.id)
+            XCTAssertFalse(ids.contains("notification:terminal-idle"), "terminal notice leaked into \(section)")
+        }
+        let page = try decodePage(service(context).list([:]))
+        XCTAssertTrue(page.items.contains { $0.id == "notification:git-done" }, "non-terminal notices are unchanged")
+        XCTAssertEqual(page.counts.newResults, 1, "only the git notice counts as a new result")
     }
 
     func test_legacyTerminalRunViewedCreatesResultWithoutSummaryAndRestoreCanClear() throws {

@@ -662,6 +662,8 @@ public final class AgentRunCoordinator: @unchecked Sendable {
     // while unfinished.
     private var autoContinuationCounts: [AgentThreadID: Int] = [:]
     private var autoContinuationTokens: [AgentThreadID: Int] = [:]
+    /// Token of the background-await nudge each thread is waiting to start.
+    private var scheduledAutoContinuations: [AgentThreadID: Int] = [:]
     /// Consecutive automatic resumes after transient provider network failures.
     private var networkRetryCounts: [AgentThreadID: Int] = [:]
     /// Threads whose automatic retry is waiting out its backoff delay.
@@ -3065,6 +3067,7 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         autoContinuationCounts.removeValue(forKey: threadId)
         networkRetryCounts.removeValue(forKey: threadId)
         autoContinuationTokens.removeValue(forKey: threadId)
+        scheduledAutoContinuations.removeValue(forKey: threadId)
         lastPersistedAssistantContent.removeValue(forKey: threadId)
         preparationStates.removeValue(forKey: threadId)
         pendingProviderStarts.removeValue(forKey: threadId)
@@ -3704,6 +3707,7 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         autoContinuationCounts.removeValue(forKey: threadId)
         networkRetryCounts.removeValue(forKey: threadId)
         autoContinuationTokens.removeValue(forKey: threadId)
+        scheduledAutoContinuations.removeValue(forKey: threadId)
         lock.unlock()
     }
 
@@ -3996,6 +4000,24 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         lock.lock(); autoContinuationCounts[threadId] = 0; networkRetryCounts[threadId] = nil; lock.unlock()
     }
 
+    private func clearScheduledAutoContinuation(threadId: AgentThreadID, token: Int) {
+        lock.lock()
+        if scheduledAutoContinuations[threadId] == token { scheduledAutoContinuations.removeValue(forKey: threadId) }
+        lock.unlock()
+    }
+
+    /// True while the host will still pick up a thread whose last run ended
+    /// waiting on background work: its nudge is scheduled and still valid, or
+    /// the provider still runs that work. Activity counts only such a run as
+    /// running; one nothing will resume (cap reached, supervised, app restarted)
+    /// is a finished result.
+    public func isResumingAfterBackgroundWait(threadId: AgentThreadID, provider: AgentProvider) -> Bool {
+        lock.lock()
+        let scheduled = scheduledAutoContinuations[threadId].map { $0 == autoContinuationTokens[threadId] } ?? false
+        lock.unlock()
+        return scheduled || backgroundWorkReporter(for: provider)?.hasLiveBackgroundWork(threadId: threadId) == true
+    }
+
     /// F37: bump the thread's continuation token so any pending scheduled
     /// auto-continuation aborts its validity check when it fires. Called on
     /// user-initiated starts; markStopRequested does the same on stop.
@@ -4035,6 +4057,7 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         autoContinuationCounts[threadId] = prior + 1
         let token = (autoContinuationTokens[threadId] ?? 0) + 1
         autoContinuationTokens[threadId] = token
+        scheduledAutoContinuations[threadId] = token
         lock.unlock()
         let attempt = prior + 1
         let delay = IncompleteTurnContinuation.delay(
@@ -4051,6 +4074,7 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         let provider = runMetadata.provider
         Task { [weak self] in
             guard let self else { return }
+            defer { self.clearScheduledAutoContinuation(threadId: threadId, token: token) }
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: UInt64((delay * 1_000_000_000).rounded()))
             }
