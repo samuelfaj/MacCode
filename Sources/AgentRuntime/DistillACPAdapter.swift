@@ -199,6 +199,10 @@ public final class DistillACPAdapter: AgentProviderAdapter, ProviderBackgroundWo
         var onEvent: (@Sendable (AgentRunEvent) -> Void)?
         var history: DistillACPHistoryRetention
         var pendingPermissions: [String: PendingPermission] = [:]
+        /// Permission mode and Plan interaction of the turn in flight. The agent's own
+        /// plan approval (`x.ai/exit_plan_mode`) is answered from them.
+        var turnPermissionMode: AgentPermissionMode?
+        var turnIsPlanReview = false
         /// Provider failure text from `x.ai/session/prompt_complete`
         /// (`stopReason: "error"`) for `generation`. Fallback for peers that
         /// answer the failed `session/prompt` with a bare "Internal error".
@@ -309,7 +313,13 @@ public final class DistillACPAdapter: AgentProviderAdapter, ProviderBackgroundWo
     }
 
     private struct PendingPermission {
-        let request: DistillACPPermissionRequest
+        enum Kind {
+            /// `session/request_permission` for a tool call.
+            case tool(DistillACPPermissionRequest)
+            /// `x.ai/exit_plan_mode`: leave the plan mode the agent entered itself.
+            case planApproval
+        }
+        let kind: Kind
         let continuation: CheckedContinuation<Any?, Error>
     }
 
@@ -1011,10 +1021,26 @@ public final class DistillACPAdapter: AgentProviderAdapter, ProviderBackgroundWo
 
         let result: [String: Any]
         let state: AssistantRequestState
+        guard case .tool(let toolRequest) = pending.kind else {
+            switch response {
+            case .approve, .approveForSession:
+                result = ["outcome": "approved"]
+                state = .approved
+            case .decline:
+                result = ["outcome": "cancelled"]
+                state = .declined
+            case .cancel:
+                result = ["outcome": "cancelled"]
+                state = .cancelled
+            }
+            emit(.requestResolved(requestId: requestId, state: state), session: session)
+            pending.continuation.resume(returning: result)
+            return
+        }
         if case .cancel = response {
             result = ["outcome": ["outcome": "cancelled"]]
             state = .cancelled
-        } else if let optionId = pending.request.optionId(for: response) {
+        } else if let optionId = toolRequest.optionId(for: response) {
             result = ["outcome": ["outcome": "selected", "optionId": optionId]]
             switch response {
             case .approve, .approveForSession: state = .approved
@@ -1883,6 +1909,10 @@ public final class DistillACPAdapter: AgentProviderAdapter, ProviderBackgroundWo
                 }
             }
             session.mapper.setPlanReviewRequested(request.interactionMode == .plan)
+            synchronized {
+                session.turnPermissionMode = request.permissionMode
+                session.turnIsPlanReview = request.interactionMode == .plan
+            }
             let acceptance = PromptAcceptanceGate()
             beforePromptWriteForTesting?()
             try synchronized {
@@ -2429,6 +2459,9 @@ public final class DistillACPAdapter: AgentProviderAdapter, ProviderBackgroundWo
         params: Any?,
         session: Session
     ) async throws -> Any? {
+        if Self.exitPlanModeMethods.contains(method) {
+            return try await handleExitPlanModeRequest(id: id, params: params, session: session)
+        }
         guard method == "session/request_permission" else {
             throw AgentProviderAdapterError.unsupported("Unhandled Distill ACP request: \(method)")
         }
@@ -2439,7 +2472,7 @@ public final class DistillACPAdapter: AgentProviderAdapter, ProviderBackgroundWo
         return try await withCheckedThrowingContinuation { continuation in
             let key = id.stringValue
             let turnId = synchronized { () -> String? in
-                session.pendingPermissions[key] = PendingPermission(request: request, continuation: continuation)
+                session.pendingPermissions[key] = PendingPermission(kind: .tool(request), continuation: continuation)
                 return session.mapper.activeTurnId
             }
             emit(.requestOpened(AssistantPendingRequest(
@@ -2450,6 +2483,77 @@ public final class DistillACPAdapter: AgentProviderAdapter, ProviderBackgroundWo
                 detail: request.detail,
                 createdAtMs: Int64(Date().timeIntervalSince1970 * 1000),
                 supportsSessionApproval: request.options.contains { $0.kind == "allow_always" }
+            )), session: session)
+        }
+    }
+
+    /// Distill asks the client before leaving the plan mode the agent entered with
+    /// `enter_plan_mode`. Any error answer reads as "client disconnected", and Distill
+    /// then cancels the whole turn ("Interrupted" with nothing done).
+    static let exitPlanModeMethods: Set<String> = ["_x.ai/exit_plan_mode", "x.ai/exit_plan_mode"]
+
+    enum ExitPlanModeAnswer: Equatable {
+        /// Reply now (`approved` / `cancelled` / `abandoned`, optional feedback for the agent).
+        case reply(outcome: String, feedback: String?)
+        /// Show the user an approval card.
+        case askUser
+    }
+
+    /// Feedback for a Plan turn: MacCode reviews the plan once the turn completes.
+    static let planReviewTurnFeedback = "Keep this plan as it is. MacCode shows it to the user for review after this turn. Do not call exit_plan_mode again; end your turn now with a short summary of the plan."
+
+    static func exitPlanModeAnswer(
+        turnInFlight: Bool,
+        planReviewTurn: Bool,
+        permissionMode: AgentPermissionMode?
+    ) -> ExitPlanModeAnswer {
+        // An approval Distill re-issues after a reconnect has no turn. Approving it
+        // would start an implement turn no run owns; abandon only leaves plan mode.
+        guard turnInFlight else { return .reply(outcome: "abandoned", feedback: nil) }
+        // The user asked for a plan: MacCode reviews it when the turn completes
+        // (Approve, or Full access implements it), so the agent stops here.
+        if planReviewTurn { return .reply(outcome: "cancelled", feedback: planReviewTurnFeedback) }
+        // Full access runs the plans the agent makes for itself without asking.
+        if permissionMode == .fullAccess { return .reply(outcome: "approved", feedback: nil) }
+        return .askUser
+    }
+
+    private func handleExitPlanModeRequest(
+        id: DistillACPRequestID,
+        params: Any?,
+        session: Session
+    ) async throws -> Any? {
+        let fields = params as? [String: Any]
+        guard fields?["sessionId"] as? String == session.providerThreadId else {
+            throw AgentProviderAdapterError.unsupported("Distill ACP plan approval session mismatch")
+        }
+        let (inFlight, planReview, permissionMode, turnId) = synchronized {
+            (session.inFlight && !session.turnTerminalEmitted, session.turnIsPlanReview,
+             session.turnPermissionMode, session.mapper.activeTurnId)
+        }
+        let answer = Self.exitPlanModeAnswer(turnInFlight: inFlight, planReviewTurn: planReview, permissionMode: permissionMode)
+        distillAcpLog.info(
+            "distill.plan_approval thread=\(session.threadId.value.uuidString, privacy: .public) in_flight=\(inFlight, privacy: .public) plan_turn=\(planReview, privacy: .public) answer=\(String(describing: answer), privacy: .public)"
+        )
+        if case let .reply(outcome, feedback) = answer {
+            var result: [String: Any] = ["outcome": outcome]
+            if let feedback { result["feedback"] = feedback }
+            return result
+        }
+        let plan = (fields?["planContent"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try await withCheckedThrowingContinuation { continuation in
+            let key = id.stringValue
+            synchronized {
+                session.pendingPermissions[key] = PendingPermission(kind: .planApproval, continuation: continuation)
+            }
+            emit(.requestOpened(AssistantPendingRequest(
+                id: key,
+                turnId: turnId,
+                kind: .dynamic,
+                title: L("Approve the agent's plan"),
+                detail: plan?.isEmpty == false ? plan : nil,
+                createdAtMs: Int64(Date().timeIntervalSince1970 * 1000),
+                supportsSessionApproval: false
             )), session: session)
         }
     }

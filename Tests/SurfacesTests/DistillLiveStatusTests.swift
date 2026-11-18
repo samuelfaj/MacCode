@@ -79,6 +79,20 @@ final class DistillLiveStatusTests: XCTestCase {
         XCTAssertTrue(ProviderRuntimeEvent.isLiveStatusCarrier(method: "effort_applied"))
     }
 
+    /// WHY: a resident Distill session sends model_changed only when the model changes,
+    /// so on most turns the strip read "Running tool · updated 27s ago · auto (medium)"
+    /// with no model. effort_applied names the model each call uses; the strip must
+    /// always show it, and follow Jev when it routes a call to another model.
+    func test_effortAppliedWithoutModelChanged_stillNamesTheModelInUse() {
+        var s = DistillLiveStatus()
+        send(&s, "main", ["sessionUpdate": "effort_applied", "model_id": "gpt-6.1-sol", "reasoning_effort": "medium", "auto": true])
+        XCTAssertEqual(s.modelEffortText, "gpt-6.1-sol auto (medium)")
+        send(&s, "main", ["sessionUpdate": "effort_applied", "model_id": "claude-sonnet-5-5", "reasoning_effort": "low", "auto": true])
+        XCTAssertEqual(s.modelEffortText, "claude-sonnet-5-5 auto (low)")
+        send(&s, "main", ["sessionUpdate": "effort_applied", "reasoning_effort": "high"])
+        XCTAssertEqual(s.modelEffortText, "claude-sonnet-5-5 high", "an update without model_id keeps the last model")
+    }
+
     /// PR distill#59: the Subagents popover names the tool call a running child is on,
     /// keyed by the same run id the native receipt uses, and drops it once the child ends.
     func test_subagentRecentActivity_showsLatestToolCallOnlyWhileRunning() {

@@ -290,6 +290,139 @@ final class DistillACPAdapterTests: ProviderProcessTestCase {
         XCTAssertTrue(prompts[0] < setMode && setMode < prompts[1], "the mode is restored before the next prompt")
     }
 
+    // MARK: - Agent plan approval (`x.ai/exit_plan_mode`)
+
+    /// Fake Distill that, on every prompt, asks MacCode to approve leaving plan mode
+    /// (as `exit_plan_mode` does), records MacCode's reply, then ends the turn.
+    private func writePlanApprovalHarness(root: URL) throws -> (harness: URL, replies: URL) {
+        let repliesURL = root.appendingPathComponent("replies.jsonl")
+        let harnessURL = root.appendingPathComponent("distill-agent")
+        let modes = #"{"currentModeId":"bypassPermissions","availableModes":[{"id":"default","name":"Default"},{"id":"plan","name":"Plan"},{"id":"bypassPermissions","name":"Full access"}]}"#
+        let harness = """
+        #!/usr/bin/env python3
+        import json, pathlib, sys
+        replies = pathlib.Path(\(String(reflecting: repliesURL.path)))
+        modes = json.loads(\(String(reflecting: modes)))
+        prompt_id = None
+        def send(value): print(json.dumps(value), flush=True)
+        for line in sys.stdin:
+            message = json.loads(line)
+            method = message.get("method")
+            params = message.get("params", {})
+            if method is None and message.get("id") == 900:
+                with replies.open("a") as output: output.write(json.dumps(message) + "\\n")
+                send({"jsonrpc":"2.0", "id":prompt_id, "result":{"stopReason":"end_turn"}})
+            elif method == "initialize":
+                send({"jsonrpc":"2.0", "id":message["id"], "result":{"protocolVersion":1,"agentCapabilities":{}}})
+            elif method in ("session/new", "session/load"):
+                send({"jsonrpc":"2.0", "id":message["id"], "result":{"sessionId":"plan-session","models":{"currentModelId":"main"},"modes":modes}})
+            elif method == "session/set_model":
+                send({"jsonrpc":"2.0", "id":message["id"], "result":{"_meta":{"model":params.get("modelId"),"contextWindow":1000}}})
+            elif method == "_x.ai/session/ultracode/set":
+                send({"jsonrpc":"2.0", "id":message["id"], "result":{"enabled":params.get("enabled")}})
+            elif method == "_x.ai/session/execution_mode/set":
+                send({"jsonrpc":"2.0", "id":message["id"], "result":{"mode":params.get("mode")}})
+            elif method == "session/prompt":
+                prompt_id = message["id"]
+                send({"jsonrpc":"2.0", "id":900, "method":"_x.ai/exit_plan_mode", "params":{"sessionId":"plan-session","toolCallId":"call-exit","planContent":"# Plan\\n1. Merge the branch"}})
+            elif "id" in message:
+                send({"jsonrpc":"2.0", "id":message["id"], "result":{}})
+        """
+        try harness.write(to: harnessURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: harnessURL.path)
+        return (harnessURL, repliesURL)
+    }
+
+    private func planApprovalReply(_ url: URL) throws -> [String: Any] {
+        let reply = try XCTUnwrap(recordedRequests(url).first, "MacCode never answered the plan approval")
+        XCTAssertNil(reply["error"], "an error reply reads as a disconnect and Distill cancels the turn")
+        return try XCTUnwrap(reply["result"] as? [String: Any])
+    }
+
+    func test_fullAccessApprovesThePlanTheAgentMadeForItself_soTheTurnIsNotCancelled() async throws {
+        // WHY: live 2026-11-17, a Full access agent entered plan mode by itself and called
+        // exit_plan_mode. MacCode had no handler for `x.ai/exit_plan_mode`, Distill read the
+        // error as "client disconnected" and cancelled the turn: "Interrupted" after 4 commands.
+        let root = try makeTempRoot("distill-acp-plan-approval-full")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (harness, replies) = try writePlanApprovalHarness(root: root)
+        let adapter = DistillACPAdapter(binaryNameOverride: harness.path)
+        defer { adapter.stopAll() }
+        let box = DistillACPAdapterEventBox()
+        _ = try await adapter.startSession(AgentRunRequest(
+            threadId: AgentThreadID(), provider: .distill, model: "grok-4.6", cwd: root.path, prompt: "Merge it",
+            permissionMode: .fullAccess
+        )) { box.append($0) }
+
+        let finished = try await box.waitForFinish()
+        XCTAssertEqual(finished.status, .completed)
+        XCTAssertEqual(try planApprovalReply(replies)["outcome"] as? String, "approved")
+        XCTAssertTrue(box.openedRequests.isEmpty, "Full access never asks the user")
+    }
+
+    func test_supervisedAsksTheUserBeforeTheAgentLeavesPlanMode() async throws {
+        // WHY: supervised means the user approves what the agent runs. The plan must reach
+        // the user as an approval card, and their answer must reach Distill.
+        let root = try makeTempRoot("distill-acp-plan-approval-supervised")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (harness, replies) = try writePlanApprovalHarness(root: root)
+        let adapter = DistillACPAdapter(binaryNameOverride: harness.path)
+        defer { adapter.stopAll() }
+        let threadID = AgentThreadID()
+        let box = DistillACPAdapterEventBox()
+        _ = try await adapter.startSession(AgentRunRequest(
+            threadId: threadID, provider: .distill, model: "grok-4.6", cwd: root.path, prompt: "Merge it",
+            permissionMode: .supervised
+        )) { box.append($0) }
+
+        let request = try await box.waitForOpenedRequest()
+        XCTAssertEqual(request.title, "Approve the agent's plan")
+        XCTAssertEqual(request.detail, "# Plan\n1. Merge the branch", "the user sees the plan they approve")
+        XCTAssertEqual(request.supportsSessionApproval, false)
+        XCTAssertTrue(try recordedRequests(replies).isEmpty, "nothing is answered before the user decides")
+
+        try await adapter.respondToRequest(threadId: threadID, requestId: request.id, response: .approve)
+        let finished = try await box.waitForFinish()
+        XCTAssertEqual(finished.status, .completed)
+        XCTAssertEqual(try planApprovalReply(replies)["outcome"] as? String, "approved")
+    }
+
+    func test_aPlanTurnTheUserAskedForEndsWithThePlanInsteadOfImplementingIt() async throws {
+        // WHY: in a Plan turn MacCode reviews the plan after the turn (Approve, or Full
+        // access implements it). Approving exit_plan_mode here would implement it inside
+        // the planning turn, before the review.
+        let root = try makeTempRoot("distill-acp-plan-approval-plan-turn")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (harness, replies) = try writePlanApprovalHarness(root: root)
+        let adapter = DistillACPAdapter(binaryNameOverride: harness.path)
+        defer { adapter.stopAll() }
+        let box = DistillACPAdapterEventBox()
+        _ = try await adapter.startSession(AgentRunRequest(
+            threadId: AgentThreadID(), provider: .distill, model: "grok-4.6", cwd: root.path, prompt: "Plan the merge",
+            permissionMode: .fullAccess, interactionMode: .plan
+        )) { box.append($0) }
+
+        let finished = try await box.waitForFinish()
+        XCTAssertEqual(finished.status, .completed)
+        let reply = try planApprovalReply(replies)
+        XCTAssertEqual(reply["outcome"] as? String, "cancelled")
+        XCTAssertEqual(reply["feedback"] as? String, DistillACPAdapter.planReviewTurnFeedback)
+    }
+
+    func test_exitPlanModeAnswer_coversEveryTurnShape() {
+        // WHY: an approval Distill re-issues after a reconnect has no turn; approving it
+        // would start an implement turn no run owns, so it is abandoned (plan mode off only).
+        XCTAssertEqual(DistillACPAdapter.exitPlanModeAnswer(turnInFlight: false, planReviewTurn: false, permissionMode: .fullAccess),
+                       .reply(outcome: "abandoned", feedback: nil))
+        XCTAssertEqual(DistillACPAdapter.exitPlanModeAnswer(turnInFlight: true, planReviewTurn: false, permissionMode: .fullAccess),
+                       .reply(outcome: "approved", feedback: nil))
+        XCTAssertEqual(DistillACPAdapter.exitPlanModeAnswer(turnInFlight: true, planReviewTurn: true, permissionMode: .fullAccess),
+                       .reply(outcome: "cancelled", feedback: DistillACPAdapter.planReviewTurnFeedback))
+        XCTAssertEqual(DistillACPAdapter.exitPlanModeAnswer(turnInFlight: true, planReviewTurn: false, permissionMode: .supervised), .askUser)
+        XCTAssertEqual(DistillACPAdapter.exitPlanModeAnswer(turnInFlight: true, planReviewTurn: false, permissionMode: .autoAcceptEdits), .askUser)
+        XCTAssertTrue(DistillACPAdapter.exitPlanModeMethods.contains("_x.ai/exit_plan_mode"), "ACP extension methods arrive with the leading underscore")
+    }
+
     private func recordedRequests(_ url: URL) throws -> [[String: Any]] {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
         return try text.split(whereSeparator: \.isNewline)
@@ -1974,6 +2107,23 @@ private final class DistillACPAdapterEventBox: @unchecked Sendable {
             guard case .event(.itemDelta(_, let body, _, _)) = event else { return nil }
             return body
         }.joined()
+    }
+
+    var openedRequests: [AssistantPendingRequest] {
+        lock.lock(); defer { lock.unlock() }
+        return values.compactMap { event in
+            guard case .event(.requestOpened(let request)) = event else { return nil }
+            return request
+        }
+    }
+
+    func waitForOpenedRequest(timeout: TimeInterval = 5) async throws -> AssistantPendingRequest {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let request = openedRequests.first { return request }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        throw DistillACPAdapterTestError.timedOut
     }
 
     var finishedCount: Int {
