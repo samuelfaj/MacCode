@@ -306,6 +306,33 @@ final class AgentActivityServiceTests: XCTestCase {
         XCTAssertEqual(try decodePage(service(context).list(["section": .string("finished")])).items.count, 2, "Results still keeps both")
     }
 
+    func test_runningKeepsRunsThatJustFinishedOnlyWhenAskedAndOncePerConversation() throws {
+        // WHY: a run vanished from Running the moment it ended, so the user lost it while
+        // watching. The Activity window asks Running to keep recent results for a few minutes;
+        // other readers (Titio's rc_activity_list, iOS) keep the strict "in progress" meaning.
+        let context = try makeContext()
+        let now = Date().timeIntervalSince1970
+        let liveThread = try makeThread(context)
+        _ = try makeRun(context, thread: liveThread, status: .completed, at: now - 150)
+        let live = try makeRun(context, thread: liveThread, status: .running, at: now - 120)
+        let justDone = try makeRun(context, thread: try makeThread(context), status: .completed, at: now - 60)
+        let justFailed = try makeRun(context, thread: try makeThread(context), status: .failed, at: now - 30)
+        let longDone = try makeRun(context, thread: try makeThread(context), status: .completed, at: now - 600)
+        let activity = service(context, activeRunID: live.id)
+
+        let strict = try decodePage(activity.list(["section": .string("running")]))
+        XCTAssertEqual(strict.items.map(\.runID), [live.id.value], "without the window Running means in progress only")
+
+        let kept = try decodePage(activity.list(["section": .string("running"), "recent_finished_seconds": .number(300)]))
+        XCTAssertEqual(Set(kept.items.compactMap(\.runID)), [live.id.value, justDone.id.value, justFailed.id.value],
+                       "results from the last five minutes stay; an older one and the restarted conversation's previous run do not")
+        XCTAssertFalse(kept.items.contains { $0.runID == longDone.id.value })
+        XCTAssertEqual(kept.items.first { $0.runID == justFailed.id.value }?.state, .failed, "a kept run shows how it ended")
+        XCTAssertEqual(kept.counts.running, 1, "the Running count still counts only work in progress")
+        XCTAssertThrowsError(try activity.list(["section": .string("running"), "recent_finished_seconds": .number(0)]))
+        XCTAssertThrowsError(try activity.list(["section": .string("running"), "recent_finished_seconds": .string("300")]))
+    }
+
     func test_runWaitingOnBackgroundWorkCountsAsRunningWhileTheHostWillResumeIt() throws {
         // WHY: a run that ended with the background-await marker while the host still
         // resumes it (nudge scheduled, or the provider runs the work) is still working.

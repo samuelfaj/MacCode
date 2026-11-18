@@ -99,7 +99,10 @@ final class ActivityService: @unchecked Sendable {
         let byWorkspace = Self.workspaceCounts(for: items)
         let selected: [AgentActivityItem]
         switch filter.section {
-        case "running": selected = items.filter { $0.state == .queued || ($0.state == .running && !$0.blocking) }
+        case "running":
+            let live = items.filter(Self.isLive)
+            let lingering = Self.recentlyFinished(items, live: live, window: filter.recentFinishedWindow, now: snapshotAt)
+            selected = items.filter { Self.isLive($0) || lingering.contains($0.id) }
         case "needs_you": selected = items.filter(\.needsAction)
         case "finished": selected = items.filter { Self.isTerminal($0.state) }
         case "just_finished": selected = items.filter(Self.isJustFinished)
@@ -663,6 +666,25 @@ final class ActivityService: @unchecked Sendable {
     }
 
     private static let terminalRunStatuses: Set<String> = ["completed", "failed", "interrupted", "cancelled"]
+    private static func isLive(_ item: AgentActivityItem) -> Bool {
+        item.state == .queued || (item.state == .running && !item.blocking)
+    }
+    /// Conversation runs that finished within `window` before `now`, for a caller that asks
+    /// Running to keep them, so a row does not vanish the moment its run ends. A conversation
+    /// that already has a newer live run is shown once, by that run.
+    private static func recentlyFinished(_ items: [AgentActivityItem], live: [AgentActivityItem],
+                                         window: TimeInterval?, now: Date) -> Set<String> {
+        guard let window else { return [] }
+        let liveThreads = Set(live.compactMap(\.threadID))
+        let liveConversations = Set(live.compactMap(\.conversationID))
+        return Set(items.filter { item in
+            guard item.kind == .agent, Self.isTerminal(item.state), let finishedAt = item.finishedAt,
+                  finishedAt <= now, now.timeIntervalSince(finishedAt) < window else { return false }
+            if let thread = item.threadID, liveThreads.contains(thread) { return false }
+            if let conversation = item.conversationID, liveConversations.contains(conversation) { return false }
+            return true
+        }.map(\.id))
+    }
     /// Finished and not opened yet: the Just finished tab and the `new_results` count.
     private static func isJustFinished(_ item: AgentActivityItem) -> Bool {
         item.finishedAt != nil && item.viewedAt == nil && item.state != .running
@@ -711,6 +733,8 @@ private struct ActivityFilter {
     let since: Date?
     let cursor: String?
     let limit: Int
+    /// Running only: also list conversation runs that finished this many seconds ago or less.
+    let recentFinishedWindow: TimeInterval?
     init(params: [String: JSONValue]) throws {
         if let raw = params["workspace_id"]?.stringValue, let uuid = UUID(uuidString: raw) { workspaceID = uuid }
         else if params["workspace_id"] != nil { throw JSONRPCError.invalidParams }
@@ -726,6 +750,14 @@ private struct ActivityFilter {
         guard requested > 0 else { throw JSONRPCError.invalidParams }
         // Bulk actions read a whole filter; 500 per page keeps that to a few passes.
         limit = min(requested, 500)
+        if let seconds = params["recent_finished_seconds"]?.intValue {
+            guard (1...3_600).contains(seconds) else { throw JSONRPCError.invalidParams }
+            recentFinishedWindow = TimeInterval(seconds)
+        } else if params["recent_finished_seconds"] != nil {
+            throw JSONRPCError.invalidParams
+        } else {
+            recentFinishedWindow = nil
+        }
     }
     func matches(_ item: AgentActivityItem) -> Bool {
         if let workspaceID, item.workspaceID != workspaceID { return false }

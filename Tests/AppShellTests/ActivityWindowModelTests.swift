@@ -862,6 +862,67 @@ final class ActivityWindowModelTests: XCTestCase {
         XCTAssertEqual(model.page.items.map(\.id), ["run:live"], "the open row stays in place")
     }
 
+    func testRunThatFinishesKeepsItsSlotInRunningAndOnlyRunningAsksForRecentResults() async {
+        // WHY: a run that finished vanished from Running at once, so the user lost it while
+        // watching. It now stays where it was, showing how it ended, instead of jumping to the
+        // top as the newest event (the host orders by occurrence time).
+        let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
+        defaults.set("running", forKey: "activity.tab")
+        var serverItems = [item("a", at: "2026-10-12T11:58:00Z", state: "running"),
+                           item("b", at: "2026-10-12T11:57:00Z", state: "running"),
+                           item("c", at: "2026-10-12T11:56:00Z", state: "running")]
+        var requests: [[String: JSONValue]] = []
+        let model = ActivityViewModel(service: ActivityClient(
+            list: { params in requests.append(params); return self.page(serverItems) },
+            setViewed: { _ in self.updated([]) }, acknowledge: { _ in .object([:]) }
+        ), defaults: defaults)
+        model.refreshAfterFrame()
+        await waitUntil("running rows") { model.page.items.count == 3 && !model.loading }
+        XCTAssertEqual(requests.last?["recent_finished_seconds"], .number(300))
+
+        serverItems = [item("b", at: "2026-10-12T12:00:00Z", state: "completed"),
+                       item("a", at: "2026-10-12T11:58:00Z", state: "running"),
+                       item("c", at: "2026-10-12T11:56:00Z", state: "running")]
+        model.refreshAfterFrame()
+        await waitUntil("b finished") { model.page.items.first { $0.id == "b" }?.state == "completed" && !model.loading }
+        XCTAssertEqual(model.page.items.map(\.id), ["a", "b", "c"], "the finished run keeps its slot")
+        XCTAssertEqual(model.page.items[1].statusLabel, "Completed")
+
+        serverItems.insert(item("d", at: "2026-10-12T12:01:00Z", state: "running"), at: 0)
+        model.refreshAfterFrame()
+        await waitUntil("new run") { model.page.items.count == 4 && !model.loading }
+        XCTAssertEqual(model.page.items.map(\.id), ["d", "a", "b", "c"], "a new run starts at the top")
+
+        model.tab = .justFinished
+        await waitUntil("just finished request") { requests.last?["section"] == .string("just_finished") && !model.loading }
+        XCTAssertNil(requests.last?["recent_finished_seconds"], "other tabs keep their strict meaning")
+    }
+
+    func testFinishedRowLeavesRunningWhenItsWindowEndsWithoutAnotherEvent() async {
+        // WHY: rows only refresh on activity events; a kept result must still leave on time
+        // when nothing else happens, and the expiry must not turn into a refresh loop.
+        let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!
+        defaults.set("running", forKey: "activity.tab")
+        let finishedAt = Date().addingTimeInterval(1)
+        let stamp = ISO8601DateFormatter()
+        stamp.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var done = item("done", state: "completed")
+        done.finished_at = stamp.string(from: finishedAt)
+        var listCalls = 0
+        let model = ActivityViewModel(service: ActivityClient(
+            list: { _ in listCalls += 1; return self.page(Date() < finishedAt.addingTimeInterval(0.5) ? [done] : []) },
+            setViewed: { _ in self.updated([]) }, acknowledge: { _ in .object([:]) }
+        ), defaults: defaults)
+        model.recentlyFinishedWindowForTesting = 0.5
+        model.refreshAfterFrame()
+        await waitUntil("kept result") { model.page.items.count == 1 && !model.loading }
+        await waitUntil("result left at the end of its window", timeout: .seconds(4)) { model.page.items.isEmpty && !model.loading }
+        let callsAfterExpiry = listCalls
+        try? await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(listCalls, callsAfterExpiry, "an expired window schedules nothing more")
+        XCTAssertLessThanOrEqual(callsAfterExpiry, 3)
+    }
+
     func testKeptFinishedRowCanBeDismissedWithoutAHostWrite() async {
         // WHY: a finished row kept under Running had no Dismiss, so it stayed until the user picked another row.
         let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!

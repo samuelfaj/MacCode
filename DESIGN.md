@@ -138,6 +138,7 @@ Every screen must work at any window width, from the narrowest the window allows
 - **Loading:** acknowledge at once; show cached data if it is honest, otherwise a layout-stable placeholder or `DSBusySpinner` with a label. Live strips reserve their height.
 - **Errors:** inline first — `AgentChoiceCallout` (warning when recoverable, danger otherwise) or an error strip in place. Use alerts only for blocking confirmations. Text says what happened and what to do.
 - **Banners:** a full-width strip under the header for persistent risk (e.g. "Full access is on" with a "Switch to supervised" action).
+- **Live lists:** a row whose work ends keeps its slot and shows its outcome; it never vanishes or jumps the moment its state changes. Activity's Running keeps a conversation run for 5 minutes after it ends (the Running count still counts only work in progress), then drops it. Only rows new to the list take the source order. The status change uses `micro` motion, none with reduced motion.
 - **Disabled:** opacity 0.38 (`DS.Alpha.disabled`) and a visible reason.
 - **Destructive:** `role: .destructive`, confirmation for irreversible actions, never the default button.
 
