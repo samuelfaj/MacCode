@@ -3120,6 +3120,10 @@ public final class SettingsWindowController: NSObject {
     private var presentedRoute: PetSettingsRoute?
     private var freshnessTask: Task<Void, Never>?
     private var freshnessGeneration: UInt64 = 0
+    /// Attached on first show. An attached SwiftUI graph keeps laying out
+    /// even while the window was never ordered in, so a window created at
+    /// launch re-rendered every Settings section on each published change.
+    private var pendingHost: NSViewController?
 
     public init(
         context: AppContext,
@@ -3138,7 +3142,13 @@ public final class SettingsWindowController: NSObject {
             onClose: nil,
             routeRegistry: routeRegistry
         ))
-        let win = NSWindow(contentViewController: host)
+        let win = NSWindow(
+            contentRect: .zero,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: true
+        )
+        win.isReleasedWhenClosed = false
         win.title = L("MacCode Settings")
         win.setAccessibilityRole(.window)
         win.setAccessibilitySubrole(.standardWindow)
@@ -3163,6 +3173,15 @@ public final class SettingsWindowController: NSObject {
             },
             routeRegistry: routeRegistry
         )
+        pendingHost = host
+    }
+
+    private func installContentIfNeeded() {
+        guard let host = pendingHost else { return }
+        pendingHost = nil
+        let frame = window.frame
+        window.contentViewController = host
+        window.setFrame(frame, display: false)
     }
 
     public func show() {
@@ -3170,11 +3189,13 @@ public final class SettingsWindowController: NSObject {
             show(attachedTo: parent)
             return
         }
+        installContentIfNeeded()
         window.makeKeyAndOrderFront(nil)
         scheduleFreshnessPass()
     }
 
     public func show(attachedTo parent: NSWindow) {
+        installContentIfNeeded()
         scheduleFreshnessPass()
         if parent.attachedSheet === window { return }
         if window.sheetParent != nil { window.sheetParent?.endSheet(window) }
