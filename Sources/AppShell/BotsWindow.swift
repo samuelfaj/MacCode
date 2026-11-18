@@ -587,6 +587,12 @@ private struct PersistedBotPeerHandoff: Codable, Equatable {
     var replyText: String?
     var replyCreatedAt: Date?
     var phase: BotPeerHandoffPhase
+    /// Why MacCode itself stopped the peer run (stuck or past its ceiling),
+    /// so the caller is not told the user stopped it.
+    var stopReason: String? = nil
+    /// Sub-second admission time. `createdAt` can come from a message row
+    /// stored in whole seconds, which cannot order a burst of consultations.
+    var admittedAt: Date? = nil
 
     var requiresHostContinuation: Bool { hostContinuationRequired ?? true }
     var resolvedHostInstructionText: String { hostInstructionText ?? outboundText }
@@ -656,7 +662,6 @@ private struct BotPeerExecutionPlan {
     let peerRun: BotPeerRunPlan
     let peerReceipt: ContextAssemblyReceipt
     let host: BotPeerHostContinuation?
-    var deadline: Date? = nil
 }
 
 private struct BotPeerHandoffDelta {
@@ -764,6 +769,7 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
         "peerAvatarSymbol",
         "outboundText", "hostInstructionText", "createdAt", "peerRoute", "hostThreadID", "hostRunID",
         "hostContinuationRequired", "hostRoute", "replyText", "replyCreatedAt", "phase",
+        "stopReason", "admittedAt",
     ]
 
     private struct StoredPayload {
@@ -867,6 +873,10 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
 
     var beforeBotRunDispatchForTesting: ((AgentRunID) -> Void)?
     var peerRunStartTimeoutForTesting: TimeInterval?
+    var delegationLimitsForTesting: BotPeerDelegation.Limits?
+    private var delegationLimits: BotPeerDelegation.Limits {
+        delegationLimitsForTesting ?? .standard
+    }
     #if DEBUG
     var peerHandoffMirrorCommitGateForTesting: ((Data) throws -> Void)?
     #endif
@@ -1193,8 +1203,15 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
 
     /// The existing durable handoffs are the admission ledger. Reserve before
     /// starting a task, and count pending work and every descendant together.
-    @discardableResult
-    func validateAdmission(callerThread: AgentThreadID, callerRun: AgentRunID, peerBotID: BotID, wait: Bool = true) throws -> Date {
+    /// The task guards look for loops (repeats, failure streaks), not volume
+    /// or age: a long consultation is limited by the run watchdog instead.
+    func validateAdmission(
+        callerThread: AgentThreadID,
+        callerRun: AgentRunID,
+        peerBotID: BotID,
+        prompt: String,
+        wait: Bool = true
+    ) throws {
         refreshStorageProjection()
         var root = callerRun
         var ancestry = Set<AgentRunID>()
@@ -1220,9 +1237,29 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
             rows.append(contentsOf: next)
             descendants.formUnion(next.compactMap(\.peerRunID))
         }
-        guard rows.count < 12,
-              rows.map(\.createdAt).min().map({ Date().timeIntervalSince($0) < 900 }) ?? true else {
-            throw JSONRPCError(code: -32053, message: "This task has reached its Bot delegation budget (12 admissions or 15 minutes).")
+        let limits = delegationLimits
+        let unlock = "Stop delegating, tell the user what happened, and wait: their next message starts a fresh budget."
+        guard rows.count < limits.maxAdmissionsPerTask else {
+            throw JSONRPCError(code: -32053, message:
+                "This task reached its ceiling of \(limits.maxAdmissionsPerTask) Bot consultations. \(unlock)")
+        }
+        let normalizedPrompt = BotPeerDelegation.normalizedPrompt(prompt)
+        let identicalAsks = rows.filter {
+            $0.peerBotID == peerBotID && BotPeerDelegation.normalizedPrompt($0.outboundText) == normalizedPrompt
+        }.count
+        guard identicalAsks < limits.maxIdenticalAsks else {
+            throw JSONRPCError(code: -32053, message:
+                "This task already sent the same prompt to this Bot \(identicalAsks) times. Do not resend it. \(unlock)")
+        }
+        let failureStreak = rows
+            .filter { $0.phase != .peerPrepared && $0.phase != .peerRunning }
+            .sorted { ($0.admittedAt ?? $0.createdAt) < ($1.admittedAt ?? $1.createdAt) }
+            .reversed()
+            .prefix { $0.phase == .needsAttention }
+            .count
+        guard failureStreak < limits.maxConsecutiveFailures else {
+            throw JSONRPCError(code: -32053, message:
+                "The last \(failureStreak) Bot consultations in this task failed. Do not retry. \(unlock)")
         }
         let active = activePeerHandoffs
         guard active.count < 8, active.filter({ $0.hostRunID.map(descendants.contains) == true }).count < 4 else {
@@ -1256,7 +1293,6 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
         guard contextAllows(threadID: callerThread, action: .send) else {
             throw JSONRPCError(code: -32047, message: "The calling conversation is no longer authorized.")
         }
-        return (rows.map(\.createdAt).min() ?? Date()).addingTimeInterval(900)
     }
 
     func peerActivity(_ activityID: UUID, callerThread: AgentThreadID) throws -> JSONValue {
@@ -1287,7 +1323,8 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
             result["attributed_reply_already_displayed"] = .bool(true)
         } else if terminal {
             let failure = row.peerRunID.flatMap { try? runRepo.errorMessage(of: $0) }
-            result["reason"] = .string(failure ?? "No verified completion. Inspect the activity; do not replay effects with an unknown outcome.")
+            result["reason"] = .string(row.stopReason ?? failure
+                ?? "No verified completion. Inspect the activity; do not replay effects with an unknown outcome.")
         }
         return .object(result)
     }
@@ -1358,7 +1395,6 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
         consultationID: UUID? = nil,
         continuationConversationID: BotConversationID? = nil,
         continuationPeerThreadID: AgentThreadID? = nil,
-        deadline: Date? = nil,
         nestedRunContext: AgentNestedRunContext? = nil
     ) -> Task<Void, Never>? {
         do {
@@ -1507,7 +1543,8 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
                 hostRoute: hostRunID == nil ? nil : BotPeerHandoffRoute(routing),
                 replyText: nil,
                 replyCreatedAt: nil,
-                phase: .peerPrepared
+                phase: .peerPrepared,
+                admittedAt: Date()
             )
             var candidate = handoffs
             candidate[activityID.value] = handoff
@@ -1605,8 +1642,7 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
                     peerReceipt: peerPlan.receipt(userText: peerDisplay),
                     host: resumeHostAfterPeer ? hostRunID.map {
                         .agentApp(BotPeerAgentAppHostPlan(thread: originThread, runID: $0))
-                    } : nil,
-                    deadline: deadline
+                    } : nil
                 )
             )
             return Task { @MainActor [weak self] in
@@ -1632,9 +1668,10 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
         wait: Bool = true
     ) async throws -> JSONValue {
         refreshStorageProjection()
-        let deadline: Date
-        do { deadline = try validateAdmission(callerThread: originThread.id, callerRun: hostRunID, peerBotID: peer.id, wait: wait) }
-        catch let error as JSONRPCError {
+        do {
+            try validateAdmission(callerThread: originThread.id, callerRun: hostRunID, peerBotID: peer.id,
+                                  prompt: prompt, wait: wait)
+        } catch let error as JSONRPCError {
             throw JSONRPCError(code: error.code, message: error.message,
                 data: .object(["admission": .string("rejected")]))
         }
@@ -1664,7 +1701,7 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
             activityID: activityID, hostRunID: hostRunID, providerSnapshots: providerSnapshots,
             resumeHostAfterPeer: false, originBot: originBot, originConversation: originConversation,
             consultationID: consultationID, continuationConversationID: continuation?.peerConversationID,
-            continuationPeerThreadID: continuation?.peerThreadID, deadline: deadline,
+            continuationPeerThreadID: continuation?.peerThreadID,
             nestedRunContext: AgentNestedRunContext(parentRunID: hostRunID, parentThreadID: originThread.id,
                 nodeID: "bot.\(peer.handle).\(activityID.value.uuidString)", parentCapability: delegationCapability)
         ) else {
@@ -2052,18 +2089,74 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
         }
     }
 
+    /// Stops a delegated Bot only when it is stuck or endless, never because
+    /// its task is old: no event for `idleTimeout` from the Bot or from a Bot
+    /// it is still waiting on (the same rule that keeps the caller's socket
+    /// open), or `runCeiling` of run time while it keeps producing events.
+    private func watchPeerRun(_ plan: BotPeerExecutionPlan) async {
+        let runID = plan.peerRun.started.runID
+        let threadID = plan.peerRun.started.thread.id
+        let started = Date()
+        while true {
+            let limits = delegationLimits
+            let interval = max(0.01, limits.watchdogInterval)
+            do { try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000)) } catch { return }
+            guard tasksByActivityID[plan.activityID] != nil else { return }
+            // A run that already ended is `execute`'s to settle, never a stuck Bot.
+            switch try? runRepo.status(of: runID) {
+            case .completed, .failed, .cancelled, .interrupted: return
+            case .pending, .running, nil: break
+            }
+            let now = Date()
+            let lastProgress = max(started, latestProgress(ofPeerRun: runID, threadID: threadID) ?? started)
+            let reason: String
+            if now.timeIntervalSince(started) >= limits.runCeiling {
+                reason = "MacCode stopped this Bot at the \(Self.durationText(limits.runCeiling)) ceiling for one "
+                    + "delegated run while it was still working. Its effects may be partial: inspect them before asking again."
+            } else if !BotPeerDelegation.peerConsultationStillActive(
+                now: now, lastProgress: lastProgress, idle: limits.idleTimeout
+            ) {
+                reason = "MacCode stopped this Bot after \(Self.durationText(limits.idleTimeout)) without any progress. "
+                    + "Its effects may be partial: inspect them before asking again."
+            } else {
+                continue
+            }
+            coordinator.stopRun(runID)
+            coordinator.stopRun(threadId: threadID)
+            setPhase(plan.activityID, .needsAttention, stopReason: reason)
+            cancelExactRunWait(runID)
+            return
+        }
+    }
+
+    /// Latest sign of life of a delegated run: its own events, its thread, and,
+    /// recursively, any consultation it is still waiting on.
+    private func latestProgress(ofPeerRun runID: AgentRunID, threadID: AgentThreadID?, depth: Int = 0) -> Date? {
+        var dates: [Date] = []
+        if let stamped = peerProgress.date(for: runID) { dates.append(stamped) }
+        if let threadID, let updatedAt = try? threadRepo.updatedAt(of: threadID) { dates.append(updatedAt) }
+        guard depth < 4 else { return dates.max() }
+        for child in handoffs.values where child.hostRunID == runID
+            && (child.phase == .peerPrepared || child.phase == .peerRunning) {
+            dates.append(child.createdAt)
+            if let childRun = child.peerRunID,
+               let childProgress = latestProgress(ofPeerRun: childRun, threadID: child.peerThreadID, depth: depth + 1) {
+                dates.append(childProgress)
+            }
+        }
+        return dates.max()
+    }
+
+    private static func durationText(_ seconds: TimeInterval) -> String {
+        seconds < 120 ? "\(Int(seconds.rounded())) seconds" : "\(Int((seconds / 60).rounded())) minutes"
+    }
+
     private func execute(_ plan: BotPeerExecutionPlan) async {
         guard await awaitDeletionResolution(activityID: plan.activityID) else { return }
-        let deadline = Task { @MainActor [weak self] in
-            let remaining = max(0, min(900, plan.deadline?.timeIntervalSinceNow ?? 900))
-            do { try await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000)) } catch { return }
-            guard let self, self.tasksByActivityID[plan.activityID] != nil else { return }
-            self.coordinator.stopRun(plan.peerRun.started.runID)
-            self.coordinator.stopRun(threadId: plan.peerRun.started.thread.id)
-            self.setPhase(plan.activityID, .needsAttention)
-            self.cancelExactRunWait(plan.peerRun.started.runID)
+        let watchdog = Task { @MainActor [weak self] in
+            await self?.watchPeerRun(plan)
         }
-        defer { deadline.cancel() }
+        defer { watchdog.cancel() }
         guard await start(plan.peerRun, receipt: plan.peerReceipt, activityID: plan.activityID) else {
             // The run never started, so no coordinator terminal will ever fire:
             // settle the Subagents telemetry row here or it stays Working.
@@ -2574,12 +2667,14 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
     private func setPhase(
         _ activityID: UUID,
         _ phase: BotPeerHandoffPhase,
-        projectAttention: Bool = true
+        projectAttention: Bool = true,
+        stopReason: String? = nil
     ) {
         var persistedHandoff: PersistedBotPeerHandoff?
         for _ in 0..<2 {
             guard !isDeletionBlocked(activityID), var handoff = handoffs[activityID] else { return }
             handoff.phase = phase
+            if let stopReason { handoff.stopReason = stopReason }
             var candidate = handoffs
             candidate[activityID] = handoff
             if replaceSnapshot(candidate) {

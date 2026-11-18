@@ -39,6 +39,58 @@ public enum BotPeerDelegation: Sendable {
         now.timeIntervalSince(lastProgress) < idle
     }
 
+    /// Loop guards for one delegation task: everything one user message
+    /// starts, including nested consultations. They stop bugs, not volume.
+    /// A live Bot is never cut by the task's age, and the user's next message
+    /// starts a fresh task.
+    public struct Limits: Equatable, Sendable {
+        /// Last-resort ceiling on consultations admitted in one task.
+        public var maxAdmissionsPerTask: Int
+        /// Settled consultations that failed in a row before admission stops.
+        public var maxConsecutiveFailures: Int
+        /// Times one task may send the same prompt to the same Bot.
+        public var maxIdenticalAsks: Int
+        /// A delegated run with no event from itself or a Bot it waits on
+        /// for this long is stuck and is stopped.
+        public var idleTimeout: TimeInterval
+        /// A delegated run that is still producing events stops here.
+        public var runCeiling: TimeInterval
+        public var watchdogInterval: TimeInterval
+
+        public init(
+            maxAdmissionsPerTask: Int,
+            maxConsecutiveFailures: Int,
+            maxIdenticalAsks: Int,
+            idleTimeout: TimeInterval,
+            runCeiling: TimeInterval,
+            watchdogInterval: TimeInterval
+        ) {
+            self.maxAdmissionsPerTask = maxAdmissionsPerTask
+            self.maxConsecutiveFailures = maxConsecutiveFailures
+            self.maxIdenticalAsks = maxIdenticalAsks
+            self.idleTimeout = idleTimeout
+            self.runCeiling = runCeiling
+            self.watchdogInterval = watchdogInterval
+        }
+
+        public static let standard = Limits(
+            maxAdmissionsPerTask: 50,
+            maxConsecutiveFailures: 3,
+            maxIdenticalAsks: 3,
+            idleTimeout: peerConsultationTimeout,
+            runCeiling: 2 * 60 * 60,
+            watchdogInterval: 15
+        )
+    }
+
+    /// Case- and whitespace-insensitive identity of a peer prompt, used only
+    /// to recognise the same request being resent in a loop.
+    public static func normalizedPrompt(_ prompt: String) -> String {
+        prompt.lowercased()
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+
     /// Delegation rules alone. A bot run inside its Linux guest gets only
     /// these: its gateway offers the peer tools but not the `rc_*` host
     /// catalog that `providerDirective` also describes.
@@ -47,7 +99,7 @@ public enum BotPeerDelegation: Sendable {
 
     A successful `bot_ask_peer` returns an opaque `consultation_id`. Omit it for a clean, independent review with a new Bot conversation and thread. To follow up, use an id returned by a prior successful call or by `bot_list_peers` in this same host conversation, with the same Bot. Every new run revalidates current authority and inherits the caller's current route. Never invent an id or reuse one from another conversation. A continuation preserves the Bot transcript and starts a new peer run.
 
-    For independent work, set `wait` to false with `consult`: the tool returns durable activity and consultation ids immediately. Observe the activity with `bot_peer_status` (optionally `wait: true`); use `bot_cancel_peer` to stop only that activity. Do not declare completion while required activities remain pending. Use a stable `operation_id` when retrying the same submission; after an uncertain transport result inspect its receipt instead of starting duplicate work. Dependent tasks must wait for their prerequisites. Parallel work must not edit the same files or drive the same browser/computer; use isolated worktrees or sequence it. Admission bounds work per root, depth, time, and shared Bot resources; a refusal is not permission to retry in a loop.
+    For independent work, set `wait` to false with `consult`: the tool returns durable activity and consultation ids immediately. Observe the activity with `bot_peer_status` (optionally `wait: true`); use `bot_cancel_peer` to stop only that activity. Do not declare completion while required activities remain pending. Use a stable `operation_id` when retrying the same submission; after an uncertain transport result inspect its receipt instead of starting duplicate work. Dependent tasks must wait for their prerequisites. Parallel work must not edit the same files or drive the same browser/computer; use isolated worktrees or sequence it. Admission bounds each task (everything one user message starts) by depth, cycles, shared Bot resources, repeated identical prompts, consecutive failures, and a total ceiling; a refusal is not permission to retry in a loop.
 
     Inside a workspace you can consult only that workspace's Bots and general Bots; Bots of other workspaces are not available there. Use `bot_list_peers` for the exact handles you can use; never guess a handle from another workspace.
 

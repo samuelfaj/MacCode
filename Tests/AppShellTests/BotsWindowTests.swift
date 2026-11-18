@@ -19508,6 +19508,20 @@ final class ControlledBotHandoffRunner: AgentProviderRunner, @unchecked Sendable
         }
     }
 
+    /// One provider event on a live run: a Bot still working (reasoning, tool
+    /// output) without finishing its turn.
+    @discardableResult
+    func emitProgress(runID: AgentRunID) -> Bool {
+        guard let pending = lock.withLock({ pendingByRunID[runID] }) else { return false }
+        pending.onEvent(.event(.itemStarted(item: AssistantItem(
+            id: "progress-\(UUID().uuidString.lowercased())",
+            turnId: pending.turnID,
+            type: .reasoning,
+            startedAtMs: Int64(Date().timeIntervalSince1970 * 1_000)
+        ))))
+        return true
+    }
+
     @discardableResult
     func finish(
         promptContaining marker: String,
