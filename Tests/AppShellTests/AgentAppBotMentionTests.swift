@@ -2977,6 +2977,280 @@ final class AgentAppBotMentionTests: XCTestCase {
         XCTAssertEqual(runner.requests.count, 4)
     }
 
+    // MARK: - Delegation loop guards (owner decision 2026-11-18)
+    //
+    // A 15-minute task clock killed a Bot that was still creating Trello cards
+    // and then refused every retry. The guards below stop loops, not volume.
+
+    func test_moreThanTwelveConsultationsFitInOneTaskButTheCeilingStillHolds() async throws {
+        let host = try await makeDelegatingHost(title: "Many cards")
+        defer { host.ctx.coordinator.stopRun(threadId: host.threadID) }
+        for index in 1...13 {
+            let reply = try await consult(host, prompt: "CARD_\(index)", status: .completed)
+            XCTAssertEqual(reply.objectValue?["reply"], .string("DONE CARD_\(index)"),
+                           "consultation \(index) must run: the old cap of 12 blocked a read plus 11 cards")
+        }
+        var tight = BotPeerDelegation.Limits.standard
+        tight.maxAdmissionsPerTask = 13
+        host.ctx.botPeerHandoffAuthority.delegationLimitsForTesting = tight
+        await assertLoopGuardRefuses(host, prompt: "CARD_14", mentioning: "ceiling")
+    }
+
+    func test_threeConsecutiveFailuresStopRetriesUntilTheUserSendsAgain() async throws {
+        let host = try await makeDelegatingHost(title: "Failing peer")
+        defer { host.ctx.coordinator.stopRun(threadId: host.threadID) }
+        try await consult(host, prompt: "TRY_1", status: .failed)
+        try await consult(host, prompt: "TRY_2", status: .failed)
+        try await consult(host, prompt: "TRY_3", status: .completed)
+        try await consult(host, prompt: "TRY_4", status: .failed)
+        try await consult(host, prompt: "TRY_5", status: .failed)
+        // A success broke the first streak, so two failures in a row still admit.
+        try await consult(host, prompt: "TRY_6", status: .failed)
+        await assertLoopGuardRefuses(host, prompt: "TRY_7", mentioning: "failed")
+
+        // The human unlocks: a new user message is a new task with a fresh budget.
+        XCTAssertTrue(host.runner.finish(runID: host.hostRun, status: .completed, reply: "reported the failures"))
+        let hostDone = await waitUntil(timeout: 5) { (try? host.ctx.runRepo.status(of: host.hostRun)) == .completed }
+        XCTAssertTrue(hostDone)
+        let next = try await host.router.sendAgentMessage(thread: host.threadID, text: "Try once more.",
+            provider: nil, model: nil, permissionMode: nil, reasoningEffort: nil)
+        let nextRun = try XCTUnwrap(next.runId)
+        let nextStarted = await waitUntil(timeout: 5) { host.runner.requests.contains { $0.runId == nextRun } }
+        XCTAssertTrue(nextStarted)
+        let nextCapability = try XCTUnwrap(host.runner.requests.first { $0.runId == nextRun }?
+            .environment[AgentDelegationCapabilityTransport.environmentKey])
+        let retried = try await consult(host, prompt: "TRY_7", status: .completed,
+                                        hostRun: nextRun, capability: nextCapability)
+        XCTAssertEqual(retried.objectValue?["reply"], .string("DONE TRY_7"))
+    }
+
+    func test_theSamePromptToTheSameBotIsRefusedAfterThreeAsks() async throws {
+        let host = try await makeDelegatingHost(title: "Repeated ask")
+        defer { host.ctx.coordinator.stopRun(threadId: host.threadID) }
+        let other = try host.botsVM.create(name: "Other", title: "Second opinion", provider: .codex)
+        for _ in 1...3 {
+            try await consult(host, prompt: "Crie os cartões no Backlog", status: .completed)
+        }
+        await assertLoopGuardRefuses(host, prompt: "  crie os cartões\nno backlog ", mentioning: "same prompt")
+        let different = try await consult(host, prompt: "Liste os cartões criados", status: .completed)
+        XCTAssertEqual(different.objectValue?["reply"], .string("DONE Liste os cartões criados"),
+                       "new work for the same Bot is not a repetition")
+        let otherBot = try await consult(host, prompt: "Crie os cartões no Backlog", status: .completed,
+                                         handle: other.handle, peerID: other.id)
+        XCTAssertEqual(otherBot.objectValue?["reply"], .string("DONE Crie os cartões no Backlog"),
+                       "the same request to a different Bot is not a repetition")
+    }
+
+    func test_aBotThatKeepsWorkingIsNeverCutByElapsedTimeButASilentOneIs() async throws {
+        let host = try await makeDelegatingHost(title: "Long work")
+        defer { host.ctx.coordinator.stopRun(threadId: host.threadID) }
+        host.ctx.botPeerHandoffAuthority.delegationLimitsForTesting = fastWatchdog(ceiling: 30)
+
+        let live = try await ask(host, prompt: "LONG_LIVE_WORK")
+        let until = Date().addingTimeInterval(2)
+        while Date() < until {
+            host.runner.emitProgress(runID: live.runID)
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertEqual(try host.ctx.runRepo.status(of: live.runID), .running,
+                       "three idle windows of real work must not stop a Bot that is still producing events")
+        XCTAssertTrue(host.runner.finish(runID: live.runID, status: .completed, reply: "LIVE_REPLY"))
+        let liveReply = try await settledActivity(host, live.activityID)
+        XCTAssertEqual(liveReply.objectValue?["reply"], .string("LIVE_REPLY"), "\(liveReply)")
+        let free = await waitUntil(timeout: 5) { !host.ctx.botPeerHandoffAuthority.peerIsBusy(host.peer.id) }
+        XCTAssertTrue(free)
+
+        let silent = try await ask(host, prompt: "SILENT_WORK")
+        let stopped = await waitUntil(timeout: 5) { (try? host.ctx.runRepo.status(of: silent.runID)) == .cancelled }
+        XCTAssertTrue(stopped, "a Bot with no events for the idle window is stuck and must be stopped")
+        let settled = try host.ctx.botPeerHandoffAuthority.peerActivity(silent.activityID, callerThread: host.threadID)
+        XCTAssertEqual(settled.objectValue?["terminal"], .bool(true))
+        let reason = try XCTUnwrap(settled.objectValue?["reason"]?.stringValue)
+        XCTAssertTrue(reason.contains("without any progress"),
+                      "the caller must learn MacCode stopped a silent Bot, not that the user did: \(reason)")
+    }
+
+    func test_theRunCeilingStopsABotThatNeverFinishes() async throws {
+        let host = try await makeDelegatingHost(title: "Endless work")
+        defer { host.ctx.coordinator.stopRun(threadId: host.threadID) }
+        host.ctx.botPeerHandoffAuthority.delegationLimitsForTesting = fastWatchdog(ceiling: 1)
+        let started = Date()
+        let endless = try await ask(host, prompt: "ENDLESS_WORK")
+        var stopped = false
+        while Date().timeIntervalSince(started) < 6, !stopped {
+            host.runner.emitProgress(runID: endless.runID)
+            try await Task.sleep(nanoseconds: 100_000_000)
+            stopped = (try? host.ctx.runRepo.status(of: endless.runID)) == .cancelled
+        }
+        XCTAssertTrue(stopped, "a Bot looping with fresh events must still end at the run ceiling")
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), 1, "not before the ceiling")
+        let settled = try host.ctx.botPeerHandoffAuthority.peerActivity(endless.activityID, callerThread: host.threadID)
+        let reason = try XCTUnwrap(settled.objectValue?["reason"]?.stringValue)
+        XCTAssertTrue(reason.contains("ceiling"), reason)
+    }
+
+    func test_aBotWaitingOnALiveNestedBotIsNotTreatedAsSilent() async throws {
+        let host = try await makeDelegatingHost(title: "Nested work")
+        defer { host.ctx.coordinator.stopRun(threadId: host.threadID) }
+        host.ctx.botPeerHandoffAuthority.delegationLimitsForTesting = fastWatchdog(ceiling: 30)
+        let helper = try host.botsVM.create(name: "Helper", title: "Nested specialist", provider: .codex)
+        let parent = try await ask(host, prompt: "PARENT_WORK")
+        let parentRequest = try XCTUnwrap(host.runner.requests.first { $0.runId == parent.runID })
+        let parentCapability = try XCTUnwrap(parentRequest.environment[AgentDelegationCapabilityTransport.environmentKey])
+        let child = try await host.router.askBotPeer(callerThread: parentRequest.threadId, callerRun: parent.runID,
+            handle: helper.handle, prompt: "CHILD_WORK", replyMode: .consult,
+            consultationID: nil, wait: false, delegationCapability: parentCapability)
+        let childRun = try XCTUnwrap(child.objectValue?["run_id"]?.stringValue.flatMap(UUID.init).map(AgentRunID.init))
+        let childStarted = await waitUntil(timeout: 5) { host.runner.requests.contains { $0.runId == childRun } }
+        XCTAssertTrue(childStarted)
+        let until = Date().addingTimeInterval(2)
+        while Date() < until {
+            host.runner.emitProgress(runID: childRun)
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertEqual(try host.ctx.runRepo.status(of: parent.runID), .running,
+                       "the parent is silent only because it waits on a child that is still working")
+        XCTAssertEqual(try host.ctx.runRepo.status(of: childRun), .running)
+        XCTAssertTrue(host.runner.finish(runID: childRun, status: .completed, reply: "CHILD_DONE"))
+        XCTAssertTrue(host.runner.finish(runID: parent.runID, status: .completed, reply: "PARENT_DONE"))
+        // Settle both before returning: late handoff writes would land in the next test's shared mirror.
+        let childActivity = try XCTUnwrap(child.objectValue?["activity_id"]?.stringValue.flatMap(UUID.init))
+        let bothSettled = await waitUntil(timeout: 5) {
+            let authority = host.ctx.botPeerHandoffAuthority
+            return (try? authority.peerActivity(childActivity, callerThread: parentRequest.threadId))?
+                .objectValue?["terminal"] == .bool(true)
+                && (try? authority.peerActivity(parent.activityID, callerThread: host.threadID))?
+                .objectValue?["terminal"] == .bool(true)
+        }
+        XCTAssertTrue(bothSettled)
+    }
+
+    private struct DelegatingHost {
+        let router: AppCommandRouter
+        let botsVM: BotsViewModel
+        let ctx: AppContext
+        let runner: ControlledBotHandoffRunner
+        let threadID: AgentThreadID
+        let hostRun: AgentRunID
+        let capability: String
+        let peer: BotDefinition
+    }
+
+    /// A workspace-less host on a controlled provider, already running, so
+    /// `bot_ask_peer` admissions can be driven and settled one at a time.
+    private func makeDelegatingHost(title: String) async throws -> DelegatingHost {
+        let (router, botsVM, _, peer, _, ctx) = try makeWiredMentionSurface(peerReply: "unused")
+        let thread = AgentThread(workspaceId: nil, title: title, provider: .codex,
+            model: "fake-model", modelSelection: AgentModelSelection(provider: .codex, modelId: "fake-model"))
+        try ctx.threadRepo.upsert(thread)
+        let runner = ControlledBotHandoffRunner(provider: .codex)
+        ctx.coordinator.replaceProviderAdapter(.codex, adapter: TerminalRetiringOneShotAdapter(runner: runner))
+        let sent = try await router.sendAgentMessage(thread: thread.id, text: "Delegate the work.",
+            provider: nil, model: nil, permissionMode: nil, reasoningEffort: nil)
+        let hostRun = try XCTUnwrap(sent.runId)
+        let started = await waitUntil(timeout: 5) { runner.requests.count == 1 }
+        XCTAssertTrue(started)
+        let capability = try XCTUnwrap(runner.requests.first?.environment[AgentDelegationCapabilityTransport.environmentKey])
+        return DelegatingHost(router: router, botsVM: botsVM, ctx: ctx, runner: runner, threadID: thread.id,
+                              hostRun: hostRun, capability: capability, peer: peer)
+    }
+
+    private func fastWatchdog(ceiling: TimeInterval) -> BotPeerDelegation.Limits {
+        var limits = BotPeerDelegation.Limits.standard
+        limits.idleTimeout = 0.6
+        limits.runCeiling = ceiling
+        limits.watchdogInterval = 0.05
+        return limits
+    }
+
+    /// Submits one consultation without waiting and returns once its peer run started.
+    private func ask(
+        _ host: DelegatingHost,
+        prompt: String,
+        handle: String? = nil,
+        hostRun: AgentRunID? = nil,
+        capability: String? = nil
+    ) async throws -> (activityID: UUID, runID: AgentRunID) {
+        let admitted = try await host.router.askBotPeer(callerThread: host.threadID, callerRun: hostRun ?? host.hostRun,
+            handle: handle ?? host.peer.handle, prompt: prompt, replyMode: .consult,
+            consultationID: nil, wait: false, delegationCapability: capability ?? host.capability)
+        let activityID = try XCTUnwrap(admitted.objectValue?["activity_id"]?.stringValue.flatMap(UUID.init))
+        let runID = try XCTUnwrap(admitted.objectValue?["run_id"]?.stringValue.flatMap(UUID.init).map(AgentRunID.init))
+        let started = await waitUntil(timeout: 5) { host.runner.requests.contains { $0.runId == runID } }
+        XCTAssertTrue(started, "an admitted consultation must start its peer run")
+        return (activityID, runID)
+    }
+
+    /// Runs one consultation to a terminal state and waits until the Bot is
+    /// free again, so the next admission reads a settled ledger.
+    @discardableResult
+    private func consult(
+        _ host: DelegatingHost,
+        prompt: String,
+        status: AgentRunStatus,
+        handle: String? = nil,
+        peerID: BotID? = nil,
+        hostRun: AgentRunID? = nil,
+        capability: String? = nil
+    ) async throws -> JSONValue {
+        let started = try await ask(host, prompt: prompt, handle: handle, hostRun: hostRun, capability: capability)
+        XCTAssertTrue(host.runner.finish(runID: started.runID, status: status,
+                                         reply: status == .completed ? "DONE \(prompt)" : nil))
+        let observed = try await settledActivity(host, started.activityID, hostRun: hostRun, capability: capability)
+        let free = await waitUntil(timeout: 5) {
+            !host.ctx.botPeerHandoffAuthority.peerIsBusy(peerID ?? host.peer.id)
+        }
+        XCTAssertTrue(free)
+        return observed
+    }
+
+    /// Bounded: a consultation that never settles fails with its last state
+    /// instead of hanging the suite on an open status wait.
+    private func settledActivity(
+        _ host: DelegatingHost,
+        _ activityID: UUID,
+        hostRun: AgentRunID? = nil,
+        capability: String? = nil,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws -> JSONValue {
+        let settled = await waitUntil(timeout: 5) {
+            (try? host.ctx.botPeerHandoffAuthority.peerActivity(activityID, callerThread: host.threadID))?
+                .objectValue?["terminal"] == .bool(true)
+        }
+        let last = try host.ctx.botPeerHandoffAuthority.peerActivity(activityID, callerThread: host.threadID)
+        XCTAssertTrue(settled, "the consultation never settled: \(last)", file: file, line: line)
+        guard settled else { return last }
+        return try await host.router.observeBotPeer(callerThread: host.threadID, callerRun: hostRun ?? host.hostRun,
+            activityID: activityID, wait: true, cancel: false, delegationCapability: capability ?? host.capability)
+    }
+
+    private func assertLoopGuardRefuses(
+        _ host: DelegatingHost,
+        prompt: String,
+        mentioning fragment: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        let before = host.runner.requests.count
+        do {
+            _ = try await host.router.askBotPeer(callerThread: host.threadID, callerRun: host.hostRun,
+                handle: host.peer.handle, prompt: prompt, replyMode: .consult,
+                consultationID: nil, wait: false, delegationCapability: host.capability)
+            XCTFail("the loop guard must refuse this consultation", file: file, line: line)
+        } catch let error as JSONRPCError {
+            XCTAssertEqual(error.code, -32053, error.message, file: file, line: line)
+            XCTAssertTrue(error.message.contains(fragment), error.message, file: file, line: line)
+            XCTAssertTrue(error.message.contains("next message"),
+                          "the refusal must tell the agent who unlocks it: \(error.message)", file: file, line: line)
+            XCTAssertEqual(error.data?.objectValue?["admission"], .string("rejected"), file: file, line: line)
+        } catch {
+            XCTFail("unexpected error \(error)", file: file, line: line)
+        }
+        XCTAssertEqual(host.runner.requests.count, before, "a refused consultation must not start a run",
+                       file: file, line: line)
+    }
+
     private func waitUntil(timeout: TimeInterval, _ predicate: () -> Bool) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
