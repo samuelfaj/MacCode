@@ -1253,6 +1253,7 @@ public final class BotRemoteControlAuthority: @unchecked Sendable {
     private func conversationList(params supplied: [String: Any]) throws -> [String: Any] {
         var params = supplied
         var taskReadback: [String: Any]?
+        var authorizedTaskConversation: BotConversation?
         if supplied["task_run_id"] != nil || supplied["source_thread_id"] != nil {
             guard Set(supplied.keys).isSubset(of: ["bot_id", "task_run_id", "source_thread_id"]),
                   let runUUID = string(supplied, "task_run_id").flatMap(UUID.init(uuidString:)),
@@ -1262,7 +1263,7 @@ public final class BotRemoteControlAuthority: @unchecked Sendable {
                   let task = BotParallelTask.parse(message.content), task.runID.value == runUUID,
                   let requestedBot = string(supplied, "bot_id"), requestedBot.lowercased() == task.botID.value.uuidString.lowercased(),
                   let conversation = try store.conversation(id: task.conversationID),
-                  conversation.botID == task.botID, conversation.linkedAgentThreadID == task.threadID,
+                  conversation.botID == task.botID, conversation.groupID == nil, conversation.linkedAgentThreadID == task.threadID,
                   let run = try AgentRunRepository(db: db).get(id: task.runID), run.threadId == task.threadID else {
                 throw Error(code: -32084, message: "The task link is not available to this conversation.")
             }
@@ -1280,6 +1281,7 @@ public final class BotRemoteControlAuthority: @unchecked Sendable {
                 params["context_version"] = pin.contextVersion
                 params["policy_revision"] = pin.policyRevision
             }
+            authorizedTaskConversation = conversation
             taskReadback = ["run_id": task.runID.value.uuidString.lowercased(),
                 "thread_id": task.threadID.value.uuidString.lowercased(),
                 "conversation_id": task.conversationID.value.uuidString.lowercased(),
@@ -1294,7 +1296,8 @@ public final class BotRemoteControlAuthority: @unchecked Sendable {
         let requestedHost = scoped ? string(params, "host_id") : nil
         let requestedRevision = scoped ? integer(params["policy_revision"]) : nil
         var selectedIsVisible = false
-        let rows = try store.listConversations(botID: bot.id).compactMap { conversation -> [String: Any]? in
+        let conversations = try authorizedTaskConversation.map { [$0] } ?? store.listConversations(botID: bot.id)
+        let rows = try conversations.compactMap { conversation -> [String: Any]? in
             let pin = try store.conversationContextPin(conversationID: conversation.id)
             if scoped {
                 guard let pin, let requestedContext, let requestedHost, let requestedRevision,
@@ -2430,7 +2433,7 @@ public final class BotRemoteControlAuthority: @unchecked Sendable {
         let bot = try requireBot(params)
         let conversationID = string(params, "conversation_id") ?? ""
         guard let uuid = UUID(uuidString: conversationID),
-              let conversation = try store.conversation(id: BotConversationID(uuid)) else { throw Error.conversationGone }
+              let conversation = try store.conversation(id: BotConversationID(uuid)), !conversation.hidden else { throw Error.conversationGone }
         guard conversation.botID == bot.id, conversation.groupID == nil else { throw Error.crossTarget }
         let scoped = ["context_key", "context_version", "policy_revision"].contains(where: { params[$0] != nil })
         let pin = try store.conversationContextPin(conversationID: conversation.id)

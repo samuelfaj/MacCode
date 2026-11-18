@@ -1124,6 +1124,13 @@ public final class DistillACPAdapter: AgentProviderAdapter, ProviderBackgroundWo
         }
     }
 
+    public func reportedBackgroundTasks(threadId: AgentThreadID) -> [AgentBackgroundTask] {
+        synchronized {
+            guard let session = sessions[threadId], session.isLive else { return [] }
+            return session.backgroundWork.reportedTasks
+        }
+    }
+
     public func hasLiveBackgroundWork(threadId: AgentThreadID) -> Bool {
         synchronized {
             guard let session = sessions[threadId], session.isLive else { return false }

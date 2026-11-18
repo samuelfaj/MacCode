@@ -1,4 +1,5 @@
 import Foundation
+import CoreModel
 
 /// Work a Distill session keeps running after the turn that started it ended,
 /// as the session itself reports it.
@@ -17,9 +18,9 @@ struct DistillBackgroundWork: Sendable {
     /// Completed agent turns remembered so a stale `_meta.promptId` cannot reopen them.
     static let completedAgentTurnMemory = 64
 
-    private(set) var subagents: Set<String> = []
-    private(set) var tasks: Set<String> = []
-    private(set) var workflows: Set<String> = []
+    private var subagents: [String: String] = [:]
+    private var tasks: [String: String] = [:]
+    private var workflows: [String: String] = [:]
     /// Agent-initiated turns Distill started and has not finished yet.
     private(set) var agentTurns: Set<String> = []
     private var completedAgentTurns: [String] = []
@@ -30,12 +31,19 @@ struct DistillBackgroundWork: Sendable {
         subagents.isEmpty && tasks.isEmpty && workflows.isEmpty && agentTurns.isEmpty
     }
 
+    var reportedTasks: [AgentBackgroundTask] {
+        (tasks.map { AgentBackgroundTask(id: $0.key, kind: .unknown, description: $0.value) }
+            + workflows.map { AgentBackgroundTask(id: $0.key, kind: .unknown, description: $0.value) }
+            + subagents.map { AgentBackgroundTask(id: $0.key, kind: .agent, description: $0.value) })
+            .sorted { $0.id < $1.id }
+    }
+
     static func isAgentTurnPromptID(_ promptId: String) -> Bool {
         agentTurnPromptPrefixes.contains { promptId.hasPrefix($0) }
     }
 
     func isRunning(subagent id: String) -> Bool {
-        subagents.contains(id.lowercased())
+        subagents[id.lowercased()] != nil
     }
 
     /// Running work, or a report recent enough that the wake turn Distill starts
@@ -56,26 +64,30 @@ struct DistillBackgroundWork: Sendable {
         var turnChanged = false
         switch kind {
         case "subagent_spawned", "subagent_progress":
-            if live, let id = Self.subagentID(update) { subagents.insert(id) }
+            if live, let id = Self.subagentID(update) { subagents[id] = Self.label(update["description"]) ?? subagents[id] ?? "" }
         case "subagent_finished":
-            if let id = Self.subagentID(update) { subagents.remove(id) }
+            if let id = Self.subagentID(update) { subagents[id] = nil }
         case "task_backgrounded":
-            if live, let id = Self.string(update["task_id"]) { tasks.insert(id) }
+            if live, let id = Self.string(update["task_id"]) { tasks[id] = Self.taskLabel(update) ?? tasks[id] ?? "" }
         case "task_completed":
             let snapshot = update["task_snapshot"] as? [String: Any]
             if let id = Self.string(snapshot?["task_id"]) ?? Self.string(update["task_id"]) {
-                tasks.remove(id)
+                tasks[id] = nil
             }
         case "background_tasks":
-            let running = Set((update["tasks"] as? [[String: Any]] ?? []).compactMap { Self.string($0["task_id"]) })
-            if live { tasks = running } else { tasks.formIntersection(running) }
+            var running: [String: String] = [:]
+            for row in update["tasks"] as? [[String: Any]] ?? [] {
+                guard let id = Self.string(row["task_id"]), live || tasks[id] != nil else { continue }
+                running[id] = (live ? Self.taskLabel(row) : nil) ?? tasks[id] ?? ""
+            }
+            tasks = running
         case "workflow_updated":
             // Only an `active` workflow runs; paused and terminal ones do not.
             if let id = Self.string(update["run_id"]) {
                 if Self.string(update["status"]) != "active" {
-                    workflows.remove(id)
+                    workflows[id] = nil
                 } else if live {
-                    workflows.insert(id)
+                    workflows[id] = Self.label(update["objective"]) ?? Self.label(update["name"]) ?? workflows[id] ?? ""
                 }
             }
         case "turn_completed":
@@ -103,6 +115,15 @@ struct DistillBackgroundWork: Sendable {
         if live, reported || turnChanged {
             lastReportAt = now
         }
+    }
+
+    private static func label(_ value: Any?) -> String? {
+        guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        return String(text.prefix(1024))
+    }
+
+    private static func taskLabel(_ row: [String: Any]) -> String? {
+        label(row["description"]) ?? label(row["command"])
     }
 
     private static func subagentID(_ update: [String: Any]) -> String? {

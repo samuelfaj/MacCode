@@ -291,11 +291,7 @@ final class ActivityViewModel: ObservableObject {
         requestedTargetID = selectedID
         scrollID = defaults.string(forKey: "activity.scroll")
         if let data = defaults.data(forKey: cacheKey), let cached = try? JSONDecoder().decode(ActivityWirePage.self, from: data) {
-            page = cached
-            hasSuccessfulSnapshot = true
-            cursor = cached.next_cursor
-            if let selectedID { detail = cached.items.first(where: { $0.id == selectedID }) }
-            showingCachedResults = true
+            loadCached(cached)
         }
         subscribeToActivityInvalidations()
     }
@@ -316,11 +312,7 @@ final class ActivityViewModel: ObservableObject {
         requestedTargetID = selectedID
         scrollID = defaults.string(forKey: "activity.scroll")
         if let data = defaults.data(forKey: cacheKey), let cached = try? JSONDecoder().decode(ActivityWirePage.self, from: data) {
-            page = cached
-            hasSuccessfulSnapshot = true
-            cursor = cached.next_cursor
-            if let selectedID { detail = cached.items.first(where: { $0.id == selectedID }) }
-            showingCachedResults = true
+            loadCached(cached)
         }
         subscribeToActivityInvalidations()
     }
@@ -381,7 +373,7 @@ final class ActivityViewModel: ObservableObject {
     }
 
     private var cacheKey: String {
-        "activity.page.\(tab.rawValue).\(workspaceID).\(tab == .finished ? outcome : "").\(period.rawValue).\(search)"
+        "activity.page.v2.\(tab.rawValue).\(workspaceID).\(tab == .finished ? outcome : "").\(period.rawValue).\(search)"
     }
 
     private func resetSelectionForFilterChange(keepingSelection: Bool = false) {
@@ -393,7 +385,7 @@ final class ActivityViewModel: ObservableObject {
             scrollRestored = false
         }
         if let data = defaults.data(forKey: cacheKey), let cached = try? JSONDecoder().decode(ActivityWirePage.self, from: data) {
-            page = cached
+            page = visiblePage(cached)
             cursor = cached.next_cursor
             hasSuccessfulSnapshot = true
             showingCachedResults = true
@@ -425,10 +417,10 @@ final class ActivityViewModel: ObservableObject {
     }
 
     func loadCached(_ cached: ActivityWirePage) {
-        page = cached
+        page = visiblePage(cached)
         hasSuccessfulSnapshot = true
         cursor = cached.next_cursor
-        if let selectedID { detail = cached.items.first(where: { $0.id == selectedID }) }
+        if let selectedID { detail = page.items.first(where: { $0.id == selectedID }) }
         showingCachedResults = true
     }
 
@@ -468,7 +460,7 @@ final class ActivityViewModel: ObservableObject {
             if self.errorIsFromRefresh { self.error = nil }
             do {
                 let params = Self.listParams(tab: self.tab, search: self.search, outcome: self.outcome, workspaceID: self.workspaceID, since: self.activeSince, limit: depth, recentFinishedSeconds: self.recentFinishedSeconds)
-                var next = try Self.decodePage(try await self.service.list(params))
+                var next = try self.visiblePage(Self.decodePage(try await self.service.list(params)))
                 guard !Task.isCancelled, self.generation == request else { return }
                 let previous = self.page.items
                 let openedDetail = self.detail
@@ -488,7 +480,8 @@ final class ActivityViewModel: ObservableObject {
                         self.scrollID = successor.id
                         self.detail = successor
                     }
-                    if self.detail == nil, let openedDetail, openedDetail.id == selectedID, self.selectionSearch == self.search, !self.undoCleared.contains(selectedID) {
+                    if self.detail == nil, let openedDetail, openedDetail.id == selectedID, self.selectionSearch == self.search,
+                       !self.undoCleared.contains(selectedID), !(self.tab == .running && self.dismissedRunning[selectedID] != nil) {
                         var finished = openedDetail
                         if finished.state == "running" { finished.state = "finished" }
                         let keptBefore = previous.prefix { $0.id != selectedID }.filter { kept in next.items.contains { $0.id == kept.id } }.count
@@ -509,7 +502,7 @@ final class ActivityViewModel: ObservableObject {
                         guard !Task.isCancelled, self.generation == request, cursors.insert(pageCursor).inserted else { return }
                         var pageParams = Self.listParams(tab: self.tab, search: self.search, outcome: self.outcome, workspaceID: self.workspaceID, since: self.activeSince, recentFinishedSeconds: self.recentFinishedSeconds)
                         pageParams["cursor"] = .string(pageCursor)
-                        let targetPage = try Self.decodePage(try await self.service.list(pageParams))
+                        let targetPage = try self.visiblePage(Self.decodePage(try await self.service.list(pageParams)))
                         guard !Task.isCancelled, self.generation == request else { return }
                         self.page.items += targetPage.items
                         self.cursor = targetPage.next_cursor
@@ -585,7 +578,7 @@ final class ActivityViewModel: ObservableObject {
             do {
                 var params = Self.listParams(tab: self.tab, search: self.search, outcome: self.outcome, workspaceID: self.workspaceID, since: self.activeSince, recentFinishedSeconds: self.recentFinishedSeconds)
                 params["cursor"] = .string(pageCursor)
-                let next = try Self.decodePage(try await self.service.list(params))
+                let next = try self.visiblePage(Self.decodePage(try await self.service.list(params)))
                 guard self.generation == request else { return }
                 self.page.items += next.items
                 self.cursor = next.next_cursor
@@ -762,9 +755,13 @@ final class ActivityViewModel: ObservableObject {
         return cleared
     }
 
+    func canDismiss(_ item: ActivityWireItem) -> Bool {
+        item.isClearable || (tab == .running && item.kind == "agent" && item.state == "completed")
+    }
+
     func acknowledge(_ item: ActivityWireItem) {
-        guard item.isClearable else { return }
-        if item.isKeptFinished { return dismissKeptFinished(item) }
+        guard canDismiss(item) else { return }
+        if !item.needs_action || item.isKeptFinished { return dismissKeptFinished(item) }
         let request = generation
         let previousUndoSnapshot = undoSnapshot
         let previousUndoCleared = undoCleared
@@ -856,10 +853,35 @@ final class ActivityViewModel: ObservableObject {
         if let current = detail, ids.contains(current.id) { detail?.viewed_at = viewedAt }
     }
 
+    private static let dismissedRunningKey = "activity.running.dismissed"
+    private var dismissedRunning: [String: Date] {
+        defaults.dictionary(forKey: Self.dismissedRunningKey) as? [String: Date] ?? [:]
+    }
+
+    private func visiblePage(_ loaded: ActivityWirePage) -> ActivityWirePage {
+        guard tab == .running else { return loaded }
+        let dismissed = dismissedRunning
+        var visible = loaded
+        visible.items.removeAll { dismissed[$0.id] != nil }
+        return visible
+    }
+
     /// The host has nothing to clear for a kept row; leaving the selection also stops the refresh from re-keeping it.
     private func dismissKeptFinished(_ item: ActivityWireItem) {
+        if tab == .running {
+            var dismissed = dismissedRunning.filter { $0.value > Date() }
+            dismissed[item.id] = Date().addingTimeInterval(recentlyFinishedWindow)
+            defaults.set(dismissed, forKey: Self.dismissedRunningKey)
+            // Other filters can still cache this row after the host retention window expires.
+            for (key, value) in defaults.dictionaryRepresentation() where key != cacheKey && key.hasPrefix("activity.page.v2.running.") {
+                guard let data = value as? Data, var cached = try? JSONDecoder().decode(ActivityWirePage.self, from: data),
+                      cached.items.contains(where: { $0.id == item.id }) else { continue }
+                cached.items.removeAll { $0.id == item.id }
+                defaults.set(try? JSONEncoder().encode(cached), forKey: key)
+            }
+        }
         page.items.removeAll { $0.id == item.id }
-        if selectedID == item.id { selectedID = nil; detail = nil }
+        if selectedID == item.id { closeDetail() }
         if scrollID == item.id { scrollID = nil }
         persistPage()
     }
@@ -1290,7 +1312,7 @@ struct ActivityRootView: View {
 
     @ViewBuilder
     private var list: some View {
-        if model.page.items.isEmpty {
+        if model.page.items.isEmpty && !model.cursorAvailable {
             if model.loading || model.error != nil || !model.hasSuccessfulSnapshot {
                 // No safe cache for this filter yet: hold the layout, the header owns progress and errors.
                 DS.Palette.bg.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1315,7 +1337,7 @@ struct ActivityRootView: View {
                 }
                 .listStyle(.plain).scrollContentBackground(.hidden).background(DS.Palette.bg)
                 .accessibilityIdentifier("activity.list")
-                .onDeleteCommand { if let item = model.detail, item.isClearable { model.acknowledge(item) } }
+                .onDeleteCommand { if let item = model.detail, model.canDismiss(item) { model.acknowledge(item) } }
                 .onAppear { let anchor = model.restoreScrollAnchor(); if let anchor { proxy.scrollTo(anchor, anchor: .center) } }
                 .onChange(of: model.selectedID) { _, id in if let id { proxy.scrollTo(id) } }
             }
@@ -1356,7 +1378,7 @@ struct ActivityRootView: View {
             item: item,
             bot: botForItem(item),
             toggleRead: { item.isUnread ? model.markRead(item) : model.markUnread(item) },
-            clear: { model.acknowledge(item) },
+            clear: model.canDismiss(item) ? { model.acknowledge(item) } : nil,
             open: canOpen(item) ? { openThread(item) } : nil,
             openLabel: openLabel(item),
             showsWorkspace: showsWorkspace
@@ -1433,9 +1455,9 @@ struct ActivityRootView: View {
                 if canOpen(item), canViewChanges(item) {
                     Button(L("View changes")) { openEvidence(item, nil) }.buttonStyle(DSSecondaryButtonStyle())
                 }
-                if item.isClearable {
+                if model.canDismiss(item) {
                     Button(L("Dismiss")) { model.acknowledge(item) }.buttonStyle(DSSecondaryButtonStyle())
-                        .help(L("Dismisses this alert without answering requests or deleting results."))
+                        .help(!item.needs_action ? L("Removes this finished row from the list.") : L("Dismisses this alert without answering requests or deleting results."))
                 }
                 if item.isMarkable, !item.isNew {
                     Button(L("Mark as unread")) { model.markUnread(item) }.buttonStyle(DSSecondaryButtonStyle())
@@ -1516,9 +1538,9 @@ struct ActivityRootView: View {
                 if canOpen(item), canViewChanges(item) {
                     Button(L("View changes")) { openEvidence(item, nil) }.buttonStyle(DSSecondaryButtonStyle())
                 }
-                if item.isClearable {
+                if model.canDismiss(item) {
                     Button(L("Dismiss")) { model.acknowledge(item) }.buttonStyle(DSSecondaryButtonStyle())
-                        .help(item.isKeptFinished ? L("Removes this finished row from the list.") : item.kind == "request" ? L("Removes this from Needs you. The request stays in the bot's conversation.") : L("Removes this from Needs you. The result stays in Results."))
+                        .help(!item.needs_action ? L("Removes this finished row from the list.") : item.kind == "request" ? L("Removes this from Needs you. The request stays in the bot's conversation.") : L("Removes this from Needs you. The result stays in Results."))
                 }
                 if item.isMarkable, !item.isNew {
                     Button(L("Mark as unread")) { model.markUnread(item) }.buttonStyle(DSSecondaryButtonStyle())
@@ -1657,7 +1679,7 @@ private struct ActivityRow: View {
     let item: ActivityWireItem
     var bot: BotDefinition? = nil
     let toggleRead: () -> Void
-    let clear: () -> Void
+    let clear: (() -> Void)?
     let open: (() -> Void)?
     let openLabel: String
     /// Off inside a workspace section, where the header already names the workspace.
@@ -1674,7 +1696,8 @@ private struct ActivityRow: View {
 
     private var secondary: Color { prominence == .increased ? DS.Palette.text : DS.Palette.textSecondary }
     private var stateColor: Color { prominence == .increased ? DS.Palette.text : ActivityStatusStyle.color(item.state) }
-    private var showsActions: Bool { hovering && (item.isMarkable || item.isClearable) }
+    private var dismissLabel: String { item.needs_action ? L("Dismiss alert") : L("Dismiss") }
+    private var showsActions: Bool { hovering && (item.isMarkable || clear != nil) }
     private var facts: String { factsLine(workspace: showsWorkspace) }
     private func factsLine(workspace: Bool) -> String {
         [workspace ? item.workspace_name : nil, item.provider, item.origin_label].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
@@ -1725,7 +1748,7 @@ private struct ActivityRow: View {
         .contextMenu {
             if let open { Button(openLabel, action: open) }
             if item.isMarkable { Button(item.isUnread ? L("Mark as Read") : L("Mark as Unread"), action: toggleRead) }
-            if item.isClearable { Button(L("Dismiss alert"), action: clear) }
+            if let clear { Button(dismissLabel, action: clear) }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel([item.displayTitle, item.statusLabel, factsLine(workspace: true), item.listSummary ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
@@ -1733,7 +1756,7 @@ private struct ActivityRow: View {
         .accessibilityActions {
             if let open { Button(openLabel, action: open) }
             if item.isMarkable { Button(item.isUnread ? L("Mark as read") : L("Mark as unread"), action: toggleRead) }
-            if item.isClearable { Button(L("Dismiss alert"), action: clear) }
+            if let clear { Button(dismissLabel, action: clear) }
         }
     }
 
@@ -1749,8 +1772,8 @@ private struct ActivityRow: View {
                     if item.isMarkable {
                         DSIconButton(item.isUnread ? "envelope.open" : "envelope.badge", help: item.isUnread ? L("Mark as read") : L("Mark as unread"), action: toggleRead).packed()
                     }
-                    if item.isClearable {
-                        DSIconButton("archivebox", help: L("Dismiss alert"), action: clear).packed()
+                    if let clear {
+                        DSIconButton("archivebox", help: dismissLabel, action: clear).packed()
                     }
                 }
             }

@@ -101,6 +101,30 @@ final class LiveActivitySyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(recorder.deliveries.last?.projection.sessionId, "server-1:12:42")
     }
 
+    func testMacWireLifecyclePreservesSessionFromStartThroughAttentionAndEnd() async throws {
+        let recorder = DeliveryRecorder()
+        let sync = LiveActivitySyncCoordinator(serverId: "probe-host", bootEpoch: 9, initialActivityGeneration: 0,
+            deliver: { await recorder.append($0) }, heartbeatIntervalNanoseconds: 60_000_000_000_000)
+        let date = Date()
+        let run = ("10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001")
+        sync.submit(active([run]), cause: .started, now: date)
+        sync.submitHeartbeat(now: date.addingTimeInterval(30))
+        var inbox = TitioInboxSnapshot(botID: BotID(), conversationID: BotConversationID(), threadID: AgentThreadID(), unreadCount: 1, openDecisions: 1, lastPreview: nil, lastAt: date)
+        sync.submitTitio(inbox, now: date.addingTimeInterval(31))
+        inbox.openDecisions = 0
+        sync.submitTitio(inbox, now: date.addingTimeInterval(32))
+        sync.submit(active([]), cause: .finished(.completed), now: date.addingTimeInterval(33))
+        await sync.flush()
+        let target = PrivatePushTargetRecord(deviceId: "probe-device", serverId: "probe-host", purpose: .pushToStart, environment: .sandbox, token: "start")
+        let wire = recorder.deliveries.map { PrivateLiveActivityV2DeliveryRequest(delivery: $0, target: target) }
+        XCTAssertEqual(wire.map(\.event), [.start, .update, .update, .update, .end])
+        XCTAssertEqual(wire.map(\.revision), [1, 2, 3, 4, 5])
+        XCTAssertEqual(Set(wire.map(\.activitySessionId)), ["probe-host:9:1"])
+        XCTAssertEqual(wire.map(\.urgency), [nil, "keepalive", nil, nil, nil])
+        XCTAssertEqual(wire[2].petState, "question")
+        XCTAssertEqual(wire.last?.phase, .completed)
+    }
+
     func testHeartbeatUsesSameGenerationAndNextRevision() async {
         let recorder = DeliveryRecorder()
         let sync = LiveActivitySyncCoordinator(
@@ -116,6 +140,9 @@ final class LiveActivitySyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(recorder.deliveries.map(\.event), [.start, .update])
         XCTAssertEqual(recorder.deliveries.map(\.projection.revision), [1, 2])
         XCTAssertEqual(recorder.deliveries.last?.projection.updatedAt, 260)
+        let target = PrivatePushTargetRecord(deviceId: "d", serverId: "server-1", purpose: .pushToStart, environment: .sandbox, token: "start")
+        XCTAssertNil(PrivateLiveActivityV2DeliveryRequest(delivery: recorder.deliveries[0], target: target).urgency)
+        XCTAssertEqual(PrivateLiveActivityV2DeliveryRequest(delivery: recorder.deliveries[1], target: target).urgency, "keepalive")
     }
 
     func testIdleCoordinatorDoesNotWakeOrEnqueueHeartbeats() async {
@@ -379,6 +406,8 @@ final class LiveActivitySyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(recorder.deliveries.map(\.event), [.end])
         XCTAssertEqual(recorder.deliveries.first?.projection.activeThreadCount, 0)
         XCTAssertEqual(recorder.deliveries.first?.projection.phase, .failed)
+        let target = PrivatePushTargetRecord(deviceId: "d", serverId: "server-1", purpose: .pushToStart, environment: .sandbox, token: "start")
+        XCTAssertEqual(PrivateLiveActivityV2DeliveryRequest(delivery: recorder.deliveries[0], target: target).reconcilesPriorSessions, true)
     }
 
     func testIdentityStorePersistsStableHostAndMonotonicBootAndGeneration() throws {
@@ -1158,7 +1187,7 @@ final class LiveActivitySyncCoordinatorTests: XCTestCase {
                        "stale ownership must fall back to the newest activity_update token, not hard-fail")
     }
 
-    func testAcceptanceTargetsFallsBackToPushToStartWhenNoUpdateToken() throws {
+    func testUpdateWaitsForTheActivityTokenOnEveryRegisteredDevice() async throws {
         let tmp = NSTemporaryDirectory() + "rc2-private-target-start-fallback-" + UUID().uuidString
         let (_, db) = try Bootstrap(channel: .debug, appSupportOverride: tmp).run()
         let settings = SettingsRepository(db: db)
@@ -1178,9 +1207,38 @@ final class LiveActivitySyncCoordinatorTests: XCTestCase {
                        "with iOS closed there is often only a push-to-start token; updates must still deliver")
 
         let record = LiveActivityAcceptanceRecord(delivery: update, target: .v2(start))
-        let effective = PrivateNotificationBridge.effectiveDelivery(for: record)
-        XCTAssertEqual(effective.event, .start,
-                       "update via push-to-start is remapped to start so ActivityKit can show content")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HTTPRecordingURLProtocol.self]
+        let account = PrivateAccountSessionStore(repo: settings)
+        account.save(PrivateAccountSession(accessToken: "access", refreshToken: "refresh", user: .init(daysRemaing: 30, daysRemaining: 30, email: "test@example.com", id: "user", subscribed: true)))
+        let sender = PrivateNotificationBridge(accountStore: account, pushTargetStore: targetStore,
+            api: URLSessionPrivateAccountAPI(baseURL: URL(string: "https://private.example.test")!, session: URLSession(configuration: configuration)))
+        let recorder = HTTPRequestRecorder()
+        defer { HTTPRecordingURLProtocol.setHandler(nil) }
+        HTTPRecordingURLProtocol.setHandler { request in
+            recorder.append(request)
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"id":"queued","status":"pending","attempts":0}"#.utf8))
+        }
+        _ = try await sender.sendLiveActivityAcceptance(record)
+        let body = try XCTUnwrap(recorder.bodies.first ?? nil)
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: body) as? [String: Any])?["event"] as? String, "update",
+                       "The server queues updates for the current card even before its update token arrives")
+        guard case let .v2(second) = makeTarget(for: update, deviceId: "device-2") else { return XCTFail() }
+        try targetStore.upsert(second)
+        for event in [PrivateLiveActivityEvent.start, .update, .end] {
+            let targets = try sender.acceptanceTargets(for: makeDelivery(event: event, generation: 1, revision: 3))
+            XCTAssertEqual(Set(targets.compactMap { if case let .v2(target) = $0 { return target.deviceId }; return nil }), ["device-1", "device-2"], "The backend may already know the other token for this device")
+        }
+        HTTPRecordingURLProtocol.setHandler { request in
+            recorder.append(request)
+            return (HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!, Data())
+        }
+        do {
+            _ = try await sender.sendLiveActivityAcceptance(.init(delivery: update, target: .v2(second)))
+            XCTFail("A transient outage must be retried by the outbox")
+        } catch PrivateAccountAPIError.http(503) { }
+        XCTAssertEqual(recorder.requests.count, 2, "A failed update must never start another card or fall back to another device")
     }
 
     func testV2CapabilityIsDisabledByDefault() {
@@ -1269,10 +1327,7 @@ final class LiveActivitySyncCoordinatorTests: XCTestCase {
                       "alert tokens must survive activity-update invalidation")
     }
 
-    func testBridgeInvalidatesExactUpdateTokenForPermanentAckAndAcceptedEnd() async throws {
-        // WHY: the transport result must actually invoke exact invalidation:
-        // a late permanent result for A cannot erase rotated B, while an accepted
-        // end for B must retire B so it is never selected again.
+    func testBridgeKeepsTokensUntilAnExactEndIsDelivered() async throws {
         let tmp = NSTemporaryDirectory() + "rc2-la-bridge-invalidate-" + UUID().uuidString
         let (_, db) = try Bootstrap(channel: .debug, appSupportOverride: tmp).run()
         let settings = SettingsRepository(db: db)
@@ -1342,8 +1397,13 @@ final class LiveActivitySyncCoordinatorTests: XCTestCase {
             LiveActivityAcceptanceRecord(delivery: end, target: .v2(tokenB))
         )
         XCTAssertTrue(acceptedEnd.isAccepted)
-        XCTAssertTrue(try targetStore.records().isEmpty,
-                      "accepted end must retire its exact activity-update courier")
+        XCTAssertEqual(try targetStore.records().map(\.token), ["token-B"], "Acceptance is not an APNs end receipt")
+        HTTPRecordingURLProtocol.setHandler { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+             Data(#"{"id":"d2","status":"delivered","attempts":1}"#.utf8))
+        }
+        _ = try await bridge.sendLiveActivityAcceptance(.init(delivery: end, target: .v2(tokenB)))
+        XCTAssertTrue(try targetStore.records().isEmpty)
     }
 
     func testActivityUpdatePruneProtectsCurrentAcrossRepeatedSevenHourRollovers() throws {

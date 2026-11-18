@@ -1,4 +1,5 @@
 import Foundation
+import CoreModel
 
 public enum SchemaError: Error { case versionMismatch(Int, Int) }
 
@@ -81,7 +82,8 @@ public enum Schema {
     static let titioObservationSchemaVersion = 102
     /// v103 adds scheduled_tasks.max_concurrent_runs (per-task active-run limit).
     static let scheduledTaskConcurrencySchemaVersion = 103
-    public static let currentVersion: Int = scheduledTaskConcurrencySchemaVersion
+    static let hiddenParallelTasksSchemaVersion = 104
+    public static let currentVersion: Int = hiddenParallelTasksSchemaVersion
 
     /// SQL body for the named checkpoint-list migration (relocatable by version).
     public static let checkpointListMigrationSQL: String = """
@@ -1996,6 +1998,10 @@ public enum Schema {
         SchemaStep(scheduledTaskConcurrencySchemaVersion, """
         ALTER TABLE scheduled_tasks ADD COLUMN max_concurrent_runs INTEGER NOT NULL DEFAULT 1;
         """),
+        SchemaStep(hiddenParallelTasksSchemaVersion, """
+        CREATE INDEX idx_hidden_task_threads ON bot_conversations(linked_agent_thread_id COLLATE NOCASE)
+        WHERE hidden = 1 AND group_id IS NULL AND linked_agent_thread_id IS NOT NULL;
+        """),
     ]
 
     /// Additive and idempotent. `key` reuses today's banner identifiers, so a
@@ -2197,7 +2203,7 @@ public enum Schema {
     private static let migrationAppliedAtFormatter = ISO8601DateFormatter()
 
     static func trustedRestoreSchema(version: Int) throws -> SQLiteDB {
-        guard [93, 96, hostRestoreQueueHoldsSchemaVersion, relayKeysSchemaVersion, botSortOrderSchemaVersion, scheduledTaskRunOptionsSchemaVersion, virtualMachinesSchemaVersion, currentVersion].contains(version) else {
+        guard [93, 96, hostRestoreQueueHoldsSchemaVersion, relayKeysSchemaVersion, botSortOrderSchemaVersion, scheduledTaskRunOptionsSchemaVersion, virtualMachinesSchemaVersion, scheduledTaskConcurrencySchemaVersion, currentVersion].contains(version) else {
             throw SQLiteError.execute("unsupported restore schema version")
         }
         let db = try SQLiteDB(path: ":memory:")
@@ -2256,6 +2262,35 @@ public enum Schema {
         }
     }
 
+    /// A link into an existing desk conversation does not make it a child task.
+    private static func hideLegacyParallelTasks(_ db: SQLiteDB) throws {
+        let links = try db.prepare("""
+            SELECT m.content, r.id, r.thread_id, c.id, c.bot_id FROM agent_messages m
+            JOIN agent_runs r ON r.id = m.id
+            JOIN bot_conversations c ON c.linked_agent_thread_id = r.thread_id COLLATE NOCASE
+            WHERE m.role = 'assistant' AND m.content LIKE '[[rc:bot-task:%'
+              AND m.thread_id != r.thread_id AND c.group_id IS NULL AND c.hidden = 0
+              AND r.rowid = (SELECT first.rowid FROM agent_runs first WHERE first.thread_id = r.thread_id
+                             ORDER BY first.started_at, first.rowid LIMIT 1);
+            """)
+        defer { links.reset() }
+        var ids: [String] = []
+        while try links.step() {
+            guard let task = links.columnText(0).flatMap(BotParallelTask.parse),
+                  task.runID.value == links.columnText(1).flatMap(UUID.init(uuidString:)),
+                  task.threadID.value == links.columnText(2).flatMap(UUID.init(uuidString:)),
+                  task.conversationID.value == links.columnText(3).flatMap(UUID.init(uuidString:)),
+                  task.botID.value == links.columnText(4).flatMap(UUID.init(uuidString:)) else { continue }
+            ids.append(task.conversationID.value.uuidString.lowercased())
+        }
+        let update = try db.prepare("UPDATE bot_conversations SET hidden = 1 WHERE id = ?;")
+        for id in ids {
+            try update.bind(1, id)
+            _ = try update.step()
+            update.reset()
+        }
+    }
+
     /// Applies the given steps transactionally and idempotently.
     /// Each pending step (SQL + its `schema_meta` row) is wrapped in a single
     /// `BEGIN IMMEDIATE ... COMMIT`, rolling back on any error so a step is
@@ -2294,6 +2329,7 @@ public enum Schema {
                 } else {
                     try db.execute(step.sql)
                 }
+                if step.version == Self.hiddenParallelTasksSchemaVersion { try hideLegacyParallelTasks(db) }
                 let ins = try db.prepare("INSERT OR IGNORE INTO schema_meta(version, applied_at) VALUES(?, ?);")
                 try ins.bind(1, Int64(step.version))
                 Self.migrationAppliedAtLock.lock()

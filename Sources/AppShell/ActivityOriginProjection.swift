@@ -9,6 +9,8 @@ struct ActivityOriginSnapshot: Sendable {
     /// its Desk instead of a workspace it never had. Group-member conversations are not
     /// listed here; the router's destination check finds them by thread at open time.
     let botLinksByThreadID: [String: (botID: UUID, conversationID: UUID)]
+    let hiddenTaskThreads: Set<AgentThreadID>
+    let hiddenTaskRuns: Set<String>
     let botRequests: [AgentActivityItem]
     let botAttentionIDs: Set<String>
     let botFailureIDsByRunID: [String: [BotAttentionItemID]]
@@ -41,6 +43,7 @@ enum ActivityOriginProjection {
         }
 
         let botStore = BotStore(db: db)
+        let hiddenThreads = try botStore.hiddenTaskThreadIDs()
         // One pass: each call re-runs the correlated attention subqueries over every conversation.
         let conversations = try botStore.listConversations(attentionStates: [.none, .working, .unreadActivity, .needsAttention])
         let contextLabels = Dictionary(conversations.compactMap { conversation -> (String, String)? in
@@ -170,8 +173,11 @@ enum ActivityOriginProjection {
             }
             return items
         }
+        let hiddenThreadKeys = Set(hiddenThreads.map { $0.description.lowercased() })
+        let hiddenRuns = Set(runThreads.lazy.filter { hiddenThreadKeys.contains($0.threadID) }.map(\.id))
         let attentionIDs = Set(allAttention.map { "bot-attention:\($0.id.value.uuidString.lowercased())" })
-        return ActivityOriginSnapshot(labelsByRunID: labels, botLinksByThreadID: botLinks, botRequests: requests,
+        return ActivityOriginSnapshot(labelsByRunID: labels, botLinksByThreadID: botLinks,
+                                      hiddenTaskThreads: hiddenThreads, hiddenTaskRuns: hiddenRuns, botRequests: requests,
                                       botAttentionIDs: attentionIDs, botFailureIDsByRunID: failureIDs,
                                       resolvedBotFailureRunIDs: resolvedFailures, scheduledOccurrences: scheduledOccurrences)
     }

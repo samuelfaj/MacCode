@@ -260,7 +260,8 @@ final class ActivityService: @unchecked Sendable {
             if note.category == Self.terminalNotificationCategory { continue }
             let category = note.category.flatMap(PetNotificationCategory.init(rawValue:))
             let payload = Self.notificationPayload(note.body)
-            if payload.runID.map(knownRunIDs.contains) == true { continue }
+            if let run = payload.runID, knownRunIDs.contains(run) || origins.hiddenTaskRuns.contains(run) { continue }
+            if let id = payload.threadID.flatMap(UUID.init(uuidString:)), origins.hiddenTaskThreads.contains(AgentThreadID(id)) { continue }
             if let threadID = payload.threadID, let requestID = payload.requestID,
                knownRequestIDs.contains("\(threadID):\(requestID)") { continue }
             let title = category?.presentation.title ?? L("Notification")

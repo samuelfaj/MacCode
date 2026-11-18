@@ -49,6 +49,7 @@ public final class PetController {
     /// Latest material progress text per active agent thread for Live Activity
     /// single-active preview (tools / assistant). Not used by the pet popover.
     private var lastUpdatePreviewByThread: [AgentThreadID: String] = [:]
+    private var taskVisibility: (active: Set<AgentThreadID>, hidden: Set<AgentThreadID>) = ([], [])
     /// Host run start times for active threads. Progress republish must not
     /// wipe these — empty startedByThread maps used to drop elapsed detail.
     private var startedAtByThread: [AgentThreadID: Date] = [:]
@@ -1231,6 +1232,15 @@ public final class PetController {
         _ threadIDs: [AgentThreadID],
         startedByThread: [AgentThreadID: Date] = [:]
     ) {
+        let active = Set(threadIDs)
+        if active != taskVisibility.active {
+            guard let hidden = active.isEmpty ? [] : try? context.botStore.hiddenTaskThreadIDs() else {
+                model.apply(activeThreads: [])
+                return
+            }
+            taskVisibility = (active, active.intersection(hidden))
+        }
+        let threadIDs = threadIDs.filter { !taskVisibility.hidden.contains($0) }
         activeThreadChromeGeneration += 1
         activeThreadChromeFetchTask?.cancel()
         activeThreadChromeFetchTask = nil

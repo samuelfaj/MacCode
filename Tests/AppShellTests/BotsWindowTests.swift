@@ -593,6 +593,17 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertTrue(runner.requests.allSatisfy { $0.model == "main-model" && $0.permissionMode == .fullAccess })
         XCTAssertEqual(try context.botStore.conversation(id: origin.id)?.linkedAgentThreadID, caller.thread.id)
 
+        let children = Set(links.map(\.threadID))
+        XCTAssertTrue(try context.threadRepo.list().allSatisfy { !children.contains($0.id) })
+        let listed = try context.botStore.listConversations(botID: bot.id)
+        XCTAssertTrue(listed.contains { $0.id == origin.id })
+        XCTAssertTrue(listed.allSatisfy { !links.map(\.conversationID).contains($0.id) })
+        let activity = try ActivityService(context: context).list([:])
+        let rows = try XCTUnwrap(activity.objectValue?["items"]?.arrayValue)
+        XCTAssertFalse(rows.contains { row in
+            row.objectValue?["thread_id"]?.stringValue.flatMap(UUID.init(uuidString:)).map { children.contains(AgentThreadID($0)) } == true
+        })
+
         let parent = AgentAppViewModel(workspaceID: BotsViewModel.botDeskWorkspaceID, cwd: directory,
             coordinator: context.coordinator, threadRepo: context.threadRepo, messageRepo: context.messageRepo,
             initialThreadId: caller.thread.id,
@@ -627,6 +638,11 @@ final class BotsWindowTests: XCTestCase {
             links.allSatisfy { (try? context.runRepo.status(of: $0.runID)) == .completed }
         }
         XCTAssertTrue(settled)
+        XCTAssertFalse(try context.runRepo.listRecentFinished().contains { children.contains($0.threadId) })
+        for link in links {
+            let inputs = await context.runFinishedNotificationInputs(runId: link.runID, threadId: link.threadID)
+            XCTAssertTrue(inputs.isNestedWorker, "A task result must not reopen its thread through a notification")
+        }
         let status = try await parent.parallelTaskStatus?(links[0], caller.thread.id)
         XCTAssertEqual(status, .completed, "The card must use its exact child run's terminal state")
 

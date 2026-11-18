@@ -3175,12 +3175,14 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     /// Where `openAgentThread` could land, checked before a caller leaves its own screen.
     public func agentThreadOpenDestination(_ threadID: AgentThreadID) throws -> AgentThreadOpenDestination {
         guard let ctx = context else { return .unavailable }
+        let conversation = try ctx.botStore.conversationLinked(to: threadID)
+        if conversation?.isHiddenTask == true { return .unavailable }
         if let pinned = try Self.contextPinnedThreadDestination(threadID, context: ctx) { return pinned }
         if let workspaceID = try ctx.threadRepo.workspaceId(of: threadID),
            ctx.state.workspaces[workspaceID] != nil {
             return .workspace(workspaceID)
         }
-        if let conversation = try ctx.botStore.conversationLinked(to: threadID) {
+        if let conversation {
             return .bot(conversation.botID, conversation.id)
         }
         return .unavailable
@@ -3233,6 +3235,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     @discardableResult
     public func openAgentThread(thread threadID: AgentThreadID, markRead: Bool = false) throws -> SurfaceDescriptor {
         guard let ctx = context,
+              try agentThreadOpenDestination(threadID) != .unavailable,
               let workspaceID = try ctx.threadRepo.workspaceId(of: threadID),
               ctx.state.workspaces[workspaceID] != nil else {
             throw LayoutError.workspaceNotFound
@@ -3305,7 +3308,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
               let bot = try ctx.botStore.get(id: botID) else { return false }
         if let conversationID {
             guard let conversation = try ctx.botStore.conversation(id: conversationID),
-                  conversation.botID == botID else { return false }
+                  conversation.botID == botID, !conversation.isHiddenTask else { return false }
             if try ctx.botStore.conversationContextPin(conversationID: conversationID) != nil {
                 guard let threadID = conversation.linkedAgentThreadID,
                       try Self.contextPinnedThreadDestination(threadID, context: ctx)
@@ -4206,7 +4209,8 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             botID: botID,
             text: text,
             conversationID: destination,
-            routing: routing
+            routing: routing,
+            isParallelTask: isBotCaller && conversationID == nil
         )
         guard isBotCaller, let object = result.objectValue,
               let child = object["thread_id"]?.stringValue.flatMap(UUID.init),
@@ -5546,7 +5550,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     /// - Parameter quiet: when true (scheduled headless fires), skip rail select and
     ///   `refreshFromState` so automatic work does not rebuild workspace UI or steal focus.
     ///   Still persists the thread and publishes `agent.thread.created`.
-    public func createAgentThread(workspace: WorkspaceID?, title: String, provider: AgentProvider, model: String, permissionMode: AgentPermissionMode, reasoningEffort: AgentReasoningEffort, reasoningModel: String? = nil, serviceTier: AgentServiceTier = .auto, modelSelection: AgentModelSelection? = nil, providerInstanceId: String? = nil, runAsUser: AgentRunAsUser? = nil, surfaceID: SurfaceID? = nil, routingConfiguration: AgentRoutingConfiguration?, quiet: Bool = false, inheriting parentThread: AgentThread? = nil) throws -> AgentThread {
+    public func createAgentThread(workspace: WorkspaceID?, title: String, provider: AgentProvider, model: String, permissionMode: AgentPermissionMode, reasoningEffort: AgentReasoningEffort, reasoningModel: String? = nil, serviceTier: AgentServiceTier = .auto, modelSelection: AgentModelSelection? = nil, providerInstanceId: String? = nil, runAsUser: AgentRunAsUser? = nil, surfaceID: SurfaceID? = nil, routingConfiguration: AgentRoutingConfiguration?, quiet: Bool = false, publishCreation: Bool = true, inheriting parentThread: AgentThread? = nil) throws -> AgentThread {
         guard let ctx = context else { throw LayoutError.workspaceNotFound }
         let resolvedWorkspace = parentThread?.workspaceId ?? workspace
         let resolvedRunAs: AgentRunAsUser?
@@ -5585,7 +5589,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         // After rails reload: broadcast create so iOS mirrors and any EventBus
         // subscribers (including Agent App surfaces that listen for thread.*)
         // see scheduled / RPC-created threads immediately.
-        EventBus.shared.publish(kind: .agentThreadCreated, payload: agentThreadPayload(t))
+        if publishCreation { EventBus.shared.publish(kind: .agentThreadCreated, payload: agentThreadPayload(t)) }
         return t
     }
 

@@ -47,6 +47,10 @@ extension AppCommandRouter {
     func makeActivityConversation(_ item: ActivityWireItem) -> ActivityConversation? {
         guard let context, let threadID = item.thread_id.flatMap(UUID.init(uuidString:)).map(AgentThreadID.init),
               let thread = try? context.threadRepo.get(id: threadID) else { return nil }
+        let linked: BotConversation?
+        do { linked = try context.botStore.conversationsLinked(to: [threadID])[threadID] }
+        catch { return nil }
+        guard linked?.isHiddenTask != true else { return nil }
         if let workspaceID = thread.workspaceId, let workspace = context.state.workspaces[workspaceID] {
             let agent = AgentAppSurface(
                 workspaceID: workspaceID, cwd: workspace.cwd, coordinator: context.coordinator,
@@ -65,7 +69,6 @@ extension AppCommandRouter {
                 context?.threadRepo.setLiveSurfaceBinding(surfaceID: agent.descriptor.id, threadID: nil)
             }
         }
-        let linked = (try? context.botStore.conversationsLinked(to: [threadID]))?[threadID]
         if let linked, let desk = botsViewModel?.makeActivityDeskAgent(conversation: linked, thread: thread) {
             return ActivityConversation(viewModel: desk.viewModel, showsComposer: true, onClose: desk.close)
         }
@@ -92,6 +95,7 @@ extension AppCommandRouter {
             orchestrationRuntime: context.orchestrationRuntime,
             embedding: AgentAppEmbedding(pinnedThreadId: threadID, pinnedThread: thread, ownsComposerDraft: false)
         )
+        configureBotTaskLinks(on: viewModel)
         viewModel.botNameProvider = { [weak context] botID in
             (try? context?.botStore.get(id: botID))??.name
         }

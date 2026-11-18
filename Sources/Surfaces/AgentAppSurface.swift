@@ -16633,6 +16633,10 @@ public struct AgentAppView: View {
                         .foregroundColor(DS.Palette.textTertiary)
                 }
                 Spacer(minLength: 0)
+                if reason == .backgroundAwait, let threadID = vm.selectedThreadId {
+                    AgentBackgroundWaitInspector(vm: vm, threadID: threadID)
+                        .id(threadID)
+                }
                 Button(L("Continue")) {
                     Task { await vm.continueAfterBackgroundWait() }
                 }

@@ -468,7 +468,7 @@ public enum HostDatabaseRestore {
         }
         var actual = try schema(db)
         for (key, sql) in legacyOptionalObjects where actual[key] == sql { actual[key] = nil }
-        for version in [93, 96, Schema.hostRestoreQueueHoldsSchemaVersion, Schema.relayKeysSchemaVersion, Schema.currentVersion] {
+        for version in [93, 96, Schema.hostRestoreQueueHoldsSchemaVersion, Schema.relayKeysSchemaVersion, Schema.scheduledTaskConcurrencySchemaVersion, Schema.currentVersion] {
             let trusted = try Schema.trustedRestoreSchema(version: version)
             if try actual == schema(trusted) {
                 let meta = try db.prepare("SELECT MAX(version),typeof(MAX(version)) FROM schema_meta;")

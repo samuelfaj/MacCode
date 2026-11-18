@@ -1030,7 +1030,7 @@ public final class AgentThreadRepository {
             t.id, t.project_id, t.workspace_id, t.title, t.provider, t.provider_instance_id, t.model, t.provider_thread_id, t.status, unixepoch(t.created_at), unixepoch(t.updated_at), t.diff_additions, t.diff_deletions, t.has_unread, t.color, t.pinned, t.sort_order, t.permission_mode, t.reasoning_effort, t.execution_mode, t.base_branch, t.worktree_path, t.service_tier, t.model_selection_json, t.interaction_mode, t.run_as_user_json, t.reasoning_model, r.mode, r.configuration_json, r.revision, t.actor_json, t.actor_locked_at, t.execution_target, t.parent_thread_id, t.is_ephemeral
             """
         // Ephemeral side threads are hidden from the rail/`agent.thread.list`.
-        let from = "FROM agent_threads t LEFT JOIN agent_thread_routing r ON r.thread_id = t.id WHERE t.is_ephemeral = 0"
+        let from = "FROM agent_threads t LEFT JOIN agent_thread_routing r ON r.thread_id = t.id WHERE t.is_ephemeral = 0 AND t.id COLLATE NOCASE NOT IN (\(BotStore.hiddenTaskThreadsSQL))"
         let order = "ORDER BY t.updated_at DESC, t.id DESC"
         let sql = workspaceId == nil
             ? "SELECT \(columns) \(from) \(order);"
@@ -5328,6 +5328,7 @@ public final class AgentRunRepository: @unchecked Sendable {
             SELECT id, thread_id, provider, provider_instance_id, model, status, started_at, finished_at, error_message, terminal_reason
             FROM agent_runs
             WHERE finished_at IS NOT NULL
+              AND thread_id COLLATE NOCASE NOT IN (\(BotStore.hiddenTaskThreadsSQL))
               AND status NOT IN ('pending', 'running')
             ORDER BY finished_at DESC
             LIMIT ?;

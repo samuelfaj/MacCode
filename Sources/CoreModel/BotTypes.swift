@@ -975,6 +975,7 @@ public struct BotConversation: Codable, Sendable, Equatable {
     /// Set only on a group participant's hidden member conversation. Desk and
     /// remote conversation lists exclude these rows. Immutable after insert.
     public var groupID: BotGroupID?
+    public var isHiddenTask: Bool { hidden && groupID == nil }
 
     public init(
         id: BotConversationID = BotConversationID(),

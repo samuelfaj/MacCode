@@ -393,6 +393,8 @@ public struct PrivateLiveActivityV2DeliveryRequest: Codable, Equatable, Sendable
     public let bootEpoch: UInt64
     public let activityGeneration: UInt64
     public let revision: Int64
+    public let urgency: String?
+    public let reconcilesPriorSessions: Bool?
     public let event: PrivateLiveActivityEvent
     public let deviceId: String
     public let environment: PrivatePushEnvironment
@@ -416,6 +418,8 @@ public struct PrivateLiveActivityV2DeliveryRequest: Codable, Equatable, Sendable
         bootEpoch = UInt64(delivery.projection.epoch) ?? 0
         activityGeneration = delivery.activityGeneration
         revision = delivery.projection.revision
+        urgency = delivery.urgency
+        reconcilesPriorSessions = delivery.reconcilesPriorSessions
         event = delivery.event
         deviceId = target.deviceId
         environment = target.environment
@@ -1961,82 +1965,41 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
         }
     }
 
-    /// Resolves which device tokens should receive this delivery.
-    ///
-    /// Fail-open policy (so Mac updates / iOS-closed still work):
-    /// 1. Exact v2 purpose match (start → push_to_start, update/end → activity_update
-    ///    with matching ownership session)
-    /// 2. Any activity_update for this host (newest) when exact ownership is stale
-    /// 3. push_to_start tokens (content refresh when only start token is available)
-    /// 4. Legacy single-device token
-    ///
-    /// Never throw solely because an old activity_update row exists with a dead
-    /// boot epoch — that previously blocked legacy fallback after Mac relaunch.
+    /// The v2 backend resolves the APNs token by device, environment and lifecycle scope.
+    /// A phone may send its update token straight to the backend while the Mac only knows its start token.
     public func acceptanceTargets(
         for delivery: LiveActivitySyncDelivery
     ) throws -> [LiveActivityAcceptanceTarget] {
-        let records = try pushTargetStore.records()
-        let hostId = delivery.projection.hostId
-        let preferredPurpose: PrivatePushTokenPurpose =
-            delivery.event == .start ? .pushToStart : .activityUpdate
-
-        func v2(_ purpose: PrivatePushTokenPurpose) -> [PrivatePushTargetRecord] {
-            records.filter {
-                $0.supportsLiveActivityV2 &&
-                $0.purpose == purpose &&
-                $0.serverId == hostId
-            }
+        let eligible = try pushTargetStore.records().filter {
+            $0.supportsLiveActivityV2 && $0.serverId == delivery.projection.hostId && $0.purpose != .alert
         }
-
-        let preferred = v2(preferredPurpose)
-        if preferredPurpose == .pushToStart {
-            if !preferred.isEmpty { return preferred.map(LiveActivityAcceptanceTarget.v2) }
-        } else {
-            let exact = preferred.filter {
-                guard let ownership = $0.ownership else { return false }
-                return ownership.bootEpoch == UInt64(delivery.projection.epoch) &&
-                    ownership.activityGeneration == delivery.activityGeneration &&
-                    ownership.activitySessionId == delivery.projection.sessionId
+        let lanes = Dictionary(grouping: eligible) { LiveActivityAcceptanceTarget.v2($0).laneIdentity }
+        let targets: [LiveActivityAcceptanceTarget] = lanes.keys.sorted().compactMap { key in
+            guard let records = lanes[key] else { return nil }
+            let exact = records.last { token in
+                guard let scope = token.ownership else { return false }
+                return scope.bootEpoch == UInt64(delivery.projection.epoch)
+                    && scope.activityGeneration == delivery.activityGeneration
+                    && scope.activitySessionId == delivery.projection.sessionId
             }
-            if !exact.isEmpty { return exact.map(LiveActivityAcceptanceTarget.v2) }
-            // Stale ownership after Mac relaunch: still try the newest update token.
-            // Persistence may round adjacent registrations to the same timestamp.
-            // In that tie, `upsert` order is the only remaining recency signal, so
-            // track the max timestamp in place and keep the LAST record at that
-            // max (later upsert order wins) — one pass, no temp array.
-            var newest: PrivatePushTargetRecord?
-            for record in preferred {
-                if newest == nil || record.updatedAt >= newest!.updatedAt {
-                    newest = record
-                }
-            }
-            if let newest {
-                return [.v2(newest)]
-            }
-            // No update token yet (iOS app never opened after remote start): use
-            // push-to-start so content can still be pushed / re-asserted.
-            let starts = v2(.pushToStart)
-            if !starts.isEmpty { return starts.map(LiveActivityAcceptanceTarget.v2) }
+            let start = records.last { $0.purpose == .pushToStart }
+            let target = (delivery.event == .start ? start : exact) ?? start ?? records.last
+            return target.map(LiveActivityAcceptanceTarget.v2)
         }
+        if !targets.isEmpty { return targets }
 
         if let legacy = pushTargetStore.load(),
            let token = legacy.liveActivityToken,
            !token.isEmpty {
             return [.legacy(legacy)]
         }
-        // Last resort: any v2 push-to-start even if serverId drifted pre-rebind.
-        let anyStart = records.filter {
-            $0.supportsLiveActivityV2 && $0.purpose == .pushToStart
-        }
-        if !anyStart.isEmpty { return anyStart.map(LiveActivityAcceptanceTarget.v2) }
-
         throw PrivateAccountAPIError.invalidResponse
     }
 
     public func sendLiveActivityAcceptance(
         _ record: LiveActivityAcceptanceRecord
     ) async throws -> PrivateLiveActivityV2DeliveryAck {
-        let delivery = Self.effectiveDelivery(for: record)
+        let delivery = record.delivery
         guard let session = accountStore.load(), session.user.subscribed else {
             throw PrivateAccountAPIError.http(401)
         }
@@ -2071,52 +2034,12 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
                 nextAttemptAt: nil
             )
         case .v2(let target):
-            let ack: PrivateLiveActivityV2DeliveryAck
-            do {
-                let request = PrivateLiveActivityV2DeliveryRequest(delivery: delivery, target: target)
-                ack = try await sessionRefresher.perform(session: session) { accessToken in
-                    try await self.api.deliverLiveActivityV2(
-                        accessToken: accessToken,
-                        request: request,
-                        idempotencyKey: delivery.idempotencyKey
-                    )
-                }
-                guard ack.isSettled else {
-                    throw LiveActivityAcceptanceOutboxError.backendDidNotAccept(ack.status)
-                }
-            } catch {
-                // User dismissed the Lock Screen card or ActivityKit ended it: the
-                // activity_update token is dead. Fail over to push-to-start `.start`
-                // so the next host update re-opens the Live Activity without the
-                // iOS app needing to be foregrounded.
-                if target.purpose == .activityUpdate,
-                   delivery.event == .update || delivery.event == .start,
-                   let startTarget = (try? pushTargetStore.records()).flatMap({ records in
-                       records.first(where: {
-                           $0.supportsLiveActivityV2 &&
-                           $0.purpose == .pushToStart &&
-                           $0.serverId == delivery.projection.hostId
-                       }) ?? records.first(where: {
-                           $0.supportsLiveActivityV2 && $0.purpose == .pushToStart
-                       })
-                   }) {
-                    let startDelivery = LiveActivitySyncDelivery(
-                        event: .start,
-                        projection: delivery.projection,
-                        activityGeneration: delivery.activityGeneration,
-                        idempotencyKey: delivery.idempotencyKey + ".dismiss-reopen"
-                    )
-                    let startRecord = LiveActivityAcceptanceRecord(
-                        delivery: startDelivery,
-                        target: .v2(startTarget)
-                    )
-                    Self.log.info(
-                        "live-activity update failed; reopening via push-to-start key=\(startDelivery.idempotencyKey, privacy: .public)"
-                    )
-                    return try await sendLiveActivityAcceptance(startRecord)
-                }
-                throw error
+            let request = PrivateLiveActivityV2DeliveryRequest(delivery: delivery, target: target)
+            let ack = try await sessionRefresher.perform(session: session) { accessToken in
+                try await self.api.deliverLiveActivityV2(accessToken: accessToken, request: request,
+                                                       idempotencyKey: delivery.idempotencyKey)
             }
+            guard ack.isSettled else { throw LiveActivityAcceptanceOutboxError.backendDidNotAccept(ack.status) }
             // Prune while the current courier is still protected. Doing this
             // before terminal invalidation prevents a stale historical row from
             // becoming the newly "current" protected fallback.
@@ -2127,35 +2050,14 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
                     "Live Activity token prune failed: \(String(describing: error), privacy: .public)"
                 )
             }
-            // Terminal/end retires only this exact owner/device/env/activity/
-            // generation/token. A delayed result for A cannot remove rotated B.
-            // Persistence failure stays retryable through the durable outbox.
-            if target.purpose == .activityUpdate,
-               delivery.event == .end || ack.isTerminal {
+            // A queued, superseded or failed job says nothing about the validity of this local token.
+            if delivery.event == .end, ack.status == "delivered", let scope = target.ownership,
+               scope.activitySessionId == delivery.projection.sessionId,
+               scope.activityGeneration == delivery.activityGeneration, scope.bootEpoch == UInt64(delivery.projection.epoch) {
                 try pushTargetStore.invalidateActivityUpdateTarget(target)
             }
             return ack
         }
-    }
-
-    /// When only a push-to-start token is available, ActivityKit cannot apply
-    /// content-state `update` pushes. Remap those to `start` so the Lock Screen
-    /// card is created/refreshed while the iOS app is closed.
-    nonisolated static func effectiveDelivery(
-        for record: LiveActivityAcceptanceRecord
-    ) -> LiveActivitySyncDelivery {
-        let delivery = record.delivery
-        guard case .v2(let target) = record.target,
-              target.purpose == .pushToStart,
-              delivery.event == .update else {
-            return delivery
-        }
-        return LiveActivitySyncDelivery(
-            event: .start,
-            projection: delivery.projection,
-            activityGeneration: delivery.activityGeneration,
-            idempotencyKey: delivery.idempotencyKey + ".start-refresh"
-        )
     }
 }
 

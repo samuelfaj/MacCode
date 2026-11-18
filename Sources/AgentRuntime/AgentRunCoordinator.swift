@@ -867,6 +867,11 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         }
     }
 
+    public func reportedBackgroundTasks(threadId: AgentThreadID) -> [AgentBackgroundTask] {
+        let reporters = backgroundWorkReportersLock.withLock { Array(backgroundWorkReporters.values) }
+        return reporters.flatMap { $0.reportedBackgroundTasks(threadId: threadId) }
+    }
+
     private func backgroundWorkReporter(for provider: AgentProvider) -> ProviderBackgroundWorkReporting? {
         backgroundWorkReportersLock.withLock { backgroundWorkReporters[provider] }
     }

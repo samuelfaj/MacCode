@@ -5839,7 +5839,7 @@ public final class BotsViewModel: ObservableObject {
         thread.reasoningModel = route.reasoningModel
         let destination = try routing.executionDestination ?? botStore.executionDestination(botID: bot.id)
         thread.executionTarget = destination.target
-        let conversation = BotConversation(botID: bot.id, title: title, linkedAgentThreadID: thread.id)
+        let conversation = BotConversation(botID: bot.id, title: title, hidden: parentThreadID != nil, linkedAgentThreadID: thread.id)
         try botStore.createContextualConversation(
             conversation, newThread: thread, hostID: hostID,
             context: context, policyRevision: binding.policyRevision, executionDestination: destination
@@ -6046,7 +6046,7 @@ public final class BotsViewModel: ObservableObject {
         let conversation: BotConversation
         do {
             guard let resolved = try conversations.first(where: { $0.id == id })
-                    ?? context.botStore.conversation(id: id) else {
+                    ?? context.botStore.conversation(id: id), !resolved.isHiddenTask else {
                 errorMessage = L("Could not open conversation: It no longer exists.")
                 return
             }
@@ -7308,6 +7308,7 @@ public final class BotsViewModel: ObservableObject {
         attachments: [AgentAttachment] = [],
         routing explicitRouting: BotDeskRouting? = nil,
         adoptAsDeskRoute: Bool = false,
+        isParallelTask: Bool = false,
         origin: HostSendOrigin = .host
     ) throws -> JSONValue {
         guard let bot = try botStore.get(id: botID), bot.deletedAt == nil else {
@@ -7381,6 +7382,7 @@ public final class BotsViewModel: ObservableObject {
             text: display,
             adoptSelection: false,
             createNew: conversationID == nil,
+            isParallelTask: isParallelTask,
             conversationID: conversationID
         )
         appendDeskMessage(
@@ -10460,7 +10462,7 @@ public final class BotsViewModel: ObservableObject {
         if let selected = selectedConversation, selected.botID == botID {
             return selected
         }
-        if selectedBotID != botID, let started = lastStartedConversationByBot[botID] {
+        if selectedBotID != botID, let started = lastStartedConversationByBot[botID], !started.isHiddenTask {
             return started
         }
         if let snapshot = studioSupportByBot[botID] {
@@ -11104,6 +11106,7 @@ public final class BotsViewModel: ObservableObject {
         text: String,
         adoptSelection: Bool = true,
         createNew: Bool = false,
+        isParallelTask: Bool = false,
         conversationID: BotConversationID? = nil
     ) throws -> BotConversation {
         var conversation: BotConversation
@@ -11116,7 +11119,8 @@ public final class BotsViewModel: ObservableObject {
         } else if createNew {
             conversation = BotConversation(
                 botID: bot.id,
-                title: Self.titleFromFirstMessage(text)
+                title: Self.titleFromFirstMessage(text),
+                hidden: isParallelTask
             )
         } else if let selected = selectedConversation, selected.botID == bot.id {
             conversation = selected
@@ -11139,6 +11143,7 @@ public final class BotsViewModel: ObservableObject {
         // Dest first. Persist used to listConversations after dest
         // painted the bubble. The upserted row is already dest state.
         try botStore.upsertConversation(conversation)
+        guard !conversation.isHiddenTask else { return conversation }
         if adoptSelection {
             adoptWrittenConversation(conversation)
         } else {
@@ -11224,6 +11229,7 @@ public final class BotsViewModel: ObservableObject {
     /// Follow-through dest used to reloadFleet after dest already
     /// painted the completed turn. Patch this dest thread locally.
     private func adoptFollowThroughConversation(_ conversation: BotConversation) {
+        guard !conversation.isHiddenTask else { return }
         if selectedConversation?.id == conversation.id {
             selectedConversation = conversation
         }
@@ -11269,6 +11275,7 @@ public final class BotsViewModel: ObservableObject {
     }
 
     private func destConversations(botID: BotID, patched: BotConversation) -> [BotConversation] {
+        guard !patched.isHiddenTask else { return destConversations(botID: botID) }
         if selectedBotID == botID {
             return conversations
         }
@@ -11305,7 +11312,7 @@ public final class BotsViewModel: ObservableObject {
                 botID: bot.id,
                 conversationID: next.id
             )
-            adoptWrittenAttention(item)
+            if !next.isHiddenTask { adoptWrittenAttention(item) }
             applyAttentionState(
                 for: bot.id,
                 conversations: destConversations(botID: bot.id, patched: next)
@@ -12623,7 +12630,8 @@ public final class BotsViewModel: ObservableObject {
                 runAsUser: routing.runAsUser,
                 surfaceID: nil,
                 routingConfiguration: nil,
-                quiet: true
+                quiet: true,
+                publishCreation: !liveConversation.isHiddenTask
             )
             createdThread.reasoningModel = routing.reasoningModel
             try context.threadRepo.upsert(createdThread)
@@ -13306,7 +13314,7 @@ public final class BotsViewModel: ObservableObject {
                     detail: run?.errorMessage ?? L("The supervised turn ended without a clean completion.")
                 )
                 try botStore.upsertAttention(item)
-                adoptWrittenAttention(item)
+                if !next.isHiddenTask { adoptWrittenAttention(item) }
             }
             applyAttentionState(
                 for: bot.id,

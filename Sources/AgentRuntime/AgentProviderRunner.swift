@@ -504,6 +504,7 @@ public protocol ProviderBackgroundWorkReporting: AnyObject {
     func isNativeSubagentRunning(threadId: AgentThreadID, childRunId: AgentRunID) -> Bool
     /// True while the thread's live session still runs work it will wake the agent for.
     func hasLiveBackgroundWork(threadId: AgentThreadID) -> Bool
+    func reportedBackgroundTasks(threadId: AgentThreadID) -> [AgentBackgroundTask]
 }
 
 public final class OneShotProviderAdapter: AgentProviderAdapter, @unchecked Sendable {

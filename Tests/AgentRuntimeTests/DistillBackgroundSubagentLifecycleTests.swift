@@ -29,6 +29,11 @@ final class DistillBackgroundSubagentLifecycleTests: ProviderProcessTestCase {
         _ = try await harness.coordinator.startRun(first)
         try await waitUntil { (try? harness.runRepo.status(of: first.runId)) == .completed }
 
+        let tasks = harness.coordinator.reportedBackgroundTasks(threadId: harness.thread.id)
+        XCTAssertEqual(tasks.map(\.id), [child.uuidString.lowercased()])
+        XCTAssertEqual(tasks.first?.description, "impl")
+        XCTAssertTrue(harness.coordinator.reportedBackgroundTasks(threadId: AgentThreadID()).isEmpty)
+
         // The badge's persisting reconciliation must not demote a running child.
         _ = try harness.runtime.activityReceipts(threadIds: [harness.thread.id], persistLifecycleReconciliation: true)
         XCTAssertEqual(try receipt(harness, child).lifecycleStatus, .accepted, "a subagent Distill still runs is Working, not Unknown")
@@ -42,6 +47,7 @@ final class DistillBackgroundSubagentLifecycleTests: ProviderProcessTestCase {
         let ended = try await waitForReceipt(harness, child) { $0.lifecycleStatus == .finalized }
         XCTAssertEqual(ended.finalRunStatus, .completed, "Distill's report after the turn reaches the ledger")
         XCTAssertFalse(harness.adapter.isNativeSubagentRunning(threadId: harness.thread.id, childRunId: AgentRunID(child)))
+        XCTAssertTrue(harness.coordinator.reportedBackgroundTasks(threadId: harness.thread.id).isEmpty)
     }
 
     func test_subagentKilledByAProcessRestartEndsCancelledInsteadOfUnknown() async throws {

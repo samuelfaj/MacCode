@@ -43,7 +43,7 @@ final class BotRemoteControlAuthorityTests: XCTestCase {
         let child = AgentThread(workspaceId: nil, title: "Task", provider: .distill, model: "main")
         let threads = AgentThreadRepository(db: db)
         try threads.upsert(source); try threads.upsert(child)
-        let conversation = BotConversation(botID: bot.id, title: "Task", linkedAgentThreadID: child.id)
+        let conversation = BotConversation(botID: bot.id, title: "Task", hidden: true, linkedAgentThreadID: child.id)
         try store.upsertConversation(conversation)
         let run = AgentRun(threadId: child.id, provider: .distill, model: "main", status: .failed)
         try AgentRunRepository(db: db).upsert(run)
@@ -58,7 +58,43 @@ final class BotRemoteControlAuthorityTests: XCTestCase {
         var forged = params; forged["source_thread_id"] = child.id.value.uuidString
         XCTAssertThrowsError(try authority.dispatch(method: "bot.conversation.list", params: forged))
         let after = try authority.dispatch(method: "bot.conversation.list", params: ["bot_id": bot.id.value.uuidString])
+        XCTAssertTrue((after["conversations"] as? [[String: Any]])?.isEmpty == true)
+        XCTAssertEqual((result["conversations"] as? [[String: Any]])?.first?["id"] as? String, conversation.id.value.uuidString.lowercased())
         XCTAssertNil(after["selected_id"], "Observing a task never selects the destination conversation")
+    }
+
+    func testMigrationHidesExistingTaskButNotAnIndependentChatThatLaterReceivedALink() throws {
+        let legacy = try SQLiteDB(path: ":memory:")
+        try Schema.migrateSteps(legacy, Schema.steps.filter { $0.version <= 103 })
+        let store = BotStore(db: legacy)
+        let bot = try store.create(name: "Reader", title: "", description: "", handle: "reader", avatarSymbol: "circle")
+        let threads = AgentThreadRepository(db: legacy)
+        let runs = AgentRunRepository(db: legacy)
+        let source = AgentThread(title: "Parent", provider: .distill, model: "main")
+        try threads.upsert(source)
+        var independentID: BotConversationID?
+        for existing in [false, true] {
+            let child = AgentThread(title: "Same title", provider: .distill, model: "main")
+            try threads.upsert(child)
+            let conversation = BotConversation(botID: bot.id, title: child.title, linkedAgentThreadID: child.id)
+            try store.upsertConversation(conversation)
+            if existing {
+                independentID = conversation.id
+                try runs.upsert(AgentRun(threadId: child.id, provider: .distill, model: "main", status: .completed, startedAt: Date(timeIntervalSince1970: 1)))
+            }
+            let run = AgentRun(threadId: child.id, provider: .distill, model: "main", status: .completed)
+            try runs.upsert(run)
+            let task = BotParallelTask(botID: bot.id, conversationID: conversation.id, threadID: child.id, runID: run.id, title: child.title)
+            try AgentMessageRepository(db: legacy).append(AgentMessage(id: AgentMessageID(run.id.value), threadId: source.id, role: .assistant, content: task.transcript))
+        }
+        let before = try store.listConversations(botID: bot.id)
+        XCTAssertEqual(before.count, 2)
+        try Schema.migrate(legacy)
+        let visible = try store.listConversations(botID: bot.id)
+        XCTAssertEqual(visible.count, 1)
+        XCTAssertEqual(visible.first?.id, independentID)
+        XCTAssertEqual(try threads.list().count, 2)
+        for conversation in before { XCTAssertNotNil(try store.conversation(id: conversation.id)) }
     }
 
     func testTaskReadbackResolvesAuthorizedContextAndRefusesRevokedGrant() throws {
@@ -67,7 +103,7 @@ final class BotRemoteControlAuthorityTests: XCTestCase {
         try AgentThreadRepository(db: db).upsert(source)
         let grant = try store.grantContext(hostID: "audit-host", botID: bot.id, context: .general, actions: [.read, .send], expectedRevision: nil)
         let child = AgentThread(workspaceId: nil, title: "Scoped task", provider: .distill, model: "main")
-        let conversation = BotConversation(botID: bot.id, title: "Scoped", linkedAgentThreadID: child.id)
+        let conversation = BotConversation(botID: bot.id, title: "Scoped", hidden: true, linkedAgentThreadID: child.id)
         _ = try store.createContextualConversation(conversation, newThread: child, hostID: "audit-host", context: .general, policyRevision: grant.policyRevision)
         let run = AgentRun(threadId: child.id, provider: .distill, model: "main", status: .completed)
         try AgentRunRepository(db: db).upsert(run)

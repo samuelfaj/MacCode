@@ -173,9 +173,9 @@ public final class ActiveThreadsViewModel: ObservableObject {
     public func reloadActive() {
         // Primary threads only — delegated bot-peer runs show under Subagents.
         reloadActiveSurfaces()
-        let threadIDs = Array(context.coordinator.primaryActiveThreadIdsSnapshot())
-        let activeSet = Set(threadIDs)
+        let activeSet = context.coordinator.primaryActiveThreadIdsSnapshot()
         lastActiveThreadIDs = activeSet
+        let threadIDs = Array((try? activeSet.subtracting(context.botStore.hiddenTaskThreadIDs())) ?? [])
         startedAtByThread = startedAtByThread.filter { activeSet.contains($0.key) }
 
         let missingStartedAt = threadIDs.filter { startedAtByThread[$0] == nil }

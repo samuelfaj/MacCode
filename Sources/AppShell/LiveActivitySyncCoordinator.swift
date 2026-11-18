@@ -137,6 +137,8 @@ public struct LiveActivitySyncDelivery: Codable, Equatable, Sendable {
     public let projection: PrivateLiveActivityProjectionV2
     public let activityGeneration: UInt64
     public let idempotencyKey: String
+    public var urgency: String?
+    public var reconcilesPriorSessions: Bool?
 }
 
 public enum LiveActivitySyncCause: Equatable, Sendable {
@@ -393,6 +395,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
             var surface: PetLiveActivityCopy.Output?
             var titio: TitioInboxSnapshot?
             var wasPresent = false
+            var needsRetry = false
             var activityGeneration = initialActivityGeneration
             var stateRevision: UInt64 = 0
             /// Status of the newest finished run. A terminal card retried by the
@@ -411,13 +414,14 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
             func emit(
                 event: PrivateLiveActivityEvent,
                 cause: LiveActivitySyncCause,
+                keepalive: Bool = false,
                 now: Date
             ) async -> Bool {
                 stateRevision &+= 1
                 if event == .start {
                     stateRevision = 1
                 }
-                let delivery = Self.delivery(
+                var delivery = Self.delivery(
                     projection: latest,
                     surface: surface,
                     titio: titio,
@@ -430,6 +434,11 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
                     stateRevision: stateRevision,
                     now: now
                 )
+                if keepalive && event == .update && delivery.projection.phase == .running &&
+                    (delivery.projection.activeThreadCount > 0 || delivery.projection.petState == "question" || delivery.projection.titioFocus != nil) {
+                    delivery.urgency = "keepalive"
+                }
+                if cause == .launchReconciliation { delivery.reconcilesPriorSessions = true }
                 var lastError: Error?
                 for attempt in 0..<maxAttempts {
                     do {
@@ -454,7 +463,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
             /// Shared start/update/end decision for projection, surface, and
             /// heartbeat. Heartbeat is no longer present-only: it also retries a
             /// stranded `.end` when local presence already cleared.
-            func publishLifecycle(cause: LiveActivitySyncCause, now: Date) async {
+            func publishLifecycle(cause: LiveActivitySyncCause, heartbeat: Bool = false, now: Date) async {
                 let nowPresent = presentNow()
                 let event: PrivateLiveActivityEvent
                 if !wasPresent, nowPresent {
@@ -470,7 +479,8 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
                     heartbeatScheduler.setActive(false)
                     return
                 }
-                if await emit(event: event, cause: cause, now: now) {
+                needsRetry = !(await emit(event: event, cause: cause, keepalive: heartbeat && !needsRetry, now: now))
+                if !needsRetry {
                     wasPresent = nowPresent
                 }
                 heartbeatScheduler.setActive(nowPresent || wasPresent)
@@ -497,6 +507,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
                         // whether the corrective end reaches the backend.
                         _ = await emit(event: .end, cause: cause, now: now)
                         wasPresent = false
+                        needsRetry = false
                         heartbeatScheduler.setActive(false)
                         continue
                     }
@@ -505,10 +516,11 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
                     titio = inbox
                     await publishLifecycle(cause: .changed, now: now)
                 case .surface(let content, let now):
+                    guard needsRetry || (titio == nil && surface != content) else { continue }
                     surface = content
                     await publishLifecycle(cause: .changed, now: now)
                 case .heartbeat(let now):
-                    await publishLifecycle(cause: .changed, now: now)
+                    await publishLifecycle(cause: .changed, heartbeat: true, now: now)
                 case .flush(let barrier):
                     barrier.resume()
                 }

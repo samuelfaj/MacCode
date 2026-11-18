@@ -40,28 +40,30 @@ final class DistillBackgroundWorkTests: XCTestCase {
 
     func testBackgroundTasksFollowDistillsSnapshot() {
         var work = DistillBackgroundWork()
-        work.apply(update: ["sessionUpdate": "task_backgrounded", "task_id": "build-1"], promptId: nil, live: true, at: start)
+        work.apply(update: ["sessionUpdate": "task_backgrounded", "task_id": "build-1", "description": "Watch CI for PR #98"], promptId: nil, live: true, at: start)
         work.apply(update: ["sessionUpdate": "task_backgrounded", "task_id": "tests-2"], promptId: nil, live: true, at: start)
-        XCTAssertEqual(work.tasks, ["build-1", "tests-2"])
+        work.apply(update: ["sessionUpdate": "background_tasks", "tasks": [["task_id": "build-1"], ["task_id": "tests-2", "command": "swift test"]]], promptId: nil, live: true, at: start)
+        XCTAssertEqual(work.reportedTasks.map(\.id), ["build-1", "tests-2"])
+        XCTAssertEqual(work.reportedTasks.compactMap(\.description), ["Watch CI for PR #98", "swift test"])
 
         work.apply(
             update: ["sessionUpdate": "task_completed", "task_snapshot": ["task_id": "build-1"]],
             promptId: nil, live: true, at: start
         )
-        XCTAssertEqual(work.tasks, ["tests-2"])
+        XCTAssertEqual(work.reportedTasks.map(\.id), ["tests-2"])
 
         // The snapshot is authoritative: anything it no longer lists has ended.
         work.apply(update: ["sessionUpdate": "background_tasks", "tasks": []], promptId: nil, live: true, at: start)
-        XCTAssertTrue(work.tasks.isEmpty)
+        XCTAssertTrue(work.reportedTasks.isEmpty)
     }
 
     func testOnlyAnActiveWorkflowRuns() {
         var work = DistillBackgroundWork()
         work.apply(update: workflow("wf_1", status: "active"), promptId: nil, live: true, at: start)
-        XCTAssertEqual(work.workflows, ["wf_1"])
+        XCTAssertEqual(work.reportedTasks.map(\.id), ["wf_1"])
 
         work.apply(update: workflow("wf_1", status: "user_paused"), promptId: nil, live: true, at: start)
-        XCTAssertTrue(work.workflows.isEmpty, "a paused workflow runs nothing a restart could kill")
+        XCTAssertTrue(work.reportedTasks.isEmpty, "a paused workflow runs nothing a restart could kill")
 
         work.apply(update: workflow("wf_2", status: "active"), promptId: nil, live: true, at: start)
         work.apply(update: workflow("wf_2", status: "interrupted"), promptId: nil, live: true, at: start)

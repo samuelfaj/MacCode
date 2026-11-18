@@ -726,6 +726,23 @@ public final class BotStore: @unchecked Sendable {
         if let cancelledTurnIDs { onBotDeleted?(id, cancelledTurnIDs) }
     }
 
+    static let hiddenTaskThreadsSQL = """
+        SELECT linked_agent_thread_id FROM bot_conversations
+        WHERE hidden = 1 AND group_id IS NULL AND linked_agent_thread_id IS NOT NULL
+        """
+
+    public func hiddenTaskThreadIDs() throws -> Set<AgentThreadID> {
+        try db.performSync { database in
+            let query = try database.prepare(Self.hiddenTaskThreadsSQL)
+            defer { query.reset() }
+            var ids = Set<AgentThreadID>()
+            while try query.step() {
+                if let id = query.columnText(0).flatMap(UUID.init(uuidString:)) { ids.insert(AgentThreadID(id)) }
+            }
+            return ids
+        }
+    }
+
     public func listLinkedAgentThreadIDs() throws -> Set<AgentThreadID> {
         try db.performSync { database in
             // Group room threads are bot-owned too: they must never surface as
@@ -828,7 +845,7 @@ public final class BotStore: @unchecked Sendable {
             let statement = try database.prepare(
                 """
                  SELECT * FROM (\(Self.conversationSelect))
-                 WHERE group_id IS NULL AND attention_state IN (\(marks))
+                 WHERE hidden = 0 AND group_id IS NULL AND attention_state IN (\(marks))
                  ORDER BY updated_at DESC;
                 """
             )
@@ -890,7 +907,7 @@ public final class BotStore: @unchecked Sendable {
                 INNER JOIN bot_conversations c
                     ON c.linked_agent_thread_id = m.thread_id COLLATE NOCASE
                 WHERE c.bot_id = ?
-                  \(threadID == nil ? "" : "AND m.thread_id = ? COLLATE NOCASE")
+                  \(threadID == nil ? "AND c.hidden = 0" : "AND m.thread_id = ? COLLATE NOCASE")
                   AND \(matches)
                 ORDER BY CASE WHEN m.content LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END,
                          m.created_at DESC, m.id
@@ -930,7 +947,7 @@ public final class BotStore: @unchecked Sendable {
             let statement = try database.prepare(
                 Self.conversationSelect + (includeGroupMembers
                     ? " WHERE bot_id = ? ORDER BY updated_at DESC;"
-                    : " WHERE bot_id = ? AND group_id IS NULL ORDER BY updated_at DESC;")
+                    : " WHERE bot_id = ? AND group_id IS NULL AND hidden = 0 ORDER BY updated_at DESC;")
             )
             defer { statement.reset() }
             try statement.bind(1, botID.value.uuidString.lowercased())
@@ -951,7 +968,7 @@ public final class BotStore: @unchecked Sendable {
                 let statement = try database.prepare("""
                     SELECT bot_id, MAX(updated_at)
                     FROM bot_conversations
-                    WHERE bot_id IN (\(marks)) AND group_id IS NULL
+                    WHERE bot_id IN (\(marks)) AND group_id IS NULL AND hidden = 0
                     GROUP BY bot_id;
                     """)
                 defer { statement.reset() }
@@ -1241,6 +1258,7 @@ public final class BotStore: @unchecked Sendable {
                                FROM bot_conversations
                                WHERE bot_conversations.id = bot_attention_items.conversation_id
                                  AND bot_conversations.group_id IS NULL
+                                 \(conversationID == nil ? "AND bot_conversations.hidden = 0" : "")
                                  AND (
                                      bot_conversations.linked_agent_thread_id IS NULL
                                      OR (

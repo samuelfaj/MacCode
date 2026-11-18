@@ -923,6 +923,41 @@ final class ActivityWindowModelTests: XCTestCase {
         XCTAssertLessThanOrEqual(callsAfterExpiry, 3)
     }
 
+    func testCompletedRunDismissalSurvivesRefreshAndOnlyAffectsRunning() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "activity-test-\(UUID())"))
+        defaults.set("running", forKey: "activity.tab")
+        var done = item("run:old", viewed: "already read")
+        done.thread_id = "same thread"
+        var live = item("run:new", state: "running")
+        live.thread_id = done.thread_id
+        var calls = 0
+        let service = ActivityClient(list: { params in
+            calls += 1
+            return self.page(params["section"] == .string("running") && calls > 1 ? [done, live] : [done])
+        }, setViewed: { _ in XCTFail("Dismiss must preserve read state"); return self.updated([]) },
+           acknowledge: { _ in XCTFail("A completed run has no alert to acknowledge"); return .null })
+        let model = ActivityViewModel(service: service, defaults: defaults)
+        model.refreshAfterFrame()
+        await waitUntil("completed run in Running") { model.page.items == [done] }
+        XCTAssertTrue(model.canDismiss(done))
+        XCTAssertFalse(model.canDismiss(live))
+        model.openDetail(done)
+        model.acknowledge(done)
+        XCTAssertNil(model.detail)
+        XCTAssertTrue(model.page.items.isEmpty)
+        model.refreshAfterFrame()
+        await waitUntil("Running refreshed") { calls == 2 && !model.loading }
+        XCTAssertEqual(model.page.items, [live], "Dismiss the run, not its conversation")
+        let reopened = ActivityViewModel(service: service, defaults: defaults)
+        reopened.loadCached(ActivityWirePage(items: [done, live]))
+        XCTAssertEqual(reopened.page.items, [live], "An older cached filter must not revive the row")
+        reopened.tab = .finished
+        await waitUntil("result still in history") { reopened.page.items == [done] }
+        XCTAssertFalse(reopened.canDismiss(done), "Results is history, not the transient Running list")
+        reopened.acknowledge(done)
+        XCTAssertEqual(reopened.page.items, [done])
+    }
+
     func testKeptFinishedRowCanBeDismissedWithoutAHostWrite() async {
         // WHY: a finished row kept under Running had no Dismiss, so it stayed until the user picked another row.
         let defaults = UserDefaults(suiteName: "activity-test-\(UUID())")!

@@ -448,6 +448,26 @@ final class AgentAppViewModelTests: XCTestCase {
                       "a marker-declared stall must surface as awaiting regardless of phrasing")
     }
 
+    func testWaitInspectorShowsOnlyTaskRecordsFromTheWaitingTurn() {
+        let final = "[[RC_AWAITING]]\nWaiting for PR #98 checks."
+        func item(_ id: String, _ tool: String, _ input: String, _ output: String? = nil) -> AssistantItem {
+            AssistantItem(id: id, turnId: "turn", type: .tool, summary: tool, body: input, output: output, startedAtMs: 1)
+        }
+        let launch = item("start", "run_terminal_command", #"{"command":"gh pr checks 98 --watch","background":true}"#)
+        let wait = item("poll", "get_command_or_subagent_output", #"{"task_ids":["build-98"]}"#, "Checks pending")
+        let auto = item("auto", "run_terminal_command", #"{"command":"swift test"}"#, "<task-id>tests</task-id>")
+        let detached = item("detached", "Bash", #"{"command":"nohup watch-ci &"}"#)
+        let foreground = item("other", "run_terminal_command", #"{"command":"git status"}"#)
+        let dryRun = item("dry", "workflow", #"{"source":{"type":"script"},"validate_only":true}"#)
+        let turn = AssistantTurnSnapshot(turnId: "turn", items: [foreground, launch, detached, dryRun, auto, wait], finalAssistantMessage: final, finished: true)
+        XCTAssertEqual(AgentBackgroundWaitInspector.recordedTasks(in: turn), [wait, auto, detached, launch])
+        XCTAssertEqual(AgentBackgroundWaitInspector.taskIDs(in: wait), ["build-98"], "Show the checked task ID, not the provider tool-call ID")
+        var ordinary = turn
+        ordinary.finalAssistantMessage = "Done."
+        XCTAssertTrue(AgentBackgroundWaitInspector.recordedTasks(in: ordinary).isEmpty, "A persisted wait message cannot borrow tools from an unrelated turn")
+        XCTAssertTrue(AgentBackgroundWaitInspector.recordedTasks(in: nil).isEmpty)
+    }
+
     func test_composerPlaceholder_reflectsIncompleteTurnStateInsteadOfReadingFinished() throws {
         // UX-MAC_AGENT-BG-AWAIT: the reported defect — a run that ended still awaiting
         // background work presented a normal "Ask <Provider> for changes…" composer, so

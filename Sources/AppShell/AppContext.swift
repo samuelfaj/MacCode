@@ -837,7 +837,8 @@ public final class AppContext {
             case .finished(let status):
                 syncCause = .finished(status)
             case .launchReconciliation:
-                syncCause = .launchReconciliation
+                // Only the interactive host may end activities from prior sessions.
+                syncCause = performLaunchRunReconciliation ? .launchReconciliation : .changed
             }
             liveActivitySyncCoordinator.submit(projection, cause: syncCause)
             // Scheduled runs intentionally do not select/bind an Agent App tab. Keep
@@ -1865,24 +1866,19 @@ public final class AppContext {
             probe.recordCurrentThread()
             #endif
             let finalMessageId = ((try? AgentRunResultRepository(db: db).get(runId: runId)) ?? nil)?.finalMessageId?.description
+            let titio = Self.titioRunFacts(runId: runId, threadId: threadId, finalMessageId: finalMessageId,
+                                          db: db, botStore: botStore, runRepo: runRepo)
             return RunFinishedNotificationInputs(
                 chrome: (try? threadRepo.listChrome(ids: [threadId]))?[threadId],
                 settings: SettingsStore(db: db).load(),
-                isNestedWorker: Self.isNestedAgentWorker(
+                isNestedWorker: titio.botConversation?.isHiddenTask == true || Self.isNestedAgentWorker(
                     runId: runId,
                     threadId: threadId,
                     orchestrationRuntime: orchestrationRuntime,
                     runRepo: runRepo
                 ),
                 finalMessageId: finalMessageId,
-                titio: Self.titioRunFacts(
-                    runId: runId,
-                    threadId: threadId,
-                    finalMessageId: finalMessageId,
-                    db: db,
-                    botStore: botStore,
-                    runRepo: runRepo
-                )
+                titio: titio
             )
         }.value
     }
@@ -1890,7 +1886,8 @@ public final class AppContext {
     /// Nested orchestration workers (subagents) carry a parent receipt. Main
     /// agent root runs have `parentReceiptId == nil` and `nodeId == "root"`.
     func isNestedAgentWorker(runId: AgentRunID, threadId: AgentThreadID) -> Bool {
-        Self.isNestedAgentWorker(
+        if (try? botStore.conversationLinked(to: threadId))?.isHiddenTask == true { return true }
+        return Self.isNestedAgentWorker(
             runId: runId,
             threadId: threadId,
             orchestrationRuntime: orchestrationRuntime,
