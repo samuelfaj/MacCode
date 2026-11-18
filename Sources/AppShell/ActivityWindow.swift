@@ -267,6 +267,13 @@ final class ActivityViewModel: ObservableObject {
     /// Only a notification route names its target explicitly. A selection restored from
     /// defaults is local convenience: when its row has moved section it is dropped quietly.
     private var requestedTargetIsExplicit = false
+    /// A conversation run that ends stays in Running this long, in its slot, showing how it
+    /// ended, so it does not vanish the moment it finishes. Just finished still lists it.
+    static let recentlyFinishedWindow: TimeInterval = 300
+    var recentlyFinishedWindowForTesting: TimeInterval?
+    private var recentlyFinishedWindow: TimeInterval { recentlyFinishedWindowForTesting ?? Self.recentlyFinishedWindow }
+    private var recentFinishedSeconds: Int { max(1, Int(recentlyFinishedWindow.rounded(.up))) }
+    private var recentlyFinishedExpiry: DispatchWorkItem?
 
     init(router: AppCommandRouter, defaults: UserDefaults = .standard) {
         service = ActivityClient(router: router)
@@ -320,7 +327,40 @@ final class ActivityViewModel: ObservableObject {
 
     deinit {
         task?.cancel()
+        recentlyFinishedExpiry?.cancel()
         if let eventSubscription { EventBus.shared.unsubscribe(eventSubscription) }
+    }
+
+    /// Running keeps each row where the reader last saw it, so a run that just finished keeps
+    /// its slot instead of jumping to the top as the newest event. Rows new to the list take the
+    /// host order: live runs first, finished runs seen for the first time after them.
+    static func stableRunningOrder(previous: [ActivityWireItem], next: [ActivityWireItem]) -> [ActivityWireItem] {
+        var rank: [String: Int] = [:]
+        for (index, item) in previous.enumerated() where rank[item.id] == nil { rank[item.id] = index }
+        let isLive: (ActivityWireItem) -> Bool = { $0.state == "running" || $0.state == "queued" }
+        let known = next.filter { rank[$0.id] != nil }.sorted { rank[$0.id]! < rank[$1.id]! }
+        let fresh = next.filter { rank[$0.id] == nil }
+        return fresh.filter(isLive) + known + fresh.filter { !isLive($0) }
+    }
+
+    /// Refreshes Running when its oldest finished run leaves the window, so the row goes away
+    /// on time even when no other activity event arrives.
+    private func scheduleRecentlyFinishedExpiry() {
+        recentlyFinishedExpiry?.cancel()
+        recentlyFinishedExpiry = nil
+        guard tab == .running else { return }
+        let now = Date()
+        let window = recentlyFinishedWindow
+        let expiries = page.items.compactMap { item -> Date? in
+            guard item.kind == "agent", ["completed", "failed", "interrupted", "stopped"].contains(item.state),
+                  let finished = item.finished_at.flatMap(Self.parseDate) else { return nil }
+            let expiry = finished.addingTimeInterval(window)
+            return expiry > now ? expiry : nil
+        }
+        guard let earliest = expiries.min() else { return }
+        let work = DispatchWorkItem { [weak self] in self?.refreshAfterFrame() }
+        recentlyFinishedExpiry = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + earliest.timeIntervalSince(now) + 0.05, execute: work)
     }
 
     private func subscribeToActivityInvalidations() {
@@ -427,11 +467,12 @@ final class ActivityViewModel: ObservableObject {
             self.loading = true
             if self.errorIsFromRefresh { self.error = nil }
             do {
-                let params = Self.listParams(tab: self.tab, search: self.search, outcome: self.outcome, workspaceID: self.workspaceID, since: self.activeSince, limit: depth)
-                let next = try Self.decodePage(try await self.service.list(params))
+                let params = Self.listParams(tab: self.tab, search: self.search, outcome: self.outcome, workspaceID: self.workspaceID, since: self.activeSince, limit: depth, recentFinishedSeconds: self.recentFinishedSeconds)
+                var next = try Self.decodePage(try await self.service.list(params))
                 guard !Task.isCancelled, self.generation == request else { return }
                 let previous = self.page.items
                 let openedDetail = self.detail
+                if self.tab == .running { next.items = Self.stableRunningOrder(previous: previous, next: next.items) }
                 self.page = next
                 self.hasSuccessfulSnapshot = true
                 if let selectedID = self.selectedID {
@@ -461,11 +502,12 @@ final class ActivityViewModel: ObservableObject {
                 self.showingCachedResults = false
                 self.cursor = next.next_cursor
                 self.persistPage()
+                self.scheduleRecentlyFinishedExpiry()
                 if let targetID = self.selectedID, self.detail == nil, self.requestedTargetID == targetID {
                     var cursors = Set<String>()
                     while !self.page.items.contains(where: { $0.id == targetID }), let pageCursor = self.cursor {
                         guard !Task.isCancelled, self.generation == request, cursors.insert(pageCursor).inserted else { return }
-                        var pageParams = Self.listParams(tab: self.tab, search: self.search, outcome: self.outcome, workspaceID: self.workspaceID, since: self.activeSince)
+                        var pageParams = Self.listParams(tab: self.tab, search: self.search, outcome: self.outcome, workspaceID: self.workspaceID, since: self.activeSince, recentFinishedSeconds: self.recentFinishedSeconds)
                         pageParams["cursor"] = .string(pageCursor)
                         let targetPage = try Self.decodePage(try await self.service.list(pageParams))
                         guard !Task.isCancelled, self.generation == request else { return }
@@ -541,7 +583,7 @@ final class ActivityViewModel: ObservableObject {
         task = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                var params = Self.listParams(tab: self.tab, search: self.search, outcome: self.outcome, workspaceID: self.workspaceID, since: self.activeSince)
+                var params = Self.listParams(tab: self.tab, search: self.search, outcome: self.outcome, workspaceID: self.workspaceID, since: self.activeSince, recentFinishedSeconds: self.recentFinishedSeconds)
                 params["cursor"] = .string(pageCursor)
                 let next = try Self.decodePage(try await self.service.list(params))
                 guard self.generation == request else { return }
@@ -903,9 +945,10 @@ final class ActivityViewModel: ObservableObject {
         if period != .all { period = .all }
     }
 
-    private static func listParams(tab: Tab, search: String, outcome: String, workspaceID: String, since: String?, limit: Int = pageSize) -> [String: JSONValue] {
+    private static func listParams(tab: Tab, search: String, outcome: String, workspaceID: String, since: String?, limit: Int = pageSize, recentFinishedSeconds: Int? = nil) -> [String: JSONValue] {
         var params: [String: JSONValue] = ["section": .string(tab.wireValue), "search": .string(search), "limit": .number(Double(limit))]
         if tab == .finished, !outcome.isEmpty { params["outcome"] = .string(outcome) }
+        if tab == .running, let recentFinishedSeconds { params["recent_finished_seconds"] = .number(Double(recentFinishedSeconds)) }
         if !workspaceID.isEmpty { params["workspace_id"] = .string(workspaceID) }
         if let since { params["since"] = .string(since) }
         return params
@@ -1621,6 +1664,10 @@ private struct ActivityRow: View {
     var showsWorkspace: Bool = true
     @State private var hovering = false
     @Environment(\.backgroundProminence) private var prominence
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// A run that ends in place swaps its symbol and status color instead of jumping;
+    /// with reduced motion the change is instant.
+    private var statusMotion: Animation? { reduceMotion ? nil : DS.Motion.micro }
 
     /// Trailing slot shared by the age and the hover actions, so hovering never re-truncates the title.
     private static let trailingWidth: CGFloat = 58
@@ -1646,6 +1693,8 @@ private struct ActivityRow: View {
             } else {
                 Image(systemName: ActivityStatusStyle.symbol(item.state))
                     .font(.system(size: 13, weight: .semibold)).foregroundColor(stateColor).frame(width: 16)
+                    .contentTransition(.symbolEffect(.replace))
+                    .animation(statusMotion, value: item.state)
             }
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 HStack(alignment: .firstTextBaseline, spacing: DS.Space.md) {
@@ -1657,8 +1706,12 @@ private struct ActivityRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: DS.Space.md) {
                     Text(facts.isEmpty ? item.statusLabel : facts).font(DS.Font.caption)
                         .foregroundColor(facts.isEmpty ? stateColor : secondary).lineLimit(1)
+                        .animation(statusMotion, value: item.state)
                     Spacer(minLength: 0)
-                    if !facts.isEmpty { Text(item.statusLabel).font(DS.Font.caption).foregroundColor(stateColor).lineLimit(1).layoutPriority(1) }
+                    if !facts.isEmpty {
+                        Text(item.statusLabel).font(DS.Font.caption).foregroundColor(stateColor).lineLimit(1).layoutPriority(1)
+                            .animation(statusMotion, value: item.state)
+                    }
                 }
                 if let summary = item.listSummary {
                     Text(summary).font(DS.Font.caption).foregroundColor(secondary).lineLimit(2)
