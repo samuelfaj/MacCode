@@ -2163,9 +2163,9 @@ struct FilesSurfaceRoot: View {
                         .disabled(model.openTabs.isEmpty)
                 }.accessibilityIdentifier("files.menu.file")
                 Menu(L("Edit")) {
-                    Button(L("Undo")) { edit { $0.undoManager?.undo() } }
+                    Button(L("Undo")) { edit { $0.undo(nil) } }
                         .disabled(model.editorTextView?.undoManager?.canUndo != true)
-                    Button(L("Redo")) { edit { $0.undoManager?.redo() } }
+                    Button(L("Redo")) { edit { $0.redo(nil) } }
                         .disabled(model.editorTextView?.undoManager?.canRedo != true)
                     Divider()
                     Button(L("Cut")) { edit { $0.cut(nil) } }
@@ -3658,13 +3658,18 @@ struct CodeTextEditor: NSViewRepresentable {
 
         /// New-text range of the edit about to happen, consumed by `highlightEditedRange`.
         private var pendingEdit: NSRange?
+        /// Between `shouldChangeTextIn` and `textDidChange`: AppKit moves the
+        /// selection inside the edit, before `onChange` has the new text.
+        private var editInFlight = false
 
         func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
             pendingEdit = NSRange(location: affectedCharRange.location, length: (replacementString as NSString?)?.length ?? 0)
+            editInFlight = true
             return true
         }
 
         func textDidChange(_ notification: Notification) {
+            editInFlight = false
             guard let textView = notification.object as? CodeEditorTextView else { return }
             onChange(textView.string)
             textView.clearGhost()
@@ -3674,6 +3679,7 @@ struct CodeTextEditor: NSViewRepresentable {
             scheduleInlineCompletion(in: textView)
             scheduleLanguageServerChange()
             updateSuggestions(in: textView)
+            publishCaret(of: textView)
         }
 
         // MARK: IntelliSense
@@ -4034,6 +4040,16 @@ struct CodeTextEditor: NSViewRepresentable {
                 cancelInlineCompletion()
             }
             if textView.selectedRange().length > 0 { textView.clearGhost() }
+            // Publishing mid-edit can re-render SwiftUI synchronously while the
+            // draft still holds the old text; updateNSView would then write it
+            // over the keystroke. textDidChange publishes once the draft has it.
+            // Undo/redo replays skip shouldChangeTextIn; didChangeText follows them.
+            let undo = textView.undoManager
+            guard !editInFlight, undo?.isUndoing != true, undo?.isRedoing != true else { return }
+            publishCaret(of: textView)
+        }
+
+        private func publishCaret(of textView: NSTextView) {
             let caret = caretLineColumn(text: textView.string, utf16Offset: textView.selectedRange().location)
             guard lastCaret?.line != caret.line || lastCaret?.column != caret.column else { return }
             lastCaret = caret
