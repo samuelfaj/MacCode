@@ -721,7 +721,8 @@ public final class PetController {
         if let reused = reuseProjectedActiveThreadsForProgress(threadIDs: projectedIDs) {
             progressRepublishUsedCachedChromeForTesting = true
             model.apply(activeThreads: reused)
-            publishLiveActivitySurface()
+            // No surface publish: PetLiveActivityCopy.makeActivity(page:) does not
+            // read previews, and each publish reads the whole Activity page.
             return
         }
         progressRepublishUsedCachedChromeForTesting = false
