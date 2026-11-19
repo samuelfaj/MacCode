@@ -2163,9 +2163,9 @@ struct FilesSurfaceRoot: View {
                         .disabled(model.openTabs.isEmpty)
                 }.accessibilityIdentifier("files.menu.file")
                 Menu(L("Edit")) {
-                    Button(L("Undo")) { edit { $0.undoManager?.undo() } }
+                    Button(L("Undo")) { edit { $0.undo(nil) } }
                         .disabled(model.editorTextView?.undoManager?.canUndo != true)
-                    Button(L("Redo")) { edit { $0.undoManager?.redo() } }
+                    Button(L("Redo")) { edit { $0.redo(nil) } }
                         .disabled(model.editorTextView?.undoManager?.canRedo != true)
                     Divider()
                     Button(L("Cut")) { edit { $0.cut(nil) } }
