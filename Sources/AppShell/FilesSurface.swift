@@ -4043,7 +4043,9 @@ struct CodeTextEditor: NSViewRepresentable {
             // Publishing mid-edit can re-render SwiftUI synchronously while the
             // draft still holds the old text; updateNSView would then write it
             // over the keystroke. textDidChange publishes once the draft has it.
-            guard !editInFlight else { return }
+            // Undo/redo replays skip shouldChangeTextIn; didChangeText follows them.
+            let undo = textView.undoManager
+            guard !editInFlight, undo?.isUndoing != true, undo?.isRedoing != true else { return }
             publishCaret(of: textView)
         }
 

@@ -89,6 +89,28 @@ final class FilesEditorMidEditCaretTests: XCTestCase {
         XCTAssertEqual(harness.draft, harness.view.string)
     }
 
+    /// Undo/redo replay the document stack without shouldChangeTextIn and report
+    /// the text only through the didChangeText that follows the replay.
+    func test_undoAndRedoPublishTheCaretOnlyAfterOnChangeHasTheReplay() {
+        let harness = Harness()
+        defer { harness.close() }
+        harness.view.insertText("b", replacementRange: NSRange(location: NSNotFound, length: 0))
+        harness.carets.removeAll()
+
+        harness.view.undo(nil)
+
+        XCTAssertEqual(harness.view.string, "let a")
+        XCTAssertEqual(harness.draft, "let a")
+        XCTAssertEqual(harness.staleCaretReports, 0, "undo must not publish the caret before onChange has the replay")
+        XCTAssertEqual(harness.carets.last?.column, 6)
+
+        harness.view.redo(nil)
+
+        XCTAssertEqual(harness.draft, "let ab")
+        XCTAssertEqual(harness.staleCaretReports, 0, "redo must not publish the caret before onChange has the replay")
+        XCTAssertEqual(harness.carets.last?.column, 7)
+    }
+
     func test_caretMoveWithoutEditStillPublishes() {
         let harness = Harness()
         defer { harness.close() }
