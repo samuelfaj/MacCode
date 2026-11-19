@@ -13,8 +13,6 @@ public enum HostWakeMetricKey: String, Sendable, CaseIterable {
     case wakeNotSent = "wake_not_sent"
     /// F5: refused by the hourly silent-wake budget (`MaterialWakeBudget`).
     case budgetDropped = "budget_dropped"
-    /// F5: run-progress wake withheld while a Live Activity is active for the device.
-    case liveActivitySuppressed = "live_activity_suppressed"
 }
 
 public final class HostWakeMetrics: @unchecked Sendable {
