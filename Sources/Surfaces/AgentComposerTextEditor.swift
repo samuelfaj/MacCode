@@ -254,6 +254,12 @@ public struct AgentComposerTextEditor: NSViewRepresentable {
             let marked = textView.hasMarkedText()
             isIMEComposing = marked
             guard PromptComposerKeyAction.shouldSyncComposerBinding(hasMarkedText: marked) else { return }
+            // AppKit posts this while an edit is still being applied, before
+            // textDidChange copies it into the binding. Publishing the caret then
+            // can re-render SwiftUI synchronously, and updateNSView would push the
+            // stale binding back into the view mid-edit (lost keystroke,
+            // NSRangeException). textDidChange reports the caret once in sync.
+            guard textView.string == text else { return }
             reportCursor(for: textView)
         }
 
