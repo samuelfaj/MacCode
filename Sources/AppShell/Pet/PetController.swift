@@ -1239,6 +1239,8 @@ public final class PetController {
         if active != taskVisibility.active {
             guard let hidden = active.isEmpty ? [] : try? context.botStore.hiddenTaskThreadIDs() else {
                 model.apply(activeThreads: [])
+                // Not applied: the resync must retry this set instead of skipping it.
+                taskVisibility = ([], [])
                 return
             }
             taskVisibility = (active, active.intersection(hidden))

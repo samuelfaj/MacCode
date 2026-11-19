@@ -86,4 +86,58 @@ final class PetLiveActivityProgressReadTests: XCTestCase {
         XCTAssertEqual(pageReads, 0, "item progress on an unchanged active set must not queue an Activity page read")
         XCTAssertEqual(controller.modelForTests.activeThreads.map(\.threadID), [thread.id], "the run stays projected")
     }
+
+    /// Viewing a finished run lowers the "new results" count the Live Activity
+    /// shows while another run keeps streaming. That refresh must come from the
+    /// view event itself, not from item progress happening to re-read the page.
+    func test_viewingAFinishedRunStillRefreshesTheSurfaceWhileARunStreams() async throws {
+        let directory = NSTemporaryDirectory() + "RC2PetLAViewedRead-\(UUID().uuidString)"
+        let context = try AppContext(channel: .debug, appSupportOverride: directory)
+        let router = AppCommandRouter(context: context)
+        context.router = router
+        let workspace = try router.createWorkspace(name: "viewed", cwd: NSTemporaryDirectory())
+        let thread = AgentThread(
+            workspaceId: workspace.id,
+            title: "streaming thread",
+            provider: .claude,
+            model: "opus",
+            status: .running,
+            hasUnread: false
+        )
+        try context.threadRepo.upsert(thread)
+        let runID = AgentRunID()
+        try context.runRepo.upsert(AgentRun(
+            id: runID,
+            threadId: thread.id,
+            provider: .claude,
+            model: "opus",
+            status: .running,
+            startedAt: Date().addingTimeInterval(-30)
+        ))
+        SettingsStore(db: context.db).save(AppSettings(petEnabled: true, petReadyCounterEnabled: false))
+
+        let controller = try PetController(context: context, router: router, openSettings: { _ in false })
+        controller.start()
+        defer { controller.stop() }
+        context.coordinator.bindActiveThreadForTesting(threadId: thread.id, runId: runID)
+        context.coordinator.onActiveRunProjectionChanged?(
+            ActiveRunProjection(runs: [.init(threadId: thread.id, runId: runID)]),
+            .started
+        )
+        try await Task.sleep(nanoseconds: 120_000_000)
+
+        let readsBefore = AgentAppReadGateway.readCallCountForTesting
+        let skippedBefore = AgentAppReadGateway.readSkippedCancelledCountForTesting
+        // Same event AppCommandRouter publishes after markFinishedRunsViewed / activity.set_viewed.
+        EventBus.shared.publish(kind: .notificationRead, payload: .object([
+            "id": .string("activity:run:\(UUID().uuidString.lowercased())"),
+            "activity_item_ids": .array([.string("run:\(UUID().uuidString.lowercased())")]),
+            "reason": .string("viewed")
+        ]))
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        let pageReads = (AgentAppReadGateway.readCallCountForTesting - readsBefore)
+            + (AgentAppReadGateway.readSkippedCancelledCountForTesting - skippedBefore)
+        XCTAssertGreaterThanOrEqual(pageReads, 1, "a viewed run must re-read the page so the new-results count drops")
+    }
 }
