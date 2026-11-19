@@ -1149,7 +1149,9 @@ public final class PetController {
         if !threadIDs.isEmpty {
             let missing = threadIDs.filter { activeThreadChromeByID[$0] == nil }
             if missing.isEmpty {
-                applyActiveThreadIDs(threadIDs)
+                // Item/turn events re-check the same set; applying it again only
+                // re-reads the whole Activity page for an unchanged Live Activity.
+                if Set(threadIDs) != taskVisibility.active { applyActiveThreadIDs(threadIDs) }
             } else {
                 fetchActiveThreadChromeOffMain(threadIDs: threadIDs, missing: missing)
             }

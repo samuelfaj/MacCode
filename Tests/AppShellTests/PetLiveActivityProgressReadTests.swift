@@ -5,14 +5,14 @@ import CoreModel
 import Persistence
 import SocketServer
 
-/// 2026-11-19 05:00Z samples of the running MacCode: while an agent streamed,
-/// the serial SQLite read queue spent 60–98% of its time in
+/// 2026-11-19 samples of the running MacCode: while an agent streamed, the
+/// serial Agent App read queue spent most of its busy time in
 /// `ActivityService.list` (with `BotStore.listConversations` inside). Every
-/// material progress preview (each item start/delta) republished the Live
-/// Activity surface, and that surface reads the full Activity page, although
-/// `PetLiveActivityCopy.makeActivity(page:)` never uses the preview. Progress
-/// must refresh the cached active rows only; every read it queued delayed the
-/// other Agent App reads behind it.
+/// item start/completion re-synced the active runs and republished the Live
+/// Activity surface, and that surface reads the full Activity page even though
+/// the active set had not changed and `PetLiveActivityCopy.makeActivity(page:)`
+/// never uses the progress preview. Each such read delayed the other Agent App
+/// reads queued behind it. Item progress must only refresh the cached rows.
 @MainActor
 final class PetLiveActivityProgressReadTests: XCTestCase {
     func test_progressPreviewsDoNotReadTheActivityPage() async throws {
@@ -45,6 +45,7 @@ final class PetLiveActivityProgressReadTests: XCTestCase {
         controller.start()
         defer { controller.stop() }
 
+        context.coordinator.bindActiveThreadForTesting(threadId: thread.id, runId: runID)
         context.coordinator.onActiveRunProjectionChanged?(
             ActiveRunProjection(runs: [.init(threadId: thread.id, runId: runID)]),
             .started
@@ -55,14 +56,20 @@ final class PetLiveActivityProgressReadTests: XCTestCase {
         let readsBefore = AgentAppReadGateway.readCallCountForTesting
         let skippedBefore = AgentAppReadGateway.readSkippedCancelledCountForTesting
         for step in 0..<5 {
+            let item: JSONValue = .object([
+                "id": .string("item-\(step)"),
+                "type": .string("commandExecution"),
+                "summary": .string("step \(step)"),
+                "body": .string("echo \(step)")
+            ])
             EventBus.shared.publish(kind: .agentItemStarted, payload: .object([
                 "thread_id": .string(thread.id.value.uuidString),
-                "item": .object([
-                    "id": .string("item-\(step)"),
-                    "type": .string("commandExecution"),
-                    "summary": .string("step \(step)"),
-                    "body": .string("echo \(step)")
-                ])
+                "item": item
+            ]))
+            try await Task.sleep(nanoseconds: 30_000_000)
+            EventBus.shared.publish(kind: .agentItemCompleted, payload: .object([
+                "thread_id": .string(thread.id.value.uuidString),
+                "item": item
             ]))
             try await Task.sleep(nanoseconds: 30_000_000)
         }
@@ -76,6 +83,7 @@ final class PetLiveActivityProgressReadTests: XCTestCase {
         )
         let pageReads = (AgentAppReadGateway.readCallCountForTesting - readsBefore)
             + (AgentAppReadGateway.readSkippedCancelledCountForTesting - skippedBefore)
-        XCTAssertEqual(pageReads, 0, "a progress preview must not queue an Activity page read")
+        XCTAssertEqual(pageReads, 0, "item progress on an unchanged active set must not queue an Activity page read")
+        XCTAssertEqual(controller.modelForTests.activeThreads.map(\.threadID), [thread.id], "the run stays projected")
     }
 }
