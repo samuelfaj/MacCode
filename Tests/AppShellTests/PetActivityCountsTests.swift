@@ -187,6 +187,7 @@ final class PetActivityCountsTests: XCTestCase {
                 id: "git-\(index)", workspaceId: workspace, title: "safe", category: PetNotificationCategory.gitFailed.rawValue
             ))
         }
+        context.projectScriptRuns.register(workspaceID: workspaceA, surfaceID: SurfaceID(), name: "Build")
         let service = ActivityService(context: context, activeRunIDProvider: { activeRuns[$0] })
         let readFirst = try service.list(["limit": .number(1)])
         let page = try ActivityPage.makeJSONDecoder().decode(ActivityPage.self, from: JSONEncoder().encode(readFirst))
@@ -197,6 +198,7 @@ final class PetActivityCountsTests: XCTestCase {
 
         let counts = try service.counts()
         XCTAssertEqual(counts.global, page.counts)
+        XCTAssertEqual(counts.runningOutsideAgentCoordinator, 1, "count the script independently of active agent runs")
         XCTAssertEqual(counts.byWorkspace, page.workspaceCounts)
         XCTAssertEqual(counts.byWorkspace.count, 2)
     }

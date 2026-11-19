@@ -330,6 +330,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
         /// only cards; run projection can still keep the activity alive.
         case surface(PetLiveActivityCopy.Output?, Date)
         case titio(TitioInboxSnapshot, Date)
+        case runningOutsideAgentCoordinator(Int, Date)
         case heartbeat(Date)
         case flush(CheckedContinuation<Void, Never>)
     }
@@ -394,6 +395,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
             var latest = ActiveRunProjection(runs: [])
             var surface: PetLiveActivityCopy.Output?
             var titio: TitioInboxSnapshot?
+            var runningOutsideAgentCoordinator = 0
             var wasPresent = false
             var needsRetry = false
             var activityGeneration = initialActivityGeneration
@@ -404,7 +406,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
             var lastFinishedStatus: AgentRunStatus?
 
             func presentNow() -> Bool {
-                if let titio { return titio.openDecisions > 0 || latest.activeRunCount > 0 }
+                if let titio { return titio.openDecisions > 0 || latest.activeRunCount + runningOutsideAgentCoordinator > 0 }
                 return surface != nil || latest.activeRunCount > 0
             }
 
@@ -423,6 +425,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
                 }
                 var delivery = Self.delivery(
                     projection: latest,
+                    runningOutsideAgentCoordinator: runningOutsideAgentCoordinator,
                     surface: surface,
                     titio: titio,
                     cause: cause,
@@ -467,6 +470,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
                 let nowPresent = presentNow()
                 let event: PrivateLiveActivityEvent
                 if !wasPresent, nowPresent {
+                    lastFinishedStatus = nil
                     activityGeneration &+= 1
                     tokenScopeBinder.recordGeneration(activityGeneration)
                     stateRevision = 0
@@ -512,6 +516,10 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
                         continue
                     }
                     await publishLifecycle(cause: cause, now: now)
+                case .runningOutsideAgentCoordinator(let count, let now):
+                    guard count != runningOutsideAgentCoordinator else { continue }
+                    runningOutsideAgentCoordinator = count
+                    if titio != nil { await publishLifecycle(cause: .changed, now: now) }
                 case .titio(let inbox, let now):
                     titio = inbox
                     await publishLifecycle(cause: .changed, now: now)
@@ -536,6 +544,10 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
 
     public func submit(_ projection: ActiveRunProjection, cause: LiveActivitySyncCause, now: Date = Date()) {
         continuation.yield(.projection(projection, cause, now))
+    }
+
+    func submitRunningOutsideAgentCoordinator(_ count: Int, now: Date = Date()) {
+        continuation.yield(.runningOutsideAgentCoordinator(count, now))
     }
 
     /// Publish pet-identical Live Activity copy (active + needs-you + completed).
@@ -566,6 +578,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
 
     private static func delivery(
         projection: ActiveRunProjection,
+        runningOutsideAgentCoordinator: Int,
         surface: PetLiveActivityCopy.Output?,
         titio: TitioInboxSnapshot?,
         cause: LiveActivitySyncCause,
@@ -596,7 +609,7 @@ public final class LiveActivitySyncCoordinator: @unchecked Sendable {
         // Lock Screen cannot show "done/failed" while ActiveRunProjection still
         // has host-owned runs (Ready for you vs LA split-brain).
         if let titio {
-            count = projection.activeRunCount
+            count = projection.activeRunCount + runningOutsideAgentCoordinator
             phase = count > 0 || titio.openDecisions > 0 ? .running : finishedFailed ? .failed : .completed
             title = "Titio"
             if titio.openDecisions > 0 {

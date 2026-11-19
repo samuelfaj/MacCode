@@ -7,6 +7,8 @@ import SocketServer
 typealias ActivityCounts = AgentActivityCounts
 typealias ActivityPage = AgentActivityPage
 
+typealias HostActivityCounts = (global: AgentActivityCounts, byWorkspace: [String: AgentActivityCounts], runningOutsideAgentCoordinator: Int)
+
 final class ActivityService: @unchecked Sendable {
     private let db: SQLiteDB
     private let readDB: SQLiteDB
@@ -130,11 +132,12 @@ final class ActivityService: @unchecked Sendable {
     /// sidebar indicators. It builds the identical items so the numbers cannot drift from the
     /// Activity window, but skips what only a page shows: checkpoint files, redacted
     /// notification summaries, the sort and the JSON encoding.
-    func counts() throws -> (global: AgentActivityCounts, byWorkspace: [String: AgentActivityCounts]) {
+    func counts() throws -> HostActivityCounts {
         let items = try projectedItems(filter: ActivityFilter(params: [:]), snapshotAt: Date(), includeDisplayDetail: false)
         let byWorkspace = Self.workspaceCounts(for: items)
         ActivityChangeEmitter.shared.observe(items: items, byWorkspace: byWorkspace)
-        return (Self.counts(for: items), byWorkspace)
+        let otherRunning = items.lazy.filter { $0.kind != .agent && $0.state == .running && !$0.blocking }.count
+        return (Self.counts(for: items), byWorkspace, otherRunning)
     }
 
     /// Feeds the unfiltered rows to `agent.activity.changed` after a mutation.

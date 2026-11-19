@@ -79,8 +79,11 @@ final class PetActivityCountsProjection {
                     "agent.thread.read", "agent.thread.updated", "agent.thread.renamed", "agent.thread.deleted", "agent.thread.deleted_many",
                     "bots.attention.changed", "bot.attention.updated", "bot.scheduler.updated", "bot.routine.updated", "bot.routine.run_requested",
                     "bot.run.started", "bot.run.completed", "bot.run.failed",
+                    "project.script_started", "project.script.finished", "surface.closed", "workspace.closed",
                 ]
-                guard kinds.contains(event.kind) else { return }
+                let busyChanged = event.kind == "surface.updated"
+                    && event.payload.objectValue?["metadata"]?.objectValue?["busy"] != nil
+                guard busyChanged || kinds.contains(event.kind) else { return }
                 Task { @MainActor [weak self] in
                     guard let self, let router = self.latestRouter else { return }
                     self.refresh(router: router, workspaceIDs: Array(self.latestWorkspaceIDs))
@@ -116,6 +119,7 @@ final class PetActivityCountsProjection {
                     workspacePages[workspaceID.value.uuidString] = PetActivityCounts(counts.byWorkspace[workspaceID.value.uuidString] ?? ActivityCounts(running: 0, queued: 0, needsYou: 0, finished: 0, newResults: 0))
                 }
                 guard !Task.isCancelled, self.generation == request else { return }
+                router.context?.liveActivitySyncCoordinator.submitRunningOutsideAgentCoordinator(counts.runningOutsideAgentCoordinator)
                 self.publish(global: PetActivityCounts(counts.global), byWorkspace: workspacePages)
             } catch {
                 guard !Task.isCancelled, self.generation == request, self.latestRouter === router else { return }
