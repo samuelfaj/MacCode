@@ -3984,6 +3984,7 @@ public final class BotsViewModel: ObservableObject {
     @Published public private(set) var attentionItems: [BotAttentionItem] = []
     /// Agent App VM pinned to the selected conversation's linked thread.
     @Published public private(set) var deskAgentVM: AgentAppViewModel?
+    @Published public var deskSideAgentVM: AgentAppViewModel?
     @Published public private(set) var memoryItems: [BotMemoryItem] = []
     @Published public private(set) var skillBindings: [BotSkillBinding] = []
     @Published public private(set) var selectedRevision: BotRevision?
@@ -11581,7 +11582,8 @@ public final class BotsViewModel: ObservableObject {
         threadID: AgentThreadID,
         thread: AgentThread?,
         router: AppCommandRouter,
-        isTitioInbox: Bool
+        isTitioInbox: Bool,
+        isSideChat: Bool = false
     ) -> AgentAppViewModel {
         let workspaceCwd = workspaceExecutionCwd(for: thread)
         let deskCwd: String
@@ -11604,10 +11606,13 @@ public final class BotsViewModel: ObservableObject {
                     conversationID: live.id,
                     text: text,
                     threadID: threadId,
-                    runID: runId
+                    runID: runId,
+                    recordsToConversation: !isSideChat
                 )
             },
             onRunStarted: { [weak self] runId, _ in
+                // A side chat is scratch: it must not become a run of the Bot's conversation.
+                if isSideChat { return }
                 self?.deskAgentRunStarted(botID: bot.id, conversationID: live.id, runID: runId)
             },
             composerPlaceholder: Self.deskComposerPlaceholder(botName: bot.name),
@@ -11708,6 +11713,21 @@ public final class BotsViewModel: ObservableObject {
                     } catch {
                         vm?.statusMessage = L("Could not fork thread: %1$@", error)
                     }
+                }
+            }
+        }
+        // `/side` and the header button: ephemeral fork shown in a sheet over the Desk.
+        vm.onRequestSideChat = { [weak self, weak vm, weak router] _ in
+            guard let self, let vm, let router, let source = vm.selectedThreadId else { return }
+            Task { @MainActor in
+                do {
+                    let child = try await router.sideAgentThread(sourceThreadId: source, text: nil)
+                    self.deskSideAgentVM = self.makeDeskAgentVM(
+                        bot: bot, conversation: live, threadID: child.id, thread: child,
+                        router: router, isTitioInbox: false, isSideChat: true
+                    )
+                } catch {
+                    vm.statusMessage = L("Could not open side chat: %1$@", error)
                 }
             }
         }
@@ -11967,7 +11987,18 @@ public final class BotsViewModel: ObservableObject {
         if next != deskThreadRuntime { deskThreadRuntime = next }
     }
 
+    /// Closes the Desk's side chat sheet and its ephemeral thread.
+    public func closeDeskSideChat() {
+        guard let side = deskSideAgentVM else { return }
+        deskSideAgentVM = nil
+        let threadID = side.selectedThreadId
+        side.dispose()
+        guard let threadID, let router else { return }
+        Task { @MainActor in try? await router.closeSideThread(threadId: threadID) }
+    }
+
     private func tearDownDeskAgentVM() {
+        closeDeskSideChat()
         if let id = deskQueueSubscription {
             EventBus.shared.unsubscribe(id)
             deskQueueSubscription = nil
@@ -11991,7 +12022,8 @@ public final class BotsViewModel: ObservableObject {
         conversationID: BotConversationID,
         text: String,
         threadID: AgentThreadID,
-        runID: AgentRunID
+        runID: AgentRunID,
+        recordsToConversation: Bool = true
     ) throws -> String {
         guard let pinnedConversation = try botStore.conversation(id: conversationID),
               pinnedConversation.botID == botID else {
@@ -12056,8 +12088,8 @@ public final class BotsViewModel: ObservableObject {
             runsInGuest: inGuest
         )
         lastSupervisedRunUserTextForTesting = text
-        pendingDeskReceipts[runID] = receipt
-        if let conversation {
+        if recordsToConversation { pendingDeskReceipts[runID] = receipt }
+        if recordsToConversation, let conversation {
             _ = try? persistUserMessage(
                 bot: bot,
                 text: text,
@@ -15232,6 +15264,9 @@ public struct BotsRootView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(L("Open Studio for %1$@", BotsViewModel.displayName(bot.name)))
             .accessibilityIdentifier("bots.desk.identity")
+            if let agentVM = vm.deskAgentVM {
+                DeskHeaderContext(vm: agentVM)
+            }
             Spacer(minLength: DS.Space.lg)
             HStack(spacing: Self.deskHeaderIconSpacing) {
                 DSIconButton("gearshape", help: L("Studio")) {
@@ -15248,6 +15283,10 @@ public struct BotsRootView: View {
                     vm.createDeskThread()
                 }
                 .accessibilityIdentifier("bots.desk.thread.new.header")
+                // Same action as `/side` in the Agent App header.
+                if let agentVM = vm.deskAgentVM {
+                    DeskSideChatButton(vm: agentVM)
+                }
                 DSIconButton(
                     "sidebar.right",
                     help: vm.isDeskSidePaneVisible ? L("Hide inspector") : L("Show inspector")
@@ -15265,6 +15304,25 @@ public struct BotsRootView: View {
         .padding(.trailing, DS.Space.xl)
         .frame(height: 44)
         .dsBar(edge: .bottom)
+    }
+
+    private func deskSideChatSheet(_ side: AgentAppViewModel) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(L("Side chat"))
+                    .font(DS.Font.bodyStrong)
+                    .foregroundColor(DS.Palette.text)
+                Spacer(minLength: 0)
+                DSIconButton("xmark", help: L("Close side chat")) { vm.closeDeskSideChat() }
+                    .accessibilityIdentifier("bots.desk.sideChat.close")
+            }
+            .padding(.horizontal, DS.Space.lg)
+            .frame(height: 44)
+            .dsBar(edge: .bottom)
+            AgentAppView(vm: side, layout: AgentAppViewLayout(showsThreadRail: false, showsHeader: false))
+        }
+        .frame(minWidth: 560, minHeight: 560)
+        .accessibilityIdentifier("bots.desk.sideChat")
     }
 
     private func deskChat(_ bot: BotDefinition) -> some View {
@@ -15315,6 +15373,14 @@ public struct BotsRootView: View {
                 }
                 .frame(width: vm.deskSidePaneWidth)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { vm.deskSideAgentVM != nil },
+            set: { if !$0 { vm.closeDeskSideChat() } }
+        )) {
+            if let side = vm.deskSideAgentVM {
+                deskSideChatSheet(side)
             }
         }
         .animation(reduceMotion ? nil : DS.Motion.standard, value: vm.isDeskSidePaneVisible)
@@ -16323,6 +16389,50 @@ extension AppCommandRouter {
             guard let threadID = viewModel?.selectedThreadId, let context else { return }
             let remaining = context.distillLoopStore.loops(for: threadID).filter { $0.taskID != taskID }
             context.distillLoopStore.update(thread: threadID, loops: remaining)
+        }
+    }
+}
+
+/// Branch and context usage of the Desk thread, as in the Agent App header.
+private struct DeskHeaderContext: View {
+    @ObservedObject var vm: AgentAppViewModel
+
+    var body: some View {
+        HStack(spacing: DS.Space.sm) {
+            if let branch = vm.gitBranch {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(DS.Palette.textTertiary)
+                Text(branch)
+                    .font(DS.Font.caption2.monospaced())
+                    .foregroundColor(DS.Palette.textSecondary)
+                    .lineLimit(1).truncationMode(.middle)
+                    .help(branch)
+            }
+            if let context = vm.contextHealthMessage {
+                if vm.gitBranch != nil { Text("·").foregroundColor(DS.Palette.textTertiary) }
+                Text(context)
+                    .font(DS.Font.caption2)
+                    .foregroundColor(DS.Palette.textSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .layoutPriority(-1)
+        .accessibilityIdentifier("bots.desk.context")
+    }
+}
+
+/// `/side` header button; hidden while the thread is itself a side chat.
+private struct DeskSideChatButton: View {
+    @ObservedObject var vm: AgentAppViewModel
+
+    var body: some View {
+        if vm.onRequestSideChat != nil, !vm.selectedThreadIsEphemeral {
+            DSIconButton("rectangle.split.2x1", help: L("Side chat (/side)")) {
+                vm.requestSideChat(text: "")
+            }
+            .disabled(vm.selectedThreadId == nil)
+            .accessibilityIdentifier("bots.desk.sideChat.open")
         }
     }
 }

@@ -339,6 +339,29 @@ final class BotDeskGuestThreadTests: XCTestCase {
         await finishAll(f)
     }
 
+    func test_deskAgentAppIsWiredForSideChat_andAFailedForkLeavesNoSheetBehind() async throws {
+        // WHY: /side in a Bot desk answered "not available in this chat" because the
+        // embedded Agent App had no side-chat host. The wiring must exist, and a
+        // fork the provider cannot do must surface an error, not an empty sheet.
+        let f = try makeFixture()
+        let bot = try makeBot(f, docker: false)
+        let thread = try await firstSend(f, bot: bot, provider: .claude)
+        await finishAll(f)
+        let conversationID = try XCTUnwrap(f.vm.selectedConversation?.id)
+        XCTAssertTrue(f.vm.createDeskThread())
+        f.vm.selectDeskThread(conversationID)
+        let agent = try XCTUnwrap(f.vm.deskAgentVM)
+        XCTAssertEqual(agent.selectedThreadId, thread.id)
+        XCTAssertNotNil(agent.onRequestSideChat, "the desk Agent App must be wired for /side")
+
+        agent.onRequestSideChat?("")
+        let failed = await waitUntil { agent.statusMessage.hasPrefix("Could not open side chat") }
+        XCTAssertTrue(failed, agent.statusMessage)
+        XCTAssertNil(f.vm.deskSideAgentVM, "no sheet when the side thread could not be created")
+        f.vm.closeDeskSideChat()
+        XCTAssertEqual(f.vm.deskAgentVM?.selectedThreadId, thread.id)
+    }
+
     func test_deskGateAsksDockerInsteadOfTrustingACachedRunningDesktop() async throws {
         // WHY (D11): the cached "desktop running" flag only knows the app's own
         // launches and stops. A container stopped outside the app (`docker stop`,
