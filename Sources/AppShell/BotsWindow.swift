@@ -2151,6 +2151,28 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
         seconds < 120 ? "\(Int(seconds.rounded())) seconds" : "\(Int((seconds / 60).rounded())) minutes"
     }
 
+    /// A Bot conversation that consults another Bot gets the same task link `rc_bot_send`
+    /// writes, so its chat shows who is working and opens that peer run alongside.
+    /// Agent App callers already show the waiting activity row instead.
+    private func persistConsultationLink(_ plan: BotPeerExecutionPlan) {
+        guard let handoff = handoffs[plan.activityID], handoff.originConversationID != nil,
+              let hostThreadID = handoff.hostThreadID else { return }
+        let started = plan.peerRun.started
+        let task = BotParallelTask(botID: plan.peer.id, conversationID: started.conversation.id,
+            threadID: started.thread.id, runID: started.runID,
+            title: Self.titleFromFirstMessage(handoff.outboundText))
+        let message = AgentMessage(id: AgentMessageID(started.runID.value), threadId: hostThreadID,
+            role: .assistant, content: task.transcript, createdAt: Date())
+        do {
+            try messageRepo.append(message)
+        } catch {
+            // The peer run already started; a missing link only loses the shortcut.
+            NSLog("Bot consultation link could not be saved: \(error)")
+            return
+        }
+        router?.projectAgentAppPeerMessage(threadID: hostThreadID, messageID: message.id)
+    }
+
     private func execute(_ plan: BotPeerExecutionPlan) async {
         guard await awaitDeletionResolution(activityID: plan.activityID) else { return }
         let watchdog = Task { @MainActor [weak self] in
@@ -2176,6 +2198,7 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
             return
         }
         setPhase(plan.activityID, .peerRunning)
+        persistConsultationLink(plan)
         let peerRun = await awaitExactRunTerminal(
             runID: plan.peerRun.started.runID,
             threadID: plan.peerRun.started.thread.id

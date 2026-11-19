@@ -4,15 +4,20 @@ import SwiftUI
 
 public struct AgentBotTaskLink: View {
     public let task: BotParallelTask
+    /// The Bot running the task; shows its avatar and name. Nil when the Bot is not in the roster.
+    public let bot: BotDefinition?
     public let loadStatus: (BotParallelTask) async throws -> AgentRunStatus?
     public let open: (BotParallelTask) -> Void
     @State private var status: AgentRunStatus?
     @State private var unavailable = false
+    @State private var hovering = false
 
     public init(task: BotParallelTask,
+                bot: BotDefinition? = nil,
                 loadStatus: @escaping (BotParallelTask) async throws -> AgentRunStatus?,
                 open: @escaping (BotParallelTask) -> Void) {
         self.task = task
+        self.bot = bot
         self.loadStatus = loadStatus
         self.open = open
     }
@@ -20,30 +25,51 @@ public struct AgentBotTaskLink: View {
     public var body: some View {
         Button { open(task) } label: {
             HStack(spacing: DS.Space.sm) {
-                if status == .running || status == .pending {
-                    ProgressView().controlSize(.mini)
+                if let bot {
+                    BotsAvatarView(name: bot.name, handle: bot.handle, symbol: bot.avatarSymbol,
+                                   size: 18, attention: isRunning ? .working : .none)
+                    Text(botName(bot))
+                        .font(DS.Font.captionStrong)
+                        .foregroundColor(DS.Palette.text)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                    Text(task.title)
+                        .font(DS.Font.caption)
+                        .foregroundColor(DS.Palette.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    statusMark
                 } else {
-                    Image(systemName: symbol)
-                        .foregroundStyle(unavailable ? DS.Palette.warning : DS.Palette.textSecondary)
+                    if isRunning {
+                        ProgressView().controlSize(.mini).accessibilityHidden(true)
+                    } else {
+                        Image(systemName: symbol)
+                            .foregroundStyle(unavailable ? DS.Palette.warning : DS.Palette.textSecondary)
+                    }
+                    Text(task.title)
+                        .font(DS.Font.caption.weight(.medium))
+                        .lineLimit(1)
+                    Circle()
+                        .fill(status == .completed ? DS.Palette.accent : DS.Palette.textTertiary)
+                        .frame(width: DS.Space.xs, height: DS.Space.xs)
+                        .accessibilityHidden(true)
                 }
-                Text(task.title)
-                    .font(DS.Font.caption.weight(.medium))
-                    .lineLimit(1)
-                Circle()
-                    .fill(status == .completed ? DS.Palette.accent : DS.Palette.textTertiary)
-                    .frame(width: DS.Space.xs, height: DS.Space.xs)
-                    .accessibilityHidden(true)
                 Image(systemName: "chevron.right")
                     .foregroundStyle(DS.Palette.textTertiary)
+                    .accessibilityHidden(true)
             }
-            .padding(.horizontal, DS.Space.md)
+            .padding(.leading, bot == nil ? DS.Space.md : DS.Space.sm)
+            .padding(.trailing, DS.Space.md)
             .padding(.vertical, DS.Space.sm)
-            .background(DS.Palette.surface, in: Capsule())
+            .background(hovering ? DS.Palette.surfaceOverlay : DS.Palette.surface, in: Capsule())
             .overlay(Capsule().strokeBorder(DS.Palette.line, lineWidth: DS.Border.hairline))
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
         .help(L("%1$@. Open conversation alongside this chat.", statusLabel))
-        .accessibilityLabel(L("%1$@. %2$@. Open parallel conversation", task.title, statusLabel))
+        .accessibilityLabel(L("%1$@. %2$@. Open parallel conversation",
+                              bot.map { "\(botName($0)): \(task.title)" } ?? task.title, statusLabel))
         .accessibilityIdentifier("agent.botTask.\(task.runID.value.uuidString.lowercased())")
         .task(id: task.runID) {
             while !Task.isCancelled {
@@ -63,12 +89,41 @@ public struct AgentBotTaskLink: View {
         }
     }
 
+    private var isRunning: Bool { status == .running || status == .pending }
+
+    private func botName(_ bot: BotDefinition) -> String {
+        bot.name.isEmpty ? BotPeerTranscript.handleLabel(bot.handle) : bot.name
+    }
+
+    /// Running reads as the native spinner; a finished run keeps an honest outcome mark.
+    @ViewBuilder
+    private var statusMark: some View {
+        if isRunning && !unavailable {
+            // Hidden so the capsule stays a button for VoiceOver; the label carries the state.
+            ProgressView().controlSize(.mini).accessibilityHidden(true)
+        } else {
+            Image(systemName: symbol)
+                .foregroundStyle(symbolColor)
+                .accessibilityHidden(true)
+        }
+    }
+
     private var symbol: String {
         if unavailable { return "exclamationmark.circle" }
         switch status {
         case .completed: return "checkmark.circle.fill"
         case .failed, .cancelled, .interrupted: return "exclamationmark.circle"
         default: return "circle.dotted"
+        }
+    }
+
+    private var symbolColor: Color {
+        if unavailable { return DS.Palette.warning }
+        switch status {
+        case .completed: return DS.Palette.success
+        case .failed: return DS.Palette.danger
+        case .cancelled, .interrupted: return DS.Palette.warning
+        default: return DS.Palette.textTertiary
         }
     }
 

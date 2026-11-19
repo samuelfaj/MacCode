@@ -136,6 +136,46 @@ final class BotPeerDestinationTests: XCTestCase {
             "the parent keeps running while its peer runs on the same VM")
     }
 
+    func test_botCallerConsultPersistsOpenableTaskLinkForThePeerRun() async throws {
+        // WHY: a Bot that consults another Bot showed only a raw tool card and a
+        // "Waiting on 1 subagent" line. Its chat must keep one link that names the
+        // working Bot and opens that exact peer run, through the same authorization
+        // as `rc_bot_send` task links.
+        let (ctx, router, runner, caller, peer, _, callerDestination, _) = try await makeFixture()
+        defer { cleanUp(ctx) }
+        _ = try ctx.botStore.setExecutionDestination(callerDestination, botID: peer.id)
+        let pending = Task { @MainActor in
+            try await router.askBotPeer(callerThread: caller.threadId, callerRun: caller.runId,
+                handle: peer.handle, prompt: "Sync the Linear tickets\nwith this plan.", replyMode: .consult,
+                consultationID: nil, wait: true,
+                delegationCapability: caller.environment[AgentDelegationCapabilityTransport.environmentKey])
+        }
+        defer { pending.cancel() }
+        func links() throws -> [(AgentMessage, BotParallelTask)] {
+            try ctx.messageRepo.list(threadId: caller.threadId).compactMap { message in
+                BotParallelTask.parse(message.content).map { (message, $0) }
+            }
+        }
+        let linked = await waitUntil { ((try? links()) ?? []).count == 1 }
+        XCTAssertTrue(linked, "the consult must leave one task link in the caller's chat")
+        let request = try XCTUnwrap(runner.requests.first { $0.threadId != caller.threadId })
+        let (message, task) = try XCTUnwrap(try links().first)
+        XCTAssertEqual(message.role, .assistant)
+        XCTAssertEqual(message.id.value, request.runId.value, "the link is keyed by the exact peer run")
+        XCTAssertEqual(task.runID, request.runId)
+        XCTAssertEqual(task.threadID, request.threadId)
+        XCTAssertEqual(task.botID, peer.id)
+        XCTAssertEqual(task.title, "Sync the Linear tickets with this plan.")
+        XCTAssertNoThrow(try router.authorizedBotTask(task, source: caller.threadId),
+            "the link must open through the existing task-link authorization")
+        XCTAssertThrowsError(try router.authorizedBotTask(task, source: request.threadId),
+            "another chat must not open the caller's link")
+
+        XCTAssertTrue(runner.finish(runID: request.runId, status: .completed, reply: "Synced."))
+        _ = await pending.result
+        XCTAssertEqual(try links().count, 1, "finishing the peer run must not add a second link")
+    }
+
     private func makeFixture() async throws -> (AppContext, AppCommandRouter, ControlledBotHandoffRunner,
         AgentRunRequest, BotDefinition, BotContextBinding, BotExecutionDestination, BotExecutionDestination) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("RC2PeerDestination-\(UUID().uuidString)")

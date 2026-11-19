@@ -277,6 +277,11 @@ final class AgentChatTurnSegmentationTests: XCTestCase {
         XCTAssertTrue(AgentAppView.messageCanInterleaveTurn(
             message(BotPeerTranscript.encodeActivity(peer: ceo, phase: .waiting), secs: 1)
         ))
+        // A Bot task link must sit beside the tool call that started its run,
+        // not drop below the whole turn after the final answer.
+        let link = BotParallelTask(botID: BotID(), conversationID: BotConversationID(),
+            threadID: AgentThreadID(), runID: AgentRunID(), title: "Sync Linear")
+        XCTAssertTrue(AgentAppView.messageCanInterleaveTurn(message(link.transcript, secs: 1)))
         XCTAssertFalse(AgentAppView.messageCanInterleaveTurn(message("plain", secs: 1)))
         XCTAssertFalse(AgentAppView.messageCanInterleaveTurn(message("user", role: .user, secs: 1)))
     }

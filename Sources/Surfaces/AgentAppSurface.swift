@@ -14307,13 +14307,15 @@ public struct AgentAppView: View {
     }
 
     /// Only bot-peer chrome interleaves a turn: waiting/needs-attention
-    /// activity rows and attributed "From <bot>" replies. Every other message
+    /// activity rows, attributed "From <bot>" replies and Bot task links, so a
+    /// link sits beside the tool call that started its run. Every other message
     /// (user prompts, the turn's own durable final, system rows) ends boundary
     /// collection so the existing order for non-bot threads never changes.
     nonisolated static func messageCanInterleaveTurn(_ message: AgentMessage) -> Bool {
         guard message.role == .assistant else { return false }
         return BotPeerTranscript.parseActivity(message.content) != nil
             || BotPeerTranscript.parse(message.content) != nil
+            || BotParallelTask.parse(message.content) != nil
     }
 
     /// Pure paint mapping: each `.turn` entry is woven with the peer messages
@@ -17726,7 +17728,8 @@ public struct AgentAppView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityLabel(L("Content omitted: message body was too large to display"))
                 } else if let task = BotParallelTask.parse(msg.content) {
-                    AgentBotTaskLink(task: task, loadStatus: { task in
+                    AgentBotTaskLink(task: task, bot: mentionableBots.first { $0.id == task.botID },
+                                     loadStatus: { task in
                         guard let source = vm.selectedThreadId,
                               let load = vm.parallelTaskStatus else { return nil }
                         return try await load(task, source)

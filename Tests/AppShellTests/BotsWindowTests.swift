@@ -9495,7 +9495,9 @@ final class BotsWindowTests: XCTestCase {
         }.count, 1)
         let originRows = try context.messageRepo.listRecent(threadId: hostRequest.threadId, limit: 16)
         XCTAssertEqual(originRows.filter { $0.role == .user && $0.content.contains(prompt) }.count, 1)
-        XCTAssertEqual(originRows.filter { $0.role == .assistant }.count, 1)
+        // One answer plus the link that opens the consulted peer's run.
+        XCTAssertEqual(originRows.filter { $0.role == .assistant && BotParallelTask.parse($0.content) == nil }.count, 1)
+        XCTAssertEqual(originRows.compactMap { BotParallelTask.parse($0.content) }.map(\.runID), [peerRequest.runId])
     }
 
     func test_botPrimaryCanMediateMultiplePeersUntilConsensus() async throws {
