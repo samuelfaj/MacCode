@@ -31,7 +31,8 @@ final class ActivityService: @unchecked Sendable {
         let colors = context.state.workspaces.compactMapValues { TabColor.from($0.metadata["color"])?.rawValue }
         workspaceNames = context.state.workspaces.mapValues(\.name)
         workspaceColors = colors
-        let activeRuns = Dictionary(uniqueKeysWithValues: context.coordinator.primaryActiveThreadIdsSnapshot().compactMap { thread in
+        // Delegated Bot peer runs are live work in their conversation, so they count here too.
+        let activeRuns = Dictionary(uniqueKeysWithValues: context.coordinator.activeThreadIdsSnapshot().compactMap { thread in
             context.coordinator.activeRunId(threadId: thread).map { (thread, $0) }
         })
         self.activeRunIDProvider = activeRunIDProvider ?? { activeRuns[$0] }
