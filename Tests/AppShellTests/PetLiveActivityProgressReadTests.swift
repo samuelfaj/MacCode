@@ -125,6 +125,7 @@ final class PetLiveActivityProgressReadTests: XCTestCase {
             try await Task.sleep(nanoseconds: 30_000_000)
             EventBus.shared.publish(kind: .agentItemCompleted, payload: .object([
                 "thread_id": .string(fixture.thread.id.value.uuidString),
+                "item_id": .string("item-\(step)"),
                 "item": item
             ]))
             try await Task.sleep(nanoseconds: 30_000_000)
