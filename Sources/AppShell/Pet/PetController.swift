@@ -1157,11 +1157,13 @@ public final class PetController {
             if missing.isEmpty {
                 // Item/turn events re-check the same set; applying it again only
                 // re-reads the whole Activity page for an unchanged Live Activity.
-                // A chrome fetch still in flight is for an older set: applying
-                // this one supersedes it, so the stale fetch cannot land.
-                if Set(threadIDs) != taskVisibility.active || activeThreadChromeFetchTask != nil {
-                    applyActiveThreadIDs(threadIDs)
-                }
+                // Apply anyway while work for it is pending: a chrome fetch still
+                // in flight is for an older set (applying supersedes it), and a
+                // thread's bot link is resolved again only by an apply.
+                let settled = Set(threadIDs) == taskVisibility.active
+                    && activeThreadChromeFetchTask == nil
+                    && threadIDs.allSatisfy { taskVisibility.hidden.contains($0) || linkedBotByActiveThread[$0] != nil }
+                if !settled { applyActiveThreadIDs(threadIDs) }
             } else {
                 fetchActiveThreadChromeOffMain(threadIDs: threadIDs, missing: missing)
             }

@@ -40,8 +40,9 @@ final class PetLiveActivityProgressReadTests: XCTestCase {
             ActiveRunProjection(runs: [.init(threadId: thread.id, runId: runID)]),
             .started
         )
-        try await waitUntil("the run is projected as active") {
+        try await waitUntil("the run is projected as active and its bot link resolved") {
             controller.modelForTests.activeThreads.map(\.threadID) == [thread.id]
+                && controller.linkedBotDurableLookupCountForTesting >= 1
         }
         try await waitForSurfacePublishesToSettle(controller)
         return Fixture(context: context, router: router, workspace: workspace, controller: controller, thread: thread, runID: runID)
@@ -167,6 +168,43 @@ final class PetLiveActivityProgressReadTests: XCTestCase {
             controller.modelForTests.activeThreads.map(\.threadID), [fixture.thread.id],
             "a fetch for the older set {A, B} must not overwrite the newer set {A}"
         )
+    }
+
+    /// Bot runs B and C start together: B's bot lookup is dropped while C's is
+    /// in flight, and C's result does not re-apply the newer set. The next
+    /// resync must still resolve B, or B keeps the plain agent row (no Bots
+    /// desk route, no Bot name) on the pet and the Live Activity until the set
+    /// changes.
+    func test_aResyncStillResolvesABotLinkDroppedWhileAnotherWasInFlight() async throws {
+        let fixture = try await makeStreamingFixture("botlink")
+        let controller = fixture.controller
+        defer { controller.stop() }
+        let context = fixture.context
+        let (threadB, runB) = try makeRunningThread(context: context, workspace: fixture.workspace, title: "bot run B")
+        let (threadC, runC) = try makeRunningThread(context: context, workspace: fixture.workspace, title: "bot run C")
+        let bot = try context.botStore.create(name: "Ceo", title: "Lead", description: "", provider: .claude)
+        // Separate BotStore: the controller's in-memory link cache stays cold,
+        // so only the durable off-main lookup can resolve the links.
+        let writer = BotStore(db: context.db)
+        try writer.upsertConversation(BotConversation(botID: bot.id, title: "B", linkedAgentThreadID: threadB.id))
+        try writer.upsertConversation(BotConversation(botID: bot.id, title: "C", linkedAgentThreadID: threadC.id))
+
+        let lookupsBefore = controller.linkedBotDurableLookupCountForTesting
+        controller.applyActiveThreadIDsForTests([fixture.thread.id, threadC.id])
+        controller.applyActiveThreadIDsForTests([fixture.thread.id, threadB.id, threadC.id])
+        try await waitUntil("C's bot lookup completes") {
+            controller.linkedBotDurableLookupCountForTesting > lookupsBefore
+        }
+
+        context.coordinator.bindActiveThreadForTesting(threadId: threadB.id, runId: runB)
+        context.coordinator.bindActiveThreadForTesting(threadId: threadC.id, runId: runC)
+        controller.refreshActiveThreadsFromCoordinatorForTests()
+        try await waitUntil("B routes to its Bot desk") {
+            controller.modelForTests.activeThreads.first { $0.threadID == threadB.id }?.route == .botsDesk(botID: bot.id)
+        }
+        let rowB = try XCTUnwrap(controller.modelForTests.activeThreads.first { $0.threadID == threadB.id })
+        XCTAssertEqual(rowB.workspaceName, "Bots")
+        XCTAssertTrue(rowB.detail?.contains("Ceo") == true, "B shows its Bot's name, got \(rowB.detail ?? "nil")")
     }
 
     /// A failed hidden-task lookup shows no active rows. The next resync for the
