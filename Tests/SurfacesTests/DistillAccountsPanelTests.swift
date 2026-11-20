@@ -28,21 +28,38 @@ final class DistillAccountsPanelTests: XCTestCase {
         let models = [
             AgentModelDescriptor(id: "unrelated-name", label: "Model", provider: .distill, accountProvider: "chatgpt"),
             AgentModelDescriptor(id: "chatgpt-looking", label: "Other", provider: .distill, accountProvider: "claude"),
+            AgentModelDescriptor(id: "third-model", label: "Third", provider: .distill, accountProvider: "grok"),
             AgentModelDescriptor(id: "auto", label: "Auto", provider: .distill, accountProvider: "chatgpt")
         ]
         let presentation = DistillAccountsPanelPresentation(statuses: accounts, busyProvider: .chatgpt, signInURL: nil, lastError: nil, busyAccountID: "work")
         XCTAssertEqual(presentation.statuses.map(\.id), ["personal", "work"])
         XCTAssertEqual(presentation.busyAccountID, "work")
         XCTAssertEqual(DistillRoutingValidation.models(for: accounts[1], catalog: models).map(\.id), ["unrelated-name"])
+        XCTAssertEqual(DistillRoutingValidation.workerModels(catalog: models).map(\.id), ["unrelated-name", "chatgpt-looking", "third-model"])
         var route = DistillAutoRouting(enabled: true, options: [.init(id: "option", accountID: "work", mainModel: "unrelated-name")])
         XCTAssertNil(DistillRoutingValidation.error(route, saved: .init(), accounts: accounts, models: models))
         route.options[0].workerModel = "chatgpt-looking"
-        XCTAssertNotNil(DistillRoutingValidation.error(route, saved: .init(), accounts: accounts, models: models))
+        route.options[0].workerFallbackModel = "third-model"
+        XCTAssertNil(DistillRoutingValidation.error(route, saved: .init(), accounts: accounts, models: models))
         let saved = route
+        route.options[0].workerModel = "auto"
+        XCTAssertEqual(DistillRoutingValidation.error(route, saved: saved, accounts: accounts, models: models),
+                       L("Choose an available Worker model or select Same as Main."))
+        route.options[0].workerModel = nil
+        XCTAssertNil(DistillRoutingValidation.error(route, saved: saved, accounts: accounts, models: models))
+        for unavailable in ["auto", "unknown"] {
+            route.options[0].workerFallbackModel = unavailable
+            XCTAssertEqual(DistillRoutingValidation.error(route, saved: saved, accounts: accounts, models: models),
+                           L("Choose an available Worker fallback or select None."))
+        }
+        route = saved
         route.enabled = false
         XCTAssertNil(DistillRoutingValidation.error(route, saved: saved, accounts: accounts, models: []))
-        route.options[0].mainModel = "auto"
-        XCTAssertNotNil(DistillRoutingValidation.error(route, saved: saved, accounts: accounts, models: models))
+        for ineligible in ["auto", "chatgpt-looking"] {
+            route.options[0].mainModel = ineligible
+            XCTAssertEqual(DistillRoutingValidation.error(route, saved: saved, accounts: accounts, models: models),
+                           L("Choose a Main model from the selected account’s provider."))
+        }
         let roundTrip = try JSONDecoder().decode(AgentModelDescriptor.self, from: JSONEncoder().encode(models[0]))
         XCTAssertEqual(roundTrip.accountProvider, "chatgpt")
         XCTAssertNil(try JSONDecoder().decode(AgentModelDescriptor.self, from: Data(#"{"id":"old","label":"Old","provider":"distill"}"#.utf8)).accountProvider)

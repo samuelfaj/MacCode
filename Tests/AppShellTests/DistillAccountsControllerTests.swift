@@ -370,9 +370,13 @@ final class DistillAccountsControllerTests: XCTestCase {
         let controller = DistillAccountsController(accounts: accounts)
         await controller.refreshAndWait()
         _ = await controller.discoverModels {
-            [AgentModelDescriptor(id: "discovered", label: "Discovered", provider: .distill, accountProvider: "chatgpt")]
+            [AgentModelDescriptor(id: "discovered", label: "Discovered", provider: .distill, accountProvider: "chatgpt"),
+             AgentModelDescriptor(id: "other", label: "Other", provider: .distill, accountProvider: "claude")]
         }
-        let draft = DistillAutoRouting(enabled: true, options: [.init(id: "option", accountID: "legacy-chatgpt", mainModel: "discovered")])
+        let draft = DistillAutoRouting(enabled: true, options: [
+            .init(id: "option", accountID: "legacy-chatgpt", mainModel: "discovered", workerFallbackModel: "other"),
+            .init(id: "second", accountID: "legacy-claude", mainModel: "other", workerModel: "discovered")
+        ])
         var invalid = draft
         invalid.options[0].mainModel = "auto"
         controller.saveRouting(invalid)
@@ -390,6 +394,14 @@ final class DistillAccountsControllerTests: XCTestCase {
         XCTAssertEqual(controller.routing, draft)
         XCTAssertFalse(controller.isBusy)
         XCTAssertNil(controller.lastError)
+
+        let support = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: support) }
+        let context = try AppContext(channel: .debug, appSupportOverride: support.path)
+        context.distillAccountsController = controller
+        let readback = try await AppCommandRouter(context: context).getDistillRouting()
+        let options = try XCTUnwrap(readback.objectValue?["options"]?.arrayValue)
+        XCTAssertEqual(options.map { $0.objectValue?["worker_fallback_model"] }, [.string("other"), .null])
     }
 
     // The Auto profile is shared; tapping Auto must turn it on without a guide round trip.

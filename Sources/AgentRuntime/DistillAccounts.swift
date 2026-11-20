@@ -1,4 +1,5 @@
 import Foundation
+import CoreModel
 
 public enum DistillAccountProvider: String, CaseIterable, Codable, Sendable {
     case grok, chatgpt, claude, openrouter
@@ -127,7 +128,7 @@ public struct DistillAccountQuota: Equatable, Codable, Sendable {
 public enum DistillAutoRoutingError: Error, LocalizedError, CustomStringConvertible, Equatable, Sendable {
     case disabled, missingOptions, noConnectedAccounts
 
-    public var errorDescription: String? { description }
+    public var errorDescription: String? { L(description) }
     public var description: String {
         switch self {
         case .disabled: return "Auto routing is off. Open Auto profile, enable it, and save before running Auto."
@@ -146,13 +147,20 @@ public struct DistillAutoOption: Equatable, Codable, Sendable {
     public var accountID: String
     public var mainModel: String
     public var workerModel: String?
+    public var workerFallbackModel: String?
 
-    public init(id: String, accountID: String, mainModel: String, workerModel: String? = nil) {
-        self.id = id; self.accountID = accountID; self.mainModel = mainModel; self.workerModel = workerModel
+    public init(id: String, accountID: String, mainModel: String, workerModel: String? = nil,
+                workerFallbackModel: String? = nil) {
+        self.id = id
+        self.accountID = accountID
+        self.mainModel = mainModel
+        self.workerModel = workerModel
+        self.workerFallbackModel = workerFallbackModel
     }
 
     enum CodingKeys: String, CodingKey {
         case id, accountID = "account_id", mainModel = "main_model", workerModel = "worker_model"
+        case workerFallbackModel = "worker_fallback_model"
     }
 }
 
@@ -190,9 +198,9 @@ public enum DistillAccountError: Error, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .updateRequired: return "Update Distill to use named accounts and Auto routing."
-        case .cancelled: return "Sign-in was cancelled."
-        case .timedOut: return "Sign-in timed out. Please try again."
+        case .updateRequired: return L("Update Distill to use named accounts and Auto routing.")
+        case .cancelled: return L("Sign-in was cancelled.")
+        case .timedOut: return L("Sign-in timed out. Please try again.")
         case .failed(let message): return message
         }
     }
@@ -239,7 +247,7 @@ public final class DistillAccounts: Sendable {
               Set(registry.accounts.map(\.id)).count == registry.accounts.count,
               registry.accounts.allSatisfy({ validID($0.id) && ($0.legacy
                   ? $0.id == $0.provider.legacyID : !$0.id.hasPrefix("legacy-")) }) else {
-            throw DistillAccountError.failed("Distill account metadata cannot be read safely.")
+            throw DistillAccountError.failed(L("Distill account metadata cannot be read safely."))
         }
         return registry
     }
@@ -269,7 +277,7 @@ public final class DistillAccounts: Sendable {
     /// No named account is ever substituted for a legacy provider entry point.
     public static func credentialHome(account: DistillAccountStatus, home: URL) throws -> URL {
         guard validID(account.id), account.legacy ? account.id == account.provider.legacyID : !account.id.hasPrefix("legacy-") else {
-            throw DistillAccountError.failed("Invalid Distill account id.")
+            throw DistillAccountError.failed(L("Invalid Distill account id."))
         }
         if account.legacy { return home }
         let directory = try PrivateDirectory(home.resolvingSymlinksInPath(), create: false)
@@ -334,7 +342,7 @@ public final class DistillAccounts: Sendable {
               expiry <= Date() else { return account }
         return DistillAccountStatus(provider: account.provider, connected: account.connected, email: account.email,
             id: account.id, label: account.label, legacy: account.legacy,
-            connectionError: "Session expired. Sign in again to refresh usage.", quota: account.quota)
+            connectionError: L("Session expired. Sign in again to refresh usage."), quota: account.quota)
     }
 
     public func loadRouting() async throws -> DistillAutoRouting {
@@ -353,7 +361,7 @@ public final class DistillAccounts: Sendable {
 
     private func mutate(_ arguments: [String], onURL: (@Sendable (URL) -> Void)? = nil) async throws {
         let result: MutationResult = try await jsonCLI(arguments, onURL: onURL)
-        guard result.ok else { throw DistillAccountError.failed("Distill did not confirm the account operation.") }
+        guard result.ok else { throw DistillAccountError.failed(L("Distill did not confirm the account operation.")) }
     }
 
     public func remove(id: String) async throws { try await mutate(["accounts", "remove", id]) }
@@ -374,7 +382,7 @@ public final class DistillAccounts: Sendable {
         defer { privateDirectory.close() }
         try privateDirectory.writeAtomically(JSONEncoder().encode(routing), to: "routing.json")
         let saved: DistillAutoRouting = try await jsonCLI(["accounts", "routing", "set", "--file", file.path])
-        guard saved == routing else { throw DistillAccountError.failed("Distill did not confirm the saved Auto routing.") }
+        guard saved == routing else { throw DistillAccountError.failed(L("Distill did not confirm the saved Auto routing.")) }
     }
 
     public func login(_ provider: DistillAccountProvider, onURL: @escaping @Sendable (URL) -> Void) async throws {
@@ -386,7 +394,7 @@ public final class DistillAccounts: Sendable {
         let data = try await runCLI(arguments, onURL: onURL)
         guard let value = try? JSONDecoder().decode(T.self, from: data) else {
             // An old CLI fails on stderr (runCLI); exit 0 with unreadable JSON means a wrong binary.
-            throw DistillAccountError.failed("\(binaryPath) returned an unreadable account response. Check the Distill path in Settings.")
+            throw DistillAccountError.failed(L("%1$@ returned an unreadable account response. Check the Distill path in Settings.", binaryPath))
         }
         return value
     }
@@ -407,7 +415,7 @@ public final class DistillAccounts: Sendable {
             environmentPath: environment["PATH"],
             homeDirectory: environment["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path
         )
-        guard let executable else { throw DistillAccountError.failed("Distill is not installed. Open Set Up MacCode to install it.") }
+        guard let executable else { throw DistillAccountError.failed(L("Distill is not installed. Open Set Up MacCode to install it.")) }
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         var env = environment
@@ -458,7 +466,7 @@ public final class DistillAccounts: Sendable {
         } catch {
             errPipe.fileHandleForReading.readabilityHandler = nil
             outPipe.fileHandleForReading.readabilityHandler = nil
-            throw DistillAccountError.failed("Could not start distill: \(error.localizedDescription)")
+            throw DistillAccountError.failed(L("Could not start distill: %1$@", error.localizedDescription))
         }
 
         let status = try await withTaskCancellationHandler {
@@ -471,13 +479,13 @@ public final class DistillAccounts: Sendable {
         outPipe.fileHandleForReading.readabilityHandler = nil
         if Task.isCancelled { throw DistillAccountError.cancelled }
         guard status == 0 else {
-            let message = collector.lastLine ?? "distill exited with status \(status)"
+            let message = collector.lastLine ?? L("distill exited with status %1$@", status)
             if collector.requiresUpdate {
                 throw DistillAccountError.updateRequired
             }
             throw DistillAccountError.failed(message)
         }
-        guard let data = output.data else { throw DistillAccountError.failed("Distill account response exceeded its size limit.") }
+        guard let data = output.data else { throw DistillAccountError.failed(L("Distill account response exceeded its size limit.")) }
         return data
     }
 
