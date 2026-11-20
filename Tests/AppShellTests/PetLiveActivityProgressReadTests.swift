@@ -221,6 +221,8 @@ final class PetLiveActivityProgressReadTests: XCTestCase {
         let rowB = try XCTUnwrap(controller.modelForTests.activeThreads.first { $0.threadID == threadB.id })
         XCTAssertEqual(rowB.route, .botsDesk(botID: bot.id), "B routes to its Bot desk")
         XCTAssertTrue(rowB.detail?.contains("Ceo") == true, "B shows its Bot's name, got \(rowB.detail ?? "nil")")
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(controller.linkedBotDurableLookupCountForTesting, lookupsBefore + 2, "lookups stop once every link is resolved")
     }
 
     /// Bot runs B and C start (one lookup for both), then C ends before that
@@ -257,6 +259,8 @@ final class PetLiveActivityProgressReadTests: XCTestCase {
         XCTAssertEqual(controller.modelForTests.activeThreads.map(\.threadID).sorted { $0.value.uuidString < $1.value.uuidString },
                        [fixture.thread.id, threadB.id].sorted { $0.value.uuidString < $1.value.uuidString },
                        "C stays gone")
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(controller.linkedBotDurableLookupCountForTesting, lookupsBefore + 1, "lookups stop once every link is resolved")
     }
 
     /// A failed hidden-task lookup shows no active rows. The next resync for the
