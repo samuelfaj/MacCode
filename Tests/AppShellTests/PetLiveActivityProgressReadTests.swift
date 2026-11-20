@@ -91,6 +91,20 @@ final class PetLiveActivityProgressReadTests: XCTestCase {
         }
     }
 
+    /// Creating threads and Bot conversations publishes events that can
+    /// re-apply the rows on their own; let them pass so only the step under
+    /// test can apply.
+    private func waitForPetEventsToSettle(_ controller: PetController) async throws {
+        var last = controller.handledEventCountForTests
+        var stableSince = Date()
+        let deadline = Date().addingTimeInterval(3)
+        while Date().timeIntervalSince(stableSince) < 0.15, Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            let now = controller.handledEventCountForTests
+            if now != last { last = now; stableSince = Date() }
+        }
+    }
+
     func test_progressPreviewsDoNotReadTheActivityPage() async throws {
         let fixture = try await makeStreamingFixture("progress")
         let controller = fixture.controller
@@ -188,6 +202,7 @@ final class PetLiveActivityProgressReadTests: XCTestCase {
         let writer = BotStore(db: context.db)
         try writer.upsertConversation(BotConversation(botID: bot.id, title: "B", linkedAgentThreadID: threadB.id))
         try writer.upsertConversation(BotConversation(botID: bot.id, title: "C", linkedAgentThreadID: threadC.id))
+        try await waitForPetEventsToSettle(controller)
 
         let lookupsBefore = controller.linkedBotDurableLookupCountForTesting
         controller.applyActiveThreadIDsForTests([fixture.thread.id, threadC.id])
@@ -199,12 +214,48 @@ final class PetLiveActivityProgressReadTests: XCTestCase {
         context.coordinator.bindActiveThreadForTesting(threadId: threadB.id, runId: runB)
         context.coordinator.bindActiveThreadForTesting(threadId: threadC.id, runId: runC)
         controller.refreshActiveThreadsFromCoordinatorForTests()
-        try await waitUntil("B routes to its Bot desk") {
-            controller.modelForTests.activeThreads.first { $0.threadID == threadB.id }?.route == .botsDesk(botID: bot.id)
+        try await waitUntil("B's bot lookup completes") {
+            controller.linkedBotDurableLookupCountForTesting > lookupsBefore + 1
         }
         let rowB = try XCTUnwrap(controller.modelForTests.activeThreads.first { $0.threadID == threadB.id })
-        XCTAssertEqual(rowB.workspaceName, "Bots")
+        XCTAssertEqual(rowB.route, .botsDesk(botID: bot.id), "B routes to its Bot desk")
         XCTAssertTrue(rowB.detail?.contains("Ceo") == true, "B shows its Bot's name, got \(rowB.detail ?? "nil")")
+    }
+
+    /// Bot runs B and C start (one lookup for both), then C ends before that
+    /// lookup returns. Its result is for {A, B, C}, not the rows' {A, B}; B's
+    /// link must still reach B's row instead of waiting for the set to change.
+    func test_aBotLinkFoundForAnOlderSetStillReachesTheNewerRows() async throws {
+        let fixture = try await makeStreamingFixture("botlinkolder")
+        let controller = fixture.controller
+        defer { controller.stop() }
+        let context = fixture.context
+        let (threadB, runB) = try makeRunningThread(context: context, workspace: fixture.workspace, title: "bot run B")
+        let (threadC, _) = try makeRunningThread(context: context, workspace: fixture.workspace, title: "bot run C")
+        let bot = try context.botStore.create(name: "Ceo", title: "Lead", description: "", provider: .claude)
+        let writer = BotStore(db: context.db)
+        try writer.upsertConversation(BotConversation(botID: bot.id, title: "B", linkedAgentThreadID: threadB.id))
+        try writer.upsertConversation(BotConversation(botID: bot.id, title: "C", linkedAgentThreadID: threadC.id))
+        try await waitForPetEventsToSettle(controller)
+
+        let lookupsBefore = controller.linkedBotDurableLookupCountForTesting
+        controller.applyActiveThreadIDsForTests([fixture.thread.id, threadB.id, threadC.id])
+        controller.applyActiveThreadIDsForTests([fixture.thread.id, threadB.id])
+        try await waitUntil("the lookup for {B, C} completes") {
+            controller.linkedBotDurableLookupCountForTesting > lookupsBefore
+        }
+
+        // Item events of A and B keep re-checking the same set.
+        context.coordinator.bindActiveThreadForTesting(threadId: threadB.id, runId: runB)
+        controller.refreshActiveThreadsFromCoordinatorForTests()
+        // The lock-free cache may already paint the Bots route; the Bot's name
+        // comes only from the durable lookup's result being applied.
+        let rowB = try XCTUnwrap(controller.modelForTests.activeThreads.first { $0.threadID == threadB.id })
+        XCTAssertEqual(rowB.route, .botsDesk(botID: bot.id), "B routes to its Bot desk")
+        XCTAssertTrue(rowB.detail?.contains("Ceo") == true, "B shows its Bot's name, got \(rowB.detail ?? "nil")")
+        XCTAssertEqual(controller.modelForTests.activeThreads.map(\.threadID).sorted { $0.value.uuidString < $1.value.uuidString },
+                       [fixture.thread.id, threadB.id].sorted { $0.value.uuidString < $1.value.uuidString },
+                       "C stays gone")
     }
 
     /// A failed hidden-task lookup shows no active rows. The next resync for the
