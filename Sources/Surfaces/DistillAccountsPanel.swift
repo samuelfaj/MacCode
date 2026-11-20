@@ -13,19 +13,30 @@ public enum DistillRoutingValidation {
         return catalog.filter { $0.id != "auto" && $0.accountProvider == account.provider.rawValue }
     }
 
+    /// Worker may come from any provider, so it is not limited to the account's models.
+    public static func workerModels(catalog: [AgentModelDescriptor]) -> [AgentModelDescriptor] {
+        catalog.filter { $0.id != "auto" }
+    }
+
     public static func error(_ draft: DistillAutoRouting, saved: DistillAutoRouting,
                              accounts: [DistillAccountStatus], models: [AgentModelDescriptor]) -> String? {
         // Disabling an unchanged saved profile must work even when its catalog is no longer available.
         if !draft.enabled, draft.strategy == saved.strategy, draft.options == saved.options { return nil }
         if draft.enabled && draft.options.isEmpty { return L("Add an option before enabling Auto.") }
+        let workerIDs = Set(workerModels(catalog: models).map(\.id))
         var ids = Set<String>()
         for option in draft.options {
             guard !option.id.isEmpty, ids.insert(option.id).inserted else { return L("Each Auto option needs a unique identity.") }
             guard let account = accounts.first(where: { $0.id == option.accountID }) else { return L("Choose an existing account for every option.") }
             let eligible = Self.models(for: account, catalog: models)
-            guard eligible.contains(where: { $0.id == option.mainModel }),
-                  option.workerModel == nil || eligible.contains(where: { $0.id == option.workerModel }) else {
-                return L("Choose available Main and Worker models from the selected account’s provider.")
+            guard eligible.contains(where: { $0.id == option.mainModel }) else {
+                return L("Choose a Main model from the selected account’s provider.")
+            }
+            if let worker = option.workerModel, !workerIDs.contains(worker) {
+                return L("Choose an available Worker model or select Same as Main.")
+            }
+            if let fallback = option.workerFallbackModel, !workerIDs.contains(fallback) {
+                return L("Choose an available Worker fallback or select None.")
             }
         }
         return nil
@@ -75,7 +86,7 @@ public struct DistillAccountsPanelPresentation: Equatable {
             return parser.date(from: timestamp) ?? ISO8601DateFormatter().date(from: timestamp)
         }
         let remaining = quota.remainingPercent.flatMap { $0.isFinite && (0...100).contains($0) ? $0 : nil }
-        let value = remaining.map { "\(Int($0.rounded()))% remaining" } ?? L("Remaining quota unknown")
+        let value = remaining.map { L("%1$@% remaining", Int($0.rounded())) } ?? L("Remaining quota unknown")
         let fetched = date(quota.fetchedAt)
         let age = fetched.map { now.timeIntervalSince($0) }
         let fresh = age.map { (0...300).contains($0) } ?? false
@@ -248,7 +259,7 @@ public struct DistillAccountsPanel: View {
         }
         .sheet(isPresented: Binding(get: { renameAccount != nil }, set: { if !$0 { renameAccount = nil } })) {
             VStack(alignment: .leading, spacing: DS.Space.md) {
-                Text(L("Rename %1$@", renameAccount?.provider.displayName ?? "account")).font(DS.Font.body)
+                Text(L("Rename %1$@", renameAccount?.provider.displayName ?? L("account"))).font(DS.Font.body)
                 TextField(L("Account label"), text: $renamedLabel).frame(minHeight: 44)
                 HStack {
                     Button(L("Cancel")) { renameAccount = nil }.keyboardShortcut(.cancelAction).frame(minHeight: 44)

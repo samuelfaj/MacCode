@@ -150,6 +150,7 @@ public struct DistillAutoRoutingEditor: View {
     private func optionCard(_ option: DistillAutoOption, index: Int) -> some View {
         let account = statuses.first { $0.id == option.accountID }
         let eligible = DistillRoutingValidation.models(for: account, catalog: models)
+        let workers = DistillRoutingValidation.workerModels(catalog: models)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: DS.Space.md) {
                 Text(L("%1$@", index + 1))
@@ -183,12 +184,11 @@ public struct DistillAutoRoutingEditor: View {
             Rectangle().fill(DS.Palette.line).frame(height: DS.Border.hairline)
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: DS.Space.md) {
-                    mainPicker(option, eligible: eligible).frame(minWidth: 160)
-                    workerPicker(option, eligible: eligible).frame(minWidth: 160)
+                    modelPickers(option, mainModels: eligible, workerModels: workers)
                 }
+                .frame(minWidth: 3 * 160 + 2 * DS.Space.md)
                 VStack(alignment: .leading, spacing: DS.Space.md) {
-                    mainPicker(option, eligible: eligible)
-                    workerPicker(option, eligible: eligible)
+                    modelPickers(option, mainModels: eligible, workerModels: workers)
                 }
             }
             .padding(DS.Space.md)
@@ -200,9 +200,20 @@ public struct DistillAutoRoutingEditor: View {
         .accessibilityIdentifier("agent.accounts.routing.\(option.id)")
     }
 
+    @ViewBuilder
+    private func modelPickers(_ option: DistillAutoOption, mainModels: [AgentModelDescriptor],
+                              workerModels: [AgentModelDescriptor]) -> some View {
+        mainPicker(option, eligible: mainModels)
+        workerPicker(option, eligible: workerModels, field: \.workerModel,
+                     title: L("Worker"), emptyLabel: L("Same as Main"), icon: "bolt.horizontal", identifier: "worker")
+        workerPicker(option, eligible: workerModels, field: \.workerFallbackModel,
+                     title: L("Worker fallback"), emptyLabel: L("None"), icon: "arrow.triangle.branch", identifier: "workerFallback")
+    }
+
     private func mainPicker(_ option: DistillAutoOption, eligible: [AgentModelDescriptor]) -> some View {
         modelField(
             title: L("Main"), icon: "cpu", help: option.mainModel,
+            identifier: "agent.accounts.routing.\(option.id).main",
             display: eligible.first { $0.id == option.mainModel }?.label
                 ?? (option.mainModel.isEmpty ? L("Choose model") : L("Unavailable: %1$@", option.mainModel)),
             selection: Binding(get: { option.mainModel }, set: { model in editOption(option.id) { $0.mainModel = model } })
@@ -214,17 +225,20 @@ public struct DistillAutoRoutingEditor: View {
         }
     }
 
-    private func workerPicker(_ option: DistillAutoOption, eligible: [AgentModelDescriptor]) -> some View {
-        let worker = option.workerModel ?? ""
+    private func workerPicker(_ option: DistillAutoOption, eligible: [AgentModelDescriptor],
+                              field: WritableKeyPath<DistillAutoOption, String?>, title: String,
+                              emptyLabel: String, icon: String, identifier: String) -> some View {
+        let worker = option[keyPath: field] ?? ""
         return modelField(
-            title: L("Worker"), icon: "bolt.horizontal", help: option.workerModel ?? L("Same as Main"),
-            display: worker.isEmpty ? L("Same as Main")
+            title: title, icon: icon, help: option[keyPath: field] ?? emptyLabel,
+            identifier: "agent.accounts.routing.\(option.id).\(identifier)",
+            display: worker.isEmpty ? emptyLabel
                 : (eligible.first { $0.id == worker }?.label ?? L("Unavailable: %1$@", worker)),
             selection: Binding(get: { worker }, set: { model in
-                editOption(option.id) { $0.workerModel = model.isEmpty ? nil : model }
+                editOption(option.id) { $0[keyPath: field] = model.isEmpty ? nil : model }
             })
         ) {
-            Text(L("Same as Main")).tag("")
+            Text(emptyLabel).tag("")
             if !worker.isEmpty, !eligible.contains(where: { $0.id == worker }) {
                 Text(L("Unavailable: %1$@", worker)).tag(worker)
             }
@@ -233,7 +247,7 @@ public struct DistillAutoRoutingEditor: View {
     }
 
     /// Caption above a dark pill menu; the menu shows checkmarks via an inline picker.
-    private func modelField<Content: View>(title: String, icon: String, help: String, display: String,
+    private func modelField<Content: View>(title: String, icon: String, help: String, identifier: String, display: String,
                                            selection: Binding<String>,
                                            @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
@@ -269,6 +283,7 @@ public struct DistillAutoRoutingEditor: View {
             .help(help)
             .accessibilityLabel(title)
             .accessibilityValue(display)
+            .accessibilityIdentifier(identifier)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -286,7 +301,6 @@ public struct DistillAutoRoutingEditor: View {
                 editOption(option.id) {
                     $0.accountID = id
                     $0.mainModel = DistillRoutingValidation.models(for: statuses.first { $0.id == id }, catalog: models).first?.id ?? ""
-                    $0.workerModel = nil
                 }
             })) {
                 if account == nil { Text(L("Choose account")).tag(option.accountID) }

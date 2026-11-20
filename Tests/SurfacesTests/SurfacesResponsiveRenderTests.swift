@@ -92,4 +92,18 @@ final class SurfacesResponsiveRenderTests: XCTestCase {
         try fits(AnyView(AgentAppView(vm: h.vm)), "agent-app")
         try fits(AnyView(DiffPanelView(vm: DiffPanelViewModel(cwd: h.directory))), "git-panel")
     }
+
+    func test_autoRoutingOptionWithWorkerFallbackFitsNarrowMediumAndWidePanes() throws {
+        let account = DistillAccountStatus(provider: .chatgpt, connected: true)
+        let models = [
+            AgentModelDescriptor(id: "main", label: "Main model", provider: .distill, accountProvider: "chatgpt"),
+            AgentModelDescriptor(id: "worker", label: "Worker model", provider: .distill, accountProvider: "claude"),
+            AgentModelDescriptor(id: "fallback", label: "Fallback model", provider: .distill, accountProvider: "grok")
+        ]
+        let route = DistillAutoRouting(enabled: true, options: [
+            .init(id: "one", accountID: account.id, mainModel: "main", workerModel: "worker", workerFallbackModel: "fallback")
+        ])
+        let editor = DistillAutoRoutingEditor(draft: .constant(route), saved: route, statuses: [account], models: models)
+        try fits(AnyView(editor), "auto-routing")
+    }
 }

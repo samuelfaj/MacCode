@@ -1225,11 +1225,15 @@ final class DispatcherTests: XCTestCase {
         let named = await dispatcher.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(6), method: "distill.accounts.login", params: ["account_id": .string("second-chatgpt")]))
         XCTAssertEqual(named.result, .object(["started": .bool(true)]))
         XCTAssertEqual(router.distillAccountID, "second-chatgpt")
-        let routing: JSONValue = .object(["enabled": .bool(true), "strategy": .string("ordered_first"), "options": .array([.object(["id": .string("option"), "account_id": .string("second-chatgpt"), "main_model": .string("discovered"), "worker_model": .null])])])
+        let routing: JSONValue = .object(["enabled": .bool(true), "strategy": .string("ordered_first"), "options": .array([.object([
+            "id": .string("option"), "account_id": .string("second-chatgpt"), "main_model": .string("discovered"),
+            "worker_model": .null, "worker_fallback_model": .string("other-provider-model")
+        ])])])
         let saved = await dispatcher.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(7), method: "distill.accounts.routing.set", params: ["routing": routing]))
         XCTAssertEqual(saved.result, .object(["started": .bool(true)]))
         XCTAssertEqual(router.distillRouting.options.first?.accountID, "second-chatgpt")
         XCTAssertNil(router.distillRouting.options.first?.workerModel)
+        XCTAssertEqual(router.distillRouting.options.first?.workerFallbackModel, "other-provider-model")
         let read = await dispatcher.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(8), method: "distill.accounts.routing.get", params: nil))
         XCTAssertEqual(read.result, .object(["enabled": .bool(true)]))
         XCTAssertTrue(JSONRPCDispatcher.isReadOnlyBatchMethod("distill.accounts.routing.get"))

@@ -8371,6 +8371,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         value["options"] = .array(routing.options.map { option in
             var row = jsonValue(option).objectValue ?? [:]
             row["worker_model"] = option.workerModel.map(JSONValue.string) ?? .null
+            row["worker_fallback_model"] = option.workerFallbackModel.map(JSONValue.string) ?? .null
             return .object(row)
         })
         return .object(value)
@@ -8403,14 +8404,14 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         guard let controller = context?.distillAccountsController else { throw LayoutError.workspaceNotFound }
         await controller.refreshAndWait()
         guard controller.hasLoadedState, controller.stateError == nil else {
-            throw JSONRPCError(code: -32041, message: controller.stateError ?? "Accounts are still loading. Refresh and try again.")
+            throw JSONRPCError(code: -32041, message: controller.stateError ?? L("Accounts are still loading. Refresh and try again."))
         }
         return distillRoutingJSON(controller.routing)
     }
 
     public func mutateDistillAccount(method: String, accountID: String?, provider: DistillAccountProvider?, label: String?) throws -> JSONValue {
         guard let controller = context?.distillAccountsController else { throw LayoutError.workspaceNotFound }
-        guard !controller.isBusy else { throw JSONRPCError(code: -32041, message: "A Distill account operation is already running.") }
+        guard !controller.isBusy else { throw JSONRPCError(code: -32041, message: L("A Distill account operation is already running.")) }
         if method == "distill.accounts.add" {
             guard let provider, let label, !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw JSONRPCError.invalidParams }
             controller.add(provider: provider, label: label)
@@ -8434,8 +8435,8 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
 
     public func setDistillRouting(_ routing: DistillAutoRouting) throws -> JSONValue {
         guard let controller = context?.distillAccountsController else { throw LayoutError.workspaceNotFound }
-        guard controller.hasLoadedState else { throw JSONRPCError(code: -32041, message: "Accounts are still loading. Refresh and try again.") }
-        guard !controller.isBusy else { throw JSONRPCError(code: -32041, message: "A Distill account operation is already running.") }
+        guard controller.hasLoadedState else { throw JSONRPCError(code: -32041, message: L("Accounts are still loading. Refresh and try again.")) }
+        guard !controller.isBusy else { throw JSONRPCError(code: -32041, message: L("A Distill account operation is already running.")) }
         if let error = DistillRoutingValidation.error(routing, saved: controller.routing, accounts: controller.statuses, models: controller.models) {
             throw JSONRPCError(code: -32602, message: error)
         }

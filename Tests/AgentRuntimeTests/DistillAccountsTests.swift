@@ -1,4 +1,5 @@
 import XCTest
+import CoreModel
 @testable import AgentRuntime
 
 final class DistillAccountsTests: XCTestCase {
@@ -42,6 +43,8 @@ final class DistillAccountsTests: XCTestCase {
           if [ "$FAKE_MODE" = hang ]; then echo $$ > "$FAKE_PID"; exec sleep 30; fi
         fi
         case "$*" in
+          "accounts routing set --file "*) cp "$5" "$DISTILL_HOME/routing.json" || exit 1; exec cat "$DISTILL_HOME/routing.json";;
+          "accounts routing get") exec cat "$DISTILL_HOME/routing.json";;
           "accounts login legacy-grok") echo '{"https://accounts.x.ai/sign-in":{"key":"k"}}' > "$DISTILL_HOME/auth.json";;
           "accounts login legacy-chatgpt") echo '{"tokens":{"access_token":"t"}}' > "$DISTILL_HOME/codex-auth.json";;
           "accounts login legacy-claude") echo '{"access_token":"t"}' > "$DISTILL_HOME/claude-auth.json";;
@@ -86,7 +89,7 @@ final class DistillAccountsTests: XCTestCase {
         let quota = DistillAccountQuota(accountID: "legacy-claude", checkedAt: "now", status: "unavailable", remainingPercent: 6)
         let account = DistillAccountStatus(provider: .claude, connected: true, quota: quota)
         let expired = makeAccounts().accountWithAuthenticationState(account)
-        XCTAssertEqual(expired.connectionError, "Session expired. Sign in again to refresh usage.")
+        XCTAssertEqual(expired.connectionError, L("Session expired. Sign in again to refresh usage."))
         XCTAssertTrue(expired.connected, "Keep the account and its last known ring visible")
         XCTAssertEqual(expired.quota, quota)
         try write(#"{"access_token":"test","expires_at":"2099-01-01T00:00:00Z"}"#, to: "claude-auth.json")
@@ -266,6 +269,26 @@ final class DistillAccountsTests: XCTestCase {
         XCTAssertEqual(makeAccounts().statuses().filter(\.connected).map(\.id), ["two"])
     }
 
+    func test_workerFallbackSurvivesSaveAndReloadPerOption() async throws {
+        try write(#"{"enabled":true,"strategy":"ordered_first","options":[{"id":"a","account_id":"one","main_model":"main-a"},{"id":"b","account_id":"two","main_model":"main-b","worker_fallback_model":null}]}"#, to: "routing.json")
+        var route = try await makeAccounts().loadRouting()
+        XCTAssertEqual(route.options.map(\.workerFallbackModel), [nil, nil])
+        route.options[0].workerModel = "worker-a"
+        route.options[0].workerFallbackModel = "fallback-a"
+        route.options[1].workerFallbackModel = "fallback-b"
+        try await makeAccounts().saveRouting(route)
+        let stored = try JSONSerialization.jsonObject(with: Data(contentsOf: home.appendingPathComponent("routing.json"))) as? [String: Any]
+        let rows = try XCTUnwrap(stored?["options"] as? [[String: Any]])
+        XCTAssertEqual(rows.compactMap { $0["worker_fallback_model"] as? String }, ["fallback-a", "fallback-b"])
+        let reloaded = try await makeAccounts().loadRouting()
+        XCTAssertEqual(reloaded, route)
+
+        route.options[0].workerFallbackModel = nil
+        try await makeAccounts().saveRouting(route)
+        let cleared = try await makeAccounts().loadRouting()
+        XCTAssertEqual(cleared, route)
+    }
+
     func test_realCLIAccountAndRoutingContractWithoutCredentials() async throws {
         guard let binary = ProcessInfo.processInfo.environment["DISTILL_ACCOUNTS_TEST_BINARY"] else {
             throw XCTSkip("Controller supplies DISTILL_ACCOUNTS_TEST_BINARY for the actual CLI contract proof")
@@ -285,7 +308,8 @@ final class DistillAccountsTests: XCTestCase {
         XCTAssertEqual(state.accounts.first { $0.id == "one" }?.label, "Renamed")
         XCTAssertTrue(state.accounts.allSatisfy { !$0.connected })
         let route = DistillAutoRouting(enabled: false, strategy: .highestRemaining,
-            options: [DistillAutoOption(id: "route", accountID: "two", mainModel: "fixture-main")])
+            options: [DistillAutoOption(id: "route", accountID: "two", mainModel: "fixture-main",
+                                        workerModel: "fixture-worker", workerFallbackModel: "fixture-fallback")])
         try await accounts.saveRouting(route)
         let saved = try await accounts.loadRouting()
         XCTAssertEqual(saved, route)
