@@ -55,6 +55,24 @@ final class LiveActivitySyncCoordinatorTests: XCTestCase {
         XCTAssertTrue(deliveries.contains { $0.projection.statusLine == "Following 1 run" })
     }
 
+    func testTitioKeepsOperationOnlyWorkLiveAcrossAgentBoundaries() async {
+        let recorder = DeliveryRecorder()
+        let sync = LiveActivitySyncCoordinator(serverId: "host", bootEpoch: 1,
+            deliver: { await recorder.append($0) }, heartbeatIntervalNanoseconds: 60_000_000_000_000)
+        sync.submitTitio(TitioInboxSnapshot(botID: BotID(), conversationID: BotConversationID(), threadID: AgentThreadID(),
+            unreadCount: 0, openDecisions: 0, lastPreview: nil, lastAt: nil))
+        sync.submitRunningOutsideAgentCoordinator(2)
+        sync.submitHeartbeat()
+        sync.submit(active([("10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001")]), cause: .started)
+        sync.submit(active([]), cause: .finished(.completed))
+        sync.submitRunningOutsideAgentCoordinator(0)
+        await sync.flush()
+        let deliveries = recorder.deliveries
+        XCTAssertEqual(deliveries.map(\.event), [.start, .update, .update, .update, .end])
+        XCTAssertEqual(deliveries.map(\.projection.activeThreadCount), [2, 2, 3, 2, 0])
+        XCTAssertEqual(deliveries[1].urgency, "keepalive")
+    }
+
     func testAggregateTransitionsUseOneGenerationAndMonotonicRevision() async {
         let recorder = DeliveryRecorder()
         let sync = LiveActivitySyncCoordinator(

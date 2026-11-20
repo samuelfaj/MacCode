@@ -54,7 +54,10 @@ struct AgentBackgroundWaitInspector: View {
                                 let report = BackgroundAwaitContinuation.strippingAwaitingMarker(vm.latestFinalAssistantMessage ?? "")
                                 if !report.isEmpty {
                                     Text(L("Agent’s last message")).font(DS.Font.bodyStrong)
-                                    Text(verbatim: AgentAppView.cappedVisibleText(report, limit: 4000))
+                                    AgentMessageMarkdownView(
+                                        text: AgentAppView.cappedVisibleText(report, limit: 4000),
+                                        compact: true
+                                    )
                                 } else if vm.hidesToolActivity {
                                     Text(L("No task details recorded."))
                                 }

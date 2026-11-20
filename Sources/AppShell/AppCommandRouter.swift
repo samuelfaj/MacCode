@@ -265,7 +265,7 @@ public final class AgentAppReadGateway: @unchecked Sendable {
         try await execute { try service.list(params) }
     }
 
-    func activityCounts(service: ActivityService) async throws -> (global: AgentActivityCounts, byWorkspace: [String: AgentActivityCounts]) {
+    func activityCounts(service: ActivityService) async throws -> HostActivityCounts {
         try await execute { try service.counts() }
     }
 
@@ -10390,7 +10390,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         return try await agentAppReadGateway.listActivity(service: ActivityService(context: context), params: params)
     }
 
-    func activityCountsOffMain() async throws -> (global: AgentActivityCounts, byWorkspace: [String: AgentActivityCounts]) {
+    func activityCountsOffMain() async throws -> HostActivityCounts {
         guard let context else { throw JSONRPCError.internalError }
         return try await agentAppReadGateway.activityCounts(service: ActivityService(context: context))
     }

@@ -388,6 +388,49 @@ final class AgentActivityServiceTests: XCTestCase {
         XCTAssertEqual(page.counts.running, 0)
     }
 
+    func test_delegatedLiveRunOnAConversationCountsAsRunningAndHiddenTasksStayOut() throws {
+        // WHY: a visible conversation whose live run is a delegated Bot peer run is still
+        // working. Activity must count it as Running, not as an orphan (Needs you), and the
+        // conversation's earlier result must not linger under Running. A hidden parallel
+        // task is not an Activity conversation, so its live run stays out.
+        let context = try makeContext()
+        let now = Date().timeIntervalSince1970
+        let thread = try makeThread(context)
+        let earlier = try makeRun(context, thread: thread, status: .completed, at: now - 120)
+        try insertResult(context, runID: earlier.id, summary: "Earlier pass.")
+        let current = try makeRun(context, thread: thread, status: .running, at: now - 10)
+        let parentRun = AgentRunID()
+        context.coordinator.registerDelegatedRun(current.id, threadId: thread.id, parentRunId: parentRun)
+        context.coordinator.bindActiveThreadForTesting(threadId: thread.id, runId: current.id)
+
+        let bot = try context.botStore.create(name: "Hidden", title: "", description: "")
+        let hiddenThread = try makeThread(context)
+        var hiddenConversation = BotConversation(botID: bot.id, title: "Hidden task", linkedAgentThreadID: hiddenThread.id)
+        hiddenConversation.hidden = true
+        try context.botStore.upsertConversation(hiddenConversation)
+        let hiddenRun = try makeRun(context, thread: hiddenThread, status: .running, at: now - 5)
+        context.coordinator.registerDelegatedRun(hiddenRun.id, threadId: hiddenThread.id, parentRunId: parentRun)
+        context.coordinator.bindActiveThreadForTesting(threadId: hiddenThread.id, runId: hiddenRun.id)
+
+        let running = try decodePage(ActivityService(context: context).list([
+            "section": .string("running"), "recent_finished_seconds": .number(300),
+        ]))
+        XCTAssertEqual(running.items.map(\.runID), [current.id.value], "only the live run is Running; its earlier result must not linger")
+        XCTAssertEqual(running.items.first?.state, .running)
+        XCTAssertEqual(running.counts.running, 1)
+        XCTAssertEqual(running.counts.needsYou, 0, "a live delegated run is working, not an orphan")
+
+        try context.runRepo.upsert(AgentRun(id: current.id, threadId: thread.id, provider: .codex, model: "test",
+                                            status: .completed, startedAt: current.startedAt,
+                                            finishedAt: Date(timeIntervalSince1970: now - 1)))
+        let done = try decodePage(ActivityService(context: context).list([:]))
+        XCTAssertEqual(done.items.first { $0.runID == current.id.value }?.state, .completed)
+        XCTAssertEqual(done.counts.running, 0, "a finished run leaves Running")
+        XCTAssertEqual(done.counts.finished, 1, "the conversation shows only its latest result")
+        XCTAssertFalse(done.items.contains { $0.runID == earlier.id.value })
+        XCTAssertFalse(done.items.contains { $0.runID == hiddenRun.id.value }, "a hidden parallel task never reaches Activity")
+    }
+
     func test_terminalTabNotificationsStayOutOfActivity() throws {
         // WHY: Activity lists conversations. An idle terminal tab ("Terminal is waiting for
         // input") showed up in Just finished as a "Notification" row with terminal output.

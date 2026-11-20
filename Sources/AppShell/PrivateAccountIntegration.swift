@@ -1438,20 +1438,6 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
             .isLiveActivityUpdateChannelArmed(activityUpdateTokens: updateTokens)
     }
 
-    /// F5: a Live Activity card of the push target's device was registered
-    /// within ActivityKit's 8 h active limit.
-    func isLiveActivityActiveForPushTarget(now: Date = Date()) -> Bool {
-        guard let target = pushTargetStore.load() else { return false }
-        // A legacy target without a device id keeps today's rule: any card counts.
-        let targetDeviceId = target.deviceId ?? ""
-        return ((try? pushTargetStore.records()) ?? []).contains { record in
-            record.purpose == .activityUpdate
-                && !record.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && now.timeIntervalSince(record.updatedAt) < PrivatePushTargetStore.activityUpdateRetention
-                && (targetDeviceId.isEmpty || record.deviceId == targetDeviceId)
-        }
-    }
-
     /// Terminal main-agent finish remote path: suppress the visible APNs banner
     /// when a Live Activity update channel is already armed (Lock Screen covers
     /// completed/failed). Cancelled still alerts. Always forces silent catch-up
@@ -1633,14 +1619,6 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
         Self.log.info("wake_not_sent reason=\(reason, privacy: .public)")
     }
 
-    /// F5: the card already shows progress, so the run-progress wake is withheld.
-    private func withholdsForLiveActivity(_ coalesceClass: MaterialWakeCoalesceClass) -> Bool {
-        guard coalesceClass == .runProgress, isLiveActivityActiveForPushTarget() else { return false }
-        HostWakeMetrics.shared.increment(.liveActivitySuppressed)
-        Self.log.info("silent_wake suppressed reason=live_activity_active class=run_progress")
-        return true
-    }
-
     private static func silentWakeBudgetDevice(_ target: PrivatePushTarget) -> String {
         guard let deviceId = target.deviceId, !deviceId.isEmpty else { return "legacy" }
         return deviceId
@@ -1725,8 +1703,6 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
             recordWakeNotSent(reason: "no_push_target")
             return
         }
-        // F5: before the coalescer and the budget, so it marks no bucket and costs no slot.
-        if withholdsForLiveActivity(coalesceClass) { return }
         let now = Date()
         let bucket = Int(now.timeIntervalSince1970 / Self.silentCatchUpBucketSeconds)
         // Serialize check/set: concurrent run outcomes must not both send.
@@ -1830,9 +1806,6 @@ public final class PrivateNotificationBridge: @unchecked Sendable {
         guard let target = pushTargetStore.load() else {
             throw SilentWakeOutboxError.missingSessionOrTarget
         }
-        // F5: the replay is inside the same two rules. A withheld progress wake
-        // is acknowledged and dropped; one the budget refuses stays queued.
-        if withholdsForLiveActivity(record.coalesceClassValue) { return }
         let budgetDevice = Self.silentWakeBudgetDevice(target)
         guard admitSilentWakeToBudget(record.coalesceClassValue, device: budgetDevice) else {
             throw SilentWakeOutboxError.notDelivered("budget")

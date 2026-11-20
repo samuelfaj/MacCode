@@ -316,45 +316,18 @@ final class SilentWakeBudgetBridgeTests: XCTestCase {
 
     // MARK: - Live Activity (D6)
 
-    func testNoProgressWakeWhileLiveActivityActiveForDevice() async throws {
-        // WHY: while a card is active for the phone it already shows progress,
-        // so the run-progress wake is withheld and costs nothing. Errors still
-        // wake. A card older than ActivityKit's 8 h, or another phone's card,
-        // withholds nothing.
-        let active = try makeFixture()
-        try active.targetStore.upsert(Self.activityRow(deviceId: "device-1"))
-        let bridge = active.makeBridge()
-        let suppressedBefore = HostWakeMetrics.shared.count(.liveActivitySuppressed)
+    func testProgressWakeRefreshesAppWhileLiveActivityActiveForDevice() async throws {
+        let fixture = try makeFixture()
+        try fixture.targetStore.upsert(Self.activityRow(deviceId: "device-1"))
+        let bridge = fixture.makeBridge()
 
         await send(.runProgress, on: bridge)
-        XCTAssertTrue(active.api.requests.isEmpty, "no progress wake while the card is active for this phone")
-        XCTAssertEqual(HostWakeMetrics.shared.count(.liveActivitySuppressed) - suppressedBefore, 1)
-
+        await send(.runProgress, on: bridge)
         await send(.attention, on: bridge)
-        XCTAssertEqual(active.api.requests.map { $0.data["rc2_reason"] }, ["attention"], "errors still wake")
-        // The notification limit is 2: it is admitted only when the withheld
-        // wake neither used a slot nor left an in-flight count behind.
-        await send(.notification, on: bridge)
-        XCTAssertEqual(active.api.requests.map { $0.data["rc2_reason"] }, ["attention", "notification"])
-
-        let stale = try makeFixture()
-        try stale.targetStore.upsert(Self.activityRow(
-            deviceId: "device-1",
-            updatedAt: Date().addingTimeInterval(-(PrivatePushTargetStore.activityUpdateRetention + 1))
-        ))
-        await send(.runProgress, on: stale.makeBridge())
-        XCTAssertEqual(stale.api.requests.count, 1, "a row older than 8 h is not an active card")
-
-        let foreign = try makeFixture()
-        try foreign.targetStore.upsert(Self.activityRow(deviceId: "device-2"))
-        await send(.runProgress, on: foreign.makeBridge())
-        XCTAssertEqual(foreign.api.requests.count, 1, "another phone's card does not withhold this phone's wake")
+        XCTAssertEqual(fixture.api.requests.map { $0.data["rc2_reason"] }, ["run_progress", "attention"])
     }
 
-    func testReplayedProgressWakeIsDroppedWhileLiveActivityActiveForDevice() async throws {
-        // WHY: a progress wake that failed before the card started must not
-        // come back through the outbox while the card shows that progress.
-        // Returning normally acknowledges the record, so it is not retried.
+    func testReplayedProgressWakeReachesAppWhileLiveActivityActiveForDevice() async throws {
         let fixture = try makeFixture()
         try fixture.targetStore.upsert(Self.activityRow(deviceId: "device-1"))
         let record = SilentWakeOutboxRecord(
@@ -367,7 +340,7 @@ final class SilentWakeBudgetBridgeTests: XCTestCase {
 
         try await fixture.makeBridge().performSilentCatchUpDelivery(record)
 
-        XCTAssertTrue(fixture.api.requests.isEmpty, "no replayed progress wake while the card is active")
+        XCTAssertEqual(fixture.api.requests.map { $0.data["rc2_reason"] }, ["agent_run_completed"])
     }
 
     func testFinishWithAStaleOrForeignActivityRowShowsTheBanner() async throws {
