@@ -78,6 +78,8 @@ public final class PetController {
     private var activeThreadChromeFetchTask: Task<Void, Never>?
     /// True when the last progress republish reused cached chrome.
     private(set) var progressRepublishUsedCachedChromeForTesting = false
+    /// Live Activity surface publishes; each one reads the whole Activity page.
+    private(set) var liveActivitySurfacePublishCountForTesting = 0
     private(set) var handledEventOutOfOrderForTests = false
     private(set) var handledEventCountForTests = 0
     private(set) var lastScheduledTransientMillisecondsForTests: Int64?
@@ -101,6 +103,9 @@ public final class PetController {
     }
     func republishActiveThreadsForLiveActivityForTests() {
         republishActiveThreadsForLiveActivity()
+    }
+    func refreshActiveThreadsFromCoordinatorForTests() {
+        refreshActiveThreadsFromCoordinator()
     }
     var hasScheduledTasksForTests: Bool {
         transientTask != nil
@@ -721,7 +726,8 @@ public final class PetController {
         if let reused = reuseProjectedActiveThreadsForProgress(threadIDs: projectedIDs) {
             progressRepublishUsedCachedChromeForTesting = true
             model.apply(activeThreads: reused)
-            publishLiveActivitySurface()
+            // No surface publish: PetLiveActivityCopy.makeActivity(page:) does not
+            // read previews, and each publish reads the whole Activity page.
             return
         }
         progressRepublishUsedCachedChromeForTesting = false
@@ -1006,6 +1012,7 @@ public final class PetController {
 
     /// Push authoritative Activity copy. Offline reads must not retire an existing surface.
     private func publishLiveActivitySurface() {
+        liveActivitySurfacePublishCountForTesting += 1
         activitySurfaceGeneration &+= 1
         let owner = activitySurfaceGeneration
         activitySurfaceTask?.cancel()
@@ -1148,7 +1155,13 @@ public final class PetController {
         if !threadIDs.isEmpty {
             let missing = threadIDs.filter { activeThreadChromeByID[$0] == nil }
             if missing.isEmpty {
-                applyActiveThreadIDs(threadIDs)
+                // Item/turn events re-check the same set; applying it again only
+                // re-reads the whole Activity page for an unchanged Live Activity.
+                // A chrome fetch still in flight is for an older set: applying
+                // this one supersedes it, so the stale fetch cannot land.
+                if Set(threadIDs) != taskVisibility.active || activeThreadChromeFetchTask != nil {
+                    applyActiveThreadIDs(threadIDs)
+                }
             } else {
                 fetchActiveThreadChromeOffMain(threadIDs: threadIDs, missing: missing)
             }
@@ -1236,6 +1249,8 @@ public final class PetController {
         if active != taskVisibility.active {
             guard let hidden = active.isEmpty ? [] : try? context.botStore.hiddenTaskThreadIDs() else {
                 model.apply(activeThreads: [])
+                // Not applied: the resync must retry this set instead of skipping it.
+                taskVisibility = ([], [])
                 return
             }
             taskVisibility = (active, active.intersection(hidden))
@@ -1327,12 +1342,12 @@ public final class PetController {
             }
         }
         if !unresolved.isEmpty {
-            fetchLinkedBotsOffMain(threadIDs: threadIDs, unresolved: unresolved)
+            fetchLinkedBotsOffMain(unresolved: unresolved)
         }
         return resolved
     }
 
-    private func fetchLinkedBotsOffMain(threadIDs: [AgentThreadID], unresolved: [AgentThreadID]) {
+    private func fetchLinkedBotsOffMain(unresolved: [AgentThreadID]) {
         guard linkedBotResolveTask == nil else { return }
         linkedBotResolveGeneration += 1
         let generation = linkedBotResolveGeneration
@@ -1358,10 +1373,12 @@ public final class PetController {
                         self.linkedBotByActiveThread[threadID] = .unlinked
                     }
                 }
-                guard !linked.isEmpty else { return }
-                let current = Set(self.model.activeThreads.map(\.threadID))
-                guard current == Set(threadIDs) else { return }
-                self.applyActiveThreadIDs(threadIDs)
+                // The rows may show a newer set than the one this lookup was for,
+                // and a lookup asked for while it ran was dropped. Re-apply the
+                // rows' set when it has a link found here or a thread unresolved.
+                let visible = self.model.activeThreads.map(\.threadID)
+                guard visible.contains(where: { linked[$0] != nil || self.linkedBotByActiveThread[$0] == nil }) else { return }
+                self.applyActiveThreadIDs(visible + self.taskVisibility.hidden.filter { !visible.contains($0) })
             }
         }
     }
