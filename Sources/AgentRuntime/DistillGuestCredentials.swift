@@ -211,7 +211,11 @@ public enum DistillGuestCredentials {
                 let safeQuota = DistillAccountQuota(accountID: quota.accountID, checkedAt: quota.checkedAt,
                     fetchedAt: quota.fetchedAt, status: quota.status, remainingPercent: quota.remainingPercent,
                     detail: safeQuotaDetail(quota.detail))
-                let safe = try JSONEncoder().encode(safeQuota)
+                // Sorted keys: a detail object's key order otherwise changes
+                // between encodings, and every pass would rewrite the copy.
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = .sortedKeys
+                let safe = try encoder.encode(safeQuota)
                 if destination.read("quota.json") != safe { try destination.writeAtomically(safe, to: "quota.json") }
             } else { destination.remove("quota.json") }
         }

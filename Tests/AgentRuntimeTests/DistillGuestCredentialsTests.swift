@@ -646,6 +646,57 @@ final class DistillGuestCredentialsTests: XCTestCase {
         XCTAssertEqual(saved.routing, routing)
     }
 
+    func test_anUnchangedNamedQuotaCopyIsNotRewrittenOnResync() throws {
+        // WHY: while a Bot VM run lives, the mirror re-syncs its guest home on
+        // every change in ~/.distill (quota probes, renewals) and every 5
+        // minutes, and each copy it writes is fsync'd. A quota detail is a
+        // JSON object, so a copy whose content did not change must keep its
+        // file, the same rule the sign-in copies follow. The disk-writes
+        // report of 2026-11-19 (2.1 GB in 82 min) had 9 of 38 samples
+        // rewriting the guest quota.json.
+        let account = DistillAccountStatus(provider: .claude, connected: false, id: "home", label: "Home", legacy: false)
+        let registry = DistillAccountRegistry(version: 1, accounts: [account], routing: DistillAutoRouting())
+        try JSONEncoder().encode(registry).write(to: hostHome.appendingPathComponent("accounts.json"))
+        let source = hostHome.appendingPathComponent("accounts/home")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let window: DistillAccountQuota.Detail = .object([
+            "utilization": .number(42), "resets_at": .string("2026-11-20T05:00:00Z"),
+        ])
+        func writeQuota(checkedAt: String) throws {
+            let quota = DistillAccountQuota(accountID: "home", checkedAt: checkedAt, status: "available",
+                remainingPercent: 58, detail: .object([
+                    "five_hour": window, "seven_day": window, "seven_day_sonnet": .null, "seven_day_opus": .null,
+                    "usage": .number(1), "limit": .number(2), "limit_remaining": .number(1),
+                    "credit_usage_percent": .number(3),
+                ]))
+            try JSONEncoder().encode(quota).write(to: source.appendingPathComponent("quota.json"))
+        }
+        try writeQuota(checkedAt: "2026-11-20T02:02:36Z")
+        try DistillGuestCredentials.sync(hostHome: hostHome, guestDistillHome: guestHome)
+        let copy = guestHome.appendingPathComponent("accounts/home/quota.json")
+        var lastInode = try inode(copy)
+        var rewrites = 0
+        // A dictionary's iteration order depends on where its storage lands, so
+        // other allocations between passes (the app is busy during a run) are
+        // what changes a fresh encoding; the ballast plays that part here.
+        var ballast: [[String: DistillAccountQuota.Detail]] = []
+        for _ in 0..<100 {
+            for size in [1, 2, 3, 5, 8, 13] {
+                ballast.append(Dictionary(uniqueKeysWithValues: (0..<size).map { ("k\($0)", .number(Double($0))) }))
+            }
+            try DistillGuestCredentials.sync(hostHome: hostHome, guestDistillHome: guestHome)
+            let current = try inode(copy)
+            if current != lastInode { rewrites += 1 }
+            lastInode = current
+        }
+        XCTAssertEqual(rewrites, 0, "an unchanged quota copy must not be rewritten")
+
+        try writeQuota(checkedAt: "2026-11-20T02:07:36Z")
+        try DistillGuestCredentials.sync(hostHome: hostHome, guestDistillHome: guestHome)
+        let renewed = try JSONDecoder().decode(DistillAccountQuota.self, from: Data(contentsOf: copy))
+        XCTAssertEqual(renewed.checkedAt, "2026-11-20T02:07:36Z", "a changed quota is still copied")
+    }
+
     func test_guestRegistryCarriesOnlyTheRegistryAccountKeys_becauseAStatusKeyIsNotPartOfDistillsRegistry() throws {
         // WHY: accounts.json is Distill's format. RemoteCode's own status key
         // on an account ("connected") is not part of it, and a Distill that
