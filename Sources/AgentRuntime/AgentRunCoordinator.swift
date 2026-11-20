@@ -1142,6 +1142,13 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Test-only: drop that bind again, as a finished run does.
+    public func unbindActiveThreadForTesting(threadId: AgentThreadID) {
+        lock.lock()
+        activeThreads.removeValue(forKey: threadId)
+        lock.unlock()
+    }
+
     /// Test-only: a run's finish still in flight on `threadId` (the terminal
     /// barrier the idle reaper must wait out), or cleared again.
     public func setFinishingRunForTesting(threadId: AgentThreadID, runId: AgentRunID, finishing: Bool) {

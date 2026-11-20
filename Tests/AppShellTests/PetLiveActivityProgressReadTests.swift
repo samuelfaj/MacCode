@@ -15,15 +15,42 @@ import SocketServer
 /// reads queued behind it. Item progress must only refresh the cached rows.
 @MainActor
 final class PetLiveActivityProgressReadTests: XCTestCase {
-    func test_progressPreviewsDoNotReadTheActivityPage() async throws {
-        let directory = NSTemporaryDirectory() + "RC2PetLAProgressRead-\(UUID().uuidString)"
+    private struct Fixture {
+        let context: AppContext
+        let router: AppCommandRouter
+        let workspace: Workspace
+        let controller: PetController
+        let thread: AgentThread
+        let runID: AgentRunID
+    }
+
+    private func makeStreamingFixture(_ name: String) async throws -> Fixture {
+        let directory = NSTemporaryDirectory() + "RC2PetLA\(name)-\(UUID().uuidString)"
         let context = try AppContext(channel: .debug, appSupportOverride: directory)
         let router = AppCommandRouter(context: context)
         context.router = router
-        let workspace = try router.createWorkspace(name: "progress", cwd: NSTemporaryDirectory())
+        let workspace = try router.createWorkspace(name: name, cwd: NSTemporaryDirectory())
+        let (thread, runID) = try makeRunningThread(context: context, workspace: workspace, title: "streaming thread")
+        SettingsStore(db: context.db).save(AppSettings(petEnabled: true, petReadyCounterEnabled: false))
+
+        let controller = try PetController(context: context, router: router, openSettings: { _ in false })
+        controller.start()
+        context.coordinator.bindActiveThreadForTesting(threadId: thread.id, runId: runID)
+        context.coordinator.onActiveRunProjectionChanged?(
+            ActiveRunProjection(runs: [.init(threadId: thread.id, runId: runID)]),
+            .started
+        )
+        try await waitUntil("the run is projected as active") {
+            controller.modelForTests.activeThreads.map(\.threadID) == [thread.id]
+        }
+        try await waitForSurfacePublishesToSettle(controller)
+        return Fixture(context: context, router: router, workspace: workspace, controller: controller, thread: thread, runID: runID)
+    }
+
+    private func makeRunningThread(context: AppContext, workspace: Workspace, title: String) throws -> (AgentThread, AgentRunID) {
         let thread = AgentThread(
             workspaceId: workspace.id,
-            title: "streaming thread",
+            title: title,
             provider: .claude,
             model: "opus",
             status: .running,
@@ -39,22 +66,36 @@ final class PetLiveActivityProgressReadTests: XCTestCase {
             status: .running,
             startedAt: Date().addingTimeInterval(-30)
         ))
-        SettingsStore(db: context.db).save(AppSettings(petEnabled: true, petReadyCounterEnabled: false))
+        return (thread, runID)
+    }
 
-        let controller = try PetController(context: context, router: router, openSettings: { _ in false })
-        controller.start()
+    private func waitUntil(_ what: String, timeout: TimeInterval = 3, _ condition: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            guard Date() < deadline else { return XCTFail("timed out waiting until \(what)") }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
+    /// Setup work (start's attention refresh, the projection) may still publish;
+    /// wait until no publish happens for 150 ms so a late one is not counted.
+    private func waitForSurfacePublishesToSettle(_ controller: PetController) async throws {
+        var last = controller.liveActivitySurfacePublishCountForTesting
+        var stableSince = Date()
+        let deadline = Date().addingTimeInterval(3)
+        while Date().timeIntervalSince(stableSince) < 0.15, Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            let now = controller.liveActivitySurfacePublishCountForTesting
+            if now != last { last = now; stableSince = Date() }
+        }
+    }
+
+    func test_progressPreviewsDoNotReadTheActivityPage() async throws {
+        let fixture = try await makeStreamingFixture("progress")
+        let controller = fixture.controller
         defer { controller.stop() }
 
-        context.coordinator.bindActiveThreadForTesting(threadId: thread.id, runId: runID)
-        context.coordinator.onActiveRunProjectionChanged?(
-            ActiveRunProjection(runs: [.init(threadId: thread.id, runId: runID)]),
-            .started
-        )
-        try await Task.sleep(nanoseconds: 80_000_000)
-        XCTAssertNotNil(controller.modelForTests.activeThreads.first, "precondition: the run is projected as active")
-
-        let readsBefore = AgentAppReadGateway.readCallCountForTesting
-        let skippedBefore = AgentAppReadGateway.readSkippedCancelledCountForTesting
+        let publishesBefore = controller.liveActivitySurfacePublishCountForTesting
         for step in 0..<5 {
             let item: JSONValue = .object([
                 "id": .string("item-\(step)"),
@@ -63,81 +104,90 @@ final class PetLiveActivityProgressReadTests: XCTestCase {
                 "body": .string("echo \(step)")
             ])
             EventBus.shared.publish(kind: .agentItemStarted, payload: .object([
-                "thread_id": .string(thread.id.value.uuidString),
+                "thread_id": .string(fixture.thread.id.value.uuidString),
                 "item": item
             ]))
             try await Task.sleep(nanoseconds: 30_000_000)
             EventBus.shared.publish(kind: .agentItemCompleted, payload: .object([
-                "thread_id": .string(thread.id.value.uuidString),
+                "thread_id": .string(fixture.thread.id.value.uuidString),
                 "item": item
             ]))
             try await Task.sleep(nanoseconds: 30_000_000)
         }
-        try await Task.sleep(nanoseconds: 80_000_000)
+        try await waitUntil("the last item reaches the active row") {
+            controller.modelForTests.activeThreads.first?.lastUpdatePreview == "Running: step 4"
+        }
+        try await waitForSurfacePublishesToSettle(controller)
 
         XCTAssertTrue(controller.progressRepublishUsedCachedChromeForTesting, "precondition: the progress path ran")
         XCTAssertEqual(
-            controller.modelForTests.activeThreads.first?.lastUpdatePreview,
-            "Running: step 4",
-            "progress must still refresh the active row preview"
+            controller.liveActivitySurfacePublishCountForTesting - publishesBefore, 0,
+            "item progress on an unchanged active set must not queue an Activity page read"
         )
-        let pageReads = (AgentAppReadGateway.readCallCountForTesting - readsBefore)
-            + (AgentAppReadGateway.readSkippedCancelledCountForTesting - skippedBefore)
-        XCTAssertEqual(pageReads, 0, "item progress on an unchanged active set must not queue an Activity page read")
-        XCTAssertEqual(controller.modelForTests.activeThreads.map(\.threadID), [thread.id], "the run stays projected")
+        XCTAssertEqual(controller.modelForTests.activeThreads.map(\.threadID), [fixture.thread.id], "the run stays projected")
     }
 
     /// Viewing a finished run lowers the "new results" count the Live Activity
     /// shows while another run keeps streaming. That refresh must come from the
     /// view event itself, not from item progress happening to re-read the page.
     func test_viewingAFinishedRunStillRefreshesTheSurfaceWhileARunStreams() async throws {
-        let directory = NSTemporaryDirectory() + "RC2PetLAViewedRead-\(UUID().uuidString)"
-        let context = try AppContext(channel: .debug, appSupportOverride: directory)
-        let router = AppCommandRouter(context: context)
-        context.router = router
-        let workspace = try router.createWorkspace(name: "viewed", cwd: NSTemporaryDirectory())
-        let thread = AgentThread(
-            workspaceId: workspace.id,
-            title: "streaming thread",
-            provider: .claude,
-            model: "opus",
-            status: .running,
-            hasUnread: false
-        )
-        try context.threadRepo.upsert(thread)
-        let runID = AgentRunID()
-        try context.runRepo.upsert(AgentRun(
-            id: runID,
-            threadId: thread.id,
-            provider: .claude,
-            model: "opus",
-            status: .running,
-            startedAt: Date().addingTimeInterval(-30)
-        ))
-        SettingsStore(db: context.db).save(AppSettings(petEnabled: true, petReadyCounterEnabled: false))
-
-        let controller = try PetController(context: context, router: router, openSettings: { _ in false })
-        controller.start()
+        let fixture = try await makeStreamingFixture("viewed")
+        let controller = fixture.controller
         defer { controller.stop() }
-        context.coordinator.bindActiveThreadForTesting(threadId: thread.id, runId: runID)
-        context.coordinator.onActiveRunProjectionChanged?(
-            ActiveRunProjection(runs: [.init(threadId: thread.id, runId: runID)]),
-            .started
-        )
-        try await Task.sleep(nanoseconds: 120_000_000)
 
-        let readsBefore = AgentAppReadGateway.readCallCountForTesting
-        let skippedBefore = AgentAppReadGateway.readSkippedCancelledCountForTesting
+        let publishesBefore = controller.liveActivitySurfacePublishCountForTesting
         // Same event AppCommandRouter publishes after markFinishedRunsViewed / activity.set_viewed.
         EventBus.shared.publish(kind: .notificationRead, payload: .object([
             "id": .string("activity:run:\(UUID().uuidString.lowercased())"),
             "activity_item_ids": .array([.string("run:\(UUID().uuidString.lowercased())")]),
             "reason": .string("viewed")
         ]))
-        try await Task.sleep(nanoseconds: 200_000_000)
+        try await waitUntil("a viewed run republishes the Live Activity surface") {
+            controller.liveActivitySurfacePublishCountForTesting > publishesBefore
+        }
+    }
 
-        let pageReads = (AgentAppReadGateway.readCallCountForTesting - readsBefore)
-            + (AgentAppReadGateway.readSkippedCancelledCountForTesting - skippedBefore)
-        XCTAssertGreaterThanOrEqual(pageReads, 1, "a viewed run must re-read the page so the new-results count drops")
+    /// Run B starts (its row is fetched off main) and ends before that fetch
+    /// lands. The resync for the remaining run A must win: B's late fetch must
+    /// not put a finished run back on the pet and the Live Activity.
+    func test_aResyncSupersedesAChromeFetchForAnOlderActiveSet() async throws {
+        let fixture = try await makeStreamingFixture("stalefetch")
+        let controller = fixture.controller
+        defer { controller.stop() }
+        let (threadB, runB) = try makeRunningThread(context: fixture.context, workspace: fixture.workspace, title: "short run")
+
+        // Both resyncs run in this main-actor turn, before the fetch can land.
+        fixture.context.coordinator.bindActiveThreadForTesting(threadId: threadB.id, runId: runB)
+        controller.refreshActiveThreadsFromCoordinatorForTests()
+        fixture.context.coordinator.unbindActiveThreadForTesting(threadId: threadB.id)
+        controller.refreshActiveThreadsFromCoordinatorForTests()
+
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(
+            controller.modelForTests.activeThreads.map(\.threadID), [fixture.thread.id],
+            "a fetch for the older set {A, B} must not overwrite the newer set {A}"
+        )
+    }
+
+    /// A failed hidden-task lookup shows no active rows. The next resync for the
+    /// same set must apply it again instead of treating it as already applied.
+    func test_aResyncRetriesTheActiveSetAfterAFailedHiddenTaskLookup() async throws {
+        let fixture = try await makeStreamingFixture("hiddenretry")
+        let controller = fixture.controller
+        defer { controller.stop() }
+        let (threadB, _) = try makeRunningThread(context: fixture.context, workspace: fixture.workspace, title: "second run")
+
+        // The set {A, B} fails to apply: hidden-task lookup cannot read its table.
+        try fixture.context.db.execute("ALTER TABLE bot_conversations RENAME TO bot_conversations_offline;")
+        controller.applyActiveThreadIDsForTests([fixture.thread.id, threadB.id])
+        try fixture.context.db.execute("ALTER TABLE bot_conversations_offline RENAME TO bot_conversations;")
+        XCTAssertEqual(controller.modelForTests.activeThreads.map(\.threadID), [], "precondition: the lookup failed")
+
+        // B ended meanwhile; the coordinator holds only A, the set applied before the failure.
+        controller.refreshActiveThreadsFromCoordinatorForTests()
+        XCTAssertEqual(
+            controller.modelForTests.activeThreads.map(\.threadID), [fixture.thread.id],
+            "the resync must re-apply the running set after the failed lookup"
+        )
     }
 }

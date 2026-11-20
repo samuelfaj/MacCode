@@ -78,6 +78,8 @@ public final class PetController {
     private var activeThreadChromeFetchTask: Task<Void, Never>?
     /// True when the last progress republish reused cached chrome.
     private(set) var progressRepublishUsedCachedChromeForTesting = false
+    /// Live Activity surface publishes; each one reads the whole Activity page.
+    private(set) var liveActivitySurfacePublishCountForTesting = 0
     private(set) var handledEventOutOfOrderForTests = false
     private(set) var handledEventCountForTests = 0
     private(set) var lastScheduledTransientMillisecondsForTests: Int64?
@@ -101,6 +103,9 @@ public final class PetController {
     }
     func republishActiveThreadsForLiveActivityForTests() {
         republishActiveThreadsForLiveActivity()
+    }
+    func refreshActiveThreadsFromCoordinatorForTests() {
+        refreshActiveThreadsFromCoordinator()
     }
     var hasScheduledTasksForTests: Bool {
         transientTask != nil
@@ -1007,6 +1012,7 @@ public final class PetController {
 
     /// Push authoritative Activity copy. Offline reads must not retire an existing surface.
     private func publishLiveActivitySurface() {
+        liveActivitySurfacePublishCountForTesting += 1
         activitySurfaceGeneration &+= 1
         let owner = activitySurfaceGeneration
         activitySurfaceTask?.cancel()
@@ -1151,7 +1157,11 @@ public final class PetController {
             if missing.isEmpty {
                 // Item/turn events re-check the same set; applying it again only
                 // re-reads the whole Activity page for an unchanged Live Activity.
-                if Set(threadIDs) != taskVisibility.active { applyActiveThreadIDs(threadIDs) }
+                // A chrome fetch still in flight is for an older set: applying
+                // this one supersedes it, so the stale fetch cannot land.
+                if Set(threadIDs) != taskVisibility.active || activeThreadChromeFetchTask != nil {
+                    applyActiveThreadIDs(threadIDs)
+                }
             } else {
                 fetchActiveThreadChromeOffMain(threadIDs: threadIDs, missing: missing)
             }
