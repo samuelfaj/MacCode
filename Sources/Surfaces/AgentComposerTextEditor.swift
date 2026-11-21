@@ -319,8 +319,8 @@ public struct AgentComposerTextEditor: NSViewRepresentable {
 
         /// Publishing the caret from makeNSView/updateNSView is a SwiftUI state
         /// change during a view update. Report it on the next turn instead,
-        /// unless the text changed since (an edit or IME preedit, which
-        /// report on their own).
+        /// unless the text changed since: an edit reports its own caret, and
+        /// IME preedit reports nothing until it commits.
         func reportCursorAfterUpdate(of textView: NSTextView, holding value: String) {
             DispatchQueue.main.async { [weak self, weak textView] in
                 guard let self, let textView, textView.string == value else { return }
