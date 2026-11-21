@@ -177,7 +177,6 @@ final class AgentComposerExternalTextPublishTests: XCTestCase {
         spin(0.1)
 
         XCTAssertEqual(text, "he!llo")
-        XCTAssertEqual(reports.last, 3, "the typed caret stays the reported one")
-        XCTAssertFalse(reports.contains(5), "a stale end-of-text caret must not be reported")
+        XCTAssertEqual(reports, [2, 3], "the caret move and the keystroke report; the deferred report for the replaced text does not")
     }
 }
