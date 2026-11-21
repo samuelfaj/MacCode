@@ -11535,9 +11535,9 @@ public final class BotsViewModel: ObservableObject {
         return !conversations.contains { $0.botID == botID }
     }
 
-    /// Verbosity Human: the desk shows only the Bot's messages.
+    /// Simple styles show only the Bot's messages in the desk.
     static func deskHidesToolActivity(_ bot: BotDefinition) -> Bool {
-        bot.verbosity == .human
+        bot.verbosity != .verbose
     }
 
     /// Follows a Verbosity change (Studio, a paired device) on the open desk.
@@ -14722,20 +14722,28 @@ public struct BotsRootView: View {
             studioSectionHeader(L("Reply Style"))
             labeledField(
                 L("Reply style"),
-                caption: style.verbosity == .human
-                    ? L("Writes like a person explaining to someone who isn't technical. The chat hides commands and tool steps and shows only what the Bot is thinking right now.")
-                    : L("Can include files, commands and code, and the chat shows every step it runs.")
+                caption: {
+                    switch style.verbosity {
+                    case .human:
+                        return L("Writes like a person explaining to someone who isn't technical. The chat hides commands and tool steps and shows only what the Bot is thinking right now.")
+                    case .humanShort:
+                        return L("Replies like a person in chat, using short sentences and natural line breaks. Keeps the essential meaning and hides commands and tool steps.")
+                    case .verbose:
+                        return L("Can include files, commands and code, and the chat shows every step it runs.")
+                    }
+                }()
             ) {
                 Picker(L("Reply style"), selection: Binding(
                     get: { style.verbosity },
                     set: { vm.studioDraft.verbosity = $0 }
                 )) {
                     Text(L("Simple")).tag(BotReplyVerbosity.human)
+                    Text(L("Simple Short")).tag(BotReplyVerbosity.humanShort)
                     Text(L("Technical")).tag(BotReplyVerbosity.verbose)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(maxWidth: 260, alignment: .leading)
+                .frame(maxWidth: 350, alignment: .leading)
                 .accessibilityIdentifier("bots.studio.verbosity")
             }
         }

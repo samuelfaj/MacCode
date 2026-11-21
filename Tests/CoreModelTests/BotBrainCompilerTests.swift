@@ -1935,7 +1935,7 @@ final class BotReplyStylePromptTests: XCTestCase {
         // WHY: Human hides tool rows, so the Bot must not narrate commands the
         // user cannot see; Verbose keeps today's prompt.
         var bot = BotDefinition(handle: "dev", name: "Dev", title: "", description: "")
-        XCTAssertEqual(bot.verbosity, .verbose, "new Bots reply Technical by default")
+        XCTAssertEqual(bot.verbosity, .human, "new Bots reply Simple by default")
         bot.verbosity = .human
         XCTAssertTrue(prompt(for: bot).contains(BotStandingInstructions.humanVerbosityLine))
         XCTAssertTrue(BotStandingInstructions.humanVerbosityLine.contains("never narrate your process"))

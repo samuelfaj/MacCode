@@ -64,12 +64,11 @@ final class BotReplyStyleTests: XCTestCase {
         XCTAssertEqual(rows["titio"]?.1, 0, "Titio keeps full sentences")
     }
 
-    func test_newBotsDefaultToTechnicalCavemanAndTitioToHumanProse() throws {
-        // WHY: Bots do technical work, so new ones show every step; only Titio,
-        // who explains RemoteCode to anyone, starts Simple.
+    func test_newBotsDefaultToSimpleAndTitioToHumanProse() throws {
+        // WHY: Simple is the default reply style for every newly created Bot.
         let ceo = try store.create(name: "Ceo", title: "", description: "")
-        XCTAssertEqual(ceo.verbosity, .verbose)
-        XCTAssertEqual(try store.get(id: ceo.id)?.verbosity, .verbose, "the default is persisted")
+        XCTAssertEqual(ceo.verbosity, .human)
+        XCTAssertEqual(try store.get(id: ceo.id)?.verbosity, .human, "the default is persisted")
         XCTAssertTrue(ceo.cavemanEnabled)
         let titio = try store.create(name: "Titio", title: "", description: "", handle: TitioIdentity.handle)
         XCTAssertEqual(titio.verbosity, .human)
@@ -98,7 +97,7 @@ final class BotReplyStyleTests: XCTestCase {
         let botID = bot.id.value.uuidString.lowercased()
         let before = try authority.dispatch(method: "bot.get", params: ["bot_id": botID])
         let encoded = before
-        XCTAssertEqual(encoded["verbosity"] as? String, "verbose")
+        XCTAssertEqual(encoded["verbosity"] as? String, "human")
         XCTAssertEqual(encoded["caveman_enabled"] as? Bool, true)
 
         let human = try authority.dispatch(method: "bot.verbosity.set", params: [
