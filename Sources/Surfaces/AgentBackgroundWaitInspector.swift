@@ -22,7 +22,7 @@ struct AgentBackgroundWaitInspector: View {
                         }
                         Divider()
                         ScrollView {
-                            LazyVStack(alignment: .leading, spacing: DS.Space.md) {
+                            VStack(alignment: .leading, spacing: DS.Space.md) {
                                 if !vm.hidesToolActivity {
                                     let records = Self.recordedTasks(in: vm.timeline.turns.last)
                                     if let check = records.first(where: AgentTimelineItemPresentation.isTaskWaitTool(for:)) {
