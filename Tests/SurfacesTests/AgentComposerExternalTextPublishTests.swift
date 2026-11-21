@@ -123,6 +123,16 @@ final class AgentComposerExternalTextPublishTests: XCTestCase {
         XCTAssertEqual(model.cursorOffset, 11, "the mounted draft still reports its caret once the update is over")
     }
 
+    /// An empty composer has no caret to restore; mounting it must not publish
+    /// composer state at all (main did not either).
+    func test_mountingAnEmptyComposerReportsNoCaret() throws {
+        let model = Model(text: "")
+
+        _ = try hostFocusedComposer(model, caret: nil)
+
+        XCTAssertNil(model.cursorOffset)
+    }
+
     func test_sendClearingTheComposerDoesNotPublishDuringTheViewUpdate() throws {
         let model = Model(text: "draft to send")
         _ = try hostFocusedComposer(model, caret: 13)
@@ -153,8 +163,8 @@ final class AgentComposerExternalTextPublishTests: XCTestCase {
         XCTAssertEqual(model.cursorOffset, 16, "suggestions anchor at the end of the recalled prompt")
     }
 
-    /// Latest wins: a keystroke that lands before the deferred report already
-    /// reported its own caret; the older end-of-text offset must not overwrite it.
+    /// A keystroke that lands before the deferred report already reported its
+    /// own caret; the deferred report for the replaced text must not add another.
     func test_aKeystrokeBeforeTheDeferredReportKeepsItsCaret() {
         let textView = PromptComposerTextView(frame: NSRect(x: 0, y: 0, width: 480, height: 44))
         var text = ""

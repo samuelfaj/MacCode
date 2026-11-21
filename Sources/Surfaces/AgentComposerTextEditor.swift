@@ -97,9 +97,9 @@ public struct AgentComposerTextEditor: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.string = text
         // makeNSView runs inside a SwiftUI update: attach the delegate after the
-        // initial text so its caret is reported on the next turn, not from here.
+        // initial text so a draft's caret is reported on the next turn, not from here.
         textView.delegate = context.coordinator
-        context.coordinator.reportCursorAfterUpdate(of: textView, holding: text)
+        if !text.isEmpty { context.coordinator.reportCursorAfterUpdate(of: textView, holding: text) }
         textView.onSend = onSend
         textView.onPreviousHistory = onPreviousHistory
         textView.onNextHistory = onNextHistory
@@ -319,7 +319,8 @@ public struct AgentComposerTextEditor: NSViewRepresentable {
 
         /// Publishing the caret from makeNSView/updateNSView is a SwiftUI state
         /// change during a view update. Report it on the next turn instead,
-        /// unless an edit since then already reported its own caret.
+        /// unless the text changed since (an edit or IME preedit, which
+        /// report on their own).
         func reportCursorAfterUpdate(of textView: NSTextView, holding value: String) {
             DispatchQueue.main.async { [weak self, weak textView] in
                 guard let self, let textView, textView.string == value else { return }
