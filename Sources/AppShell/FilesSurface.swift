@@ -3513,7 +3513,10 @@ struct CodeTextEditor: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = false
+        context.coordinator.applyingExternalText = true
         textView.switchDocument(to: absolutePath ?? filePath, text: text, openPaths: openPaths)
+        context.coordinator.applyingExternalText = false
+        context.coordinator.publishCaretAfterUpdate(of: textView)
         textView.language = language
         textView.completionItemsForPrefix = { [weak textView] _, caret in
             guard let textView else { return [] }
@@ -3556,10 +3559,14 @@ struct CodeTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView ?? scroll.documentView as? NSTextView else { return }
-        if let editor = textView as? CodeEditorTextView,
-           editor.switchDocument(to: absolutePath ?? filePath, text: text, openPaths: openPaths) {
+        context.coordinator.applyingExternalText = true
+        let switched = (textView as? CodeEditorTextView)?
+            .switchDocument(to: absolutePath ?? filePath, text: text, openPaths: openPaths) == true
+        context.coordinator.applyingExternalText = false
+        if switched, let editor = textView as? CodeEditorTextView {
             context.coordinator.applyHighlight(to: editor)
             context.coordinator.documentReplacedExternally()
+            context.coordinator.publishCaretAfterUpdate(of: editor)
         }
         let languageChanged = context.coordinator.language != language
         context.coordinator.language = language
@@ -3587,6 +3594,7 @@ struct CodeTextEditor: NSViewRepresentable {
         }
         if textView.string != text {
             (textView as? CodeEditorTextView)?.clearGhost()
+            context.coordinator.applyingExternalText = true
             if let editor = textView as? CodeEditorTextView {
                 if let oldText = editor.replaceTextPreservingSelection(text) {
                     context.coordinator.applyHighlightIncremental(oldText: oldText, to: textView)
@@ -3595,9 +3603,11 @@ struct CodeTextEditor: NSViewRepresentable {
                 textView.string = text
                 context.coordinator.applyHighlight(to: textView)
             }
+            context.coordinator.applyingExternalText = false
             context.coordinator.lineNumberRuler?.invalidateLineStartCache()
             context.coordinator.lineNumberRuler?.needsDisplay = true
             context.coordinator.documentReplacedExternally()
+            context.coordinator.publishCaretAfterUpdate(of: textView)
         }
     }
 
@@ -3614,6 +3624,8 @@ struct CodeTextEditor: NSViewRepresentable {
         let onChange: (String) -> Void
         let onCaretChange: (Int, Int) -> Void
         private var lastCaret: (line: Int, column: Int)?
+        /// True while makeNSView/updateNSView swaps the document text and caret.
+        var applyingExternalText = false
         weak var textView: CodeEditorTextView?
         weak var lineNumberRuler: CodeLineNumberRulerView?
         var language: String?
@@ -4045,8 +4057,18 @@ struct CodeTextEditor: NSViewRepresentable {
             // over the keystroke. textDidChange publishes once the draft has it.
             // Undo/redo replays skip shouldChangeTextIn; didChangeText follows them.
             let undo = textView.undoManager
-            guard !editInFlight, undo?.isUndoing != true, undo?.isRedoing != true else { return }
+            guard !editInFlight, !applyingExternalText, undo?.isUndoing != true, undo?.isRedoing != true else { return }
             publishCaret(of: textView)
+        }
+
+        /// Publishing from makeNSView/updateNSView is a SwiftUI state change during
+        /// a view update. Publish on the next turn instead; publishCaret reads the
+        /// caret at that time, so an edit in between still wins.
+        func publishCaretAfterUpdate(of textView: NSTextView) {
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.publishCaret(of: textView)
+            }
         }
 
         private func publishCaret(of textView: NSTextView) {
