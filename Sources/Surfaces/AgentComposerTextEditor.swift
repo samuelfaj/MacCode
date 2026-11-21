@@ -84,7 +84,6 @@ public struct AgentComposerTextEditor: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.allowsUndo = true
-        textView.delegate = context.coordinator
         textView.font = NSFont.systemFont(ofSize: 13)
         textView.backgroundColor = .clear
         textView.textColor = DS.NS.text
@@ -97,6 +96,10 @@ public struct AgentComposerTextEditor: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
         textView.string = text
+        // makeNSView runs inside a SwiftUI update: attach the delegate after the
+        // initial text so its caret is reported on the next turn, not from here.
+        textView.delegate = context.coordinator
+        context.coordinator.reportCursorAfterUpdate(of: textView, holding: text)
         textView.onSend = onSend
         textView.onPreviousHistory = onPreviousHistory
         textView.onNextHistory = onNextHistory
@@ -183,6 +186,8 @@ public struct AgentComposerTextEditor: NSViewRepresentable {
         /// Blocks SwiftUI→NSTextView applies that would abort composition.
         var isIMEComposing = false
         private var externallyAppliedText: String?
+        /// True while applyExternalText moves the text and caret from updateNSView.
+        private var isApplyingExternalText = false
         /// Width the last height layout ran at (perf CH-10).
         private var lastCalculatedWidth: CGFloat?
         /// Set when external text was applied and the height must be re-laid-out
@@ -254,6 +259,7 @@ public struct AgentComposerTextEditor: NSViewRepresentable {
             let marked = textView.hasMarkedText()
             isIMEComposing = marked
             guard PromptComposerKeyAction.shouldSyncComposerBinding(hasMarkedText: marked) else { return }
+            guard !isApplyingExternalText else { return }
             // AppKit posts this while an edit is still being applied, before
             // textDidChange copies it into the binding. Publishing the caret then
             // can re-render SwiftUI synchronously, and updateNSView would push the
@@ -302,11 +308,23 @@ public struct AgentComposerTextEditor: NSViewRepresentable {
             guard PromptComposerKeyAction.shouldSyncComposerBinding(hasMarkedText: textView.hasMarkedText()) else { return }
             isIMEComposing = false
             externallyAppliedText = value
+            isApplyingExternalText = true
             textView.string = value
             let endOffset = (value as NSString).length
             textView.setSelectedRange(NSRange(location: endOffset, length: 0))
-            onCursorMoved(endOffset)
+            isApplyingExternalText = false
             pendingExternalTextHeightRecalc = true
+            reportCursorAfterUpdate(of: textView, holding: value)
+        }
+
+        /// Publishing the caret from makeNSView/updateNSView is a SwiftUI state
+        /// change during a view update. Report it on the next turn instead,
+        /// unless an edit since then already reported its own caret.
+        func reportCursorAfterUpdate(of textView: NSTextView, holding value: String) {
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self, let textView, textView.string == value else { return }
+                self.reportCursor(for: textView)
+            }
         }
 
         func recalculateHeight() {
