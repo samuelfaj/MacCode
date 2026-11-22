@@ -1120,6 +1120,9 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     private(set) var aggregateHotTextBudgetGeneration: UInt64 = 0
     /// Bumped on dispose / thread switch so stale detached applies drop their commit.
     private var streamApplyGeneration: UInt64 = 0
+    /// Test-only: receives each quantum's finish instead of running it inline,
+    /// so a test can land it later, like the production detached reduce.
+    var streamQuantumFinishForTesting: ((@escaping () -> Void) -> Void)?
     /// True when the hot UI event queue refused at least one already-durable
     /// stream event. Cleared after a durable replay rebuilds the live timeline.
     private var streamUIBackpressured = false
@@ -10778,6 +10781,12 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         // (matches rail reloadImmediate). Production: pure apply off MainActor.
         if Self.isRunningUnitTests {
             let reduced = Self.reduceStreamQuantum(input)
+            if let deliver = streamQuantumFinishForTesting {
+                deliver { [weak self] in
+                    self?.finishStreamQuantumApply(reduced: reduced, generation: generation, hasMore: hasMore)
+                }
+                return
+            }
             finishStreamQuantumApply(
                 reduced: reduced,
                 generation: generation,
@@ -10803,15 +10812,20 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         generation: UInt64,
         hasMore: Bool
     ) {
-        streamApplyInFlight = false
         guard !isDisposed, streamApplyGeneration == generation else {
-            streamFlushNeeded = false
             // The quantum was reduced from a pre-open timeline and dropped by a
             // generation bump; its events are durable and the thread-open apply
-            // re-reads them (perf AA-02).
+            // re-reads them (perf AA-02). The bump already freed the latch, so a
+            // newer quantum may own it: leave the latch and flush flag alone.
+            // Events batched while this quantum was in flight had its finish as
+            // their only flush; with no quantum running, flush them now.
             streamQuantumDrops &+= 1
+            if !isDisposed, !streamApplyInFlight, !streamEventBatch.isEmpty {
+                flushStreamEvents()
+            }
             return
         }
+        streamApplyInFlight = false
         commitStreamQuantum(reduced)
         streamQuantumCommits &+= 1
         let needsAnother = hasMore
