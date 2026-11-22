@@ -88,6 +88,7 @@ SF system font only, via `DS.Font`. Monospace only for code, commands, paths, br
 
 - **Window:** sidebar + content. Sidebar visibility follows `AdaptiveSidebarPolicy` (hysteresis 120 pt, 2 s resize cooldown); never hide content to show the sidebar.
 - **Headers:** compact, full width, 44 pt high, `dsBar(edge: .bottom)`. Title left, icon buttons right.
+- **Bot chat header:** every conversation with a Bot shows the Bot's identity (avatar, name, job, @handle, permission) in its header — the Bots Desk and an Agent App tab on a Bot thread both mount `BotChatHeaderIdentity`. A plain thread keeps the branch/context header.
 - **Surfaces:** a task that becomes the user's main task replaces the body; it does not float over it. Sidebars and drawers must not cover the primary terminal or editor content.
 - **Apple surface parity (shared with iOS):** SSH and Agent App are the visual baseline (compact header, dense dark content, direct controls). Terminal UI appears only for real usable sessions; empty or disconnected states use a clear empty state with a recovery action. iOS may adapt layout for touch but must keep every host capability macOS exposes.
 - **Settings:** two columns at ≥ 640 pt (nav list + page), a menu below that. Page = hero (56 tile, `title2`, subtitle, `surfaceRaised`, radius modal) then `DSSectionHeaderG` sections of rows.

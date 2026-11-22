@@ -784,6 +784,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     /// Who drives the bot computer; tests inject an isolated instance.
     public var botComputerControl: BotComputerControl = .shared
     public var openBotScreen: ((BotID) -> Void)?
+    /// Opens the Bot's Studio from the header of a Bot thread; wired by the host.
+    public var openBotStudio: ((BotID) -> Void)?
     /// Copies Mac files into the bot's VM home (~/Downloads); returns guest paths. Wired by the host.
     public var importFilesToBotComputer: ((BotID, AgentThreadID?, [URL]) throws -> [String])?
     @Published public internal(set) var botScreenControlled = false
@@ -16047,8 +16049,65 @@ public struct AgentAppView: View {
     }
 
     // Thin context header. Run-config (provider/model/permission) lives in
-    // the composer footer now, Codex-style.
+    // the composer footer now, Codex-style. A Bot thread wears the Bot's
+    // identity header, the same one the Bots Desk shows.
+    @ViewBuilder
     private var header: some View {
+        if let bot = headerBot {
+            botHeader(bot)
+        } else {
+            workspaceHeader
+        }
+    }
+
+    /// The Bot that runs the selected thread, from the same snapshot as the
+    /// Subagents badge. The host keeps the thread's own Bot in that list.
+    private var headerBot: BotDefinition? {
+        Self.headerBot(actor: vm.threads.first(where: { $0.id == vm.selectedThreadId })?.actor, bots: snapshotMentionableBots())
+    }
+
+    /// nil keeps the workspace header: a plain thread, or a Bot no longer in the list.
+    nonisolated static func headerBot(actor: RunActor?, bots: [BotDefinition]) -> BotDefinition? {
+        guard let botID = actor?.botID else { return nil }
+        return bots.first { $0.id == botID }
+    }
+
+    private func botHeader(_ bot: BotDefinition) -> some View {
+        HStack(spacing: DS.Space.md) {
+            DSIconButton(
+                "sidebar.left",
+                help: showThreadRail ? AgentChatThreadRailCopy.hideHelp : AgentChatThreadRailCopy.showHelp
+            ) {
+                threadRailIntent = showThreadRail ? .forcedHidden : .forcedVisible
+                showThreadRail.toggle()
+            }
+            .accessibilityIdentifier("agent.botHeader.thread.toggle")
+            BotChatHeaderIdentity(
+                bot: bot,
+                permission: vm.permissionMode.displayName,
+                attention: vm.selectedThreadIsStoppableBusy ? .working : .none,
+                identifierPrefix: "agent.botHeader",
+                onOpen: vm.openBotStudio.map { open in { open(bot.id) } }
+            )
+            BotChatHeaderContext(vm: vm, identifierPrefix: "agent.botHeader")
+            Spacer(minLength: DS.Space.lg)
+            headerStatusControls
+            HStack(spacing: BotChatHeader.iconSpacing) {
+                if let open = vm.openBotStudio {
+                    DSIconButton("gearshape", help: L("Studio")) { open(bot.id) }
+                        .accessibilityIdentifier("agent.botHeader.studio")
+                }
+                DSIconButton("plus", help: L("New thread (⌘N)")) { vm.createThread(title: "New thread") }
+                    .accessibilityIdentifier("agent.botHeader.thread.new")
+                headerSideChatButton
+            }
+        }
+        .padding(.horizontal, DS.Space.xl)
+        .frame(height: BotChatHeader.height)
+        .dsBar(edge: .bottom)
+    }
+
+    private var workspaceHeader: some View {
         HStack(spacing: DS.Space.sm) {
             if !showThreadRail {
                 DSIconButton("sidebar.left", help: AgentChatThreadRailCopy.showHelp) {
@@ -16083,29 +16142,39 @@ public struct AgentAppView: View {
                 .lineLimit(1).truncationMode(.middle)
                 .layoutPriority(-1)
             Spacer(minLength: 0)
-            botScreenControls
-            // Unified working phase strip (replaces separate awaiting/shell/status pills).
-            workingPhaseStrip
-            // Provider-neutral Subagents activity for the selected thread only
-            // (admission receipts + coordinator). Compact badge + popover; does
-            // not touch transcript/composer or aggregate sibling threads.
-            // Auto (orchestrate) always exposes the chrome so delegated workers
-            // are discoverable the moment the first child receipt lands — not
-            // only after the user already knows to look for a hidden badge.
-            if showsSubagentBadge {
-                subagentBadge
-            }
-            // Same action as `/side`; hidden where no host can open a side pane.
-            if vm.onRequestSideChat != nil, !vm.selectedThreadIsEphemeral {
-                DSIconButton("rectangle.split.2x1", help: L("Side chat (/side)")) {
-                    vm.requestSideChat(text: "")
-                }
-                .disabled(vm.selectedThreadId == nil)
-                .accessibilityIdentifier("agent.header.sideChat")
-            }
+            headerStatusControls
+            headerSideChatButton
         }
         .padding(.horizontal, DS.Space.lg).padding(.vertical, DS.Space.sm)
         .dsBar(edge: .bottom)
+    }
+
+    @ViewBuilder
+    private var headerStatusControls: some View {
+        botScreenControls
+        // Unified working phase strip (replaces separate awaiting/shell/status pills).
+        workingPhaseStrip
+        // Provider-neutral Subagents activity for the selected thread only
+        // (admission receipts + coordinator). Compact badge + popover; does
+        // not touch transcript/composer or aggregate sibling threads.
+        // Auto (orchestrate) always exposes the chrome so delegated workers
+        // are discoverable the moment the first child receipt lands — not
+        // only after the user already knows to look for a hidden badge.
+        if showsSubagentBadge {
+            subagentBadge
+        }
+    }
+
+    // Same action as `/side`; hidden where no host can open a side pane.
+    @ViewBuilder
+    private var headerSideChatButton: some View {
+        if vm.onRequestSideChat != nil, !vm.selectedThreadIsEphemeral {
+            DSIconButton("rectangle.split.2x1", help: L("Side chat (/side)")) {
+                vm.requestSideChat(text: "")
+            }
+            .disabled(vm.selectedThreadId == nil)
+            .accessibilityIdentifier("agent.header.sideChat")
+        }
     }
 
     private var showsSubagentBadge: Bool {
