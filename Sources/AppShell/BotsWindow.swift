@@ -8956,7 +8956,7 @@ public final class BotsViewModel: ObservableObject {
     /// A Bot with no name still needs a label in the roster, the Desk header
     /// and VoiceOver. Same fallback as iOS.
     static func displayName(_ name: String) -> String {
-        name.isEmpty ? L("Untitled") : name
+        BotChatHeader.displayName(name)
     }
 
     /// One placeholder for the Desk composer before and after the thread is
@@ -15223,13 +15223,6 @@ public struct BotsRootView: View {
         }
     }
 
-    /// Visual gap between Desk header glyphs. DSIconButton lays out at
-    /// 44pt so the 26pt icon can keep a 44pt hit box; subtract that extra
-    /// so the glyphs sit `DS.Space.xs` apart like workspace header icons.
-    private static var deskHeaderIconSpacing: CGFloat {
-        DS.Space.xs - (DSIconButton.hitTargetSize - DSIconButton.visualSize.width)
-    }
-
     /// Toolbar-sized identity row. Title2 + xl padding was a page hero;
     /// Desk is chat, so this stays a 44pt chrome strip.
     private func deskHeader(_ bot: BotDefinition) -> some View {
@@ -15245,61 +15238,24 @@ public struct BotsRootView: View {
                 }
             }
             .accessibilityIdentifier("bots.desk.thread.toggle")
-            Button {
-                vm.openStudio(bot)
-            } label: {
-                HStack(spacing: DS.Space.sm) {
-                    BotsAvatarView(
-                        name: bot.name,
-                        handle: bot.handle,
-                        symbol: bot.avatarSymbol,
-                        size: 22,
-                        attention: vm.activityState(for: bot)
-                    )
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(spacing: DS.Space.sm) {
-                            // One line: the bar is a fixed 44pt strip, so a
-                            // long name must truncate, not wrap over the chat.
-                            Text(BotsViewModel.displayName(bot.name))
-                                .font(DS.Font.bodyStrong)
-                                .foregroundColor(DS.Palette.text)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .help(BotsViewModel.displayName(bot.name))
-                                .accessibilityIdentifier("bots.desk.name")
-                            attentionBadge(vm.activityState(for: bot))
-                                .layoutPriority(1)
-                            if vm.liveRosterBotIDs.contains(bot.id) {
-                                DSBusySpinner(label: L("Running"), identifier: "bots.desk.running")
-                            }
-                        }
-                        HStack(spacing: DS.Space.sm) {
-                            Text(bot.title.isEmpty ? L("No job yet") : bot.title)
-                                .font(DS.Font.caption2)
-                                .foregroundColor(DS.Palette.textSecondary)
-                                .accessibilityIdentifier("bots.desk.job")
-                            Text(L("@%1$@", bot.handle))
-                                .font(DS.Font.caption2)
-                                .foregroundColor(DS.Palette.textSecondary)
-                                .accessibilityIdentifier("bots.desk.handle")
-                            Text(vm.permissionLabel(for: bot))
-                                .font(DS.Font.caption2)
-                                .foregroundColor(DS.Palette.textSecondary)
-                                .accessibilityIdentifier("bots.desk.permission")
-                        }
-                        .lineLimit(1)
+            BotChatHeaderIdentity(
+                bot: bot,
+                permission: vm.permissionLabel(for: bot),
+                attention: vm.activityState(for: bot),
+                identifierPrefix: "bots.desk",
+                status: AnyView(HStack(spacing: DS.Space.sm) {
+                    attentionBadge(vm.activityState(for: bot))
+                    if vm.liveRosterBotIDs.contains(bot.id) {
+                        DSBusySpinner(label: L("Running"), identifier: "bots.desk.running")
                     }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(L("Open Studio for %1$@", BotsViewModel.displayName(bot.name)))
-            .accessibilityIdentifier("bots.desk.identity")
+                }),
+                onOpen: { vm.openStudio(bot) }
+            )
             if let agentVM = vm.deskAgentVM {
-                DeskHeaderContext(vm: agentVM)
+                BotChatHeaderContext(vm: agentVM, identifierPrefix: "bots.desk")
             }
             Spacer(minLength: DS.Space.lg)
-            HStack(spacing: Self.deskHeaderIconSpacing) {
+            HStack(spacing: BotChatHeader.iconSpacing) {
                 DSIconButton("gearshape", help: L("Studio")) {
                     vm.openStudio(bot)
                 }
@@ -15333,7 +15289,7 @@ public struct BotsRootView: View {
             shellSidebarCollapsed: vm.isShellSidebarCollapsed
         ))
         .padding(.trailing, DS.Space.xl)
-        .frame(height: 44)
+        .frame(height: BotChatHeader.height)
         .dsBar(edge: .bottom)
     }
 
@@ -16421,35 +16377,6 @@ extension AppCommandRouter {
             let remaining = context.distillLoopStore.loops(for: threadID).filter { $0.taskID != taskID }
             context.distillLoopStore.update(thread: threadID, loops: remaining)
         }
-    }
-}
-
-/// Branch and context usage of the Desk thread, as in the Agent App header.
-private struct DeskHeaderContext: View {
-    @ObservedObject var vm: AgentAppViewModel
-
-    var body: some View {
-        HStack(spacing: DS.Space.sm) {
-            if let branch = vm.gitBranch {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(DS.Palette.textTertiary)
-                Text(branch)
-                    .font(DS.Font.caption2.monospaced())
-                    .foregroundColor(DS.Palette.textSecondary)
-                    .lineLimit(1).truncationMode(.middle)
-                    .help(branch)
-            }
-            if let context = vm.contextHealthMessage {
-                if vm.gitBranch != nil { Text("·").foregroundColor(DS.Palette.textTertiary) }
-                Text(context)
-                    .font(DS.Font.caption2)
-                    .foregroundColor(DS.Palette.textSecondary)
-                    .lineLimit(1)
-            }
-        }
-        .layoutPriority(-1)
-        .accessibilityIdentifier("bots.desk.context")
     }
 }
 

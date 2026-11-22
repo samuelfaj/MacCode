@@ -3664,6 +3664,15 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             self?.botWorkspaceRunHooks?.runStarted(botID, runID, threadID)
         }
         agent.viewModel.openBotScreen = { [weak self] botID in self?.openBotGuestDesktopInNewWindow(botID) }
+        agent.viewModel.openBotStudio = { [weak self] botID in self?.openBotStudio(botID) }
+    }
+
+    /// The Bot header of an Agent App thread opens the same Studio as the Bots Desk.
+    func openBotStudio(_ botID: BotID) {
+        guard let bot = (try? context?.botStore.get(id: botID)) ?? nil else { return }
+        windowController?.presentBotsInMainContent()
+        windowController?.flushPendingRefresh()
+        botsViewModel?.openStudio(bot)
     }
 
     /// The bot VM hooks every Agent App that runs bot threads shares (Agent

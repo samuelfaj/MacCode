@@ -1623,7 +1623,9 @@ final class BotsWindowTests: XCTestCase {
         let rest = source[start.upperBound...]
         let end = rest.range(of: "\n    private func deskChat")?.lowerBound ?? rest.endIndex
         let slice = String(source[start.lowerBound..<end])
-        XCTAssertTrue(slice.contains("bots.desk.identity"))
+        XCTAssertTrue(slice.contains("BotChatHeaderIdentity("))
+        XCTAssertTrue(slice.contains("identifierPrefix: \"bots.desk\""))
+        XCTAssertTrue(slice.contains("onOpen: { vm.openStudio(bot) }"))
         XCTAssertTrue(slice.contains("gearshape"))
         XCTAssertFalse(slice.contains("Button(\"Studio\")"))
         let studio = slice.range(of: "bots.desk.studio")?.lowerBound
@@ -1795,9 +1797,14 @@ final class BotsWindowTests: XCTestCase {
         let rest = source[start.upperBound...]
         let end = rest.range(of: "\n    private func deskChat")?.lowerBound ?? rest.endIndex
         let slice = String(source[start.lowerBound..<end])
-        XCTAssertTrue(slice.contains("DS.Font.bodyStrong"))
-        XCTAssertTrue(slice.contains("size: 22"))
-        XCTAssertTrue(slice.contains(".frame(height: 44)"))
+        // Identity lives in the shared Bot chat header, mounted by the Desk.
+        let identity = try String(contentsOf: sourceURL("Sources/Surfaces/BotChatHeader.swift"), encoding: .utf8)
+        XCTAssertTrue(slice.contains("BotChatHeaderIdentity("))
+        XCTAssertTrue(identity.contains("DS.Font.bodyStrong"))
+        XCTAssertTrue(identity.contains("size: 22"))
+        XCTAssertFalse(identity.contains("DS.Font.title2"))
+        XCTAssertEqual(BotChatHeader.height, 44)
+        XCTAssertTrue(slice.contains(".frame(height: BotChatHeader.height)"))
         XCTAssertTrue(
             slice.contains("deskIdentityLeadingPadding"),
             "Desk identity must use the shared leading padding, not a sidebar-open gutter"
@@ -2043,11 +2050,12 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertTrue(source.contains("class BotDeskWindowController"))
         XCTAssertTrue(source.contains("BotsRootView(vm: vm)"))
         XCTAssertTrue(
-            slice.contains("HStack(spacing: Self.deskHeaderIconSpacing)"),
+            slice.contains("HStack(spacing: BotChatHeader.iconSpacing)"),
             "Studio / pop-out / inspector must cluster, not inherit the header's Space.md"
         )
+        let botHeader = try String(contentsOf: sourceURL("Sources/Surfaces/BotChatHeader.swift"), encoding: .utf8)
         XCTAssertTrue(
-            source.contains("DS.Space.xs - (DSIconButton.hitTargetSize - DSIconButton.visualSize.width)"),
+            botHeader.contains("DS.Space.xs - (DSIconButton.hitTargetSize - DSIconButton.visualSize.width)"),
             "Desk header glyphs must sit Space.xs apart like workspace header icons"
         )
     }
@@ -17282,11 +17290,13 @@ final class BotsWindowTests: XCTestCase {
             bots.contains("bots.desk.desktop.guestScreen"),
             "Docker GUI must expose the live screen in the inspector desktop pane"
         )
-        XCTAssertTrue(bots.contains("accessibilityIdentifier(\"bots.desk.name\")"))
-        XCTAssertTrue(bots.contains("accessibilityIdentifier(\"bots.desk.handle\")"))
-        XCTAssertTrue(bots.contains("accessibilityIdentifier(\"bots.desk.job\")"))
-        XCTAssertFalse(bots.contains("accessibilityIdentifier(\"bots.desk.provider\")"))
-        XCTAssertTrue(bots.contains("\"bots.desk.permission\""))
+        let botHeader = try String(contentsOf: sourceURL("Sources/Surfaces/BotChatHeader.swift"), encoding: .utf8)
+        XCTAssertTrue(bots.contains("identifierPrefix: \"bots.desk\""), "Desk mounts the shared Bot header identity")
+        XCTAssertTrue(botHeader.contains("accessibilityIdentifier(\"\\(identifierPrefix).name\")"))
+        XCTAssertTrue(botHeader.contains("accessibilityIdentifier(\"\\(identifierPrefix).handle\")"))
+        XCTAssertTrue(botHeader.contains("accessibilityIdentifier(\"\\(identifierPrefix).job\")"))
+        XCTAssertFalse(botHeader.contains("provider"))
+        XCTAssertTrue(botHeader.contains("accessibilityIdentifier(\"\\(identifierPrefix).permission\")"))
         XCTAssertTrue(bots.contains("accessibilityIdentifier(\"bots.desk.inspector\")"))
         XCTAssertTrue(bots.contains("bots.studio.tab.brain"))
         XCTAssertTrue(bots.contains("bots.desk.inspector.tab.brain"))
@@ -17846,29 +17856,33 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertEqual(BotsViewModel.displayName(long), long, "the view truncates; the name itself is never cut")
         XCTAssertEqual(BotsViewModel.deskComposerPlaceholder(botName: ""), "Message Untitled…")
 
-        let source = try String(contentsOf: sourceURL("Sources/AppShell/BotsWindow.swift"), encoding: .utf8)
-        let headerStart = try XCTUnwrap(source.range(of: "private func deskHeader"))
-        let headerRest = source[headerStart.upperBound...]
-        let headerEnd = headerRest.range(of: "\n    private func deskChat")?.lowerBound ?? headerRest.endIndex
-        let header = String(source[headerStart.lowerBound..<headerEnd])
-        let name = try XCTUnwrap(header.range(of: "Text(BotsViewModel.displayName(bot.name))"))
+        // The Desk and an Agent App Bot thread share one identity view.
+        XCTAssertEqual(BotChatHeader.height, 44)
+        let header = try String(contentsOf: sourceURL("Sources/Surfaces/BotChatHeader.swift"), encoding: .utf8)
+        let name = try XCTUnwrap(header.range(of: "Text(BotChatHeader.displayName(bot.name))"))
         let nameID = try XCTUnwrap(header.range(
-            of: ".accessibilityIdentifier(\"bots.desk.name\")",
+            of: ".accessibilityIdentifier(\"\\(identifierPrefix).name\")",
             range: name.upperBound..<header.endIndex
         ))
         let nameModifiers = String(header[name.lowerBound..<nameID.lowerBound])
         XCTAssertTrue(nameModifiers.contains(".lineLimit(1)"), "a 200-character name must stay inside the 44pt bar")
         XCTAssertTrue(nameModifiers.contains(".truncationMode(.tail)"))
         XCTAssertTrue(
-            nameModifiers.contains(".help(BotsViewModel.displayName(bot.name))"),
+            nameModifiers.contains(".help(BotChatHeader.displayName(bot.name))"),
             "the truncated name stays readable as a tooltip"
         )
-        XCTAssertTrue(header.contains(".frame(height: 44)"))
         XCTAssertTrue(
-            header.contains(".layoutPriority(1)"),
+            header.contains("status.layoutPriority(1)"),
             "the attention badge keeps its place when the name truncates"
         )
-        XCTAssertTrue(header.contains("L(\"Open Studio for %1$@\", BotsViewModel.displayName(bot.name))"))
+        XCTAssertTrue(header.contains("L(\"Open Studio for %1$@\", BotChatHeader.displayName(bot.name))"))
+        let source = try String(contentsOf: sourceURL("Sources/AppShell/BotsWindow.swift"), encoding: .utf8)
+        let deskStart = try XCTUnwrap(source.range(of: "private func deskHeader"))
+        let deskRest = source[deskStart.upperBound...]
+        let deskEnd = deskRest.range(of: "\n    private func deskChat")?.lowerBound ?? deskRest.endIndex
+        let desk = String(source[deskStart.lowerBound..<deskEnd])
+        XCTAssertTrue(desk.contains(".frame(height: BotChatHeader.height)"))
+        XCTAssertTrue(desk.contains("attentionBadge(vm.activityState(for: bot))"))
     }
 
     func test_rosterAndHeaderSubtitlesUseTextSecondary_becauseTertiaryIsUnreadableAt10pt() throws {
@@ -17885,10 +17899,10 @@ final class BotsWindowTests: XCTestCase {
             )
             return String(source[lower.lowerBound..<upper.upperBound])
         }
-        let bots = try String(contentsOf: sourceURL("Sources/AppShell/BotsWindow.swift"), encoding: .utf8)
+        let botHeader = try String(contentsOf: sourceURL("Sources/Surfaces/BotChatHeader.swift"), encoding: .utf8)
         let groups = try String(contentsOf: sourceURL("Sources/AppShell/BotsTeamsGroups.swift"), encoding: .utf8)
         let sites = [
-            try slice(bots, from: "Text(L(\"@%1$@\", bot.handle))", to: "\"bots.desk.permission\""),
+            try slice(botHeader, from: "Text(L(\"@%1$@\", bot.handle))", to: ".permission\")"),
             try slice(groups, from: "Text(L(\"%1$@ bots · %2$@\", members.count, group.policy.displayName))", to: ".lineLimit(1)"),
         ]
         for site in sites {
