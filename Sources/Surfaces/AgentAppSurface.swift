@@ -1661,6 +1661,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         timelineUpdateTickTask = nil
         softReselectDurableTask?.cancel()
         softReselectDurableTask = nil
+        // The thread open clears its own handle when it ends.
+        selectThreadHydrationTask?.cancel()
         threadDeletionUndoExpiryTask?.cancel()
         threadDeletionUndoExpiryTask = nil
         checkpointRevertUndoExpiryTask?.cancel()
@@ -3111,8 +3113,10 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             do {
                 let snapshot = try await self.providerThreadSnapshotEvents(threadId: id)
                 // Drop if the user switched threads OR a newer full open
-                // superseded this task (soft reselect does not bump gen).
-                guard self.selectedThreadId == id,
+                // superseded this task (soft reselect does not bump gen), or
+                // the view model was disposed during the provider read.
+                guard !self.isDisposed,
+                      self.selectedThreadId == id,
                       self.selectThreadOpenGeneration == openGeneration else {
                     Self.agentOpenTrace("deferred snapshot dropped stale gen=\(openGeneration)")
                     return
@@ -3157,7 +3161,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
                 self.rehydratePendingCallbacks(threadId: id)
                 self.lastErrorRecoverable = Self.displayedErrorIsRecoverable(in: replayEvents)
             } catch {
-                guard self.selectedThreadId == id,
+                guard !self.isDisposed,
+                      self.selectedThreadId == id,
                       self.selectThreadOpenGeneration == openGeneration else { return }
                 let threadHasProviderContext = self.threads.first(where: { $0.id == id })?.providerThreadId?.isEmpty == false
                     || !persistedEvents.isEmpty
@@ -3229,7 +3234,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             let started = try? coordinator.runStartedAt(threadId: threadId)
             let recoverable = coordinator.hasRecoverableContext(threadId: threadId)
             await MainActor.run {
-                guard let self,
+                guard let self, !self.isDisposed,
                       self.softReselectDurableGeneration == generation,
                       self.selectThreadOpenGeneration == openGeneration,
                       self.selectedThreadId == threadId else { return }
