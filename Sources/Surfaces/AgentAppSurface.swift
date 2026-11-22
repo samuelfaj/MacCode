@@ -1118,7 +1118,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     /// rematerialize uses this to take the full dictionary path after eviction
     /// that does not change `transcriptSignature`.
     private(set) var aggregateHotTextBudgetGeneration: UInt64 = 0
-    /// Bumped on dispose / thread switch so stale detached applies drop their commit.
+    /// Bumped on dispose, thread switch and open, and when the selected thread
+    /// is deleted, so stale detached applies drop their commit.
     private var streamApplyGeneration: UInt64 = 0
     /// Test-only: receives each quantum's finish instead of running it inline,
     /// so a test can land it later, like the production detached reduce.
@@ -2567,6 +2568,10 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         // Full open path — only when the selected thread actually changes.
         selectThreadOpenGeneration &+= 1
         let openGeneration = selectThreadOpenGeneration
+        // A quantum in flight was reduced from the leaving thread's timeline;
+        // drop it now, not one hop later at the open, so it cannot land here.
+        streamApplyGeneration &+= 1
+        streamApplyInFlight = false
         Self.agentOpenTrace(
             "full open gen=\(openGeneration) thread=\(id.value.uuidString.prefix(8)) status=\(selectedThread.status.rawValue) markRead=\(markRead) hasUnread=\(selectedThread.hasUnread) updatedAt=\(selectedThread.updatedAt.timeIntervalSince1970)"
         )
@@ -7882,6 +7887,9 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         evictThreadCaches(ids)
         if wasSelected {
             self.selectedThreadId = nil
+            // An in-flight quantum of the deleted thread must not land here.
+            streamApplyGeneration &+= 1
+            streamApplyInFlight = false
         messages = []
         messageHistoryIsPartial = false
         messagePageLoadState = .idle
@@ -7938,6 +7946,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         timeline = AssistantTimelineState()
         resetTimelineUpdateTick()
         _ = streamEventBatch.drain()
+        streamApplyGeneration &+= 1
+        streamApplyInFlight = false
         streamUIBackpressured = false
         streamAggregateBudgetOps = 0
         historyReplayNotice = nil
