@@ -64,7 +64,8 @@ final class AgentAppStreamQuantumGenerationTests: XCTestCase {
     /// Lands every captured finish, oldest first, until the chain is idle.
     private func landAll() async {
         var idleRounds = 0
-        while idleRounds < 5 {
+        // A committed quantum schedules the next flush after a 4 ms gap.
+        while idleRounds < 20 {
             if finishes.isEmpty {
                 idleRounds += 1
                 try? await Task.sleep(for: .milliseconds(10))
