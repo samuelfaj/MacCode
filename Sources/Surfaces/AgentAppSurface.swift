@@ -1658,6 +1658,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         timelineUpdateTickTask = nil
         softReselectDurableTask?.cancel()
         softReselectDurableTask = nil
+        // The thread open clears its own handle when it ends.
+        selectThreadHydrationTask?.cancel()
         threadDeletionUndoExpiryTask?.cancel()
         threadDeletionUndoExpiryTask = nil
         checkpointRevertUndoExpiryTask?.cancel()
