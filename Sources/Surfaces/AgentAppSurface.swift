@@ -3231,7 +3231,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             let started = try? coordinator.runStartedAt(threadId: threadId)
             let recoverable = coordinator.hasRecoverableContext(threadId: threadId)
             await MainActor.run {
-                guard let self,
+                guard let self, !self.isDisposed,
                       self.softReselectDurableGeneration == generation,
                       self.selectThreadOpenGeneration == openGeneration,
                       self.selectedThreadId == threadId else { return }
