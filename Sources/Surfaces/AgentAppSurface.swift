@@ -1118,7 +1118,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     /// rematerialize uses this to take the full dictionary path after eviction
     /// that does not change `transcriptSignature`.
     private(set) var aggregateHotTextBudgetGeneration: UInt64 = 0
-    /// Bumped on dispose / thread switch so stale detached applies drop their commit.
+    /// Bumped on dispose, thread switch and open, and when the selected thread
+    /// is deleted, so stale detached applies drop their commit.
     private var streamApplyGeneration: UInt64 = 0
     /// Test-only: receives each quantum's finish instead of running it inline,
     /// so a test can land it later, like the production detached reduce.

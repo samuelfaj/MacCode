@@ -212,7 +212,6 @@ final class AgentAppStreamQuantumGenerationTests: XCTestCase {
         let turns = try await transcriptAfterClearingSelection { vm, thread, repo in
             try repo.delete(id: thread.id)
             vm.reloadThreads()
-            for _ in 0..<200 where vm.selectedThreadId != nil { await Task.yield() }
         }
         XCTAssertEqual(turns, [], "the removed thread's turns must not reappear")
     }
