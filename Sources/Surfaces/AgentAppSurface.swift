@@ -7886,6 +7886,9 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         evictThreadCaches(ids)
         if wasSelected {
             self.selectedThreadId = nil
+            // An in-flight quantum of the deleted thread must not land here.
+            streamApplyGeneration &+= 1
+            streamApplyInFlight = false
         messages = []
         messageHistoryIsPartial = false
         messagePageLoadState = .idle
@@ -7942,6 +7945,8 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         timeline = AssistantTimelineState()
         resetTimelineUpdateTick()
         _ = streamEventBatch.drain()
+        streamApplyGeneration &+= 1
+        streamApplyInFlight = false
         streamUIBackpressured = false
         streamAggregateBudgetOps = 0
         historyReplayNotice = nil

@@ -162,7 +162,9 @@ final class AgentAppStreamQuantumGenerationTests: XCTestCase {
         XCTAssertEqual(finishes.count, 1, "precondition: the previous thread's quantum is in flight")
 
         vm.selectThread(opened.id)
-        finishes.removeFirst()()
+        let leaving = try XCTUnwrap(finishes.first)
+        finishes.removeFirst()
+        leaving()
         await vm.waitForSelectThreadHydrationForTesting()
         await landAll()
 
@@ -171,5 +173,47 @@ final class AgentAppStreamQuantumGenerationTests: XCTestCase {
             vm.timeline.turns.map(\.turnId), [],
             "the opened thread must not show the previous thread's turns"
         )
+    }
+
+    /// Lands the open thread's in-flight quantum after `clearSelection` and
+    /// returns the transcript the fresh composer shows.
+    private func transcriptAfterClearingSelection(
+        _ clearSelection: (AgentAppViewModel, AgentThread, AgentThreadRepository) async throws -> Void
+    ) async throws -> [String] {
+        let (vm, repo) = try makeVM()
+        defer { vm.dispose() }
+        let thread = try makeThread(vm, repo, title: "doomed")
+        await open(vm, thread)
+        vm.streamQuantumFinishForTesting = { [unowned self] finish in finishes.append(finish) }
+        pump(vm, thread, turnId: "doomed-live")
+        await settle()
+        let inFlight = try XCTUnwrap(finishes.first, "precondition: the thread's quantum is in flight")
+        finishes.removeFirst()
+
+        try await clearSelection(vm, thread, repo)
+        XCTAssertNil(vm.selectedThreadId, "precondition: no thread is selected")
+        inFlight()
+        await landAll()
+        return vm.timeline.turns.map(\.turnId)
+    }
+
+    func test_deletingTheLastThread_keepsItsInFlightQuantumOut() async throws {
+        // WHY: deleting the open thread leaves the fresh composer; a quantum of
+        // the deleted thread that lands after it must not paint its transcript.
+        let turns = try await transcriptAfterClearingSelection { vm, thread, _ in
+            _ = await vm.deleteThread(thread.id)
+        }
+        XCTAssertEqual(turns, [], "the deleted thread's turns must not reappear")
+    }
+
+    func test_threadRemovedElsewhere_keepsItsInFlightQuantumOut() async throws {
+        // Same for a thread that disappears outside the delete flow (rail
+        // reload finds it gone, e.g. pruned or deleted from another surface).
+        let turns = try await transcriptAfterClearingSelection { vm, thread, repo in
+            try repo.delete(id: thread.id)
+            vm.reloadThreads()
+            for _ in 0..<200 where vm.selectedThreadId != nil { await Task.yield() }
+        }
+        XCTAssertEqual(turns, [], "the removed thread's turns must not reappear")
     }
 }
