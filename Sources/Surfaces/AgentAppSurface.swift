@@ -2567,6 +2567,10 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         // Full open path — only when the selected thread actually changes.
         selectThreadOpenGeneration &+= 1
         let openGeneration = selectThreadOpenGeneration
+        // A quantum in flight was reduced from the leaving thread's timeline;
+        // drop it now, not one hop later at the open, so it cannot land here.
+        streamApplyGeneration &+= 1
+        streamApplyInFlight = false
         Self.agentOpenTrace(
             "full open gen=\(openGeneration) thread=\(id.value.uuidString.prefix(8)) status=\(selectedThread.status.rawValue) markRead=\(markRead) hasUnread=\(selectedThread.hasUnread) updatedAt=\(selectedThread.updatedAt.timeIntervalSince1970)"
         )

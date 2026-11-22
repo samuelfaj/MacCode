@@ -142,4 +142,34 @@ final class AgentAppStreamQuantumGenerationTests: XCTestCase {
         await landAll()
         XCTAssertEqual(vm.timeline.turns.map(\.turnId), ["second", "third"])
     }
+
+    func test_leavingThreadsQuantum_landingBeforeTheOpen_staysOutOfTheOpenedThread() async throws {
+        // WHY: a quantum is reduced from the thread that was selected when it
+        // started. If it lands after the user picked another thread but before
+        // that thread's open bumps the generation (one main-queue hop later),
+        // it replaces the opened thread's timeline with the previous thread's,
+        // and the open then keeps those turns as "painted during the open":
+        // the opened thread shows another thread's transcript.
+        let (vm, repo) = try makeVM()
+        defer { vm.dispose() }
+        let previous = try makeThread(vm, repo, title: "previous")
+        let opened = try makeThread(vm, repo, title: "opened")
+        await open(vm, previous)
+        vm.streamQuantumFinishForTesting = { [unowned self] finish in finishes.append(finish) }
+
+        pump(vm, previous, turnId: "previous-live")
+        await settle()
+        XCTAssertEqual(finishes.count, 1, "precondition: the previous thread's quantum is in flight")
+
+        vm.selectThread(opened.id)
+        finishes.removeFirst()()
+        await vm.waitForSelectThreadHydrationForTesting()
+        await landAll()
+
+        XCTAssertEqual(vm.selectedThreadId, opened.id)
+        XCTAssertEqual(
+            vm.timeline.turns.map(\.turnId), [],
+            "the opened thread must not show the previous thread's turns"
+        )
+    }
 }
