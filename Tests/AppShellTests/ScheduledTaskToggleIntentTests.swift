@@ -25,10 +25,15 @@ final class ScheduledTaskToggleIntentTests: XCTestCase {
         let router: AppCommandRouter
         let store: ScheduledTaskStore
         let task: ScheduledTask
+        /// Created by the sign-in probe when it starts.
+        let probeStarted: URL
+        /// The probe reports a login once this exists (or after 5 s).
+        let probeRelease: URL
     }
 
-    /// A paused codex task whose preflight succeeds after ~0.4 s: the sign-in
-    /// probe runs a stand-in `codex` that sleeps, then reports a login.
+    /// A paused codex task whose preflight passes when the test releases it:
+    /// the sign-in probe runs a stand-in `codex` that signals its start,
+    /// waits for the release file, then reports a login.
     private func makePausedTask() async throws -> Fixture {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("RC2ScheduleToggle-\(UUID().uuidString)", isDirectory: true)
@@ -36,8 +41,16 @@ final class ScheduledTaskToggleIntentTests: XCTestCase {
         try FileManager.default.createDirectory(at: workspaceDir, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         let slowCodex = root.appendingPathComponent("codex")
-        try "#!/bin/sh\nsleep 0.4\necho 'Logged in using ChatGPT'\n"
-            .write(to: slowCodex, atomically: true, encoding: .utf8)
+        let probeStarted = root.appendingPathComponent("probe-started")
+        let probeRelease = root.appendingPathComponent("probe-release")
+        try """
+        #!/bin/sh
+        touch '\(probeStarted.path)'
+        i=0
+        while [ ! -f '\(probeRelease.path)' ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+        echo 'Logged in using ChatGPT'
+
+        """.write(to: slowCodex, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: slowCodex.path)
 
         let context = try AppContext(channel: .debug, appSupportOverride: root.appendingPathComponent("support").path)
@@ -69,7 +82,30 @@ final class ScheduledTaskToggleIntentTests: XCTestCase {
         let task = try draft.makeTask()
         let store = ScheduledTaskStore(db: context.db)
         try store.save(task)
-        return Fixture(context: context, router: router, store: store, task: task)
+        return Fixture(context: context, router: router, store: store, task: task,
+                       probeStarted: probeStarted, probeRelease: probeRelease)
+    }
+
+    private func waitForProbeStart(_ fixture: Fixture) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while !FileManager.default.fileExists(atPath: fixture.probeStarted.path), Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.probeStarted.path), "Resume must be checking the provider")
+    }
+
+    private func releaseProbe(_ fixture: Fixture) {
+        FileManager.default.createFile(atPath: fixture.probeRelease.path, contents: Data())
+    }
+
+    /// Waits up to `seconds` for the window row to read `enabled`.
+    private func waitForRow(_ vm: ScheduledTasksViewModel, _ fixture: Fixture, enabled: Bool, seconds: Double) async throws -> Bool? {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if vm.tasks.first(where: { $0.id == fixture.task.id })?.isEnabled == enabled { return enabled }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return vm.tasks.first { $0.id == fixture.task.id }?.isEnabled
     }
 
     private func storedEnabled(_ fixture: Fixture) throws -> Bool {
@@ -90,6 +126,7 @@ final class ScheduledTaskToggleIntentTests: XCTestCase {
         // Control: the fixture's preflight really passes, so the race test
         // below is not green just because Resume always fails.
         let fixture = try await makePausedTask()
+        releaseProbe(fixture)
         let vm = ScheduledTasksViewModel(context: fixture.context, router: fixture.router)
         vm.toggle(try XCTUnwrap(vm.tasks.first { $0.id == fixture.task.id }))
         let enabled = try await waitForStoredEnable(fixture, seconds: 5)
@@ -100,10 +137,12 @@ final class ScheduledTaskToggleIntentTests: XCTestCase {
         let fixture = try await makePausedTask()
         let vm = ScheduledTasksViewModel(context: fixture.context, router: fixture.router)
         vm.toggle(try XCTUnwrap(vm.tasks.first { $0.id == fixture.task.id }))
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await waitForProbeStart(fixture)
         let resumedRow = try XCTUnwrap(vm.tasks.first { $0.id == fixture.task.id })
         XCTAssertTrue(resumedRow.isEnabled, "Resume flips the row at once")
+        XCTAssertFalse(try storedEnabled(fixture), "the Pause lands while Resume is still checking")
         vm.toggle(resumedRow)
+        releaseProbe(fixture)
 
         let enabled = try await waitForStoredEnable(fixture, seconds: 1.5)
         XCTAssertFalse(enabled, "the earlier Resume must not enable a task the user paused after it")
@@ -116,12 +155,30 @@ final class ScheduledTaskToggleIntentTests: XCTestCase {
         let resume = Task { @MainActor in
             try await fixture.router.enableScheduledTaskRemote(id: fixture.task.id, enabled: true)
         }
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await waitForProbeStart(fixture)
         _ = try await fixture.router.enableScheduledTaskRemote(id: fixture.task.id, enabled: false)
+        releaseProbe(fixture)
         let resumeResult = try await resume.value
 
         XCTAssertFalse(try storedEnabled(fixture), "the iPhone's later Pause must win over its earlier Resume")
         XCTAssertEqual(resumeResult.objectValue?["enabled"]?.boolValue, false,
                        "the superseded Resume reports the state that was kept")
+    }
+
+    func test_iPhonePauseWhileTheWindowResumesLeavesTheRowPaused() async throws {
+        // The window flips the row to Active on Resume; when the iPhone's
+        // Pause supersedes it, the row must show the stored Paused state, not
+        // stay Active over a paused task.
+        let fixture = try await makePausedTask()
+        let vm = ScheduledTasksViewModel(context: fixture.context, router: fixture.router)
+        vm.toggle(try XCTUnwrap(vm.tasks.first { $0.id == fixture.task.id }))
+        try await waitForProbeStart(fixture)
+        _ = try await fixture.router.enableScheduledTaskRemote(id: fixture.task.id, enabled: false)
+        releaseProbe(fixture)
+
+        let row = try await waitForRow(vm, fixture, enabled: false, seconds: 3)
+        XCTAssertEqual(row, false, "the row must follow the iPhone's Pause")
+        XCTAssertFalse(try storedEnabled(fixture))
+        XCTAssertNil(vm.errorMessage)
     }
 }
