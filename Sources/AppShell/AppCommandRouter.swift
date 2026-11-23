@@ -3122,6 +3122,8 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
 
     /// In-process schedule owner (main app). Run Now / ticks call this instead of XPC.
     public weak var scheduledTaskScheduler: ScheduledTaskScheduler?
+    /// Latest Resume/Pause per scheduled task, from the Mac window or the iPhone.
+    var scheduledTaskEnableIntents: [UUID: UInt64] = [:]
 
     /// Fork, side and plan-implementation branch a pinned thread into another thread, which the pin does not authorize.
     private static func refuseContextPinnedGenericExecution(_ threadID: AgentThreadID, context ctx: AppContext) throws {

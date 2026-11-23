@@ -386,6 +386,7 @@ public final class ScheduledTasksViewModel: ObservableObject {
     }
 
     public func toggle(_ task: ScheduledTask) {
+        let intent = router.beginScheduledTaskEnableIntent(task.id)
         // Flip the row first; each failure path below reverts it and reports the error.
         setTaskEnabledLocally(task.id, !task.isEnabled)
         if task.isEnabled {
@@ -402,11 +403,14 @@ public final class ScheduledTasksViewModel: ObservableObject {
             guard let self else { return }
             do {
                 _ = try await ScheduledTaskExecutor(context: context, router: router).preflight(task)
+                // A later Pause/Resume owns the row now.
+                guard router.isCurrentScheduledTaskEnableIntent(task.id, intent) else { return }
                 let next = task.calculatedNextRun(after: Date().addingTimeInterval(-0.001))
                 try store.setEnabled(id: task.id, enabled: true, nextRunAt: next)
                 router.scheduledTaskScheduler?.tick()
                 reloadTasks()
             } catch {
+                guard router.isCurrentScheduledTaskEnableIntent(task.id, intent) else { return }
                 setTaskEnabledLocally(task.id, false)
                 errorMessage = String(describing: error)
             }

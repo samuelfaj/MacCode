@@ -233,13 +233,31 @@ extension AppCommandRouter {
         return .object(["deleted": .bool(true), "task_id": .string(id.uuidString.lowercased())])
     }
 
+    /// Starts a Resume/Pause for `id`; any earlier one stops being current.
+    func beginScheduledTaskEnableIntent(_ id: UUID) -> UInt64 {
+        let intent = (scheduledTaskEnableIntents[id] ?? 0) &+ 1
+        scheduledTaskEnableIntents[id] = intent
+        return intent
+    }
+
+    /// False once a later Resume/Pause for `id` started: Resume's preflight
+    /// awaits, and a Pause sent meanwhile must not be overwritten.
+    func isCurrentScheduledTaskEnableIntent(_ id: UUID, _ intent: UInt64) -> Bool {
+        scheduledTaskEnableIntents[id] == intent
+    }
+
     public func enableScheduledTaskRemote(id: UUID, enabled: Bool) async throws -> JSONValue {
         guard let context else { throw JSONRPCError.internalError }
         let store = ScheduledTaskStore(db: context.db)
         guard let task = try store.get(id: id) else { throw JSONRPCError(code: -32044, message: "This scheduled task no longer exists.") }
+        let intent = beginScheduledTaskEnableIntent(id)
         if enabled {
             do { _ = try await ScheduledTaskExecutor(context: context, router: self).preflight(task) } catch {
                 throw JSONRPCError(code: -32602, message: String(describing: error))
+            }
+            guard isCurrentScheduledTaskEnableIntent(id, intent) else {
+                let kept = try store.get(id: id)?.isEnabled ?? false
+                return .object(["task_id": .string(id.uuidString.lowercased()), "enabled": .bool(kept)])
             }
             try store.setEnabled(id: id, enabled: true, nextRunAt: task.calculatedNextRun(after: Date().addingTimeInterval(-0.001)))
             scheduledTaskScheduler?.tick()
