@@ -1427,20 +1427,21 @@ public final class JSONRPCDispatcher {
         activeConnectionSnapshotRead = nil
     }
 
-    /// Git mutations run one at a time in arrival order, as they did while git
-    /// blocked the main actor: commit is two processes (`add -A`, `commit`),
-    /// and a retried commit/push must find the first request's receipt.
-    private var gitMutationTail: Task<Void, Never>?
+    /// Git mutations run one at a time in arrival order across every
+    /// dispatcher (the Unix socket and HTTP each own one): commit is two
+    /// processes (`add -A`, `commit`), and a retried commit/push must find
+    /// the first request's receipt.
+    private static var gitMutationTail: Task<Void, Never>?
 
     private func serializedGitMutation(
         _ body: @escaping @MainActor () async throws -> JSONRPCResponse
     ) async throws -> JSONRPCResponse {
-        let previous = gitMutationTail
+        let previous = Self.gitMutationTail
         let task = Task { @MainActor in
             await previous?.value
             return try await body()
         }
-        gitMutationTail = Task { _ = try? await task.value }
+        Self.gitMutationTail = Task { _ = try? await task.value }
         return try await task.value
     }
 

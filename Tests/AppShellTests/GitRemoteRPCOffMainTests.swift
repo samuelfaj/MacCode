@@ -67,6 +67,7 @@ final class GitRemoteRPCOffMainTests: XCTestCase {
             ("git.fetch", ["workspace_id": workspaceID]),
             ("git.pull", ["workspace_id": workspaceID]),
             ("git.push", ["workspace_id": workspaceID]),
+            ("git.deliver", ["workspace_id": workspaceID]),
         ]
         for (index, (method, params)) in requests.enumerated() {
             var mainTurnAt: Date?
@@ -108,12 +109,15 @@ final class GitRemoteRPCOffMainTests: XCTestCase {
     /// A client that times out and retries a slow commit with the same
     /// client_request_id must get the first commit's receipt, not a second
     /// run (which would report "nothing to commit" for a commit that landed).
+    /// The retry arrives on another dispatcher: the Unix socket and HTTP
+    /// servers each own one over the same router.
     func test_retriedCommitWhileTheFirstRunsReturnsItsReceiptAndCommitsOnce() async throws {
         let hook = repo.appendingPathComponent(".git/hooks/pre-commit")
         try "#!/bin/sh\nsleep 1\n".write(to: hook, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
         try "one\ntwo\n".write(to: repo.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
-        let (_, dispatcher, workspaceID) = try makeDispatcher()
+        let (ctx, dispatcher, workspaceID) = try makeDispatcher()
+        let otherDispatcher = JSONRPCDispatcher(router: try XCTUnwrap(ctx.router))
         let params: [String: JSONValue] = [
             "workspace_id": workspaceID,
             "message": .string("retried"),
@@ -122,7 +126,7 @@ final class GitRemoteRPCOffMainTests: XCTestCase {
 
         async let first = dispatcher.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(1), method: "git.commit", params: params))
         try await Task.sleep(nanoseconds: 300_000_000)
-        async let retry = dispatcher.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(2), method: "git.commit", params: params))
+        async let retry = otherDispatcher.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(2), method: "git.commit", params: params))
         let (firstResponse, retryResponse) = await (first, retry)
 
         XCTAssertEqual(firstResponse.result?.objectValue?["ok"], .bool(true))
