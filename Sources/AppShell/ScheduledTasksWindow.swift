@@ -202,7 +202,17 @@ public final class ScheduledTasksViewModel: ObservableObject {
         if loadImmediately {
             reload()
         }
+        // Writes from elsewhere (the iPhone's Resume/Pause, scheduled runs)
+        // change rows this window shows; it does not see them otherwise.
+        storeChangeObserver = ScheduledTaskCrossProcess.observeStoreChanged { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isVisible else { return }
+                self.reloadTasksOrDefer()
+            }
+        }
     }
+
+    private var storeChangeObserver: NSObjectProtocol?
 
     deinit {
         freshnessTask?.cancel()
@@ -210,6 +220,7 @@ public final class ScheduledTasksViewModel: ObservableObject {
         runsRefreshTask?.cancel()
         activeRunPollTask?.cancel()
         navigationTask?.cancel()
+        if let storeChangeObserver { ScheduledTaskCrossProcess.removeObserver(storeChangeObserver) }
     }
 
     private static func waitForCommittedFrame() async {

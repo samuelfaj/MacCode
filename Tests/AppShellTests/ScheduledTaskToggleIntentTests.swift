@@ -181,4 +181,25 @@ final class ScheduledTaskToggleIntentTests: XCTestCase {
         XCTAssertFalse(try storedEnabled(fixture))
         XCTAssertNil(vm.errorMessage)
     }
+
+    func test_iPhoneResumeWhileTheWindowResumesLeavesTheRowActive() async throws {
+        // The window's Resume is superseded by the iPhone's Resume, which
+        // writes after the window gave up: the row must end Active like the
+        // store, not Paused from the window's earlier reload.
+        let fixture = try await makePausedTask()
+        let vm = ScheduledTasksViewModel(context: fixture.context, router: fixture.router)
+        vm.toggle(try XCTUnwrap(vm.tasks.first { $0.id == fixture.task.id }))
+        try await waitForProbeStart(fixture)
+        let remoteResume = Task { @MainActor in
+            try await fixture.router.enableScheduledTaskRemote(id: fixture.task.id, enabled: true)
+        }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        releaseProbe(fixture)
+        _ = try await remoteResume.value
+
+        XCTAssertTrue(try storedEnabled(fixture), "the iPhone's Resume is the latest intent")
+        let row = try await waitForRow(vm, fixture, enabled: true, seconds: 3)
+        XCTAssertEqual(row, true, "the row must show the task the iPhone resumed as Active")
+        XCTAssertNil(vm.errorMessage)
+    }
 }
