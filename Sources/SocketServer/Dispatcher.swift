@@ -145,8 +145,9 @@ public protocol CommandRouting: AnyObject {
     func openAgentApp(workspace: WorkspaceID) throws -> SurfaceDescriptor
     func activityList(params: [String: JSONValue]) throws -> JSONValue
     func activityListOffMain(params: [String: JSONValue]) async throws -> JSONValue
-    func activitySetViewed(params: [String: JSONValue]) throws -> JSONValue
-    func activityAcknowledge(params: [String: JSONValue]) throws -> JSONValue
+    /// Async: the write waits for the database lock; the dispatcher is MainActor.
+    func activitySetViewed(params: [String: JSONValue]) async throws -> JSONValue
+    func activityAcknowledge(params: [String: JSONValue]) async throws -> JSONValue
     /// `scheduled_task.*`: Schedule Tasks for the paired iPhone (capability `agent.scheduled_tasks_v1`).
     func listScheduledTasksRemote() throws -> JSONValue
     func saveScheduledTaskRemote(params: [String: JSONValue]) async throws -> JSONValue
@@ -4640,9 +4641,9 @@ public final class JSONRPCDispatcher {
             case "agent.activity.list":
                 return .init(id: id, result: try await router.activityListOffMain(params: params))
             case "agent.activity.viewed.set":
-                return .init(id: id, result: try router.activitySetViewed(params: params))
+                return .init(id: id, result: try await router.activitySetViewed(params: params))
             case "agent.activity.acknowledge":
-                return .init(id: id, result: try router.activityAcknowledge(params: params))
+                return .init(id: id, result: try await router.activityAcknowledge(params: params))
             case "scheduled_task.list":
                 return .init(id: id, result: try router.listScheduledTasksRemote())
             case "scheduled_task.save":

@@ -154,8 +154,8 @@ struct ActivityClient {
 
     init(router: AppCommandRouter) {
         list = { try await router.activityListOffMain(params: $0) }
-        setViewed = { try await router.activitySetViewedOffMain(params: $0) }
-        acknowledge = { try await router.activityAcknowledgeOffMain(params: $0) }
+        setViewed = { try await router.activitySetViewed(params: $0) }
+        acknowledge = { try await router.activityAcknowledge(params: $0) }
     }
 
     init(

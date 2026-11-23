@@ -10446,16 +10446,8 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         Task.detached(priority: .utility) { _ = try? await gateway.activityCounts(service: service) }
     }
 
-    public func activitySetViewed(params: [String: JSONValue]) throws -> JSONValue {
-        guard let context else { throw LayoutError.workspaceNotFound }
-        let result = try ActivityService(context: context).setViewed(params)
-        observeActivityChangesOffMain(context)
-        publishActivityViewed(result)
-        return result
-    }
-
     /// The write runs off the main actor; events and observers fire on main after it succeeds.
-    public func activitySetViewedOffMain(params: [String: JSONValue]) async throws -> JSONValue {
+    public func activitySetViewed(params: [String: JSONValue]) async throws -> JSONValue {
         guard let context else { throw LayoutError.workspaceNotFound }
         let service = ActivityService(context: context)
         let result = try await Task.detached(priority: .userInitiated) { try service.setViewed(params) }.value
@@ -10475,16 +10467,8 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         }
     }
 
-    public func activityAcknowledge(params: [String: JSONValue]) throws -> JSONValue {
-        guard let context else { throw LayoutError.workspaceNotFound }
-        let result = try ActivityService(context: context).acknowledge(params)
-        observeActivityChangesOffMain(context)
-        publishActivityAcknowledged(result)
-        return result
-    }
-
     /// The write runs off the main actor; events and observers fire on main after it succeeds.
-    public func activityAcknowledgeOffMain(params: [String: JSONValue]) async throws -> JSONValue {
+    public func activityAcknowledge(params: [String: JSONValue]) async throws -> JSONValue {
         guard let context else { throw LayoutError.workspaceNotFound }
         let service = ActivityService(context: context)
         let result = try await Task.detached(priority: .userInitiated) { try service.acknowledge(params) }.value
