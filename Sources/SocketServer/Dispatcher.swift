@@ -464,8 +464,8 @@ public extension CommandRouting {
     func captureHostBrowserToChat(callerThread: AgentThreadID, surface: SurfaceID?, reason: String) throws -> JSONValue { throw JSONRPCError.notSupported("host.browser.screenshot") }
     func postChatImages(callerThread: AgentThreadID, paths: [String], caption: String?) throws -> JSONValue { throw JSONRPCError.notSupported("host.chat.image") }
     func activityListOffMain(params: [String: JSONValue]) async throws -> JSONValue { try activityList(params: params) }
-    func activitySetViewed(params: [String: JSONValue]) throws -> JSONValue { throw JSONRPCError.notSupported("agent.activity.viewed.set") }
-    func activityAcknowledge(params: [String: JSONValue]) throws -> JSONValue { throw JSONRPCError.notSupported("agent.activity.acknowledge") }
+    func activitySetViewed(params: [String: JSONValue]) async throws -> JSONValue { throw JSONRPCError.notSupported("agent.activity.viewed.set") }
+    func activityAcknowledge(params: [String: JSONValue]) async throws -> JSONValue { throw JSONRPCError.notSupported("agent.activity.acknowledge") }
     func listScheduledTasksRemote() throws -> JSONValue { throw JSONRPCError.notSupported("scheduled_task.list") }
     func saveScheduledTaskRemote(params: [String: JSONValue]) async throws -> JSONValue { throw JSONRPCError.notSupported("scheduled_task.save") }
     func deleteScheduledTaskRemote(id: UUID) throws -> JSONValue { throw JSONRPCError.notSupported("scheduled_task.delete") }

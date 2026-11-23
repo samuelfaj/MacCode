@@ -10446,11 +10446,27 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         Task.detached(priority: .utility) { _ = try? await gateway.activityCounts(service: service) }
     }
 
+    /// Activity writes commit in call order, as they did on the main actor:
+    /// a later "viewed"/undo for the same item must not land first.
+    private var activityWriteTail: Task<Void, Never>?
+
+    private func serializedActivityWrite(
+        _ work: @escaping @Sendable () throws -> JSONValue
+    ) async throws -> JSONValue {
+        let previous = activityWriteTail
+        let task = Task.detached(priority: .userInitiated) {
+            await previous?.value
+            return try work()
+        }
+        activityWriteTail = Task { _ = try? await task.value }
+        return try await task.value
+    }
+
     /// The write runs off the main actor; events and observers fire on main after it succeeds.
     public func activitySetViewed(params: [String: JSONValue]) async throws -> JSONValue {
         guard let context else { throw LayoutError.workspaceNotFound }
         let service = ActivityService(context: context)
-        let result = try await Task.detached(priority: .userInitiated) { try service.setViewed(params) }.value
+        let result = try await serializedActivityWrite { try service.setViewed(params) }
         observeActivityChangesOffMain(context)
         publishActivityViewed(result)
         return result
@@ -10471,7 +10487,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     public func activityAcknowledge(params: [String: JSONValue]) async throws -> JSONValue {
         guard let context else { throw LayoutError.workspaceNotFound }
         let service = ActivityService(context: context)
-        let result = try await Task.detached(priority: .userInitiated) { try service.acknowledge(params) }.value
+        let result = try await serializedActivityWrite { try service.acknowledge(params) }
         observeActivityChangesOffMain(context)
         publishActivityAcknowledged(result)
         return result

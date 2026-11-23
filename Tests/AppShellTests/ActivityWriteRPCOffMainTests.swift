@@ -57,6 +57,53 @@ final class ActivityWriteRPCOffMainTests: XCTestCase {
             let mainRan = try XCTUnwrap(mainTurnAt, "\(method) held the main thread until the database was free")
             XCTAssertLessThan(mainRan, answeredAt, "\(method) must leave the main thread free while it waits")
         }
+    }
+
+    func test_activityWritesCommitInTheOrderTheyWereSent() async throws {
+        // Off the main actor, writes queued behind a busy database must still
+        // commit in arrival order: the last viewed/unviewed request wins.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RC2ActivityWriteOrder-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ctx = try AppContext(channel: .debug, appSupportOverride: root.appendingPathComponent("support").path)
+        let router = AppCommandRouter(context: ctx)
+        ctx.router = router
+        let thread = AgentThread(workspaceId: nil, title: "done", provider: .codex, model: "m")
+        try ctx.threadRepo.upsert(thread)
+        let run = AgentRun(threadId: thread.id, provider: .codex, model: "m", status: .completed, startedAt: Date(), finishedAt: Date())
+        try ctx.runRepo.upsert(run)
+        let itemID = "run:\(run.id.description)"
+        let dispatcher = JSONRPCDispatcher(router: router)
+
+        for round in 0..<5 {
+            let writerHolds = expectation(description: "writer holds the lock")
+            let db = ctx.db
+            Thread.detachNewThread {
+                try? db.transaction {
+                    writerHolds.fulfill()
+                    Thread.sleep(forTimeInterval: 0.2)
+                }
+            }
+            await fulfillment(of: [writerHolds], timeout: 2)
+            let count = 12
+            var requests: [Task<JSONRPCResponse, Never>] = []
+            for index in 0..<count {
+                requests.append(Task { @MainActor in
+                    await dispatcher.dispatch(JSONRPCRequest(
+                        jsonrpc: "2.0", id: .number(index), method: "agent.activity.viewed.set",
+                        params: ["item_ids": .array([.string(itemID)]), "viewed": .bool(index % 2 == 0)]
+                    ))
+                })
+                await Task.yield()
+            }
+            for request in requests { _ = await request.value }
+            let lastViewed = (count - 1) % 2 == 0
+            let page = try ActivityService(context: ctx).list(["limit": .number(10)])
+            let item = try XCTUnwrap(page.objectValue?["items"]?.arrayValue?.first { $0.objectValue?["id"] == .string(itemID) }?.objectValue)
+            let viewed = item["viewed_at"].map { $0 != .null } ?? false
+            XCTAssertEqual(viewed, lastViewed, "round \(round): the last request (viewed: \(lastViewed)) must win")
+        }
 
     }
 }
