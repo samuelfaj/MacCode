@@ -290,6 +290,8 @@ public protocol CommandRouting: AnyObject {
     func revertAgentThreadToCheckpoint(thread: AgentThreadID, checkpointTurnCount: Int) async throws -> AgentTurnCheckpointSummary
     func stopAgentRun(thread: AgentThreadID) throws
     func activeAgentRun(thread: AgentThreadID) throws -> AgentActiveRunSnapshot?
+    /// `activeAgentRun` for each thread, read off the main actor (agent.thread.list).
+    func activeAgentRunsOffMain(threads: [AgentThreadID]) async -> [AgentThreadID: AgentActiveRunSnapshot]
     func activeAgentDelegation(
         thread: AgentThreadID,
         run: AgentRunID
@@ -543,6 +545,14 @@ public extension CommandRouting {
 
     func activeAgentRun(thread: AgentThreadID) throws -> AgentActiveRunSnapshot? {
         nil
+    }
+
+    func activeAgentRunsOffMain(threads: [AgentThreadID]) async -> [AgentThreadID: AgentActiveRunSnapshot] {
+        var runs: [AgentThreadID: AgentActiveRunSnapshot] = [:]
+        for thread in threads {
+            if let active = try? activeAgentRun(thread: thread) { runs[thread] = active }
+        }
+        return runs
     }
 
     func activeAgentDelegation(
@@ -4022,8 +4032,16 @@ public final class JSONRPCDispatcher {
                 let manualActions = router.pendingManualActions(for: threads)
                 // One off-main query for every thread's guest_runtime.
                 let guestRuntimes = await router.threadGuestRuntimesOffMain()
+                // An idle thread's active run is a SQLite query: read them all off-main.
+                let activeRuns = await router.activeAgentRunsOffMain(threads: threads.map(\.id))
                 return .init(id: id, result: .array(threads.map {
-                    encodeThread($0, lockedThreads: lockedThreads, pendingManualActions: manualActions, guestRuntimes: guestRuntimes)
+                    encodeThread(
+                        $0,
+                        lockedThreads: lockedThreads,
+                        pendingManualActions: manualActions,
+                        guestRuntimes: guestRuntimes,
+                        activeRuns: activeRuns
+                    )
                 }))
             case "agent.thread.fork", "host.agent.thread.fork":
                 guard let tid = params["thread_id"]?.stringValue.flatMap(UUID.init).map(AgentThreadID.init) else { throw JSONRPCError.invalidParams }
@@ -6085,12 +6103,13 @@ public final class JSONRPCDispatcher {
     }
 
     /// Batch overload used by agent.thread.list (PERF-007): caller pre-fetches
-    /// the locked set once; no additional query is issued per thread.
+    /// the locked set and active runs once; no additional query is issued per thread.
     private func encodeThread(
         _ thread: AgentThread,
         lockedThreads: Set<AgentThreadID>,
         pendingManualActions: [AgentThreadID: ManualActionSnapshot],
-        guestRuntimes: [AgentThreadID: String]
+        guestRuntimes: [AgentThreadID: String],
+        activeRuns: [AgentThreadID: AgentActiveRunSnapshot]
     ) -> JSONValue {
         guard case .object(var object) = encode(thread) else { return .null }
         let display = AgentThreadTitle.display(thread.title)
@@ -6110,7 +6129,7 @@ public final class JSONRPCDispatcher {
         object["providerLocked"] = .bool(locked)
         object["provider_locked"] = .bool(locked)
         appendRouting(thread.effectiveRoutingConfiguration, to: &object)
-        appendActiveRun(to: &object, thread: thread.id)
+        appendActiveRun(activeRuns[thread.id], to: &object)
         object["pending_manual_action"] = ManualActionWire.pendingRow(pendingManualActions[thread.id])
         appendThreadActor(thread, guestRuntime: guestRuntimes[thread.id], to: &object)
         appendLoops(thread.id, to: &object)
@@ -6171,7 +6190,14 @@ public final class JSONRPCDispatcher {
         to object: inout [String: JSONValue],
         thread: AgentThreadID
     ) {
-        guard let active = try? router.activeAgentRun(thread: thread) else {
+        appendActiveRun(try? router.activeAgentRun(thread: thread), to: &object)
+    }
+
+    private func appendActiveRun(
+        _ active: AgentActiveRunSnapshot?,
+        to object: inout [String: JSONValue]
+    ) {
+        guard let active else {
             object["active_run_id"] = .null
             object["active_run_started_at_ms"] = .null
             return
