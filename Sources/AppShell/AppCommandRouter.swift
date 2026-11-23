@@ -8041,11 +8041,32 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     /// Never withhold identity just because the start clock is unavailable.
     public func activeAgentRun(thread: AgentThreadID) throws -> AgentActiveRunSnapshot? {
         guard let ctx = context else { throw LayoutError.workspaceNotFound }
-        if let runId = ctx.coordinator.activeRunId(threadId: thread) {
-            let startedAt = (try? ctx.coordinator.runStartedAt(runId: runId)) ?? Date()
+        return try Self.activeAgentRun(thread: thread, coordinator: ctx.coordinator)
+    }
+
+    /// Off the main actor: for an idle thread the lookup is a SQLite query.
+    public func activeAgentRunsOffMain(threads: [AgentThreadID]) async -> [AgentThreadID: AgentActiveRunSnapshot] {
+        guard let coordinator = context?.coordinator else { return [:] }
+        return await Task.detached(priority: .userInitiated) {
+            var runs: [AgentThreadID: AgentActiveRunSnapshot] = [:]
+            for thread in threads {
+                if let active = try? Self.activeAgentRun(thread: thread, coordinator: coordinator) {
+                    runs[thread] = active
+                }
+            }
+            return runs
+        }.value
+    }
+
+    nonisolated private static func activeAgentRun(
+        thread: AgentThreadID,
+        coordinator: AgentRunCoordinator
+    ) throws -> AgentActiveRunSnapshot? {
+        if let runId = coordinator.activeRunId(threadId: thread) {
+            let startedAt = (try? coordinator.runStartedAt(runId: runId)) ?? Date()
             return AgentActiveRunSnapshot(runId: runId, startedAt: startedAt)
         }
-        if let durable = try ctx.coordinator.durableActiveRunChrome(threadId: thread) {
+        if let durable = try coordinator.durableActiveRunChrome(threadId: thread) {
             return AgentActiveRunSnapshot(runId: durable.id, startedAt: durable.startedAt)
         }
         return nil
