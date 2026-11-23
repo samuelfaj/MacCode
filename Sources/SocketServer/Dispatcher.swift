@@ -316,20 +316,21 @@ public protocol CommandRouting: AnyObject {
     func updateAgentProvider(provider: AgentProvider, providerInstanceId: String?) async throws -> JSONValue
     func agentPromptHistory(workspace: WorkspaceID?, limit: Int) throws -> [String]
     // git
-    func gitStatus(workspace: WorkspaceID) throws -> GitSummary
-    func gitBranches(workspace: WorkspaceID) throws -> GitBranches
-    func gitCheckout(workspace: WorkspaceID, branch: String) throws -> GitActionResult
-    func gitCreateBranch(workspace: WorkspaceID, name: String) throws -> GitActionResult
-    func gitCommit(workspace: WorkspaceID, message: String) throws -> GitActionResult
-    func gitLog(workspace: WorkspaceID, limit: Int) throws -> [GitCommit]
-    func gitDiff(workspace: WorkspaceID, path: String?, ignoreWhitespace: Bool) throws -> String
-    func gitPush(workspace: WorkspaceID) throws -> GitActionResult
-    func gitFetch(workspace: WorkspaceID) throws -> GitActionResult
-    func gitPull(workspace: WorkspaceID) throws -> GitActionResult
+    // Async: git blocks on its child process; the dispatcher is MainActor.
+    func gitStatus(workspace: WorkspaceID) async throws -> GitSummary
+    func gitBranches(workspace: WorkspaceID) async throws -> GitBranches
+    func gitCheckout(workspace: WorkspaceID, branch: String) async throws -> GitActionResult
+    func gitCreateBranch(workspace: WorkspaceID, name: String) async throws -> GitActionResult
+    func gitCommit(workspace: WorkspaceID, message: String) async throws -> GitActionResult
+    func gitLog(workspace: WorkspaceID, limit: Int) async throws -> [GitCommit]
+    func gitDiff(workspace: WorkspaceID, path: String?, ignoreWhitespace: Bool) async throws -> String
+    func gitPush(workspace: WorkspaceID) async throws -> GitActionResult
+    func gitFetch(workspace: WorkspaceID) async throws -> GitActionResult
+    func gitPull(workspace: WorkspaceID) async throws -> GitActionResult
     func ensureGitSurface(workspace: WorkspaceID) throws -> SurfaceDescriptor
-    func gitPullRequestURL(workspace: WorkspaceID) throws -> String?
-    func gitDeliveryPlan(workspace: WorkspaceID, copy: GitDeliveryCopy?) throws -> GitDeliveryPlan
-    func gitDeliver(workspace: WorkspaceID, copy: GitDeliveryCopy?) throws -> GitDeliveryResult
+    func gitPullRequestURL(workspace: WorkspaceID) async throws -> String?
+    func gitDeliveryPlan(workspace: WorkspaceID, copy: GitDeliveryCopy?) async throws -> GitDeliveryPlan
+    func gitDeliver(workspace: WorkspaceID, copy: GitDeliveryCopy?) async throws -> GitDeliveryResult
     // project scripts / open-in-editor (RC2-069)
     func projectScripts(workspace: WorkspaceID) throws -> [ProjectScript]
     func projectRunScript(workspace: WorkspaceID, name: String) throws -> SurfaceDescriptor
@@ -1424,6 +1425,24 @@ public final class JSONRPCDispatcher {
     private func finishConnectionSnapshotRead(_ read: ConnectionSnapshotSharedRead) {
         guard activeConnectionSnapshotRead === read else { return }
         activeConnectionSnapshotRead = nil
+    }
+
+    /// Git mutations run one at a time in arrival order across every
+    /// dispatcher (the Unix socket and HTTP each own one): commit is two
+    /// processes (`add -A`, `commit`), and a retried commit/push must find
+    /// the first request's receipt.
+    private static var gitMutationTail: Task<Void, Never>?
+
+    private func serializedGitMutation(
+        _ body: @escaping @MainActor () async throws -> JSONRPCResponse
+    ) async throws -> JSONRPCResponse {
+        let previous = Self.gitMutationTail
+        let task = Task { @MainActor in
+            await previous?.value
+            return try await body()
+        }
+        Self.gitMutationTail = Task { _ = try? await task.value }
+        return try await task.value
     }
 
     private func commandReceipt(method: String, params: [String: JSONValue]) -> (String, JSONValue)? {
@@ -5041,40 +5060,48 @@ public final class JSONRPCDispatcher {
                 return .init(id: id, result: result)
             case "git.status":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init) else { throw JSONRPCError.invalidParams }
-                return .init(id: id, result: encode(try router.gitStatus(workspace: wid)))
+                return .init(id: id, result: encode(try await router.gitStatus(workspace: wid)))
             case "git.branches":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init) else { throw JSONRPCError.invalidParams }
-                return .init(id: id, result: encode(try router.gitBranches(workspace: wid)))
+                return .init(id: id, result: encode(try await router.gitBranches(workspace: wid)))
             case "git.checkout":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init),
                       let branch = params["branch"]?.stringValue else { throw JSONRPCError.invalidParams }
-                let r = try router.gitCheckout(workspace: wid, branch: branch)
-                EventBus.shared.publish(kind: .gitCheckout, payload: .object(["workspace_id": .string(wid.value.uuidString), "branch": .string(branch), "ok": .bool(r.ok)]))
-                return .init(id: id, result: encode(r))
+                return try await serializedGitMutation { [self] in
+                    let r = try await router.gitCheckout(workspace: wid, branch: branch)
+                    EventBus.shared.publish(kind: .gitCheckout, payload: .object(["workspace_id": .string(wid.value.uuidString), "branch": .string(branch), "ok": .bool(r.ok)]))
+                    return .init(id: id, result: encode(r))
+                }
             case "git.create_branch":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init),
                       let name = params["name"]?.stringValue else { throw JSONRPCError.invalidParams }
-                let r = try router.gitCreateBranch(workspace: wid, name: name)
-                EventBus.shared.publish(kind: .gitBranchCreated, payload: .object(["workspace_id": .string(wid.value.uuidString), "name": .string(name), "ok": .bool(r.ok)]))
-                return .init(id: id, result: encode(r))
+                return try await serializedGitMutation { [self] in
+                    let r = try await router.gitCreateBranch(workspace: wid, name: name)
+                    EventBus.shared.publish(kind: .gitBranchCreated, payload: .object(["workspace_id": .string(wid.value.uuidString), "name": .string(name), "ok": .bool(r.ok)]))
+                    return .init(id: id, result: encode(r))
+                }
             case "git.commit":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init),
                       let message = params["message"]?.stringValue else { throw JSONRPCError.invalidParams }
-                // UX-010: idempotent commit — a retried request over a flaky
-                // link must not double-commit.
-                let receiptKey = params["client_request_id"]?.stringValue
-                if let (_, cached) = commandReceipt(method: req.method, params: params) {
-                    return .init(id: id, result: cached)
+                let method = req.method
+                let receiptParams = params
+                return try await serializedGitMutation { [self] in
+                    // UX-010: idempotent commit — a retried request over a flaky
+                    // link must not double-commit.
+                    let receiptKey = receiptParams["client_request_id"]?.stringValue
+                    if let (_, cached) = commandReceipt(method: method, params: receiptParams) {
+                        return .init(id: id, result: cached)
+                    }
+                    let r = try await router.gitCommit(workspace: wid, message: message)
+                    EventBus.shared.publish(kind: .gitCommit, payload: .object(["workspace_id": .string(wid.value.uuidString), "ok": .bool(r.ok)]))
+                    let result = encode(r)
+                    recordCommandReceipt(method: method, clientRequestId: receiptKey, result: result)
+                    return .init(id: id, result: result)
                 }
-                let r = try router.gitCommit(workspace: wid, message: message)
-                EventBus.shared.publish(kind: .gitCommit, payload: .object(["workspace_id": .string(wid.value.uuidString), "ok": .bool(r.ok)]))
-                let result = encode(r)
-                recordCommandReceipt(method: req.method, clientRequestId: receiptKey, result: result)
-                return .init(id: id, result: result)
             case "git.log":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init) else { throw JSONRPCError.invalidParams }
                 let limit = params["limit"]?.intValue ?? 100
-                return .init(id: id, result: encode(try router.gitLog(workspace: wid, limit: limit)))
+                return .init(id: id, result: encode(try await router.gitLog(workspace: wid, limit: limit)))
             case "git.diff":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init) else { throw JSONRPCError.invalidParams }
                 // Opt-in v1 caps validated before the expensive router diff so a
@@ -5082,7 +5109,7 @@ public final class JSONRPCDispatcher {
                 let caps = try GitDiffBoundedResponse.parseOptInCaps(params)
                 let path = params["path"]?.stringValue
                 let iw = params["ignore_whitespace"]?.boolValue ?? false
-                let diff = try router.gitDiff(workspace: wid, path: path, ignoreWhitespace: iw)
+                let diff = try await router.gitDiff(workspace: wid, path: path, ignoreWhitespace: iw)
                 if let caps {
                     let window = GitDiffBoundedResponse.bound(
                         text: diff,
@@ -5095,53 +5122,63 @@ public final class JSONRPCDispatcher {
                 return .init(id: id, result: .string(diff))
             case "git.push":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init) else { throw JSONRPCError.invalidParams }
-                // UX-010: idempotent push — a retried request must not push
-                // twice.
-                let receiptKey = params["client_request_id"]?.stringValue
-                if let (_, cached) = commandReceipt(method: req.method, params: params) {
-                    return .init(id: id, result: cached)
+                let method = req.method
+                let receiptParams = params
+                return try await serializedGitMutation { [self] in
+                    // UX-010: idempotent push — a retried request must not push
+                    // twice.
+                    let receiptKey = receiptParams["client_request_id"]?.stringValue
+                    if let (_, cached) = commandReceipt(method: method, params: receiptParams) {
+                        return .init(id: id, result: cached)
+                    }
+                    let destination = try withSuppressedLayoutEvents {
+                        try router.ensureGitSurface(workspace: wid)
+                    }
+                    let r = try await router.gitPush(workspace: wid)
+                    EventBus.shared.publish(kind: .gitPush, payload: .object([
+                        "workspace_id": .string(wid.value.uuidString),
+                        "surface_id": .string(destination.id.value.uuidString),
+                        "ok": .bool(r.ok)
+                    ]))
+                    let result = encode(r)
+                    recordCommandReceipt(method: method, clientRequestId: receiptKey, result: result)
+                    return .init(id: id, result: result)
                 }
-                let destination = try withSuppressedLayoutEvents {
-                    try router.ensureGitSurface(workspace: wid)
-                }
-                let r = try router.gitPush(workspace: wid)
-                EventBus.shared.publish(kind: .gitPush, payload: .object([
-                    "workspace_id": .string(wid.value.uuidString),
-                    "surface_id": .string(destination.id.value.uuidString),
-                    "ok": .bool(r.ok)
-                ]))
-                let result = encode(r)
-                recordCommandReceipt(method: req.method, clientRequestId: receiptKey, result: result)
-                return .init(id: id, result: result)
             case "git.fetch", "git.pull":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init) else { throw JSONRPCError.invalidParams }
-                let r = req.method == "git.pull"
-                    ? try router.gitPull(workspace: wid)
-                    : try router.gitFetch(workspace: wid)
-                EventBus.shared.publish(kind: req.method == "git.pull" ? .gitPull : .gitFetch, payload: .object([
-                    "workspace_id": .string(wid.value.uuidString),
-                    "ok": .bool(r.ok)
-                ]))
-                return .init(id: id, result: encode(r))
+                let pull = req.method == "git.pull"
+                return try await serializedGitMutation { [self] in
+                    let r = pull
+                        ? try await router.gitPull(workspace: wid)
+                        : try await router.gitFetch(workspace: wid)
+                    EventBus.shared.publish(kind: pull ? .gitPull : .gitFetch, payload: .object([
+                        "workspace_id": .string(wid.value.uuidString),
+                        "ok": .bool(r.ok)
+                    ]))
+                    return .init(id: id, result: encode(r))
+                }
             case "git.pull_request_url":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init) else { throw JSONRPCError.invalidParams }
-                let url = try router.gitPullRequestURL(workspace: wid)
+                let url = try await router.gitPullRequestURL(workspace: wid)
                 return .init(id: id, result: .object(["url": url.map { .string($0) } ?? .null]))
             case "git.delivery_plan":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init) else { throw JSONRPCError.invalidParams }
-                return .init(id: id, result: encode(try router.gitDeliveryPlan(workspace: wid, copy: gitDeliveryCopy(from: params))))
+                return .init(id: id, result: encode(try await router.gitDeliveryPlan(workspace: wid, copy: gitDeliveryCopy(from: params))))
             case "git.deliver":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init) else { throw JSONRPCError.invalidParams }
-                let destination = try withSuppressedLayoutEvents {
-                    try router.ensureGitSurface(workspace: wid)
+                let copy = gitDeliveryCopy(from: params)
+                return try await serializedGitMutation { [self] in
+                    let destination = try withSuppressedLayoutEvents {
+                        try router.ensureGitSurface(workspace: wid)
+                    }
+                    let r = try await router.gitDeliver(workspace: wid, copy: copy)
+                    EventBus.shared.publish(kind: .gitDeliver, payload: .object([
+                        "workspace_id": .string(wid.value.uuidString),
+                        "surface_id": .string(destination.id.value.uuidString),
+                        "ok": .bool(r.ok)
+                    ]))
+                    return .init(id: id, result: encode(r))
                 }
-                let r = try router.gitDeliver(workspace: wid, copy: gitDeliveryCopy(from: params))
-                EventBus.shared.publish(kind: .gitDeliver, payload: .object([
-                    "workspace_id": .string(wid.value.uuidString),
-                    "surface_id": .string(destination.id.value.uuidString),
-                    "ok": .bool(r.ok)
-                ]))
-                return .init(id: id, result: encode(r))
             case "project.scripts":
                 guard let wid = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init) else { throw JSONRPCError.invalidParams }
                 return .init(id: id, result: encode(try router.projectScripts(workspace: wid)))

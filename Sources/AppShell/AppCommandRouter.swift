@@ -9249,47 +9249,58 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         return (relativePath, title.isEmpty ? L("Files") : title)
     }
 
-    public func gitStatus(workspace: WorkspaceID) throws -> GitSummary {
-        guard let summary = GitDiff.summary(in: try workspaceCwd(workspace)) else {
+    /// Runs blocking git work for a workspace on its own thread. Each git
+    /// call waits for its child process (up to 60 s for reads, no deadline
+    /// for push/pull/commit hooks); on the MainActor that froze every window.
+    private func runGit<T: Sendable>(
+        _ workspace: WorkspaceID,
+        _ body: @escaping @Sendable (String) -> T
+    ) async throws -> T {
+        let cwd = try workspaceCwd(workspace)
+        return await ProviderCLIProbe.runOffCooperativePool { body(cwd) }
+    }
+
+    public func gitStatus(workspace: WorkspaceID) async throws -> GitSummary {
+        guard let summary = try await runGit(workspace, { GitDiff.summary(in: $0) }) else {
             throw JSONRPCError(code: -32000, message: GitDiff.summaryTimedOutMessage)
         }
         return summary
     }
-    public func gitBranches(workspace: WorkspaceID) throws -> GitBranches {
-        GitDiff.branches(in: try workspaceCwd(workspace))
+    public func gitBranches(workspace: WorkspaceID) async throws -> GitBranches {
+        try await runGit(workspace) { GitDiff.branches(in: $0) }
     }
-    public func gitCheckout(workspace: WorkspaceID, branch: String) throws -> GitActionResult {
-        GitDiff.checkout(in: try workspaceCwd(workspace), branch: branch)
+    public func gitCheckout(workspace: WorkspaceID, branch: String) async throws -> GitActionResult {
+        try await runGit(workspace) { GitDiff.checkout(in: $0, branch: branch) }
     }
-    public func gitCreateBranch(workspace: WorkspaceID, name: String) throws -> GitActionResult {
-        GitDiff.createBranch(in: try workspaceCwd(workspace), name: name)
+    public func gitCreateBranch(workspace: WorkspaceID, name: String) async throws -> GitActionResult {
+        try await runGit(workspace) { GitDiff.createBranch(in: $0, name: name) }
     }
-    public func gitCommit(workspace: WorkspaceID, message: String) throws -> GitActionResult {
-        GitDiff.commit(in: try workspaceCwd(workspace), message: message)
+    public func gitCommit(workspace: WorkspaceID, message: String) async throws -> GitActionResult {
+        try await runGit(workspace) { GitDiff.commit(in: $0, message: message) }
     }
-    public func gitLog(workspace: WorkspaceID, limit: Int) throws -> [GitCommit] {
-        GitDiff.log(in: try workspaceCwd(workspace), limit: limit)
+    public func gitLog(workspace: WorkspaceID, limit: Int) async throws -> [GitCommit] {
+        try await runGit(workspace) { GitDiff.log(in: $0, limit: limit) }
     }
-    public func gitDiff(workspace: WorkspaceID, path: String?, ignoreWhitespace: Bool) throws -> String {
-        GitDiff.diff(in: try workspaceCwd(workspace), path: path, ignoreWhitespace: ignoreWhitespace)
+    public func gitDiff(workspace: WorkspaceID, path: String?, ignoreWhitespace: Bool) async throws -> String {
+        try await runGit(workspace) { GitDiff.diff(in: $0, path: path, ignoreWhitespace: ignoreWhitespace) }
     }
-    public func gitPush(workspace: WorkspaceID) throws -> GitActionResult {
-        GitDiff.push(in: try workspaceCwd(workspace))
+    public func gitPush(workspace: WorkspaceID) async throws -> GitActionResult {
+        try await runGit(workspace) { GitDiff.push(in: $0) }
     }
-    public func gitFetch(workspace: WorkspaceID) throws -> GitActionResult {
-        GitDiff.fetch(in: try workspaceCwd(workspace))
+    public func gitFetch(workspace: WorkspaceID) async throws -> GitActionResult {
+        try await runGit(workspace) { GitDiff.fetch(in: $0) }
     }
-    public func gitPull(workspace: WorkspaceID) throws -> GitActionResult {
-        GitDiff.pull(in: try workspaceCwd(workspace))
+    public func gitPull(workspace: WorkspaceID) async throws -> GitActionResult {
+        try await runGit(workspace) { GitDiff.pull(in: $0) }
     }
-    public func gitPullRequestURL(workspace: WorkspaceID) throws -> String? {
-        GitDiff.pullRequestURL(in: try workspaceCwd(workspace))
+    public func gitPullRequestURL(workspace: WorkspaceID) async throws -> String? {
+        try await runGit(workspace) { GitDiff.pullRequestURL(in: $0) }
     }
-    public func gitDeliveryPlan(workspace: WorkspaceID, copy: GitDeliveryCopy?) throws -> GitDeliveryPlan {
-        GitDiff.deliveryPlan(in: try workspaceCwd(workspace), copy: copy)
+    public func gitDeliveryPlan(workspace: WorkspaceID, copy: GitDeliveryCopy?) async throws -> GitDeliveryPlan {
+        try await runGit(workspace) { GitDiff.deliveryPlan(in: $0, copy: copy) }
     }
-    public func gitDeliver(workspace: WorkspaceID, copy: GitDeliveryCopy?) throws -> GitDeliveryResult {
-        GitDiff.deliver(in: try workspaceCwd(workspace), copy: copy, environment: nil)
+    public func gitDeliver(workspace: WorkspaceID, copy: GitDeliveryCopy?) async throws -> GitDeliveryResult {
+        try await runGit(workspace) { GitDiff.deliver(in: $0, copy: copy, environment: nil) }
     }
 
     public func uploadAgentAttachment(workspace: WorkspaceID, filename: String, mimeType: String?, dataBase64: String) throws -> AgentAttachmentUploadResult {
