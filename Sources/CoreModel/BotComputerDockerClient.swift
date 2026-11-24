@@ -207,7 +207,9 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
         var attempt = 0
         while true {
             do {
-                return String(data: try run(["info"]), encoding: .utf8) ?? ""
+                let text = String(data: try run(["info"]), encoding: .utf8) ?? ""
+                Self.engineLock.withLock { Self.engineOperatingSystem = Self.operatingSystem(fromInfo: text) }
+                return text
             } catch BotComputerDockerError.probeTimedOut where attempt < 2 {
                 attempt += 1
                 BotComputerDockerResolver.shared.invalidate()
@@ -241,8 +243,15 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// One line per image that exists: its tags, its id and its labels.
-    static let imageStatesFormat = "{{json .RepoTags}}\t{{.Id}}\t{{json .Config.Labels}}"
+    /// One line per image that exists: its tags, its id and its config, whose
+    /// labels are read here. `.Config.Labels` fails the template on an engine
+    /// that stores no image labels (Kiri).
+    static let imageStatesFormat = "{{json .RepoTags}}\t{{.Id}}\t{{json .Config}}"
+
+    private struct ImageConfig: Decodable {
+        var labels: [String: String]?
+        enum CodingKeys: String, CodingKey { case labels = "Labels" }
+    }
 
     static func imageStatesArguments(tags: [String]) -> [String] {
         ["image", "inspect", "-f", imageStatesFormat] + tags
@@ -265,7 +274,7 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
             guard fields.count == 3, !fields[1].isEmpty, !answered.isEmpty else {
                 throw BotComputerDockerError.provisioningFailed
             }
-            let labels = (try? JSONDecoder().decode([String: String].self, from: Data(fields[2].utf8))) ?? [:]
+            let labels = (try? JSONDecoder().decode(ImageConfig.self, from: Data(fields[2].utf8)))?.labels ?? [:]
             for tag in answered {
                 states[tag] = BotComputerImageState(id: String(fields[1]), labels: labels)
             }
@@ -283,6 +292,35 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
             "\(BotComputerGuestSpec.recipeDigestLabelKey)=\(BotComputerGuestSpec.recipeDigest(context: context))",
             context.path,
         ])
+    }
+
+    /// Kiri's VM resolves names through macOS Internet Sharing, which answers
+    /// SERVFAIL for some hosts (github.com) the Mac itself resolves. On Kiri the
+    /// Bot computer asks the Mac's own non-loopback resolvers instead.
+    /// ponytail: keyed on the engine name; drop once Kiri's own DNS is reliable.
+    private static let engineLock = NSLock()
+    /// From the last `docker info`; provisioning always asks it before `create`.
+    private static var engineOperatingSystem = ""
+
+    static func operatingSystem(fromInfo info: String) -> String {
+        for line in info.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("Operating System:") {
+                return String(trimmed.dropFirst("Operating System:".count)).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return ""
+    }
+
+    static func dnsArguments(engineOperatingSystem: String, hostResolvConf: String) -> [String] {
+        guard engineOperatingSystem.trimmingCharacters(in: .whitespacesAndNewlines) == "Kiri" else { return [] }
+        return hostResolvConf.split(whereSeparator: \.isNewline).flatMap { line -> [String] in
+            let fields = line.split(whereSeparator: \.isWhitespace)
+            guard fields.count >= 2, fields[0] == "nameserver" else { return [] }
+            let address = String(fields[1])
+            guard !address.hasPrefix("127."), address != "::1" else { return [] }
+            return ["--dns", address]
+        }
     }
 
     public func create(options: BotComputerContainerCreateOptions) throws -> String {
@@ -320,6 +358,9 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
         for bind in options.binds {
             args += ["-v", bind]
         }
+        let engine = Self.engineLock.withLock { Self.engineOperatingSystem }
+        let resolvConf = (try? String(contentsOfFile: "/etc/resolv.conf", encoding: .utf8)) ?? ""
+        args += Self.dnsArguments(engineOperatingSystem: engine, hostResolvConf: resolvConf)
         args.append(options.image)
         let data = try run(args)
         return (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

@@ -924,4 +924,18 @@ private final class DockerNetworkRunRecorder: @unchecked Sendable {
         throw BotComputerDockerError.provisioningFailed
     }
 
+
+    func test_kiriBotComputersAskTheMacsResolversNotTheSharingProxy() {
+        // WHY: on Kiri the VM's DNS goes through macOS Internet Sharing, which
+        // answers SERVFAIL for github.com, so Bots could not clone, push or deploy.
+        // Loopback resolvers are unreachable from the VM; other engines keep their own DNS.
+        let mac = "# macOS\nnameserver 1.0.0.1\nnameserver 127.0.0.1\nnameserver 1.1.1.1\n"
+        XCTAssertEqual(
+            BotComputerDockerCLI.dnsArguments(engineOperatingSystem: "Kiri\n", hostResolvConf: mac),
+            ["--dns", "1.0.0.1", "--dns", "1.1.1.1"]
+        )
+        XCTAssertEqual(BotComputerDockerCLI.dnsArguments(engineOperatingSystem: "OrbStack", hostResolvConf: mac), [])
+        XCTAssertEqual(BotComputerDockerCLI.dnsArguments(engineOperatingSystem: "Kiri", hostResolvConf: "nameserver 127.0.0.1\n"), [])
+        XCTAssertEqual(BotComputerDockerCLI.operatingSystem(fromInfo: "Server:\n Kernel Version: 6.12\n Operating System: Kiri\n OSType: linux\n"), "Kiri")
+    }
 }

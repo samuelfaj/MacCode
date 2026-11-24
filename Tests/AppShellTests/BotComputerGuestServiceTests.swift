@@ -70,15 +70,19 @@ private final class FakeDocker: BotComputerDockerClienting, @unchecked Sendable 
         default: return ""
         }
     }
+    var imageIDValue = "img"
+    /// An engine that stores no image labels (Kiri): a build stamps none.
+    var dropsImageLabels = false
     func imageID(tag: String) throws -> String {
         guard images.contains(tag) else { throw BotComputerGuestError.dockerUnavailable }
-        return "img"
+        return imageIDValue
     }
     func build(context: URL, tag: String) throws {
         builds.append(context)
         onBuild?()
         if !buildErrors.isEmpty { throw buildErrors.removeFirst() }
         images.insert(tag)
+        if dropsImageLabels { return }
         imageLabels[tag] = BotComputerGuestSpec.recipeRevision
         imageDigests[tag] = BotComputerGuestSpec.recipeDigest(context: context)
     }
@@ -2211,6 +2215,31 @@ final class BotComputerGuestServiceTests: XCTestCase {
         )
         XCTAssertTrue(service.proveReady())
         XCTAssertEqual(fake.builds, [recipe], "an image built from this recipe is reused, not rebuilt every time")
+    }
+
+    func test_ensureImageReusesTheImageItBuiltOnAnEngineThatDropsImageLabels() throws {
+        // WHY: Kiri stores no image labels. Trusting labels alone rebuilt the
+        // base image on every provision and never got to the container; the
+        // host's record of the image id it built stands in for them. An image
+        // the tag no longer names may come from another recipe: rebuild it.
+        let support = makeSupport("rc-guest-unlabeled-image")
+        defer { try? FileManager.default.removeItem(at: support) }
+        let recipe = try XCTUnwrap(AppShellResourceBundle.computerGuestRecipeURL())
+        let fake = FakeDocker()
+        fake.dropsImageLabels = true
+        fake.imageLabels = [:]
+        fake.imageDigests = [:]
+        let service = BotComputerGuestService(
+            appSupport: support, docker: fake, recipeContext: recipe,
+            observeAttempts: 1, observeDelay: 0
+        )
+        XCTAssertTrue(service.proveReady())
+        XCTAssertEqual(fake.builds, [recipe], "an unlabeled image of unknown origin is rebuilt")
+        XCTAssertTrue(service.proveReady())
+        XCTAssertEqual(fake.builds, [recipe], "the unlabeled image this app built is reused, not rebuilt every time")
+        fake.imageIDValue = "img-of-another-build"
+        XCTAssertTrue(service.proveReady())
+        XCTAssertEqual(fake.builds, [recipe, recipe], "an image the tag no longer names from this build is rebuilt")
     }
 
     func test_rebuildStopsTheOldContainerBeforeTheNewOneStarts() throws {
