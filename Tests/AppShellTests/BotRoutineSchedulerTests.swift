@@ -288,10 +288,9 @@ final class BotRoutineSchedulerTests: XCTestCase {
         XCTAssertTrue(started, "the slot must reach the provider")
         let request = try XCTUnwrap(f.runner.requests.first)
         XCTAssertEqual(request.model, "flash-eco", "the default model fills the empty Main model")
-        let offered: [AgentReasoningEffort] = [.max, .high, .low]
-        let mainEffort = try XCTUnwrap(request.distillMainEffortSelection?.effort, "a fixed Main effort is sent")
-        XCTAssertTrue(offered.contains(mainEffort), "Main effort \(mainEffort) must be one the model offers")
-        XCTAssertTrue(offered.contains(try XCTUnwrap(request.reasoningEffort)))
+        // Same choice the desk makes for this model: High when offered.
+        XCTAssertEqual(request.distillMainEffortSelection?.effort, .high, "Main effort must be one the model offers")
+        XCTAssertEqual(request.reasoningEffort, .high)
         f.runner.finish(runID: request.runId, status: .completed, reply: "ok")
     }
 
