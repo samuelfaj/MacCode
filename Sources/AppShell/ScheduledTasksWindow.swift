@@ -202,17 +202,23 @@ public final class ScheduledTasksViewModel: ObservableObject {
         if loadImmediately {
             reload()
         }
-        // Writes from elsewhere (the iPhone's Resume/Pause, scheduled runs)
-        // change rows this window shows; it does not see them otherwise.
-        storeChangeObserver = ScheduledTaskCrossProcess.observeStoreChanged { [weak self] _ in
+        // iPhone Resume/Pause/save/delete change rows this window shows; it does
+        // not see them otherwise. Run events keep using the active-run poll.
+        storeChangeObserver = ScheduledTaskCrossProcess.observeStoreChanged { [weak self] reason in
             MainActor.assumeIsolated {
-                guard let self, self.isVisible else { return }
+                guard let self, self.isVisible,
+                      Self.remoteStoreChangeReasons.contains(reason ?? "") else { return }
+                self.storeChangeReloadCountForTesting += 1
                 self.reloadTasksOrDefer()
             }
         }
     }
 
+    private static let remoteStoreChangeReasons: Set<String> = ["remote_enable", "remote_save", "remote_delete"]
     private var storeChangeObserver: NSObjectProtocol?
+    private(set) var storeChangeReloadCountForTesting = 0
+    /// Window Resumes still checking the provider; their rows stay Active across reloads.
+    private var pendingResumeIntents: [UUID: UInt64] = [:]
 
     deinit {
         freshnessTask?.cancel()
@@ -401,6 +407,7 @@ public final class ScheduledTasksViewModel: ObservableObject {
         // Flip the row first; each failure path below reverts it and reports the error.
         setTaskEnabledLocally(task.id, !task.isEnabled)
         if task.isEnabled {
+            pendingResumeIntents[task.id] = nil
             do {
                 try store.setEnabled(id: task.id, enabled: false, nextRunAt: nil)
                 reloadTasks()
@@ -410,8 +417,10 @@ public final class ScheduledTasksViewModel: ObservableObject {
             }
             return
         }
+        pendingResumeIntents[task.id] = intent
         Task { [weak self] in
             guard let self else { return }
+            defer { if self.pendingResumeIntents[task.id] == intent { self.pendingResumeIntents[task.id] = nil } }
             do {
                 _ = try await ScheduledTaskExecutor(context: context, router: router).preflight(task)
                 // A later Pause/Resume owns the task now; show what is stored.
@@ -591,6 +600,9 @@ public final class ScheduledTasksViewModel: ObservableObject {
             switch statusFilter {
             case .all: tasks = matching
             case .active, .paused: tasks = visible
+            }
+            for (id, intent) in pendingResumeIntents where router.isCurrentScheduledTaskEnableIntent(id, intent) {
+                setTaskEnabledLocally(id, true)
             }
             runCounts = try store.runCounts()
             latestRuns = try store.latestRuns()

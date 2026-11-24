@@ -25,15 +25,14 @@ final class ScheduledTaskToggleIntentTests: XCTestCase {
         let router: AppCommandRouter
         let store: ScheduledTaskStore
         let task: ScheduledTask
-        /// Created by the sign-in probe when it starts.
-        let probeStarted: URL
-        /// The probe reports a login once this exists (or after 5 s).
-        let probeRelease: URL
+        /// Holds `probe-started-N` / `probe-release-N`, one pair per probe in start order.
+        let probes: URL
     }
 
     /// A paused codex task whose preflight passes when the test releases it:
-    /// the sign-in probe runs a stand-in `codex` that signals its start,
-    /// waits for the release file, then reports a login.
+    /// the sign-in probe runs a stand-in `codex`. The Nth probe to start touches
+    /// `probe-started-N`, waits for `probe-release-N` (or 5 s), then reports a
+    /// login, so a test decides which preflight finishes first.
     private func makePausedTask() async throws -> Fixture {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("RC2ScheduleToggle-\(UUID().uuidString)", isDirectory: true)
@@ -41,13 +40,16 @@ final class ScheduledTaskToggleIntentTests: XCTestCase {
         try FileManager.default.createDirectory(at: workspaceDir, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         let slowCodex = root.appendingPathComponent("codex")
-        let probeStarted = root.appendingPathComponent("probe-started")
-        let probeRelease = root.appendingPathComponent("probe-release")
+        let probes = root.appendingPathComponent("probes", isDirectory: true)
+        try FileManager.default.createDirectory(at: probes, withIntermediateDirectories: true)
         try """
         #!/bin/sh
-        touch '\(probeStarted.path)'
+        cd '\(probes.path)'
+        n=0
+        while [ -f "probe-started-$n" ]; do n=$((n+1)); done
+        touch "probe-started-$n"
         i=0
-        while [ ! -f '\(probeRelease.path)' ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+        while [ ! -f "probe-release-$n" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
         echo 'Logged in using ChatGPT'
 
         """.write(to: slowCodex, atomically: true, encoding: .utf8)
@@ -82,20 +84,20 @@ final class ScheduledTaskToggleIntentTests: XCTestCase {
         let task = try draft.makeTask()
         let store = ScheduledTaskStore(db: context.db)
         try store.save(task)
-        return Fixture(context: context, router: router, store: store, task: task,
-                       probeStarted: probeStarted, probeRelease: probeRelease)
+        return Fixture(context: context, router: router, store: store, task: task, probes: probes)
     }
 
-    private func waitForProbeStart(_ fixture: Fixture) async throws {
+    private func waitForProbeStart(_ fixture: Fixture, _ index: Int = 0) async throws {
+        let started = fixture.probes.appendingPathComponent("probe-started-\(index)").path
         let deadline = Date().addingTimeInterval(5)
-        while !FileManager.default.fileExists(atPath: fixture.probeStarted.path), Date() < deadline {
+        while !FileManager.default.fileExists(atPath: started), Date() < deadline {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.probeStarted.path), "Resume must be checking the provider")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: started), "Resume must be checking the provider")
     }
 
-    private func releaseProbe(_ fixture: Fixture) {
-        FileManager.default.createFile(atPath: fixture.probeRelease.path, contents: Data())
+    private func releaseProbe(_ fixture: Fixture, _ index: Int = 0) {
+        FileManager.default.createFile(atPath: fixture.probes.appendingPathComponent("probe-release-\(index)").path, contents: Data())
     }
 
     /// Waits up to `seconds` for the window row to read `enabled`.
@@ -183,23 +185,62 @@ final class ScheduledTaskToggleIntentTests: XCTestCase {
     }
 
     func test_iPhoneResumeWhileTheWindowResumesLeavesTheRowActive() async throws {
-        // The window's Resume is superseded by the iPhone's Resume, which
-        // writes after the window gave up: the row must end Active like the
-        // store, not Paused from the window's earlier reload.
+        // The window's Resume is superseded by the iPhone's Resume. The window's
+        // check finishes first and shows the stored Paused state; the iPhone's
+        // Resume writes afterwards. The row must end Active like the store.
         let fixture = try await makePausedTask()
         let vm = ScheduledTasksViewModel(context: fixture.context, router: fixture.router)
         vm.toggle(try XCTUnwrap(vm.tasks.first { $0.id == fixture.task.id }))
-        try await waitForProbeStart(fixture)
+        try await waitForProbeStart(fixture, 0)
         let remoteResume = Task { @MainActor in
             try await fixture.router.enableScheduledTaskRemote(id: fixture.task.id, enabled: true)
         }
-        try await Task.sleep(nanoseconds: 50_000_000)
-        releaseProbe(fixture)
+        try await waitForProbeStart(fixture, 1)
+        releaseProbe(fixture, 0)
+        let superseded = try await waitForRow(vm, fixture, enabled: false, seconds: 3)
+        XCTAssertEqual(superseded, false, "the superseded window Resume shows what is stored")
+        releaseProbe(fixture, 1)
         _ = try await remoteResume.value
 
         XCTAssertTrue(try storedEnabled(fixture), "the iPhone's Resume is the latest intent")
         let row = try await waitForRow(vm, fixture, enabled: true, seconds: 3)
         XCTAssertEqual(row, true, "the row must show the task the iPhone resumed as Active")
         XCTAssertNil(vm.errorMessage)
+    }
+
+    func test_openWindowShowsATaskTheiPhoneResumed() async throws {
+        // An idle, visible window must follow a Resume sent from the iPhone.
+        let fixture = try await makePausedTask()
+        releaseProbe(fixture, 0)
+        let vm = ScheduledTasksViewModel(context: fixture.context, router: fixture.router)
+        XCTAssertEqual(vm.tasks.first { $0.id == fixture.task.id }?.isEnabled, false)
+        _ = try await fixture.router.enableScheduledTaskRemote(id: fixture.task.id, enabled: true)
+        XCTAssertTrue(try storedEnabled(fixture))
+        let row = try await waitForRow(vm, fixture, enabled: true, seconds: 3)
+        XCTAssertEqual(row, true, "the open window must show the iPhone's Resume")
+    }
+
+    func test_storeChangeElsewhereKeepsAPendingResumeRowActive() async throws {
+        // While the window's own Resume is still checking the provider, a store
+        // change from elsewhere (another task saved on the iPhone) reloads the
+        // rows. The pending Resume must keep its Active row, not flash Paused.
+        let fixture = try await makePausedTask()
+        let vm = ScheduledTasksViewModel(context: fixture.context, router: fixture.router)
+        vm.toggle(try XCTUnwrap(vm.tasks.first { $0.id == fixture.task.id }))
+        try await waitForProbeStart(fixture, 0)
+        let reloads = vm.storeChangeReloadCountForTesting
+        ScheduledTaskCrossProcess.notifyStoreChanged(reason: "remote_save")
+        let deadline = Date().addingTimeInterval(3)
+        while vm.storeChangeReloadCountForTesting == reloads, Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertGreaterThan(vm.storeChangeReloadCountForTesting, reloads, "the window reloaded for the change")
+        XCTAssertEqual(vm.tasks.first { $0.id == fixture.task.id }?.isEnabled, true,
+                       "a Resume still checking the provider keeps its Active row")
+        XCTAssertFalse(try storedEnabled(fixture), "nothing is stored before the check passes")
+        releaseProbe(fixture, 0)
+        let enabled = try await waitForStoredEnable(fixture, seconds: 5)
+        XCTAssertTrue(enabled)
+        XCTAssertEqual(vm.tasks.first { $0.id == fixture.task.id }?.isEnabled, true)
     }
 }
