@@ -231,6 +231,69 @@ final class BotRoutineSchedulerTests: XCTestCase {
         f.runner.finish(runID: request.runId, status: .completed, reply: "ok")
     }
 
+    func test_scheduleWithoutAMainModelRunsTheDefaultModelAtAnEffortItOffers() async throws {
+        // WHY: "Star - Fill Tech Debts" was saved with no Main model and the legacy
+        // effort Medium. MacCode fills in the user's default Distill model at fire
+        // time; on 2026-11-23 that was deepseek-v4.1-flash-eco (Max/High/Low only),
+        // so every attempt failed with "Selected Main model does not advertise that
+        // effort". The user never chose that model/effort pair: like the desk does
+        // for the same model, the effort must fit the model MacCode picked.
+        let f = try makeFixture()
+        let eco = AgentProviderSnapshotFactory.snapshot(
+            provider: .distill,
+            models: [
+                AgentModelDescriptor(id: "flash-eco", label: "Flash Eco", provider: .distill,
+                                     supportsReasoning: true, supportedReasoningEfforts: [.max, .high, .low]),
+                AgentModelDescriptor(id: "main-b", label: "Main B", provider: .distill),
+            ],
+            binaryPath: "/usr/bin/true",
+            authenticated: true,
+            id: "distill-acp"
+        )
+        f.router.rememberProviderSnapshotsForSend([eco])
+        f.vm.replaceProvidersForTests([eco])
+        // The model the user last ran on Distill is what fills the empty Main model.
+        let suiteName = "rc-routine-default-model-\(UUID().uuidString)"
+        let suite = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        addTeardownBlock { suite.removePersistentDomain(forName: suiteName) }
+        f.vm.lastModelStore = AgentLastModelStore(defaults: suite)
+        f.vm.lastModelStore.remember(model: "flash-eco", for: .distill)
+        let bot = try f.vm.create(name: "Star", title: "Developer")
+        let base = Date()
+        var spec = BotScheduleSpec(
+            provider: .distill,
+            providerInstanceID: "distill",
+            model: "",
+            frequency: .daily,
+            localTime: base.addingTimeInterval(60),
+            timeZoneIdentifier: "UTC"
+        )
+        spec.reasoningEffort = .medium
+        spec.distillMainEffortSelection = nil
+        let routine = BotRoutineDefinition(
+            botID: bot.id,
+            name: "Star - Fill Tech Debts",
+            prompt: "Fill the tech debts",
+            scheduleNote: spec.displayNote(),
+            scheduleSpecJSON: spec.encodedJSON(),
+            createdAt: base,
+            updatedAt: base
+        )
+        try f.context.botStore.saveRoutine(routine, now: base)
+        try f.context.botStore.setRoutineEnabled(id: routine.id, enabled: true, now: base)
+        let slot = Date(timeIntervalSince1970: floor(base.addingTimeInterval(60).timeIntervalSince1970 / 60) * 60)
+        f.scheduler.tick(now: slot.addingTimeInterval(5))
+        await f.scheduler.settleForTesting()
+        let started = await waitUntil { !f.runner.requests.isEmpty }
+        XCTAssertTrue(started, "the slot must reach the provider")
+        let request = try XCTUnwrap(f.runner.requests.first)
+        XCTAssertEqual(request.model, "flash-eco", "the default model fills the empty Main model")
+        // Same choice the desk makes for this model: High when offered.
+        XCTAssertEqual(request.distillMainEffortSelection?.effort, .high, "Main effort must be one the model offers")
+        XCTAssertEqual(request.reasoningEffort, .high)
+        f.runner.finish(runID: request.runId, status: .completed, reply: "ok")
+    }
+
     func test_workspaceBotScheduledRunIsPinnedToItsWorkspace_becauseItMustListInThatWorkspace() async throws {
         // WHY: the workspace Conversations list shows only threads with a workspace and a
         // context pin. A workspace-exclusive Bot's scheduled run must land there, not as an
