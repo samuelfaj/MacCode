@@ -207,7 +207,9 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
         var attempt = 0
         while true {
             do {
-                return String(data: try run(["info"]), encoding: .utf8) ?? ""
+                let text = String(data: try run(["info"]), encoding: .utf8) ?? ""
+                Self.engineLock.withLock { Self.engineOperatingSystem = Self.operatingSystem(fromInfo: text) }
+                return text
             } catch BotComputerDockerError.probeTimedOut where attempt < 2 {
                 attempt += 1
                 BotComputerDockerResolver.shared.invalidate()
@@ -292,6 +294,35 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
         ])
     }
 
+    /// Kiri's VM resolves names through macOS Internet Sharing, which answers
+    /// SERVFAIL for some hosts (github.com) the Mac itself resolves. On Kiri the
+    /// Bot computer asks the Mac's own non-loopback resolvers instead.
+    /// ponytail: keyed on the engine name; drop once Kiri's own DNS is reliable.
+    private static let engineLock = NSLock()
+    /// From the last `docker info`; provisioning always asks it before `create`.
+    private static var engineOperatingSystem = ""
+
+    static func operatingSystem(fromInfo info: String) -> String {
+        for line in info.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("Operating System:") {
+                return String(trimmed.dropFirst("Operating System:".count)).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return ""
+    }
+
+    static func dnsArguments(engineOperatingSystem: String, hostResolvConf: String) -> [String] {
+        guard engineOperatingSystem.trimmingCharacters(in: .whitespacesAndNewlines) == "Kiri" else { return [] }
+        return hostResolvConf.split(whereSeparator: \.isNewline).flatMap { line -> [String] in
+            let fields = line.split(whereSeparator: \.isWhitespace)
+            guard fields.count >= 2, fields[0] == "nameserver" else { return [] }
+            let address = String(fields[1])
+            guard !address.hasPrefix("127."), address != "::1" else { return [] }
+            return ["--dns", address]
+        }
+    }
+
     public func create(options: BotComputerContainerCreateOptions) throws -> String {
         var args = [
             "create",
@@ -327,6 +358,9 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
         for bind in options.binds {
             args += ["-v", bind]
         }
+        let engine = Self.engineLock.withLock { Self.engineOperatingSystem }
+        let resolvConf = (try? String(contentsOfFile: "/etc/resolv.conf", encoding: .utf8)) ?? ""
+        args += Self.dnsArguments(engineOperatingSystem: engine, hostResolvConf: resolvConf)
         args.append(options.image)
         let data = try run(args)
         return (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
