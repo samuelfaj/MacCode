@@ -375,14 +375,15 @@ public final class BotComputerGuestService: @unchecked Sendable {
         // `ensureCurrentImage` would build anything else.
         guard var image = images[baseTag] else { return nil }
         if let recipeContext {
-            guard image.labels[BotComputerGuestSpec.recipeLabelKey] == BotComputerGuestSpec.recipeRevision,
-                  image.labels[BotComputerGuestSpec.recipeDigestLabelKey]
+            let labels = recipeLabels(tag: baseTag, image: image)
+            guard labels[BotComputerGuestSpec.recipeLabelKey] == BotComputerGuestSpec.recipeRevision,
+                  labels[BotComputerGuestSpec.recipeDigestLabelKey]
                     == BotComputerGuestSpec.recipeDigest(context: recipeContext)
             else { return nil }
         }
         // `resolvedImage`: the bot's own image when it has a current one.
         if let own = images[botTag],
-           own.labels[BotComputerGuestSpec.recipeLabelKey] == BotComputerGuestSpec.recipeRevision {
+           recipeLabels(tag: botTag, image: own)[BotComputerGuestSpec.recipeLabelKey] == BotComputerGuestSpec.recipeRevision {
             image = own
         }
         // The test `ensureWorkspaceMounted` passes without touching the container.
@@ -1139,10 +1140,13 @@ public final class BotComputerGuestService: @unchecked Sendable {
 
     private func resolvedImage(botID: BotID) throws -> String {
         let tag = BotComputerGuestSpec.botImageTag(botID: botID)
-        if try docker.imageExists(tag: tag),
-           try docker.imageLabel(tag: tag, key: BotComputerGuestSpec.recipeLabelKey)
-            == BotComputerGuestSpec.recipeRevision {
-            return tag
+        if try docker.imageExists(tag: tag) {
+            let revision = try docker.imageLabel(tag: tag, key: BotComputerGuestSpec.recipeLabelKey)
+            if revision == BotComputerGuestSpec.recipeRevision
+                || (revision.isEmpty && builtImageLabels(tag: tag)?[BotComputerGuestSpec.recipeLabelKey]
+                    == BotComputerGuestSpec.recipeRevision) {
+                return tag
+            }
         }
         return BotComputerGuestSpec.imageTag
     }
@@ -1169,10 +1173,14 @@ public final class BotComputerGuestService: @unchecked Sendable {
         }
         // The tag and revision can belong to an image another build left on
         // this daemon; only the recipe digest says it was built from this one.
-        if exists,
-           (try? docker.imageLabel(tag: tag, key: BotComputerGuestSpec.recipeLabelKey)) == BotComputerGuestSpec.recipeRevision,
-           (try? docker.imageLabel(tag: tag, key: BotComputerGuestSpec.recipeDigestLabelKey))
-            == BotComputerGuestSpec.recipeDigest(context: recipeContext) {
+        let digest = BotComputerGuestSpec.recipeDigest(context: recipeContext)
+        let revision = exists ? (try? docker.imageLabel(tag: tag, key: BotComputerGuestSpec.recipeLabelKey)) : nil
+        if revision == BotComputerGuestSpec.recipeRevision,
+           (try? docker.imageLabel(tag: tag, key: BotComputerGuestSpec.recipeDigestLabelKey)) == digest {
+            return
+        }
+        if exists, revision?.isEmpty != false,
+           builtImageLabels(tag: tag)?[BotComputerGuestSpec.recipeDigestLabelKey] == digest {
             return
         }
         try buildImage(context: recipeContext, tag: tag)
@@ -1185,6 +1193,61 @@ public final class BotComputerGuestService: @unchecked Sendable {
         } catch BotComputerDockerError.provisioningFailed {
             sleep(2)
             try docker.build(context: context, tag: tag)
+        }
+        recordBuiltImage(tag: tag, context: context)
+    }
+
+    /// Image labels `buildImage` stamped, kept on the host by tag with the
+    /// image id each build produced. Some engines (Kiri) drop image labels;
+    /// an unlabeled image is trusted only while its tag still names that id.
+    private struct BuiltImage: Codable {
+        var id: String
+        var labels: [String: String]
+    }
+
+    private static let builtImagesLock = NSLock()
+
+    private var builtImagesURL: URL {
+        appSupport.appendingPathComponent("bot-computer-built-images.json")
+    }
+
+    private func loadBuiltImages() -> [String: BuiltImage] {
+        guard let data = try? Data(contentsOf: builtImagesURL) else { return [:] }
+        return (try? JSONDecoder().decode([String: BuiltImage].self, from: data)) ?? [:]
+    }
+
+    private func builtImageLabels(tag: String, id: String) -> [String: String]? {
+        guard !id.isEmpty, let built = Self.builtImagesLock.withLock({ loadBuiltImages()[tag] }),
+              built.id == id else { return nil }
+        return built.labels
+    }
+
+    private func builtImageLabels(tag: String) -> [String: String]? {
+        builtImageLabels(tag: tag, id: (try? docker.imageID(tag: tag)) ?? "")
+    }
+
+    /// `image`'s own labels; the recorded ones when the engine kept none.
+    private func recipeLabels(tag: String, image: BotComputerImageState) -> [String: String] {
+        guard (image.labels[BotComputerGuestSpec.recipeLabelKey] ?? "").isEmpty,
+              let built = builtImageLabels(tag: tag, id: image.id) else { return image.labels }
+        return built
+    }
+
+    private func recordBuiltImage(tag: String, context: URL) {
+        guard let id = try? docker.imageID(tag: tag), !id.isEmpty else { return }
+        let labels = [
+            BotComputerGuestSpec.recipeLabelKey: BotComputerGuestSpec.recipeRevision,
+            BotComputerGuestSpec.recipeDigestLabelKey: BotComputerGuestSpec.recipeDigest(context: context),
+        ]
+        Self.builtImagesLock.withLock {
+            var built = loadBuiltImages()
+            built[tag] = BuiltImage(id: id, labels: labels)
+            do {
+                try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+                try JSONEncoder().encode(built).write(to: builtImagesURL, options: .atomic)
+            } catch {
+                guestServiceLog.error("bot.guest.built_image_record_failed tag=\(tag, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            }
         }
     }
 

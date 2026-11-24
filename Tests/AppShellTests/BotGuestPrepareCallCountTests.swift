@@ -120,8 +120,8 @@ private final class ScriptedDockerDaemon: @unchecked Sendable {
         for tag in args.dropFirst(4) {
             guard let image = images[tag] else { continue }
             let tags = String(decoding: try JSONEncoder().encode([tag]), as: UTF8.self)
-            let labels = String(decoding: try JSONEncoder().encode(image.labels), as: UTF8.self)
-            lines.append("\(tags)\t\(image.id)\t\(labels)")
+            let config = String(decoding: try JSONEncoder().encode(["Labels": image.labels]), as: UTF8.self)
+            lines.append("\(tags)\t\(image.id)\t\(config)")
         }
         guard !lines.isEmpty else { throw BotComputerDockerError.provisioningFailed }
         return Data((lines.joined(separator: "\n") + "\n").utf8)
@@ -313,7 +313,7 @@ final class BotGuestPrepareCallCountTests: XCTestCase {
         XCTAssertLessThanOrEqual(guest.daemon.launches.count, 3, "\(verbs(guest))")
         XCTAssertEqual(verbs(guest), ["info", "image inspect", "inspect"])
         XCTAssertEqual(guest.daemon.launches.dropFirst().first, [
-            "image", "inspect", "-f", "{{json .RepoTags}}\t{{.Id}}\t{{json .Config.Labels}}",
+            "image", "inspect", "-f", "{{json .RepoTags}}\t{{.Id}}\t{{json .Config}}",
             BotComputerGuestSpec.imageTag, BotComputerGuestSpec.botImageTag(botID: guest.botID),
         ], "the base image and the bot's own image are read in one inspect")
     }
@@ -642,7 +642,8 @@ final class BotGuestPrepareCallCountTests: XCTestCase {
         // unattributed line as "the bot has no image of its own" would keep a
         // container built from an older image.
         let both = BotComputerDockerCLI { _ in
-            Data("[\"docker.io/a:1\"]\tsha256:a\t{\"k\":\"v\"}\n[\"b:1\",\"b:2\"]\tsha256:b\tnull\n".utf8)
+            // b's config has no Labels key: Kiri stores no image labels.
+            Data("[\"docker.io/a:1\"]\tsha256:a\t{\"Labels\":{\"k\":\"v\"}}\n[\"b:1\",\"b:2\"]\tsha256:b\t{\"User\":\"remotecode\"}\n".utf8)
         }
         XCTAssertEqual(try both.imageStates(tags: ["a:1", "b:2", "c:1"]), [
             "a:1": BotComputerImageState(id: "sha256:a", labels: ["k": "v"]),

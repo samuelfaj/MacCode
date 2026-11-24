@@ -241,8 +241,15 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// One line per image that exists: its tags, its id and its labels.
-    static let imageStatesFormat = "{{json .RepoTags}}\t{{.Id}}\t{{json .Config.Labels}}"
+    /// One line per image that exists: its tags, its id and its config, whose
+    /// labels are read here. `.Config.Labels` fails the template on an engine
+    /// that stores no image labels (Kiri).
+    static let imageStatesFormat = "{{json .RepoTags}}\t{{.Id}}\t{{json .Config}}"
+
+    private struct ImageConfig: Decodable {
+        var labels: [String: String]?
+        enum CodingKeys: String, CodingKey { case labels = "Labels" }
+    }
 
     static func imageStatesArguments(tags: [String]) -> [String] {
         ["image", "inspect", "-f", imageStatesFormat] + tags
@@ -265,7 +272,7 @@ public struct BotComputerDockerCLI: BotComputerDockerClienting {
             guard fields.count == 3, !fields[1].isEmpty, !answered.isEmpty else {
                 throw BotComputerDockerError.provisioningFailed
             }
-            let labels = (try? JSONDecoder().decode([String: String].self, from: Data(fields[2].utf8))) ?? [:]
+            let labels = (try? JSONDecoder().decode(ImageConfig.self, from: Data(fields[2].utf8)))?.labels ?? [:]
             for tag in answered {
                 states[tag] = BotComputerImageState(id: String(fields[1]), labels: labels)
             }
