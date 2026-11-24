@@ -576,7 +576,14 @@ public final class ScheduledTasksViewModel: ObservableObject {
 
     private func reloadTasks() {
         do {
-            let matching = try store.list(search: searchText)
+            var matching = try store.list(search: searchText)
+            // A Resume still checking the provider shows Active, in the counts and filters too.
+            for index in matching.indices where !pendingResumeIntents.isEmpty {
+                if let intent = pendingResumeIntents[matching[index].id],
+                   router.isCurrentScheduledTaskEnableIntent(matching[index].id, intent) {
+                    matching[index].isEnabled = true
+                }
+            }
             // PERF: single pass derives counts + the status-filtered list
             // instead of two counting filters plus a third listing filter.
             var activeCount = 0
@@ -600,9 +607,6 @@ public final class ScheduledTasksViewModel: ObservableObject {
             switch statusFilter {
             case .all: tasks = matching
             case .active, .paused: tasks = visible
-            }
-            for (id, intent) in pendingResumeIntents where router.isCurrentScheduledTaskEnableIntent(id, intent) {
-                setTaskEnabledLocally(id, true)
             }
             runCounts = try store.runCounts()
             latestRuns = try store.latestRuns()
