@@ -210,6 +210,27 @@ public struct BotDeskRouting: Equatable, Codable {
         }
         return model
     }
+
+    /// Fits the efforts to what the run model offers; the desk and a routine's filled-in model share it.
+    mutating func fitReasoning(to supported: [AgentReasoningEffort], supportsMainEffortAuto: Bool) {
+        if !supported.isEmpty, !supported.contains(reasoningEffort) {
+            reasoningEffort = supported.contains(.high) ? .high : (supported.first ?? .medium)
+        }
+        if provider == .distill {
+            if distillMainEffortSelection == nil {
+                distillMainEffortSelection = supported.isEmpty
+                    ? .automatic
+                    : .fixed(reasoningEffort)
+            }
+            distillMainEffortSelection = distillMainEffortSelection?.normalized(
+                for: supported,
+                supportsAutomatic: supportsMainEffortAuto
+            )
+            if reasoningModel == nil {
+                distillReasoningEffortSelection = .automatic
+            }
+        }
+    }
 }
 
 public struct BotComposerDraft: Equatable, Codable {
@@ -8253,6 +8274,16 @@ public final class BotsViewModel: ObservableObject {
         if var filled = route, filled.provider == .distill,
            filled.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             filled.model = runDefaultModel(for: .distill)
+            // The saved effort was not chosen for this model; fit it like the desk does.
+            let snapshot = providers.first(where: { $0.id == filled.providerInstanceID })
+                ?? providers.first(where: { $0.provider == filled.provider })
+            let supported = snapshot?.models.first(where: { $0.id == filled.model })?.supportedReasoningEfforts ?? []
+            if !supported.isEmpty {
+                filled.fitReasoning(
+                    to: supported,
+                    supportsMainEffortAuto: snapshot?.effectiveCapabilities.supportsDistillMainEffortAuto == true
+                )
+            }
             route = filled
         }
         let pinned = try contextualRoutineConversation(
@@ -9674,24 +9705,7 @@ public final class BotsViewModel: ObservableObject {
         if deskRouting.provider == .distill {
             deskRouting.routingMode = .manual
         }
-        let supported = deskSupportedReasoning
-        if !supported.isEmpty, !supported.contains(deskRouting.reasoningEffort) {
-            deskRouting.reasoningEffort = supported.contains(.high) ? .high : (supported.first ?? .medium)
-        }
-        if deskRouting.provider == .distill {
-            if deskRouting.distillMainEffortSelection == nil {
-                deskRouting.distillMainEffortSelection = supported.isEmpty
-                    ? .automatic
-                    : .fixed(deskRouting.reasoningEffort)
-            }
-            deskRouting.distillMainEffortSelection = deskRouting.distillMainEffortSelection?.normalized(
-                for: supported,
-                supportsAutomatic: deskSupportsDistillMainEffortAuto
-            )
-            if deskRouting.reasoningModel == nil {
-                deskRouting.distillReasoningEffortSelection = .automatic
-            }
-        }
+        deskRouting.fitReasoning(to: deskSupportedReasoning, supportsMainEffortAuto: deskSupportsDistillMainEffortAuto)
     }
 
     public var deskPermissionModes: [AgentPermissionMode] {
