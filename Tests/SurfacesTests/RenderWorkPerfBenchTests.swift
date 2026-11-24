@@ -74,42 +74,49 @@ final class SurfacesRenderWorkPerfBenchTests: XCTestCase {
         vm.startingOrRunningThreadIds(among: vm.filteredThreads)
     }
 
-    // MARK: - Ultracode border while the window is not key
+    // MARK: - Ultracode border
 
-    /// Gradient frames the Ultracode border builds in 1 s while its composer
-    /// sits in a window whose control state is `state`.
-    private func borderFramesPerSecond(state: ControlActiveState, hidden: Bool = false) -> Int {
-        let view = RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(.black)
-            .frame(width: 420, height: 90)
-            .modifier(UltracodeBorder(active: true))
-            .padding(24)
-            .environment(\.controlActiveState, state)
-        let window = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 500, height: 180),
+    /// Process CPU time (ms) spent in 1 s while a composer-sized border sits in a
+    /// host that also lays out 300 transcript-like rows, like the Agent App window.
+    private func borderCPUMsPerSecond(state: ControlActiveState, rows: Int = 300) -> Double {
+        let view = VStack(spacing: 4) {
+            ForEach(0..<rows, id: \.self) { Text("transcript row \($0)").font(.body) }
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(.black)
+                .frame(width: 760, height: 120)
+                .modifier(UltracodeBorder(active: true))
+        }
+        .padding(24)
+        .environment(\.controlActiveState, state)
+        let window = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 820, height: 900),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let host = NSHostingView(rootView: view)
-        window.contentView = host
+        window.contentView = NSHostingView(rootView: view)
         window.orderFrontRegardless()
-        host.isHidden = hidden
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-        let start = UltracodeBorder.frameCountForTesting
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        func cpuMs() -> Double {
+            var usage = rusage()
+            getrusage(RUSAGE_SELF, &usage)
+            return Double(usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) * 1000
+                + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1000
+        }
+        let start = cpuMs()
         RunLoop.main.run(until: Date().addingTimeInterval(1.0))
-        let frames = UltracodeBorder.frameCountForTesting - start
+        let spent = cpuMs() - start
         window.orderOut(nil)
         window.contentView = nil
         window.close()
-        return frames
+        return spent
     }
 
-    func test_bench_ultracodeBorderFramesPerSecond() {
+    func test_bench_ultracodeBorderCPUPerSecond() {
         for (label, state) in [("key", ControlActiveState.key), ("inactive", .inactive)] {
-            samples("ultracode.border.framesPerSecond.\(label)", unit: "frames") {
-                Double(borderFramesPerSecond(state: state))
+            samples("ultracode.border.cpuMsPerSecond.\(label)", unit: "ms") {
+                borderCPUMsPerSecond(state: state)
             }
         }
-        samples("ultracode.border.framesPerSecond.keyHiddenHost", unit: "frames") {
-            Double(borderFramesPerSecond(state: .key, hidden: true))
+        samples("ultracode.border.cpuMsPerSecond.keyBorderOnly", unit: "ms") {
+            borderCPUMsPerSecond(state: .key, rows: 0)
         }
     }
 }

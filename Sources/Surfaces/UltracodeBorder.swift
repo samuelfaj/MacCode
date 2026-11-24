@@ -6,15 +6,15 @@ import DesignSystemKit
 /// `angleOverride` pins the gradient (render tests); otherwise it rotates one lap per
 /// `AgentUltracodeBorderPresentation.lapSeconds`, or stays static under Reduce Motion.
 /// The rotation holds its angle while the window is not key or the composer is hidden
-/// (background tab, closed window): the timeline otherwise keeps ticking at 30 Hz there.
+/// (background tab, closed window).
+/// Core Animation turns the gradient; per-frame SwiftUI redraws of a conic gradient cost
+/// most of a core on the main thread.
 public struct UltracodeBorder: ViewModifier {
     public var active: Bool
     public var angleOverride: Double?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.controlActiveState) private var controlActiveState
     @State private var onScreen = true
-    /// Gradient frames built (one per timeline tick); tests assert pauses with it.
-    nonisolated(unsafe) static var frameCountForTesting = 0
 
     public init(active: Bool, angleOverride: Double? = nil) {
         self.active = active
@@ -37,31 +37,144 @@ public struct UltracodeBorder: ViewModifier {
             windowIsKey: controlActiveState == .key,
             onScreen: onScreen
         )
-        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !ticking)) { timeline in
-            let _ = Self.frameCountForTesting += 1
-            let lap = AgentUltracodeBorderPresentation.lapSeconds
-            let angle = angleOverride ?? (animated
-                ? timeline.date.timeIntervalSinceReferenceDate
-                    .truncatingRemainder(dividingBy: lap) / lap * 360
-                : 0)
-            RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
-                .strokeBorder(
-                    AngularGradient(
-                        colors: [
-                            DS.Palette.ultracode,
-                            DS.Palette.ultracodeDeep,
-                            DS.Palette.ultracode.opacity(0.35),
-                            DS.Palette.ultracode
-                        ],
-                        center: .center,
-                        angle: .degrees(angle)
-                    ),
-                    lineWidth: 1.5
-                )
-                .shadow(color: DS.Palette.ultracode.opacity(0.35), radius: 6)
+        return UltracodeBorderLayer(angle: angleOverride ?? 0, rotating: animated, paused: !ticking)
+            .background(UltracodeBorderVisibilityProbe(onScreen: $onScreen))
+            .allowsHitTesting(false)
+    }
+}
+
+private struct UltracodeBorderLayer: NSViewRepresentable {
+    var angle: Double
+    var rotating: Bool
+    var paused: Bool
+
+    func makeNSView(context: Context) -> UltracodeBorderLayerView { UltracodeBorderLayerView() }
+
+    func updateNSView(_ nsView: UltracodeBorderLayerView, context: Context) {
+        nsView.update(angle: angle, rotating: rotating, paused: paused)
+    }
+}
+
+/// The border as layers: a conic gradient spun by a repeating Core Animation rotation,
+/// masked to the rounded stroke, with the glow as a shadow on the layer that holds it.
+final class UltracodeBorderLayerView: NSView {
+    static let spinKey = "ultracode.spin"
+    let gradient = CAGradientLayer()
+    private let glow = CALayer()
+    private let ring = CALayer()
+    private let stroke = CAShapeLayer()
+    private let lineWidth: CGFloat = 1.5
+    private var requested: (angle: Double, rotating: Bool, paused: Bool) = (0, false, true)
+
+    /// True while the rotation is attached and its clock runs.
+    var isSpinning: Bool { gradient.animation(forKey: Self.spinKey) != nil && gradient.speed != 0 }
+
+    override var isFlipped: Bool { true }
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        clipsToBounds = false
+        let tint = NSColor(DS.Palette.ultracode)
+        gradient.type = .conic
+        gradient.colors = [tint, NSColor(DS.Palette.ultracodeDeep), tint.withAlphaComponent(0.35), tint].map(\.cgColor)
+        gradient.startPoint = CGPoint(x: 0.5, y: 0.5)
+        gradient.endPoint = CGPoint(x: 1, y: 0.5)
+        stroke.fillColor = nil
+        stroke.strokeColor = NSColor.black.cgColor
+        stroke.lineWidth = lineWidth
+        ring.mask = stroke
+        ring.addSublayer(gradient)
+        glow.shadowColor = tint.cgColor
+        glow.shadowOpacity = 0.35
+        glow.shadowRadius = 6
+        glow.shadowOffset = .zero
+        glow.addSublayer(ring)
+        layer?.addSublayer(glow)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Added sublayers keep scale 1 unless told; a 1.5 pt stroke would blur on Retina.
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        let scale = window?.backingScaleFactor ?? 2
+        for sublayer in [glow, ring, stroke, gradient] { sublayer.contentsScale = scale }
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        glow.frame = bounds
+        ring.frame = bounds
+        stroke.frame = bounds
+        stroke.path = RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous)
+            .inset(by: lineWidth / 2)
+            .path(in: bounds)
+            .cgPath
+        // A square of the diagonal keeps the stroke covered at every rotation.
+        let side = hypot(bounds.width, bounds.height)
+        gradient.bounds = CGRect(x: 0, y: 0, width: side, height: side)
+        gradient.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        CATransaction.commit()
+    }
+
+    /// A detached view gets no SwiftUI update, so leaving the window pauses here too.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        apply()
+    }
+
+    func update(angle: Double, rotating: Bool, paused: Bool) {
+        requested = (angle, rotating, paused)
+        apply()
+    }
+
+    private func apply() {
+        let paused = requested.paused || window == nil
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard requested.rotating else {
+            gradient.removeAnimation(forKey: Self.spinKey)
+            resetClock()
+            gradient.setAffineTransform(CGAffineTransform(rotationAngle: requested.angle * .pi / 180))
+            return
         }
-        .background(UltracodeBorderVisibilityProbe(onScreen: $onScreen))
-        .allowsHitTesting(false)
+        gradient.setAffineTransform(.identity)
+        if gradient.animation(forKey: Self.spinKey) == nil {
+            resetClock()
+            let lap = AgentUltracodeBorderPresentation.lapSeconds
+            let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+            spin.fromValue = 0
+            spin.toValue = 2 * Double.pi
+            spin.duration = lap
+            spin.repeatCount = .infinity
+            spin.isRemovedOnCompletion = false
+            // Starts in phase with the wall clock; a pause later holds its own angle.
+            spin.beginTime = gradient.convertTime(CACurrentMediaTime(), from: nil)
+                - Date().timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: lap)
+            gradient.add(spin, forKey: Self.spinKey)
+        }
+        if paused, gradient.speed != 0 {
+            let now = gradient.convertTime(CACurrentMediaTime(), from: nil)
+            gradient.speed = 0
+            gradient.timeOffset = now
+        } else if !paused, gradient.speed == 0 {
+            let pausedAt = gradient.timeOffset
+            resetClock()
+            gradient.beginTime = gradient.convertTime(CACurrentMediaTime(), from: nil) - pausedAt
+        }
+    }
+
+    private func resetClock() {
+        gradient.speed = 1
+        gradient.timeOffset = 0
+        gradient.beginTime = 0
     }
 }
 
