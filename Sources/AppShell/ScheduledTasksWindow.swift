@@ -202,7 +202,23 @@ public final class ScheduledTasksViewModel: ObservableObject {
         if loadImmediately {
             reload()
         }
+        // iPhone Resume/Pause/save/delete change rows this window shows; it does
+        // not see them otherwise. Run events keep using the active-run poll.
+        storeChangeObserver = ScheduledTaskCrossProcess.observeStoreChanged { [weak self] reason in
+            MainActor.assumeIsolated {
+                guard let self, self.isVisible,
+                      Self.remoteStoreChangeReasons.contains(reason ?? "") else { return }
+                self.storeChangeReloadCountForTesting += 1
+                self.reloadTasksOrDefer()
+            }
+        }
     }
+
+    private static let remoteStoreChangeReasons: Set<String> = ["remote_enable", "remote_save", "remote_delete"]
+    private var storeChangeObserver: NSObjectProtocol?
+    private(set) var storeChangeReloadCountForTesting = 0
+    /// Window Resumes still checking the provider; their rows stay Active across reloads.
+    private var pendingResumeIntents: [UUID: UInt64] = [:]
 
     deinit {
         freshnessTask?.cancel()
@@ -210,6 +226,7 @@ public final class ScheduledTasksViewModel: ObservableObject {
         runsRefreshTask?.cancel()
         activeRunPollTask?.cancel()
         navigationTask?.cancel()
+        if let storeChangeObserver { ScheduledTaskCrossProcess.removeObserver(storeChangeObserver) }
     }
 
     private static func waitForCommittedFrame() async {
@@ -386,9 +403,11 @@ public final class ScheduledTasksViewModel: ObservableObject {
     }
 
     public func toggle(_ task: ScheduledTask) {
+        let intent = router.beginScheduledTaskEnableIntent(task.id)
         // Flip the row first; each failure path below reverts it and reports the error.
         setTaskEnabledLocally(task.id, !task.isEnabled)
         if task.isEnabled {
+            pendingResumeIntents[task.id] = nil
             do {
                 try store.setEnabled(id: task.id, enabled: false, nextRunAt: nil)
                 reloadTasks()
@@ -398,15 +417,20 @@ public final class ScheduledTasksViewModel: ObservableObject {
             }
             return
         }
+        pendingResumeIntents[task.id] = intent
         Task { [weak self] in
             guard let self else { return }
+            defer { if self.pendingResumeIntents[task.id] == intent { self.pendingResumeIntents[task.id] = nil } }
             do {
                 _ = try await ScheduledTaskExecutor(context: context, router: router).preflight(task)
+                // A later Pause/Resume owns the task now; show what is stored.
+                guard router.isCurrentScheduledTaskEnableIntent(task.id, intent) else { return reloadTasks() }
                 let next = task.calculatedNextRun(after: Date().addingTimeInterval(-0.001))
                 try store.setEnabled(id: task.id, enabled: true, nextRunAt: next)
                 router.scheduledTaskScheduler?.tick()
                 reloadTasks()
             } catch {
+                guard router.isCurrentScheduledTaskEnableIntent(task.id, intent) else { return reloadTasks() }
                 setTaskEnabledLocally(task.id, false)
                 errorMessage = String(describing: error)
             }
@@ -552,7 +576,14 @@ public final class ScheduledTasksViewModel: ObservableObject {
 
     private func reloadTasks() {
         do {
-            let matching = try store.list(search: searchText)
+            var matching = try store.list(search: searchText)
+            // A Resume still checking the provider shows Active, in the counts and filters too.
+            for index in matching.indices where !pendingResumeIntents.isEmpty {
+                if let intent = pendingResumeIntents[matching[index].id],
+                   router.isCurrentScheduledTaskEnableIntent(matching[index].id, intent) {
+                    matching[index].isEnabled = true
+                }
+            }
             // PERF: single pass derives counts + the status-filtered list
             // instead of two counting filters plus a third listing filter.
             var activeCount = 0
@@ -1022,19 +1053,19 @@ public struct ScheduledTasksRootView: View {
     private var filterChips: some View {
         HStack(spacing: DS.Space.sm) {
             AgentListFilterChip(
-                title: ScheduledTaskStatusFilter.all.rawValue,
+                title: L("All"),
                 count: vm.filterCounts.all,
                 selected: vm.statusFilter == .all,
                 identifier: "scheduledTasks.filter.all"
             ) { vm.statusFilter = .all }
             AgentListFilterChip(
-                title: ScheduledTaskStatusFilter.active.rawValue,
+                title: L("Active"),
                 count: vm.filterCounts.active,
                 selected: vm.statusFilter == .active,
                 identifier: "scheduledTasks.filter.active"
             ) { vm.statusFilter = .active }
             AgentListFilterChip(
-                title: ScheduledTaskStatusFilter.paused.rawValue,
+                title: L("Paused"),
                 count: vm.filterCounts.paused,
                 selected: vm.statusFilter == .paused,
                 identifier: "scheduledTasks.filter.paused"
