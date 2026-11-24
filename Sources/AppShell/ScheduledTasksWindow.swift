@@ -1049,19 +1049,19 @@ public struct ScheduledTasksRootView: View {
     private var filterChips: some View {
         HStack(spacing: DS.Space.sm) {
             AgentListFilterChip(
-                title: ScheduledTaskStatusFilter.all.rawValue,
+                title: L("All"),
                 count: vm.filterCounts.all,
                 selected: vm.statusFilter == .all,
                 identifier: "scheduledTasks.filter.all"
             ) { vm.statusFilter = .all }
             AgentListFilterChip(
-                title: ScheduledTaskStatusFilter.active.rawValue,
+                title: L("Active"),
                 count: vm.filterCounts.active,
                 selected: vm.statusFilter == .active,
                 identifier: "scheduledTasks.filter.active"
             ) { vm.statusFilter = .active }
             AgentListFilterChip(
-                title: ScheduledTaskStatusFilter.paused.rawValue,
+                title: L("Paused"),
                 count: vm.filterCounts.paused,
                 selected: vm.statusFilter == .paused,
                 identifier: "scheduledTasks.filter.paused"
