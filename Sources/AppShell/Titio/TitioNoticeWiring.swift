@@ -258,7 +258,7 @@ extension AppContext {
             },
             acknowledgeActivity: { item in
                 let router = try await router()
-                _ = try await MainActor.run { try router.activityAcknowledge(params: ["item_id": .string(item)]) }
+                _ = try await router.activityAcknowledge(params: ["item_id": .string(item)])
             },
             dismissNotification: { id in
                 let router = try await router()
@@ -267,9 +267,7 @@ extension AppContext {
             markActivityViewed: { items in
                 guard let router = try? await router() else { return }
                 // One id per call: a finished-run or dismissed-notification check rejects a whole batch.
-                await MainActor.run {
-                    for item in items { _ = try? router.activitySetViewed(params: ["item_ids": .array([.string(item)]), "viewed": .bool(true)]) }
-                }
+                for item in items { _ = try? await router.activitySetViewed(params: ["item_ids": .array([.string(item)]), "viewed": .bool(true)]) }
             }
         )
     }

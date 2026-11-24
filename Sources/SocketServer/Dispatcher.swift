@@ -145,8 +145,9 @@ public protocol CommandRouting: AnyObject {
     func openAgentApp(workspace: WorkspaceID) throws -> SurfaceDescriptor
     func activityList(params: [String: JSONValue]) throws -> JSONValue
     func activityListOffMain(params: [String: JSONValue]) async throws -> JSONValue
-    func activitySetViewed(params: [String: JSONValue]) throws -> JSONValue
-    func activityAcknowledge(params: [String: JSONValue]) throws -> JSONValue
+    /// Async: the write waits for the database lock; the dispatcher is MainActor.
+    func activitySetViewed(params: [String: JSONValue]) async throws -> JSONValue
+    func activityAcknowledge(params: [String: JSONValue]) async throws -> JSONValue
     /// `scheduled_task.*`: Schedule Tasks for the paired iPhone (capability `agent.scheduled_tasks_v1`).
     func listScheduledTasksRemote() throws -> JSONValue
     func saveScheduledTaskRemote(params: [String: JSONValue]) async throws -> JSONValue
@@ -463,8 +464,8 @@ public extension CommandRouting {
     func captureHostBrowserToChat(callerThread: AgentThreadID, surface: SurfaceID?, reason: String) throws -> JSONValue { throw JSONRPCError.notSupported("host.browser.screenshot") }
     func postChatImages(callerThread: AgentThreadID, paths: [String], caption: String?) throws -> JSONValue { throw JSONRPCError.notSupported("host.chat.image") }
     func activityListOffMain(params: [String: JSONValue]) async throws -> JSONValue { try activityList(params: params) }
-    func activitySetViewed(params: [String: JSONValue]) throws -> JSONValue { throw JSONRPCError.notSupported("agent.activity.viewed.set") }
-    func activityAcknowledge(params: [String: JSONValue]) throws -> JSONValue { throw JSONRPCError.notSupported("agent.activity.acknowledge") }
+    func activitySetViewed(params: [String: JSONValue]) async throws -> JSONValue { throw JSONRPCError.notSupported("agent.activity.viewed.set") }
+    func activityAcknowledge(params: [String: JSONValue]) async throws -> JSONValue { throw JSONRPCError.notSupported("agent.activity.acknowledge") }
     func listScheduledTasksRemote() throws -> JSONValue { throw JSONRPCError.notSupported("scheduled_task.list") }
     func saveScheduledTaskRemote(params: [String: JSONValue]) async throws -> JSONValue { throw JSONRPCError.notSupported("scheduled_task.save") }
     func deleteScheduledTaskRemote(id: UUID) throws -> JSONValue { throw JSONRPCError.notSupported("scheduled_task.delete") }
@@ -4640,9 +4641,9 @@ public final class JSONRPCDispatcher {
             case "agent.activity.list":
                 return .init(id: id, result: try await router.activityListOffMain(params: params))
             case "agent.activity.viewed.set":
-                return .init(id: id, result: try router.activitySetViewed(params: params))
+                return .init(id: id, result: try await router.activitySetViewed(params: params))
             case "agent.activity.acknowledge":
-                return .init(id: id, result: try router.activityAcknowledge(params: params))
+                return .init(id: id, result: try await router.activityAcknowledge(params: params))
             case "scheduled_task.list":
                 return .init(id: id, result: try router.listScheduledTasksRemote())
             case "scheduled_task.save":
