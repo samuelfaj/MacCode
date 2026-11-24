@@ -132,10 +132,12 @@ final class UltracodeBorderTests: XCTestCase {
         let window = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 820, height: 180),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: view)
+        let host = NSHostingView(rootView: view)
+        window.contentView = host
         window.orderFrontRegardless()
         defer { window.orderOut(nil); window.contentView = nil; window.close() }
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(borderLayerView(in: host)?.isSpinning, true, "the measured border is mounted and turning")
         func cpuMs() -> Double {
             var usage = rusage()
             getrusage(RUSAGE_SELF, &usage)

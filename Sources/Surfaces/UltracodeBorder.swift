@@ -7,8 +7,8 @@ import DesignSystemKit
 /// `AgentUltracodeBorderPresentation.lapSeconds`, or stays static under Reduce Motion.
 /// The rotation holds its angle while the window is not key or the composer is hidden
 /// (background tab, closed window).
-/// Core Animation turns the gradient: a SwiftUI timeline redrew the conic gradient and its
-/// blurred glow on the CPU 30 times a second (most of a core while the composer was visible).
+/// Core Animation turns the gradient; per-frame SwiftUI redraws of a conic gradient cost
+/// most of a core on the main thread.
 public struct UltracodeBorder: ViewModifier {
     public var active: Bool
     public var angleOverride: Double?
@@ -155,7 +155,7 @@ final class UltracodeBorderLayerView: NSView {
             spin.duration = lap
             spin.repeatCount = .infinity
             spin.isRemovedOnCompletion = false
-            // Same phase as every other border on screen.
+            // Starts in phase with the wall clock; a pause later holds its own angle.
             spin.beginTime = gradient.convertTime(CACurrentMediaTime(), from: nil)
                 - Date().timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: lap)
             gradient.add(spin, forKey: Self.spinKey)
