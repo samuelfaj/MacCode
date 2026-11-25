@@ -33,6 +33,9 @@ public final class PetController {
     private var companionTask: Task<Void, Never>?
     private var pendingCompanionCue: PetCompanionCue?
     private var attentionRefreshTask: Task<Void, Never>?
+    private var attentionReadGeneration: UInt64 = 0
+    private var attentionReadTask: Task<Void, Never>?
+    private var attentionReadDirty = false
     private var activityCountsObserver: UUID?
     private var activitySurfaceGeneration: UInt64 = 0
     private var activitySurfaceTask: Task<Void, Never>?
@@ -111,8 +114,12 @@ public final class PetController {
         transientTask != nil
             || companionTask != nil
             || attentionRefreshTask != nil
+            || attentionReadTask != nil
             || idleTask != nil
     }
+    /// Awaited on the main actor after an event-driven attention read returns
+    /// and before its result is checked and applied.
+    var beforeAttentionReadApplyForTests: (() async -> Void)?
     var visualRuntimeIsLoadedForTests: Bool {
         animationController != nil && windowController != nil
     }
@@ -150,8 +157,10 @@ public final class PetController {
             workspaceNameProvider: { [weak context] workspaceID in
                 context?.state.workspaces[workspaceID]?.name
             },
-            destLookup: { [weak context] in
-                guard let store = context?.botStore, let db = context?.db else {
+            // Runs off the main actor (event-driven refresh): capture the stores,
+            // not the main-actor context.
+            destLookup: { [weak botStore = context.botStore, weak db = context.db] in
+                guard let store = botStore, let db else {
                     return PetDestAttentionSnapshot(bots: [], conversations: [], attention: [])
                 }
                 let inboxID = (try? TitioNoticeRepository(db: db).inboxState())?.conversationID
@@ -298,6 +307,7 @@ public final class PetController {
         pendingCompanionCue = nil
         attentionRefreshTask?.cancel()
         attentionRefreshTask = nil
+        supersedeAttentionRead()
         idleTask?.cancel()
         idleTask = nil
         activeThreadChromeFetchTask?.cancel()
@@ -973,18 +983,70 @@ public final class PetController {
         attentionRefreshTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 10_000_000)
             guard !Task.isCancelled else { return }
-            await MainActor.run { self?.refreshAttentionNow() }
+            await MainActor.run { self?.refreshAttentionFromEvent() }
         }
     }
 
+    /// Start, open and settings changes: one synchronous read that supersedes
+    /// an event-driven read still in flight.
     private func refreshAttentionNow() {
+        refreshActivityCounts()
+        supersedeAttentionRead()
+        applyAttention(Result {
+            try attentionStore.refresh(filter: attentionFilter(model.settings.petAttentionFilter))
+        })
+    }
+
+    /// Events during runs: the SQLite reads run off the main actor, because the
+    /// read connection can be held for seconds by Activity reads. One read at a
+    /// time; events that land meanwhile rerun it once it finishes.
+    private func refreshAttentionFromEvent() {
+        refreshActivityCounts()
+        startAttentionRead()
+    }
+
+    private func startAttentionRead() {
+        guard attentionReadTask == nil else {
+            attentionReadDirty = true
+            return
+        }
+        attentionReadDirty = false
+        attentionReadGeneration &+= 1
+        let owner = attentionReadGeneration
+        let store = attentionStore
+        attentionReadTask = Task { @MainActor [weak self] in
+            let reads = await Task.detached(priority: .userInitiated) {
+                Result { try store.loadReads() }
+            }.value
+            await self?.beforeAttentionReadApplyForTests?()
+            guard let self, !Task.isCancelled, self.attentionReadGeneration == owner else { return }
+            self.attentionReadTask = nil
+            self.applyAttention(reads.map {
+                store.snapshot(from: $0, filter: self.attentionFilter(self.model.settings.petAttentionFilter))
+            })
+            if self.attentionReadDirty { self.startAttentionRead() }
+        }
+    }
+
+    /// Only the newest read applies: drops an event-driven read still in flight.
+    private func supersedeAttentionRead() {
+        attentionReadGeneration &+= 1
+        attentionReadTask?.cancel()
+        attentionReadTask = nil
+        attentionReadDirty = false
+    }
+
+    private func refreshActivityCounts() {
         PetActivityCountsProjection.shared.refresh(
             router: router,
             workspaceIDs: context.state.workspaces.keys.map { $0 }
         )
+    }
+
+    private func applyAttention(_ result: Result<PetAttentionSnapshot, Error>) {
         do {
             let previousCount = model.count
-            let snapshot = try attentionStore.refresh(filter: attentionFilter(model.settings.petAttentionFilter))
+            let snapshot = try result.get()
             model.apply(snapshot: snapshot)
             model.routeError = projectionErrorMessage
             let reduction = reducer.reduce(
