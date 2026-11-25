@@ -6085,12 +6085,12 @@ public final class AgentRunCoordinator: @unchecked Sendable {
             // File-touch envelopes are host bookkeeping: never persisted or shown.
             if case .providerRuntime(let runtime) = rawEvent, let touches = ProviderFileTouchParser.touches(in: runtime) {
                 fileTouchTracker?.record(runId: runId, touches: touches)
-                recordLeases(runId: runId, provider: runtime.provider, touches: touches)
+                if runtime.provider == .codex { recordLeases(runId: runId, touches: touches) }
                 return
             }
             // Distill refuses a write over a file that changed since the session read it; the user hears about it too.
             if case .itemDelta(_, _, let output?, _) = rawEvent, let message = StaleWriteRefusal.message(in: output) {
-                fileLeaseService?.reportStaleWrite(runId: runId, path: nil, message: message)
+                fileLeaseService?.reportStaleWrite(runId: runId, path: StaleWriteRefusal.path(in: message), message: message)
             }
             guard let ev = sanitizeFinalAssistantEvent(rawEvent, runId: runId) else { return }
             persistProviderNativeSubagentLifecycle(
@@ -7620,9 +7620,9 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         Task { _ = await tracker.complete(runId: runId) }
     }
 
-    /// Providers that edit without a pre-edit hook (Codex) learn about conflicts here, after the edit.
-    /// Distill and Claude already asked before editing; their check here only renews the leases.
-    private func recordLeases(runId: AgentRunID, provider: AgentProvider, touches: [ProviderFileTouch]) {
+    /// Codex edits after its own sandbox approval, so MacCode learns about conflicts here, after the edit.
+    /// Distill and Claude ask before editing through their pre-edit hooks; their edit events must not lease again.
+    private func recordLeases(runId: AgentRunID, touches: [ProviderFileTouch]) {
         guard let service = fileLeaseService, !touches.isEmpty else { return }
         let paths = touches.map(\.path)
         Task.detached(priority: .utility) { _ = await service.checkEdit(runId: runId, paths: paths, cwd: nil, enforce: false) }

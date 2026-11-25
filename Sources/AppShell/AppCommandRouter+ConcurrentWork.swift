@@ -63,7 +63,8 @@ extension AppCommandRouter {
             )
             return claimedRun
         } catch {
-            guard (try? ctx.runRepo.threadId(of: claimedRun)) == thread,
+            guard AgentDelegationCapabilityTransport.isWellFormed(capability ?? ""),
+                  (try? ctx.runRepo.threadId(of: claimedRun)) == thread,
                   let active = ctx.coordinator.activeRunId(threadId: thread) else { throw error }
             return active
         }

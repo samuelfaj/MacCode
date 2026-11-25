@@ -113,30 +113,20 @@ public final class FileLeaseService: PreEditChecking, @unchecked Sendable {
         var seen = Set<String>()
         let relative = paths.compactMap { RunFileTouchPaths.relativize(path: $0, repoRoot: identity.repoRoot, cwd: base) }
             .filter { seen.insert($0).inserted }
+        guard !relative.isEmpty else { return .allow }
         let current = now()
-        var conflicts: [(path: String, message: String, holder: FileLeaseHolder)] = []
-        for path in relative {
-            if let holder = store.conflict(repoRoot: identity.repoRoot, path: path, runID: runId) {
-                conflicts.append((path, FileLeaseMessage.conflict(path: path, holder: holder, now: current), holder))
-            }
+        let described = describe(state.threadID)
+        let me = FileLeaseHolder(runID: runId, threadID: state.threadID, threadTitle: described.title, botLabel: described.botLabel, since: current)
+        // One atomic step: a refused edit takes none of its files, and two racing runs cannot both win a file.
+        let denies = enforce && mode() == .block
+        let outcome = store.acquireAll(repoRoot: identity.repoRoot, paths: relative, holder: me, allOrNothing: denies)
+        if outcome.taken > 0 { onChange?() }
+        guard !outcome.conflicts.isEmpty else { return .allow }
+        let messages = outcome.conflicts.map { ($0.path, FileLeaseMessage.conflict(path: $0.path, holder: $0.holder, now: current), $0.holder) }
+        for (path, message, holder) in messages {
+            notify(denies ? .leaseDenied : .conflictWarned, state: state, runId: runId, path: path, message: message, holder: holder)
         }
-        let denies = enforce && mode() == .block && !conflicts.isEmpty
-        if !denies, !relative.isEmpty {
-            let described = describe(state.threadID)
-            let holder = FileLeaseHolder(runID: runId, threadID: state.threadID, threadTitle: described.title, botLabel: described.botLabel, since: current)
-            var tookNew = false
-            for path in relative {
-                if store.conflict(repoRoot: identity.repoRoot, path: path, runID: runId) == nil,
-                   !store.holds(repoRoot: identity.repoRoot, path: path, runID: runId) { tookNew = true }
-                store.acquire(repoRoot: identity.repoRoot, path: path, holder: holder)
-            }
-            if tookNew { onChange?() }
-        }
-        guard !conflicts.isEmpty else { return .allow }
-        let text = conflicts.map(\.message).joined(separator: "\n")
-        for conflict in conflicts {
-            notify(denies ? .leaseDenied : .conflictWarned, state: state, runId: runId, path: conflict.path, message: conflict.message, holder: conflict.holder)
-        }
+        let text = messages.map(\.1).joined(separator: "\n")
         return denies ? .deny(text) : .warn(text)
     }
 
@@ -168,10 +158,17 @@ public final class FileLeaseService: PreEditChecking, @unchecked Sendable {
     }
 }
 
-/// Distill's refusal of a write over a file that changed since the session last read it.
+/// Distill's refusal of a write over a file that changed since the session last read it:
+/// `Error: <path> changed since you last read it (...), so it was not overwritten. ...`
 public enum StaleWriteRefusal {
     public static func message(in toolOutput: String) -> String? {
-        toolOutput.split(separator: "\n").first { $0.contains("changed since") }
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        toolOutput.split(separator: "\n").lazy
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { $0.hasPrefix("Error: ") && $0.contains(" changed since you last read it") && $0.contains("not overwritten") }
+    }
+
+    public static func path(in message: String) -> String? {
+        guard message.hasPrefix("Error: "), let end = message.range(of: " changed since you last read it") else { return nil }
+        return String(message[message.index(message.startIndex, offsetBy: 7)..<end.lowerBound])
     }
 }

@@ -90,6 +90,34 @@ public final class FileLeaseStore: @unchecked Sendable {
         return .granted
     }
 
+    /// Takes every free file for `holder` (and renews the ones it already holds) in one step, so two runs that edit
+    /// the same file at the same moment cannot both win. Returns the files another run holds, with their holders.
+    /// `allOrNothing` leaves every file untouched when any is held by another run.
+    public func acquireAll(
+        repoRoot: String, paths: [String], holder: FileLeaseHolder, allOrNothing: Bool
+    ) -> (taken: Int, conflicts: [(path: String, holder: FileLeaseHolder)]) {
+        lock.lock(); defer { lock.unlock() }
+        let current = now()
+        var conflicts: [(path: String, holder: FileLeaseHolder)] = []
+        for path in paths {
+            if let lease = liveLease(Key(repoRoot: repoRoot, path: path)), lease.holder.runID != holder.runID {
+                conflicts.append((path, lease.holder))
+            }
+        }
+        if allOrNothing && !conflicts.isEmpty { return (0, conflicts) }
+        let blocked = Set(conflicts.map(\.path))
+        var taken = 0
+        for path in paths where !blocked.contains(path) {
+            let key = Key(repoRoot: repoRoot, path: path)
+            let since = liveLease(key)?.holder.since ?? current
+            var owner = holder
+            owner.since = since
+            if leases[key] == nil { taken += 1 }
+            leases[key] = FileLease(repoRoot: repoRoot, path: path, holder: owner, expiresAt: current.addingTimeInterval(Self.ttl))
+        }
+        return (taken, conflicts)
+    }
+
     /// Drops every lease of a finished run and returns how many it held.
     @discardableResult
     public func release(runID: AgentRunID) -> Int {

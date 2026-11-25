@@ -805,7 +805,13 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     @Published public var gitBranch: String?
     @Published public var gitSummary: GitSummary?
     /// Other live runs editing files in this agent's checkout; empty when none or outside git.
-    @Published public private(set) var concurrentWork: ConcurrentWorkSnapshot = .empty
+    @Published public private(set) var concurrentWorkAll: ConcurrentWorkSnapshot = .empty
+    /// The same, without the selected thread's own run (a thread never "also edits" with itself).
+    public var concurrentWork: ConcurrentWorkSnapshot {
+        var snapshot = concurrentWorkAll
+        snapshot.runs.removeAll { $0.threadID == selectedThreadId }
+        return snapshot
+    }
     /// Wired by AppCommandRouter — "Review here" opens a Git/Diff surface.
     public var onReviewRequested: (() -> Void)?
     /// A3: fired when a run starts/ends so the tab + workspace chrome can
@@ -1305,12 +1311,11 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             }
         }
         let directory = worktreePath ?? cwd
-        let thread = selectedThreadId
         concurrentWorkTask?.cancel()
         concurrentWorkTask = Task { [weak self] in
-            let snapshot = await Task.detached(priority: .utility) { provider(directory, thread) }.value
-            guard !Task.isCancelled, let self, !self.isDisposed, self.selectedThreadId == thread else { return }
-            if self.concurrentWork != snapshot { self.concurrentWork = snapshot }
+            let snapshot = await Task.detached(priority: .utility) { provider(directory, nil) }.value
+            guard !Task.isCancelled, let self, !self.isDisposed else { return }
+            if self.concurrentWorkAll != snapshot { self.concurrentWorkAll = snapshot }
         }
     }
 

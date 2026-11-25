@@ -139,14 +139,46 @@ final class FileLeaseServiceTests: XCTestCase {
     func test_staleWriteRefusalsReachTheUserOncePerFile() {
         let (service, notices) = makeService(mode: .warn)
         let run = start(service).run
-        let text = "File changed since you last read it: /work/app/a.swift. Read it again before writing."
+        let text = "Error: /work/app/a.swift changed since you last read it (modified by another process or session), so it was not overwritten. Read it again, then rewrite it."
         XCTAssertEqual(StaleWriteRefusal.message(in: "noise\n\(text)\nmore"), text)
+        XCTAssertEqual(StaleWriteRefusal.path(in: text), "/work/app/a.swift")
         XCTAssertNil(StaleWriteRefusal.message(in: "wrote 3 lines"))
-        service.reportStaleWrite(runId: run, path: nil, message: text)
-        service.reportStaleWrite(runId: run, path: nil, message: text)
+        XCTAssertNil(StaleWriteRefusal.message(in: "// a comment: this value changed since you last read it, so it was not overwritten"),
+                     "a file that merely contains the phrase is not a refusal")
+        service.reportStaleWrite(runId: run, path: StaleWriteRefusal.path(in: text), message: text)
+        service.reportStaleWrite(runId: run, path: StaleWriteRefusal.path(in: text), message: text)
         XCTAssertEqual(notices.all.map(\.kind), [.staleWriteRefused])
+        XCTAssertEqual(notices.all.first?.path, "/work/app/a.swift")
         service.reportStaleWrite(runId: AgentRunID(), path: nil, message: text)
         XCTAssertEqual(notices.all.count, 1, "a run the host does not own is ignored")
+    }
+
+    func test_racingRunsCannotBothWinTheSameFile() async {
+        let (service, notices) = makeService(mode: .warn)
+        let runs = (0..<8).map { _ in start(service) }
+        let verdicts = await withTaskGroup(of: PreEditVerdict.self) { group in
+            for item in runs {
+                group.addTask { await service.checkEdit(runId: item.run, paths: ["/work/app/race.swift"], cwd: nil, enforce: true) }
+            }
+            return await group.reduce(into: []) { $0.append($1) }
+        }
+        XCTAssertEqual(verdicts.filter { $0 == .allow }.count, 1, "exactly one run owns the file; every other run is warned")
+        XCTAssertEqual(notices.all.count, 7)
+    }
+
+    func test_aRefusedEditLeasesNoneOfItsFilesInBlockModeButAWarnedOneLeasesTheFreeOnes() async {
+        let (blocking, _) = makeService(mode: .block)
+        let a = start(blocking), b = start(blocking)
+        _ = await blocking.checkEdit(runId: a.run, paths: ["/work/app/held.swift"], cwd: nil, enforce: true)
+        _ = await blocking.checkEdit(runId: b.run, paths: ["/work/app/held.swift", "/work/app/free.swift"], cwd: nil, enforce: true)
+        XCTAssertNil(blocking.store.activeLeases().first { $0.path == "free.swift" })
+
+        let (warning, _) = makeService(mode: .warn)
+        let c = start(warning), d = start(warning)
+        _ = await warning.checkEdit(runId: c.run, paths: ["/work/app/held.swift"], cwd: nil, enforce: true)
+        _ = await warning.checkEdit(runId: d.run, paths: ["/work/app/held.swift", "/work/app/free.swift"], cwd: nil, enforce: true)
+        XCTAssertEqual(warning.store.activeLeases().first { $0.path == "free.swift" }?.holder.runID, d.run)
+        XCTAssertEqual(warning.store.activeLeases().first { $0.path == "held.swift" }?.holder.runID, c.run)
     }
 
     func test_theDistillHooksFileDeniesNothingItselfAndNamesTheServiceMode() throws {
