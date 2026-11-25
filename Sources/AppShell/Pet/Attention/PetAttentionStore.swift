@@ -2,6 +2,14 @@ import Foundation
 import CoreModel
 import Persistence
 
+/// Stored rows a `PetAttentionSnapshot` is projected from.
+struct PetAttentionReads: Sendable {
+    let threads: [AgentThread]
+    let callbacks: [ProviderPendingCallback]
+    let dest: PetDestAttentionSnapshot?
+    let notifications: [AppNotification]
+}
+
 public final class PetAttentionStore {
     private let threadRepository: AgentThreadRepository
     private let callbackRepository: ProviderPendingCallbackRepository
@@ -46,12 +54,28 @@ public final class PetAttentionStore {
     }
 
     public func refresh(filter: PetAttentionFilter = .all) throws -> PetAttentionSnapshot {
-        let threads = try threadRepository.list()
+        snapshot(from: try loadReads(), filter: filter)
+    }
+
+    /// The SQLite reads behind `refresh`. Uses only the repositories and
+    /// `destLookup`, so it may run off the main actor; `snapshot(from:filter:)`
+    /// reads workspace names and stays on the caller's actor.
+    func loadReads() throws -> PetAttentionReads {
+        PetAttentionReads(
+            threads: try threadRepository.list(),
+            callbacks: try callbackRepository.list(states: [.pending, .stale]),
+            dest: try destLookup?(),
+            notifications: try notificationRepository.list(unreadOnly: true)
+        )
+    }
+
+    func snapshot(from reads: PetAttentionReads, filter: PetAttentionFilter) -> PetAttentionSnapshot {
+        let threads = reads.threads
         let threadsByID = Dictionary(uniqueKeysWithValues: threads.map { ($0.id, $0) })
-        let callbacks = try callbackRepository.list(states: [.pending, .stale])
+        let callbacks = reads.callbacks
         let blockedThreadIDs = Set(callbacks.map(\.threadId))
 
-        let dest = try destLookup?()
+        let dest = reads.dest
         let destLinkedThreadIDs = dest?.linkedThreadIDs ?? []
         let callbackItems = callbacks.compactMap { callback -> PetAttentionItem? in
             if destLinkedThreadIDs.contains(callback.threadId) { return nil }
@@ -64,7 +88,7 @@ public final class PetAttentionStore {
                     && !destLinkedThreadIDs.contains($0.id)
             }
             .compactMap(threadItem)
-        let notificationItems = try notificationRepository.list(unreadOnly: true)
+        let notificationItems = reads.notifications
             .compactMap(notificationItem)
         let destItems = dest.map(Self.projectDest) ?? []
 
