@@ -36,18 +36,38 @@ final class DistillGuestEnvironmentTests: XCTestCase {
     }
 
     private func build(
+        providerEnvironment: [String: String]? = nil,
         modelSecrets: [String: String] = [:],
         gitIdentity: GitIdentity? = GitIdentity(name: "Ada Lovelace", email: "ada@example.com"),
         codexClientVersion: String? = nil
     ) -> [String: String] {
         DistillGuestEnvironment.build(
-            providerEnvironment: macProviderEnvironment,
+            providerEnvironment: providerEnvironment ?? macProviderEnvironment,
             runID: runID,
             gatewayToken: "gw-token",
             modelSecrets: modelSecrets,
             gitIdentity: gitIdentity,
             codexClientVersion: codexClientVersion
         )
+    }
+
+    /// The nesting ceiling is a host setting that lands in the Mac run's
+    /// environment; a guest run gets the same subagents, so it must get the
+    /// same ceiling, and nothing when the setting is off.
+    func test_highParallelismNestingDepthFollowsTheHostRun() {
+        var configured = macProviderEnvironment
+        configured[AgentHostEnvironmentMerge.highParallelismEnvironmentKey] =
+            AgentHostEnvironmentMerge.highParallelismDepth
+        XCTAssertEqual(
+            build(providerEnvironment: configured)["GROK_SUBAGENTS_MAX_DEPTH"], "2",
+            "the VM Bot run must keep the host's nesting ceiling"
+        )
+        XCTAssertEqual(
+            build(providerEnvironment: configured, modelSecrets: ["GROK_SUBAGENTS_MAX_DEPTH": "9"])["GROK_SUBAGENTS_MAX_DEPTH"],
+            "2",
+            "a model secret cannot raise the ceiling past the host's value"
+        )
+        XCTAssertNil(build()["GROK_SUBAGENTS_MAX_DEPTH"], "off: the key is not set")
     }
 
     func test_macPathsTokenSaverAndHostLanesNeverReachTheGuest() {

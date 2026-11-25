@@ -1759,6 +1759,7 @@ public struct SettingsView: View {
                 distillHighParallelismSection
             }
             .background(routeAnchor(.accounts))
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("settings.section.accounts")
         case .fileAccess: hostFileAccessSection
         case .computerUse: ChromeExtensionSettingsSection()

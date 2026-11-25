@@ -63,6 +63,11 @@ public enum DistillGuestEnvironment {
         for key in [BotSecretEnvironment.botIDEnvironmentKey, BotPeerDelegation.threadEnvironmentKey] {
             if let value = providerEnvironment[key] { env[key] = value }
         }
+        // The host decides the run's nesting ceiling (`AgentHostEnvironmentMerge`),
+        // and a guest run gets the same subagents, so it gets the same value.
+        if let depth = providerEnvironment[AgentHostEnvironmentMerge.highParallelismEnvironmentKey] {
+            env[AgentHostEnvironmentMerge.highParallelismEnvironmentKey] = depth
+        }
         if let gitIdentity {
             env["GIT_AUTHOR_NAME"] = gitIdentity.name
             env["GIT_AUTHOR_EMAIL"] = gitIdentity.email
