@@ -93,6 +93,9 @@ public final class DistillACPEventMapper: @unchecked Sendable {
     private var lastAvailableCommandsPayloadJSON: String?
     private let lock = NSLock()
 
+    /// Run-owned mappers hand edited paths to the host; a read-only transcript view turns this off.
+    public var emitsFileTouches = true
+
     public init(sessionId: String) {
         self.sessionId = sessionId
         self.seenEventIds = DistillACPRecentEventIDs()
@@ -529,6 +532,7 @@ public final class DistillACPEventMapper: @unchecked Sendable {
     }
 
     private func appendFileTouches(from update: [String: Any], itemId: String, now: Int64, to events: inout [AssistantEvent]) {
+        guard emitsFileTouches else { return }
         if let event = ProviderFileTouchParser.runtimeEvent(
             provider: .distill,
             touches: ProviderFileTouchParser.distillACP(update),

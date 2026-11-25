@@ -49,4 +49,14 @@ final class ProviderFileTouchEventTests: XCTestCase {
         XCTAssertEqual(touches(late), [ProviderFileTouch(path: "/r/gone.swift", kind: .delete)],
                        "an update that first carries the locations still reports them")
     }
+
+    func test_transcriptOnlyMapperEmitsNoTouchEnvelopes() {
+        let mapper = DistillACPEventMapper(sessionId: "s")
+        mapper.emitsFileTouches = false
+        _ = mapper.beginTurn()
+        let edit = mapper.consumeSessionUpdate([
+            "sessionUpdate": "tool_call", "toolCallId": "e1", "kind": "edit", "locations": [["path": "/r/a.swift"]]
+        ])
+        XCTAssertEqual(touches(edit), [], "a read-only subagent transcript must not feed its ring of runtime events")
+    }
 }

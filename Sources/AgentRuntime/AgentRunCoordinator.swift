@@ -1733,6 +1733,7 @@ public final class AgentRunCoordinator: @unchecked Sendable {
             }
             lock.unlock()
         } catch {
+            discardFileTouches(runId: runId)
             lock.lock()
             let gen = preparationStates[effectiveRequest.threadId]?.generation ?? 0
             // claimSpawn already advanced to running; terminalize that generation.
@@ -1775,6 +1776,7 @@ public final class AgentRunCoordinator: @unchecked Sendable {
             )
         } catch {
             handle.cancel()
+            discardFileTouches(runId: runId)
             markStartFailure(
                 error,
                 request: effectiveRequest,
@@ -7598,6 +7600,12 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                 threadId: identity.threadId
             )
         }
+    }
+
+    /// Frees the run's touch state when the run never reaches a terminal event.
+    private func discardFileTouches(runId: AgentRunID) {
+        guard let tracker = fileTouchTracker else { return }
+        Task { _ = await tracker.complete(runId: runId) }
     }
 
     /// Changed files of a run: git's list narrowed to the files the run's own tool calls edited.

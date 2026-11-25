@@ -26,6 +26,7 @@ final class DistillSubagentTranscriptReader: @unchecked Sendable {
         self.sessionId = sessionId
         self.sessionsRoot = distillHome.appendingPathComponent("sessions", isDirectory: true)
         self.mapper = DistillACPEventMapper(sessionId: sessionId)
+        mapper.emitsFileTouches = false
     }
 
     static func defaultDistillHome() -> URL {
