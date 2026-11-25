@@ -81,7 +81,7 @@ extension AppCommandRouter {
         let index = ctx.concurrentWorkIndex
         let threadID = thread.id
         let snapshot = await Task.detached(priority: .userInitiated) {
-            ConcurrentWorkContext.snapshot(cwd: cwd, excludingThread: threadID, index: index)
+            ConcurrentCheckoutSnapshot.snapshot(cwd: cwd, excludingThread: threadID, index: index)
         }.value
         switch LocalRunConflictAction.decide(
             policy: policy, isFirstMessage: true, executionMode: thread.executionMode, othersEditing: !snapshot.runs.isEmpty

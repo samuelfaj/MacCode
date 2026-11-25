@@ -32,7 +32,7 @@ extension AppContext {
         (claude as? ClaudeAgentSDKBridgeAdapter)?.preEditChecker = service
         let index = concurrentWorkIndex
         ConcurrentWorkFeed.shared.provider = { cwd, excludingThread in
-            ConcurrentWorkContext.snapshot(cwd: cwd, excludingThread: excludingThread, index: index)
+            ConcurrentCheckoutSnapshot.snapshot(cwd: cwd, excludingThread: excludingThread, index: index)
         }
     }
 
@@ -76,7 +76,7 @@ extension AppContext {
 }
 
 /// Reads the live runs that share a checkout with `cwd`.
-enum ConcurrentWorkContext {
+enum ConcurrentCheckoutSnapshot {
     static func snapshot(cwd: String, excludingThread: AgentThreadID?, index: ConcurrentWorkIndex) -> ConcurrentWorkSnapshot {
         guard let identity = GitDiff.repoIdentity(in: cwd),
               let runs = try? index.liveRuns(repoCommonDir: identity.gitCommonDir) else { return .empty }
