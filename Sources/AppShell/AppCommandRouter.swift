@@ -9146,6 +9146,14 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         // proxies, subagent telemetry) attributes work to claude/codex/grok instead
         // of "unknown". Set unconditionally — even with no instance config.
         env["REMOTE_CODE_AGENT_PROVIDER"] = provider.rawValue
+        // Distill nesting ceiling is a host setting, not an instance env value, so
+        // it lands here for Agent App, Bots and scheduled tasks alike.
+        if provider == .distill,
+           let context,
+           SettingsStore(db: context.db).load().distillHighParallelism {
+            env[AgentHostEnvironmentMerge.highParallelismEnvironmentKey] =
+                AgentHostEnvironmentMerge.highParallelismDepth
+        }
         if let context, let threadId {
             let telemetryEnv = context.subagentTelemetryEnvironment(
                 provider: provider,

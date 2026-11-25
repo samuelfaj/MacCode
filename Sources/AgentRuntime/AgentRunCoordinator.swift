@@ -204,6 +204,12 @@ public struct ActiveRunProjection: Equatable, Sendable {
 /// Auto-orchestration previously used `launch?.environment ?? request.environment`,
 /// which **dropped** host-injected keys when a launch config existed.
 public enum AgentHostEnvironmentMerge {
+    /// Distill reads this as `ENV_MAX_DEPTH`: the nesting ceiling for subagents.
+    /// The host decides it for the run, so a launch config's own value is stale.
+    public static let highParallelismEnvironmentKey = "GROK_SUBAGENTS_MAX_DEPTH"
+    /// One extra nesting level: a subagent may start its own subagents.
+    public static let highParallelismDepth = "2"
+
     public static func preserveHostInjects(
         launch: [String: String]?,
         request: [String: String]
@@ -268,6 +274,7 @@ public enum AgentHostEnvironmentMerge {
             || key == BotPeerDelegation.socketEnvironmentKey
             || key == BotPeerDelegation.capabilityEnvironmentKey
             || key == BotPeerDelegation.turnContextEnvironmentKey
+            || key == highParallelismEnvironmentKey
     }
 }
 

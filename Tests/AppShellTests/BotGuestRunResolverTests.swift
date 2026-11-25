@@ -157,7 +157,8 @@ final class BotGuestRunResolverTests: XCTestCase {
 
     private func request(
         _ thread: AgentThread, cwd: String? = nil, runAsUser: AgentRunAsUser? = nil,
-        permit: AgentRunAcceptancePermit? = nil, providerThreadId: String? = nil
+        permit: AgentRunAcceptancePermit? = nil, providerThreadId: String? = nil,
+        extraEnvironment: [String: String] = [:]
     ) -> AgentRunRequest {
         AgentRunRequest(
             threadId: thread.id, provider: .distill, model: "claude/claude-sonnet-4-5",
@@ -167,7 +168,7 @@ final class BotGuestRunResolverTests: XCTestCase {
                 "RC_TOKEN_SAVER_DISTILL_HINT": "1",
                 BotSecretEnvironment.botIDEnvironmentKey: "bot",
                 "PATH": "/Users/someone/bin:/usr/bin",
-            ],
+            ].merging(extraEnvironment) { _, run in run },
             runAsUser: runAsUser,
             acceptancePermit: permit
         )
@@ -465,6 +466,22 @@ final class BotGuestRunResolverTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: plan.envFileURL.path))
         let leaseHeld = await f.leases.isHeld(f.bot.id.value.uuidString.lowercased())
         XCTAssertFalse(leaseHeld)
+    }
+
+    /// The host's nesting ceiling is part of the Mac run's environment; a VM
+    /// Bot must not lose it at the guest allowlist.
+    func test_highParallelismNestingCeilingReachesTheGuestEnvFile() async throws {
+        let f = try await makeFixture()
+        let thread = try makeThread(f)
+        let req = request(thread, extraEnvironment: [
+            AgentHostEnvironmentMerge.highParallelismEnvironmentKey:
+                AgentHostEnvironmentMerge.highParallelismDepth,
+        ])
+        let plan = try unwrapPlan(try await f.resolver.prepare(req) { _ in })
+        let env = try String(contentsOf: plan.envFileURL, encoding: .utf8)
+        XCTAssertTrue(env.contains("GROK_SUBAGENTS_MAX_DEPTH=2\n"))
+        await plan.finish(.completed).value
+        _ = f.registry.releaseAndNextWaiting(runID: req.runId)
     }
 
     func test_workspaceThreadRunsAtItsOwnPathInsideTheMountedWorkspace() async throws {

@@ -52,6 +52,7 @@ final class AppSettingsFieldCoverageTests: XCTestCase {
             "botsEffectsEnabled",
             "botsAutonomyEnabled",
             "botsChannelsEnabled",
+            "distillHighParallelism",
         ]
         let actual = Set(AppSettingsKeys.userTunableKeys)
         XCTAssertEqual(
@@ -150,6 +151,13 @@ final class AppSettingsFieldCoverageTests: XCTestCase {
                        "setBotsControlPlaneEnabled(false) must update appSettings immediately")
         XCTAssertFalse(SettingsStore(db: ctx.db).load().botsControlPlaneEnabled,
                        "setBotsControlPlaneEnabled must persist so a Bot cannot be created after the user turns the plane off")
+
+        // The Distill nesting setting starts off and must survive a reload.
+        XCTAssertFalse(vm.appSettings.distillHighParallelism, "high parallelism must default off")
+        vm.setDistillHighParallelism(true)
+        XCTAssertTrue(vm.appSettings.distillHighParallelism)
+        XCTAssertTrue(SettingsStore(db: ctx.db).load().distillHighParallelism,
+                      "setDistillHighParallelism must persist so every Distill run sees it")
     }
 
     /// reload() must reflect the last-persisted value, not a stale in-memory value.

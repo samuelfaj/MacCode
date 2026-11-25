@@ -170,6 +170,9 @@ final class BackgroundAwaitContinuationTests: XCTestCase {
             "You decide the semantic routing and sequence",
             "`reply_only` is terminal",
             "never choose it while comparison, follow-up, mediation, or synthesis remains",
+            "that request is the warrant",
+            "start every ready part at once with `consult` and `wait: false`",
+            "then collect with `bot_peer_status`",
         ]
 
         for guidance in requiredGuidance {
