@@ -71,6 +71,17 @@ final class RemoteCodeHostCatalogTests: XCTestCase {
         XCTAssertTrue(BotPeerDelegation.providerDirective.contains(directive))
     }
 
+    func test_parallelBotTaskGuidanceTreatsAnExplicitRequestAsTheWarrant() {
+        // WHY: an explicit "run these in parallel" must not be argued down by the
+        // generic "don't multiply tasks" warning; the Bot has to split and start
+        // every ready task at once, then collect.
+        let directive = RemoteCodeHostCatalog.providerDirective
+        XCTAssertTrue(directive.contains("that request is the warrant"))
+        XCTAssertTrue(directive.contains("split the work into independent parts"))
+        XCTAssertTrue(directive.contains("start every ready part at once"))
+        XCTAssertTrue(directive.contains(RemoteCodeHostCatalog.botSend))
+    }
+
     func test_botCreateDoesNotAcceptProviderOrModel_becauseRouteBelongsToTheCallingThread() throws {
         let schema = RemoteCodeHostCatalog.schema(for: RemoteCodeHostCatalog.botCreate)
         let properties = try XCTUnwrap(schema["properties"] as? [String: Any])

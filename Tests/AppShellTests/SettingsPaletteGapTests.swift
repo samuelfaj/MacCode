@@ -255,6 +255,7 @@ final class SettingsPaletteGapTests: XCTestCase {
             "botsControlPlaneEnabled", "botsMemoryEnabled", "botsEffectsEnabled",
             "botsAutonomyEnabled",
             "botsChannelsEnabled",
+            "distillHighParallelism",
         ]
         XCTAssertEqual(
             Set(AppSettingsKeys.userTunableKeys), expected,

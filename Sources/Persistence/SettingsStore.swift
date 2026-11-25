@@ -88,6 +88,10 @@ public struct AppSettings: Codable, Sendable, Equatable {
     /// External channels. Off until that phase ships.
     public var botsChannelsEnabled: Bool
 
+    /// Distill nesting depth 2 (`GROK_SUBAGENTS_MAX_DEPTH=2`): a subagent may
+    /// start its own subagents. Off keeps the configured default depth.
+    public var distillHighParallelism: Bool
+
     public var botControlPlaneFlags: BotControlPlaneFlags {
         BotControlPlaneFlags(
             botsControlPlaneEnabled: botsControlPlaneEnabled,
@@ -137,7 +141,8 @@ public struct AppSettings: Codable, Sendable, Equatable {
                 botsAutonomyEnabled: Bool = false,
                 botsDesktopVMEnabled: Bool = false,
                 botsDesktopRemoteEnabled: Bool = false,
-                botsChannelsEnabled: Bool = false) {
+                botsChannelsEnabled: Bool = false,
+                distillHighParallelism: Bool = false) {
         self.diffWordWrap = diffWordWrap
         self.diffIgnoreWhitespace = diffIgnoreWhitespace
         self.sidebarSort = sidebarSort
@@ -168,6 +173,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
         self.botsDesktopVMEnabled = botsDesktopVMEnabled
         self.botsDesktopRemoteEnabled = botsDesktopRemoteEnabled
         self.botsChannelsEnabled = botsChannelsEnabled
+        self.distillHighParallelism = distillHighParallelism
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -201,6 +207,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
         case botsDesktopVMEnabled
         case botsDesktopRemoteEnabled
         case botsChannelsEnabled
+        case distillHighParallelism
     }
 
     public init(from decoder: Decoder) throws {
@@ -238,6 +245,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
         botsDesktopVMEnabled = try c.decodeIfPresent(Bool.self, forKey: .botsDesktopVMEnabled) ?? false
         botsDesktopRemoteEnabled = try c.decodeIfPresent(Bool.self, forKey: .botsDesktopRemoteEnabled) ?? false
         botsChannelsEnabled = try c.decodeIfPresent(Bool.self, forKey: .botsChannelsEnabled) ?? false
+        distillHighParallelism = try c.decodeIfPresent(Bool.self, forKey: .distillHighParallelism) ?? false
     }
 }
 

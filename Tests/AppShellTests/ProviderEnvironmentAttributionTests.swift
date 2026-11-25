@@ -231,6 +231,41 @@ final class ProviderEnvironmentAttributionTests: XCTestCase {
     }
 
     @MainActor
+    func test_distillHighParallelismSettingAddsNestingDepthOnlyForDistill() throws {
+        // WHY: the setting is global, but only Distill reads the key. Off must leave
+        // the run at its configured default instead of forcing depth 2.
+        let appSupport = NSTemporaryDirectory() + "RC2ProvEnvDepth-" + UUID().uuidString
+        defer { try? FileManager.default.removeItem(atPath: appSupport) }
+        let ctx = try AppContext(channel: .debug, appSupportOverride: appSupport)
+        try ctx.settingsRepo.set("agent.provider.instances", """
+        [
+          { "id": "distill-x", "provider": "distill", "displayName": "D", "homePath": "/tmp/distill-home-y", "enabled": true, "env": {} },
+          { "id": "grok-x", "provider": "grok", "displayName": "G", "homePath": "/tmp/grok-home-y", "enabled": true, "env": {} }
+        ]
+        """)
+        let router = AppCommandRouter(context: ctx)
+
+        XCTAssertNil(
+            router.providerEnvironment(provider: .distill, instanceId: "distill-x")["GROK_SUBAGENTS_MAX_DEPTH"],
+            "default OFF must not raise Distill nesting"
+        )
+
+        var settings = SettingsStore(db: ctx.db).load()
+        settings.distillHighParallelism = true
+        SettingsStore(db: ctx.db).save(settings)
+        XCTAssertTrue(SettingsStore(db: ctx.db).load().distillHighParallelism, "the setting must persist")
+
+        XCTAssertEqual(
+            router.providerEnvironment(provider: .distill, instanceId: "distill-x")["GROK_SUBAGENTS_MAX_DEPTH"],
+            "2"
+        )
+        XCTAssertNil(
+            router.providerEnvironment(provider: .grok, instanceId: "grok-x")["GROK_SUBAGENTS_MAX_DEPTH"],
+            "the Distill setting must not touch other providers"
+        )
+    }
+
+    @MainActor
     func test_providerEnvironmentSetsDistillHomeForDistillOnly() throws {
         // WHY: Distill 2.0.24 reads DISTILL_HOME and never adopts ~/.grok; an instance home must reach it, not GROK_HOME.
         let appSupport = NSTemporaryDirectory() + "RC2ProvEnvDistillHome-" + UUID().uuidString

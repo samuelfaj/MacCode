@@ -52,6 +52,7 @@ public struct AppSettingsKeys {
         "botsEffectsEnabled",
         "botsAutonomyEnabled",
         "botsChannelsEnabled",
+        "distillHighParallelism",
     ]
 }
 
@@ -949,6 +950,11 @@ public final class SettingsViewModel: ObservableObject {
         settingsStore.update { $0.botsChannelsEnabled = on }
     }
 
+    public func setDistillHighParallelism(_ on: Bool) {
+        appSettings.distillHighParallelism = on
+        settingsStore.update { $0.distillHighParallelism = on }
+    }
+
     /// Latest host file-access probe results (Settings privacy section).
     @Published public var hostFileAccessProbeResults: [HostFileAccessProbeResult] = []
     /// Code signature identity for the running process (TCC durability).
@@ -1743,12 +1749,15 @@ public struct SettingsView: View {
                 .background(routeAnchor(.general))
                 .accessibilityIdentifier("settings.section.general")
         case .accounts:
-            DistillAccountsSettingsSection(
-                controller: vm.context.distillAccountsController,
-                loadModels: { [weak context = vm.context] in
-                    await context?.router?.listAgentModels(provider: .distill) ?? []
-                }
-            )
+            VStack(alignment: .leading, spacing: DS.Space.lg) {
+                DistillAccountsSettingsSection(
+                    controller: vm.context.distillAccountsController,
+                    loadModels: { [weak context = vm.context] in
+                        await context?.router?.listAgentModels(provider: .distill) ?? []
+                    }
+                )
+                distillHighParallelismSection
+            }
             .background(routeAnchor(.accounts))
             .accessibilityIdentifier("settings.section.accounts")
         case .fileAccess: hostFileAccessSection
@@ -2289,6 +2298,24 @@ public struct SettingsView: View {
                     }
                 }
             }
+        }
+        .dsPanel(padding: DS.Space.lg)
+    }
+
+    private var distillHighParallelismSection: some View {
+        VStack(alignment: .leading, spacing: DS.Space.md) {
+            DSSectionHeaderG(L("High parallelism (Distill)"))
+            settingRow(L("Let subagents start their own subagents")) {
+                Toggle("", isOn: Binding(
+                    get: { vm.appSettings.distillHighParallelism },
+                    set: { vm.setDistillHighParallelism($0) }
+                ))
+                .labelsHidden()
+                .accessibilityIdentifier("settings.accounts.highParallelism.toggle")
+            }
+            Text(L("Adds one nesting level to every Distill run: a subagent can delegate again."))
+                .font(DS.Font.caption)
+                .foregroundColor(DS.Palette.textTertiary)
         }
         .dsPanel(padding: DS.Space.lg)
     }

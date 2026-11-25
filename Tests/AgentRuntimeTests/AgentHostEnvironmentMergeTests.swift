@@ -29,6 +29,7 @@ final class AgentHostEnvironmentMergeTests: XCTestCase {
             "RC_REMOTE_CODE_AGENT_APP_SOCKET_PATH": "/stale/socket",
             "RC_REMOTE_CODE_DELEGATION_CAPABILITY": "stale-capability",
             "RC_REMOTE_CODE_BOT_TURN_CONTEXT": "stale-turn-context",
+            "GROK_SUBAGENTS_MAX_DEPTH": "9",
         ]
         let request = [
             "RC_REMOTE_CODE_BOT_ID": "bot-id",
@@ -38,6 +39,7 @@ final class AgentHostEnvironmentMergeTests: XCTestCase {
             "RC_REMOTE_CODE_AGENT_APP_SOCKET_PATH": "/tmp/active/socket",
             "RC_REMOTE_CODE_DELEGATION_CAPABILITY": "active-capability",
             "RC_REMOTE_CODE_BOT_TURN_CONTEXT": "current-turn-context",
+            "GROK_SUBAGENTS_MAX_DEPTH": "2",
             "PATH": "/request-path",
         ]
 
@@ -50,6 +52,7 @@ final class AgentHostEnvironmentMergeTests: XCTestCase {
         XCTAssertEqual(merged["RC_REMOTE_CODE_AGENT_APP_SOCKET_PATH"], "/tmp/active/socket")
         XCTAssertEqual(merged["RC_REMOTE_CODE_DELEGATION_CAPABILITY"], "active-capability")
         XCTAssertEqual(merged["RC_REMOTE_CODE_BOT_TURN_CONTEXT"], "current-turn-context")
+        XCTAssertEqual(merged["GROK_SUBAGENTS_MAX_DEPTH"], "2", "the request's nesting ceiling must beat launch config")
         XCTAssertEqual(merged["CODEX_API_KEY"], "x")
         XCTAssertEqual(merged["PATH"], "/usr/bin", "launch provider PATH should win")
     }
@@ -74,6 +77,7 @@ final class AgentHostEnvironmentMergeTests: XCTestCase {
             "RC_REMOTE_CODE_AGENT_APP_SOCKET_PATH": "/stale/socket",
             "RC_REMOTE_CODE_DELEGATION_CAPABILITY": "stale-capability",
             "RC_REMOTE_CODE_BOT_TURN_CONTEXT": "stale-turn-context",
+            "GROK_SUBAGENTS_MAX_DEPTH": "2",
         ]
         let request = ["PATH": "/usr/bin"] // no host Graphify injects
         let merged = AgentHostEnvironmentMerge.preserveHostInjects(launch: launch, request: request)
@@ -86,6 +90,7 @@ final class AgentHostEnvironmentMergeTests: XCTestCase {
         XCTAssertNil(merged["RC_REMOTE_CODE_AGENT_APP_SOCKET_PATH"])
         XCTAssertNil(merged["RC_REMOTE_CODE_DELEGATION_CAPABILITY"])
         XCTAssertNil(merged["RC_REMOTE_CODE_BOT_TURN_CONTEXT"])
+        XCTAssertNil(merged["GROK_SUBAGENTS_MAX_DEPTH"], "a stale nesting ceiling must never reach the provider")
         XCTAssertEqual(merged["CODEX_API_KEY"], "x")
     }
 }
