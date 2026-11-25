@@ -322,6 +322,7 @@ public final class DistillACPEventMapper: @unchecked Sendable {
                 body: Self.jsonString(update["rawInput"]) ?? "",
                 startedAtMs: now
             )))
+            appendFileTouches(from: update, itemId: id, now: now, to: &events)
 
         case "tool_call_update":
             let id = update["toolCallId"] as? String ?? UUID().uuidString
@@ -329,6 +330,7 @@ public final class DistillACPEventMapper: @unchecked Sendable {
             let title = update["title"] as? String
             // rawInput may only appear on update for some tools; accept it too.
             trackDetachedShellSpawn(in: update["rawInput"])
+            appendFileTouches(from: update, itemId: id, now: now, to: &events)
             if output != nil || title != nil {
                 events.append(.itemDelta(itemId: id, bodyAppend: nil, outputAppend: output, summary: title))
             }
@@ -524,6 +526,17 @@ public final class DistillACPEventMapper: @unchecked Sendable {
         turnAnswer = nil
         sawDetachedShellSpawn = false
         return events
+    }
+
+    private func appendFileTouches(from update: [String: Any], itemId: String, now: Int64, to events: inout [AssistantEvent]) {
+        if let event = ProviderFileTouchParser.runtimeEvent(
+            provider: .distill,
+            touches: ProviderFileTouchParser.distillACP(update),
+            itemId: itemId,
+            receivedAtMs: now
+        ) {
+            events.append(event)
+        }
     }
 
     /// Inspect tool rawInput for a shell command string that detaches work.

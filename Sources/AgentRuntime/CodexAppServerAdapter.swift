@@ -1554,6 +1554,7 @@ public final class CodexAppServerAdapter: AgentProviderAdapter, @unchecked Senda
                 trackDetachedShellSpawn(in: item, threadId: threadId)
                 scheduleTurnReconciliation(threadId: threadId, turnId: turnId)
             }
+            appendFileTouches(from: item, itemId: itemId, now: now, to: &events)
         case "item/autoApprovalReview/started", "item.autoApprovalReview.started", "item/autoApprovalReview/completed", "item.autoApprovalReview.completed":
             let review = payload["review"] as? [String: Any] ?? payload["autoApprovalReview"] as? [String: Any] ?? payload
             let turnId = string(payload, "turnId") ?? string(payload, "turn_id") ?? activeTurnId(threadId: threadId) ?? ""
@@ -1633,6 +1634,7 @@ public final class CodexAppServerAdapter: AgentProviderAdapter, @unchecked Senda
                     summary: summary
                 ))
             }
+            appendFileTouches(from: item, itemId: itemId, now: now, to: &events)
             events.append(.itemCompleted(itemId: itemId, finalState: Self.itemState(for: string(item, "status"))))
             // Codex can complete a final_answer item without ever emitting
             // turn/completed. Arm a single thread/read reconcile loop so the run
@@ -2571,6 +2573,17 @@ public final class CodexAppServerAdapter: AgentProviderAdapter, @unchecked Senda
                 payloadJSON: String(data: data, encoding: .utf8) ?? "{}",
                 receivedAtMs: Int64(Date().timeIntervalSince1970 * 1000)
             ))))
+        }
+    }
+
+    private func appendFileTouches(from item: [String: Any], itemId: String, now: Int64, to events: inout [AssistantEvent]) {
+        if let event = ProviderFileTouchParser.runtimeEvent(
+            provider: .codex,
+            touches: ProviderFileTouchParser.codex(item: item),
+            itemId: itemId,
+            receivedAtMs: now
+        ) {
+            events.append(event)
         }
     }
 

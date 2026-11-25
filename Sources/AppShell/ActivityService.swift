@@ -122,10 +122,11 @@ final class ActivityService: @unchecked Sendable {
         let limited = page.prefix(filter.limit).map { item in
             (item.kind == .agent ? item.runID : nil).flatMap { checkpoints[$0.uuidString] }.map { item.withCheckpoint(turnCount: $0.turnCount, files: $0.files, total: $0.total) } ?? item
         }
+        let withWork = try withConcurrentWork(limited)
         let next = page.count > filter.limit
             ? limited.last.map { ActivityCursor(occurredAt: $0.occurredAt, id: $0.id, snapshotAt: snapshotAt).rawValue }
             : nil
-        return try Self.json(AgentActivityPage(items: limited, nextCursor: next, counts: counts, generatedAt: snapshotAt, workspaceCounts: byWorkspace))
+        return try Self.json(AgentActivityPage(items: withWork, nextCursor: next, counts: counts, generatedAt: snapshotAt, workspaceCounts: byWorkspace))
     }
 
     /// The same `counts` and `workspaceCounts` an unfiltered `list` returns, for the Pet and
@@ -295,7 +296,40 @@ final class ActivityService: @unchecked Sendable {
         items.append(contentsOf: busySurfaces)
         items.append(contentsOf: origins.botRequests)
         items.append(contentsOf: origins.scheduledOccurrences)
-        return Self.applyingResultsLimit(items.filter { $0.occurredAt <= snapshotAt && filter.matches($0) })
+        var visible = items.filter { $0.occurredAt <= snapshotAt && filter.matches($0) }
+        if let caller = filter.sameRepoAsRun {
+            let sameRepo = try AgentRunFileTouchRepository(db: readDB).runIDsSharingRepo(with: caller)
+            visible = visible.filter { $0.kind == .agent && $0.runID.map { sameRepo.contains(AgentRunID($0).description) } == true }
+        }
+        return Self.applyingResultsLimit(visible)
+    }
+
+    /// Repo, branch, objective and live edited files for the runs on one page. Page-only, like checkpoints.
+    private func withConcurrentWork(_ items: [AgentActivityItem]) throws -> [AgentActivityItem] {
+        let runIDs = items.compactMap { $0.kind == .agent ? $0.runID.map(AgentRunID.init) : nil }
+        guard !runIDs.isEmpty else { return items }
+        let touchRepo = AgentRunFileTouchRepository(db: readDB)
+        let identities = try touchRepo.identities(runIds: runIDs)
+        let running = items.compactMap { $0.kind == .agent && $0.state == .running ? $0.runID.map(AgentRunID.init) : nil }
+        let touches = try touchRepo.touches(runIds: running)
+        let messages = AgentMessageRepository(db: readDB)
+        return try items.map { item in
+            guard item.kind == .agent, let uuid = item.runID else { return item }
+            let id = AgentRunID(uuid)
+            var copy = item
+            let firstMessage = AgentThreadTitle.isPlaceholder(item.title)
+                ? try item.threadID.flatMap { try messages.firstUserMessage(threadId: AgentThreadID($0))?.content }
+                : nil
+            copy.objective = RunObjective.make(title: item.title, firstUserMessage: firstMessage)
+            if let identity = identities[id] {
+                copy.repo = ConcurrentWorkIndex.repoPath(forCommonDir: identity.gitCommonDir)
+                copy.branch = identity.branch
+            }
+            if item.state == .running {
+                copy.editingFiles = (touches[id] ?? []).suffix(ConcurrentWorkIndex.maxEditingFiles).map(\.path)
+            }
+            return copy
+        }
     }
 
     func setViewed(_ params: [String: JSONValue]) throws -> JSONValue {
@@ -740,6 +774,8 @@ private struct ActivityFilter {
     let limit: Int
     /// Running only: also list conversation runs that finished this many seconds ago or less.
     let recentFinishedWindow: TimeInterval?
+    /// Host catalog calls only: keep runs in the same repository (git common dir) as this run.
+    let sameRepoAsRun: AgentRunID?
     init(params: [String: JSONValue]) throws {
         if let raw = params["workspace_id"]?.stringValue, let uuid = UUID(uuidString: raw) { workspaceID = uuid }
         else if params["workspace_id"] != nil { throw JSONRPCError.invalidParams }
@@ -755,6 +791,18 @@ private struct ActivityFilter {
         guard requested > 0 else { throw JSONRPCError.invalidParams }
         // Bulk actions read a whole filter; 500 per page keeps that to a few passes.
         limit = min(requested, 500)
+        if let value = params["same_repo"] {
+            guard let sameRepo = value.boolValue else { throw JSONRPCError.invalidParams }
+            if sameRepo {
+                // The caller's own run identifies the repository; callers without one cannot ask.
+                guard let uuid = params["run_id"]?.stringValue.flatMap(UUID.init(uuidString:)) else { throw JSONRPCError.invalidParams }
+                sameRepoAsRun = AgentRunID(uuid)
+            } else {
+                sameRepoAsRun = nil
+            }
+        } else {
+            sameRepoAsRun = nil
+        }
         if let seconds = params["recent_finished_seconds"]?.intValue {
             guard (1...3_600).contains(seconds) else { throw JSONRPCError.invalidParams }
             recentFinishedWindow = TimeInterval(seconds)
@@ -910,7 +958,8 @@ private extension AgentActivityItem {
             occurredAt: occurredAt, startedAt: startedAt, finishedAt: finishedAt, viewedAt: viewedAt,
             attentionAcknowledgedAt: attentionAcknowledgedAt, needsAction: needsAction, blocking: blocking,
             finalMessageID: finalMessageID, checkpointID: checkpointID, checkpointTurnCount: turnCount,
-            changedFiles: files, changedFilesTotal: total, error: error, botID: botID, conversationID: conversationID, originLabel: originLabel
+            changedFiles: files, changedFilesTotal: total, error: error, botID: botID, conversationID: conversationID, originLabel: originLabel,
+            repo: repo, branch: branch, objective: objective, editingFiles: editingFiles
         )
     }
 }

@@ -42,8 +42,15 @@ public struct AgentActivityItem: Codable, Equatable, Sendable {
     public let botID: UUID?
     public let conversationID: UUID?
     public let originLabel: String?
+    /// Main checkout of the repository the run works in (shared by its worktrees); nil outside git.
+    public var repo: String?
+    public var branch: String?
+    /// Thread title, or the first user message while the title is a placeholder (max 160 chars).
+    public var objective: String?
+    /// Files a running run is editing now (max 20); nil for rows that are not live runs.
+    public var editingFiles: [String]?
 
-    public init(id: String, kind: AgentActivityKind, runID: UUID? = nil, requestID: String? = nil, notificationID: String? = nil, workspaceID: UUID? = nil, threadID: UUID? = nil, surfaceID: UUID? = nil, state: AgentActivityState, title: String, workspaceName: String? = nil, workspaceColor: String? = nil, provider: String? = nil, summary: String? = nil, occurredAt: Date, startedAt: Date? = nil, finishedAt: Date? = nil, viewedAt: Date? = nil, attentionAcknowledgedAt: Date? = nil, needsAction: Bool = false, blocking: Bool = false, finalMessageID: UUID? = nil, checkpointID: UUID? = nil, checkpointTurnCount: Int? = nil, changedFiles: [String] = [], changedFilesTotal: Int? = nil, error: String? = nil, botID: UUID? = nil, conversationID: UUID? = nil, originLabel: String? = nil) {
+    public init(id: String, kind: AgentActivityKind, runID: UUID? = nil, requestID: String? = nil, notificationID: String? = nil, workspaceID: UUID? = nil, threadID: UUID? = nil, surfaceID: UUID? = nil, state: AgentActivityState, title: String, workspaceName: String? = nil, workspaceColor: String? = nil, provider: String? = nil, summary: String? = nil, occurredAt: Date, startedAt: Date? = nil, finishedAt: Date? = nil, viewedAt: Date? = nil, attentionAcknowledgedAt: Date? = nil, needsAction: Bool = false, blocking: Bool = false, finalMessageID: UUID? = nil, checkpointID: UUID? = nil, checkpointTurnCount: Int? = nil, changedFiles: [String] = [], changedFilesTotal: Int? = nil, error: String? = nil, botID: UUID? = nil, conversationID: UUID? = nil, originLabel: String? = nil, repo: String? = nil, branch: String? = nil, objective: String? = nil, editingFiles: [String]? = nil) {
         self.id = id; self.kind = kind; self.runID = runID; self.requestID = requestID
         self.notificationID = notificationID; self.workspaceID = workspaceID; self.threadID = threadID
         self.surfaceID = surfaceID; self.state = state; self.title = title; self.workspaceName = workspaceName
@@ -53,6 +60,7 @@ public struct AgentActivityItem: Codable, Equatable, Sendable {
         self.needsAction = needsAction; self.blocking = blocking; self.finalMessageID = finalMessageID
         self.checkpointID = checkpointID; self.checkpointTurnCount = checkpointTurnCount; self.changedFiles = changedFiles; self.changedFilesTotal = changedFilesTotal; self.error = error
         self.botID = botID; self.conversationID = conversationID; self.originLabel = originLabel
+        self.repo = repo; self.branch = branch; self.objective = objective; self.editingFiles = editingFiles
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -64,6 +72,7 @@ public struct AgentActivityItem: Codable, Equatable, Sendable {
         case attentionAcknowledgedAt = "attention_acknowledged_at", needsAction = "needs_action"
         case finalMessageID = "final_message_id", checkpointID = "checkpoint_id", checkpointTurnCount = "checkpoint_turn_count", changedFiles = "changed_files", changedFilesTotal = "changed_files_total"
         case botID = "bot_id", conversationID = "conversation_id", originLabel = "origin_label"
+        case repo, branch, objective, editingFiles = "editing_files"
     }
 }
 

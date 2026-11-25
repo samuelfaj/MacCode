@@ -31,6 +31,78 @@ final class AgentActivityServiceTests: XCTestCase {
         XCTAssertEqual(try context.runRepo.get(id: failed.id)?.status, .failed)
     }
 
+    func test_runItemsCarryRepoBranchObjectiveAndLiveEditingFiles() throws {
+        let context = try makeContext()
+        let touches = AgentRunFileTouchRepository(db: context.db)
+        let live = try makeThread(context)
+        let liveRun = try makeRun(context, thread: live, status: .running, at: 200)
+        let done = try makeThread(context)
+        let doneRun = try makeRun(context, thread: done, status: .completed, at: 100)
+        for run in [liveRun, doneRun] {
+            try touches.saveIdentity(runId: run.id, threadId: run.threadId, identity: RunRepoIdentity(repoRoot: "/work/app-wt", gitCommonDir: "/work/app/.git", branch: "feat/x"))
+            try touches.recordTouches(runId: run.id, threadId: run.threadId, repoRoot: "/work/app-wt", touches: [ProviderFileTouch(path: "Sources/A.swift", kind: .edit)])
+        }
+        let page = try decodePage(ActivityService(context: context, activeRunIDProvider: { $0 == live.id ? liveRun.id : nil }).list([:]))
+        let liveItem = try XCTUnwrap(page.items.first { $0.runID == liveRun.id.value })
+        XCTAssertEqual(liveItem.repo, "/work/app", "worktrees report the main checkout so one repo reads as one repo")
+        XCTAssertEqual(liveItem.branch, "feat/x")
+        XCTAssertEqual(liveItem.objective, "Activity test")
+        XCTAssertEqual(liveItem.editingFiles, ["Sources/A.swift"])
+        let doneItem = try XCTUnwrap(page.items.first { $0.runID == doneRun.id.value })
+        XCTAssertNil(doneItem.editingFiles, "a finished run is not editing anything now")
+        XCTAssertEqual(doneItem.repo, "/work/app")
+    }
+
+    func test_objectiveFallsBackToTheFirstRequestWhileTheTitleIsAPlaceholder() throws {
+        let context = try makeContext()
+        let thread = AgentThread(title: AgentThreadTitle.defaultTitle, provider: .codex, model: "test")
+        try context.threadRepo.upsert(thread)
+        try context.messageRepo.append(AgentMessage(threadId: thread.id, role: .user, content: "Migrate the billing tables"))
+        let run = try makeRun(context, thread: thread, status: .running, at: 100)
+        let page = try decodePage(service(context, activeRunID: run.id).list([:]))
+        XCTAssertEqual(page.items.first { $0.runID == run.id.value }?.objective, "Migrate the billing tables")
+    }
+
+    func test_sameRepoFilterKeepsOnlyRunsSharingTheCallersGitCommonDir() throws {
+        let context = try makeContext()
+        let touches = AgentRunFileTouchRepository(db: context.db)
+        var active: [AgentThreadID: AgentRunID] = [:]
+        func running(_ common: String?, at time: TimeInterval) throws -> AgentRun {
+            let thread = try makeThread(context)
+            let run = try makeRun(context, thread: thread, status: .running, at: time)
+            active[thread.id] = run.id
+            if let common {
+                try touches.saveIdentity(runId: run.id, threadId: thread.id, identity: RunRepoIdentity(repoRoot: "/x", gitCommonDir: common, branch: nil))
+            }
+            return run
+        }
+        let caller = try running("/work/app/.git", at: 100)
+        let sibling = try running("/work/app/.git", at: 110)
+        let stranger = try running("/work/other/.git", at: 120)
+        let unidentified = try running(nil, at: 130)
+        let activity = ActivityService(context: context, activeRunIDProvider: { active[$0] })
+
+        let scoped = try decodePage(activity.list(["same_repo": .bool(true), "run_id": .string(caller.id.description)]))
+        XCTAssertEqual(Set(scoped.items.compactMap(\.runID)), [caller.id.value, sibling.id.value])
+        let all = try decodePage(activity.list(["same_repo": .bool(false), "run_id": .string(caller.id.description)]))
+        XCTAssertEqual(Set(all.items.compactMap(\.runID)), [caller.id.value, sibling.id.value, stranger.id.value, unidentified.id.value],
+                       "same_repo:false changes nothing")
+        let lonely = try decodePage(activity.list(["same_repo": .bool(true), "run_id": .string(unidentified.id.description)]))
+        XCTAssertEqual(lonely.items, [], "a caller outside git has no repo mates")
+        XCTAssertThrowsError(try activity.list(["same_repo": .bool(true)]), "the repo is the caller's, so a caller run is required")
+        XCTAssertThrowsError(try activity.list(["same_repo": .string("yes"), "run_id": .string(caller.id.description)]))
+    }
+
+    func test_hostCatalogDocumentsTheSameRepoFilter() {
+        let schema = RemoteCodeHostCatalog.schema(for: RemoteCodeHostCatalog.activityList)
+        let properties = schema["properties"] as? [String: Any]
+        XCTAssertNotNil(properties?["same_repo"])
+        let description = RemoteCodeHostCatalog.description(for: RemoteCodeHostCatalog.activityList)
+        for term in ["same_repo", "editing_files", "objective", "branch", "repo"] {
+            XCTAssertTrue(description.contains(term), term)
+        }
+    }
+
     func test_resolvedApprovalNotificationDoesNotReappearAsANewRequest() throws {
         let context = try makeContext()
         let thread = try makeThread(context)

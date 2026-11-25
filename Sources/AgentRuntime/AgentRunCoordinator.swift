@@ -788,6 +788,10 @@ public final class AgentRunCoordinator: @unchecked Sendable {
     /// Optional durable terminal-transition ledger (write-before-UI). Forensic only.
     public var terminalTransitionLedger: TerminalTransitionLedger?
 
+    /// Records the files each run edits and its repo identity. Without it, file-touch events
+    /// are still dropped from the stream and checkpoints keep the whole-tree change list.
+    public var fileTouchTracker: RunFileTouchTracker?
+
     public init(
         runRepo: AgentRunRepository,
         messageRepo: AgentMessageRepository,
@@ -1705,6 +1709,7 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         }
         agentRunLog.info("run.started thread=\(effectiveRequest.threadId.value.uuidString, privacy: .public) run=\(effectiveRequest.runId.value.uuidString, privacy: .public) provider=\(effectiveRequest.provider.rawValue, privacy: .public) model=\(effectiveRequest.model, privacy: .public)")
 
+        fileTouchTracker?.begin(runId: runId, threadId: effectiveRequest.threadId, cwd: effectiveRequest.cwd)
         let coordinator = self
         let handle: AgentRunHandle
         do {
@@ -6070,6 +6075,11 @@ public final class AgentRunCoordinator: @unchecked Sendable {
             // The adapter already counted the chunk as turn activity; storing it
             // would evict real tool items from the replay window.
             if case .providerRuntime(let runtime) = rawEvent, runtime.isToolCallArgumentChunk { return }
+            // File-touch envelopes are host bookkeeping: never persisted or shown.
+            if case .providerRuntime(let runtime) = rawEvent, let touches = ProviderFileTouchParser.touches(in: runtime) {
+                fileTouchTracker?.record(runId: runId, touches: touches)
+                return
+            }
             guard let ev = sanitizeFinalAssistantEvent(rawEvent, runId: runId) else { return }
             persistProviderNativeSubagentLifecycle(
                 from: ev,
@@ -6780,11 +6790,15 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                 )
             }
             onRunFinished?(threadId, runId, status)
+            let touchResult = fileTouchTracker.map { tracker in
+                Task { await tracker.complete(runId: runId) }
+            }
             if let minimalCheckpoint {
                 Task { [weak self] in
                     await self?.enrichCheckpoint(
                         minimalCheckpoint,
-                        cwd: runMetadata?.cwd
+                        cwd: runMetadata?.cwd,
+                        touchResult: touchResult
                     )
                 }
             }
@@ -7493,9 +7507,11 @@ public final class AgentRunCoordinator: @unchecked Sendable {
 
     private func enrichCheckpoint(
         _ identity: AgentTurnCheckpointSummary,
-        cwd: String?
+        cwd: String?,
+        touchResult: Task<RunTouchResult?, Never>? = nil
     ) async {
         guard let checkpointRepo else { return }
+        let touched = await touchResult?.value
 #if DEBUG
         if let barrier = checkpointEnrichmentBarrierForTesting {
             await barrier(identity.runId)
@@ -7505,7 +7521,8 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         if let cwd, !cwd.isEmpty {
             let gitSummary = GitDiff.summary(in: cwd)
             if let gitSummary, gitSummary.isGitRepo {
-                let files = gitSummary.files.map {
+                let (changed, narrowed) = Self.checkpointChanges(gitSummary.files, cwd: cwd, touched: touched)
+                let files = changed.map {
                     AgentTurnCheckpointFile(
                         path: $0.path,
                         kind: $0.status.rawValue,
@@ -7522,7 +7539,8 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                     status: .ready,
                     files: files,
                     fileSnapshots: captureFileSnapshots(files: files, cwd: cwd),
-                    diffPatch: GitDiff.diff(in: cwd, path: nil),
+                    // A narrowed list must not ship the whole tree's patch; readers rebuild it from fileDiffs.
+                    diffPatch: narrowed ? nil : GitDiff.diff(in: cwd, path: nil),
                     fileDiffs: captureFileDiffs(files: files, cwd: cwd),
                     assistantMessageId: identity.assistantMessageId,
                     completedAt: identity.completedAt
@@ -7580,6 +7598,19 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                 threadId: identity.threadId
             )
         }
+    }
+
+    /// Changed files of a run: git's list narrowed to the files the run's own tool calls edited.
+    /// A run with no touch events (provider without edit tools, or edits through a shell) keeps the whole tree.
+    static func checkpointChanges(
+        _ changes: [GitFileEntry],
+        cwd: String,
+        touched: RunTouchResult?
+    ) -> (files: [GitFileEntry], narrowed: Bool) {
+        guard let touched, !touched.touchedPaths.isEmpty else { return (changes, false) }
+        let prefix = RunFileTouchPaths.cwdPrefix(cwd: cwd, repoRoot: touched.identity.repoRoot)
+        let narrowed = RunFileTouchPaths.narrow(changes, path: \.path, touched: touched.touchedPaths, cwdPrefix: prefix)
+        return (narrowed, true)
     }
 
     private func captureFileSnapshots(files: [AgentTurnCheckpointFile], cwd: String) -> [AgentTurnCheckpointFileSnapshot] {

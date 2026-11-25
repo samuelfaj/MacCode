@@ -195,6 +195,10 @@ public final class AppContext {
     public var state = LayoutState()
 
     public let coordinator: AgentRunCoordinator
+    /// Other live runs in the same repository and the files they are editing.
+    public lazy var concurrentWorkIndex = ConcurrentWorkIndex(db: db) { [coordinator] in
+        Set(coordinator.activeThreadIdsSnapshot().compactMap { coordinator.activeRunId(threadId: $0) })
+    }
     /// Set by the app host before anything builds `botPeerHandoffAuthority`
     /// when the event log is wired later; the host then calls
     /// `publishRestoredThreadChrome()` once it is.
@@ -811,6 +815,7 @@ public final class AppContext {
         // plan-final W0: durable terminal ledger write-before-UI (diagnostics dir).
         let diagnosticsDir = self.appSupportDirectory.appendingPathComponent("diagnostics", isDirectory: true)
         self.coordinator.terminalTransitionLedger = TerminalTransitionLedger(directory: diagnosticsDir)
+        self.coordinator.fileTouchTracker = RunFileTouchTracker(store: AgentRunFileTouchRepository(db: db))
         // A fresh Codex session (no resumable thread) is seeded with the prior
         // conversation; its receipts keep a restart from seeding twice.
         codex.contextSeedReceipts = self.runRepo.contextSeedReceipts()

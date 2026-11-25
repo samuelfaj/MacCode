@@ -3451,6 +3451,49 @@ final class CodexAppServerAdapterTests: ProviderProcessTestCase {
                       "some Codex app-server Plan Mode builds emit the plan as final assistant text; the Agent App still needs a first-class proposed-plan card")
     }
 
+    func test_adapterReportsFilesTouchedByFileChangeItemsOnly() async throws {
+        let client = MockCodexAppServerClient(autoComplete: false)
+        let adapter = CodexAppServerAdapter { _, notificationHandler, _ in
+            client.notificationHandler = notificationHandler
+            return client
+        }
+        let sink = EventSink()
+        _ = try await adapter.sendTurn(AgentRunRequest(
+            threadId: AgentThreadID(),
+            provider: .codex,
+            model: "gpt-5.5",
+            cwd: "/tmp/remotecode-app-server-adapter",
+            prompt: "edit"
+        )) { event in
+            Task { await sink.record(event) }
+        }
+        client.notificationHandler?("item/completed", [
+            "threadId": "codex-thread-1",
+            "turnId": "turn-touch-1",
+            "item": ["id": "cmd-1", "type": "commandExecution", "command": "cat a.swift", "status": "completed"]
+        ])
+        client.notificationHandler?("item/completed", [
+            "threadId": "codex-thread-1",
+            "turnId": "turn-touch-1",
+            "item": [
+                "id": "patch-1", "type": "fileChange", "status": "completed",
+                "changes": [
+                    ["path": "/tmp/remotecode-app-server-adapter/a.swift", "kind": ["type": "update", "move_path": NSNull()], "diff": "@@"],
+                    ["path": "/tmp/remotecode-app-server-adapter/b.swift", "kind": ["type": "add"], "diff": "x"]
+                ]
+            ]
+        ])
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let touches = await sink.snapshot().compactMap { event -> [ProviderFileTouch]? in
+            if case .providerRuntime(let runtime) = event { return ProviderFileTouchParser.touches(in: runtime) }
+            return nil
+        }
+        XCTAssertEqual(touches, [[
+            ProviderFileTouch(path: "/tmp/remotecode-app-server-adapter/a.swift", kind: .edit),
+            ProviderFileTouch(path: "/tmp/remotecode-app-server-adapter/b.swift", kind: .write)
+        ]], "only the fileChange item reports touches; the shell read reports none")
+    }
+
     func test_adapterStartsStreamingAssistantItemOnlyOnceAcrossDeltas() async throws {
         let client = MockCodexAppServerClient(autoComplete: false)
         let adapter = CodexAppServerAdapter { _, notificationHandler, _ in
