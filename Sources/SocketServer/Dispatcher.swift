@@ -4066,7 +4066,13 @@ public final class JSONRPCDispatcher {
                 )
             case "agent.thread.list", "host.agent.thread.list":
                 let wid: WorkspaceID? = params["workspace_id"]?.stringValue.flatMap(UUID.init).map(WorkspaceID.init)
-                let threads = try await router.listAgentThreadsOffMain(workspace: wid)
+                var threads = try await router.listAgentThreadsOffMain(workspace: wid)
+                // A client that needs known rows names them. The full list is
+                // megabytes on a Mac with hundreds of threads, and a phone
+                // opening one chat downloaded all of it to read one row.
+                if let requested = try Self.requestedThreadIDs(params) {
+                    threads = threads.filter { requested.contains($0.id) }
+                }
                 // PERF-007: one batch query for all threads instead of N per-thread queries.
                 let lockedThreads = (try? await router.threadIdsWithMessagesOffMain()) ?? []
                 // One store read for every thread's pending_manual_action.
@@ -6133,6 +6139,21 @@ public final class JSONRPCDispatcher {
             password: source["password"]?.stringValue,
             options: options
         )
+    }
+
+    static let maxRequestedThreadIDs = 64
+
+    /// `thread_ids` of `agent.thread.list`: nil when absent, the named rows
+    /// otherwise. A malformed filter is refused instead of read as "all".
+    static func requestedThreadIDs(_ params: [String: JSONValue]) throws -> Set<AgentThreadID>? {
+        guard let raw = params["thread_ids"], raw != .null else { return nil }
+        guard case .array(let values) = raw, values.count <= maxRequestedThreadIDs else {
+            throw JSONRPCError.invalidParams
+        }
+        return Set(try values.map { value in
+            guard let uuid = value.stringValue.flatMap(UUID.init) else { throw JSONRPCError.invalidParams }
+            return AgentThreadID(uuid)
+        })
     }
 
     private func encodeThread(_ thread: AgentThread) -> JSONValue {

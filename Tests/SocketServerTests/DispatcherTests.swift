@@ -5073,6 +5073,52 @@ final class DispatcherTests: XCTestCase {
     }
 
     @MainActor
+    func test_agentThreadListReturnsOnlyTheRequestedThreads() async throws {
+        // WHY: a phone opening one Bot chat needs that chat's row to know
+        // whether a run is live. With no way to name it, every open
+        // downloaded the whole list: megabytes on a Mac with hundreds of
+        // threads, over a relay.
+        let router = FakeRouter()
+        let threads = (0..<3).map {
+            AgentThread(workspaceId: nil, title: "thread \($0)", provider: .claude, model: "fake-model")
+        }
+        router.threadStore = threads
+        let runId = AgentRunID(UUID(uuidString: "00000000-0000-0000-0000-000000000456")!)
+        router.activeAgentRuns[threads[1].id] = AgentActiveRunSnapshot(runId: runId, startedAt: Date())
+        let d = JSONRPCDispatcher(router: router)
+        func list(_ params: [String: JSONValue]?) async -> JSONRPCResponse {
+            await d.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(1), method: "agent.thread.list", params: params))
+        }
+        func ids(_ response: JSONRPCResponse) -> [String]? {
+            guard case .array(let rows)? = response.result else { return nil }
+            // A thread id is encoded as `{"value": "<uuid>"}`.
+            return rows.compactMap { $0.objectValue?["id"]?.objectValue?["value"]?.stringValue?.uppercased() }
+        }
+
+        // The phone sends lowercase ids; the Mac stores uppercase.
+        let wanted = threads[1].id.value.uuidString
+        let one = await list(["thread_ids": .array([.string(wanted.lowercased())])])
+        XCTAssertEqual(ids(one), [wanted])
+        guard case .array(let rows)? = one.result, case .object(let row)? = rows.first else {
+            return XCTFail("the requested row must be returned")
+        }
+        XCTAssertEqual(row["active_run_id"], .string(runId.value.uuidString),
+                       "the narrowed row still carries the run identity the chat asked for")
+
+        let absent = await list(["thread_ids": .array([.string(UUID().uuidString)])])
+        XCTAssertEqual(ids(absent), [], "a thread the Mac does not list is absent, not an error")
+        let all = await list(nil)
+        XCTAssertEqual(ids(all).map(Set.init), Set(threads.map { $0.id.value.uuidString }),
+                       "without the filter the list is unchanged")
+
+        let malformed = await list(["thread_ids": .array([.string("not-a-thread")])])
+        XCTAssertEqual(malformed.error?.code, JSONRPCError.invalidParams.code,
+                       "a malformed filter must not be read as a request for every thread")
+        let notAList = await list(["thread_ids": .string(wanted)])
+        XCTAssertEqual(notAList.error?.code, JSONRPCError.invalidParams.code)
+    }
+
+    @MainActor
     func testAgentThreadReadCanReturnTypedMirrorSnapshotWithEventWatermark() async throws {
         let router = FakeRouter()
         let thread = AgentThreadID()
