@@ -4218,12 +4218,16 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                 title: String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(72)),
                 inheriting: callerThread).conversation.id
         }
+        let isolatedCwd = conversationID == nil && destination == nil
+            ? await isolatedHostTaskCwd(callerThread: callerThread, callerRun: callerRun)
+            : nil
         let result = try botsViewModel.enqueueHostMessage(
             botID: botID,
             text: text,
             conversationID: destination,
             routing: routing,
-            isParallelTask: isBotCaller && conversationID == nil
+            isParallelTask: isBotCaller && conversationID == nil,
+            executionCwd: isolatedCwd
         )
         guard isBotCaller, let object = result.objectValue,
               let child = object["thread_id"]?.stringValue.flatMap(UUID.init),

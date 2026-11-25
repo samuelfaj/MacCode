@@ -7363,7 +7363,8 @@ public final class BotsViewModel: ObservableObject {
         routing explicitRouting: BotDeskRouting? = nil,
         adoptAsDeskRoute: Bool = false,
         isParallelTask: Bool = false,
-        origin: HostSendOrigin = .host
+        origin: HostSendOrigin = .host,
+        executionCwd: String? = nil
     ) throws -> JSONValue {
         guard let bot = try botStore.get(id: botID), bot.deletedAt == nil else {
             throw BotStoreError.notFound
@@ -7450,7 +7451,8 @@ public final class BotsViewModel: ObservableObject {
             conversation: conversation,
             userText: message,
             attachments: attachments,
-            routingOverride: routing
+            routingOverride: routing,
+            executionCwd: executionCwd
         ) else {
             throw BotStoreError.invalidRow(L("Bot runtime is unavailable"))
         }
@@ -12812,7 +12814,8 @@ public final class BotsViewModel: ObservableObject {
         userText: String,
         attachments: [AgentAttachment],
         routingOverride: BotDeskRouting? = nil,
-        queuedRecord: BotQueuedFollowUpRecord? = nil
+        queuedRecord: BotQueuedFollowUpRecord? = nil,
+        executionCwd: String? = nil
     ) throws -> BotStartedRun? {
         // Dest first. Send used to listMemory/listSkillBindings after the
         // bubble painted. Both Desk and host-catalog sends snapshot the same
@@ -12913,7 +12916,8 @@ public final class BotsViewModel: ObservableObject {
                     skills: brain.skills,
                     routines: brain.routines,
                     router: router,
-                    expectedEpoch: epoch
+                    expectedEpoch: epoch,
+                    executionCwd: executionCwd
                 )
                 signposter.endInterval("bot_send_start", startInterval)
                 if let started {
@@ -12989,7 +12993,8 @@ public final class BotsViewModel: ObservableObject {
         skills: [BotSkillBinding],
         routines: [BotRoutine] = [],
         router: AppCommandRouter,
-        expectedEpoch: Int
+        expectedEpoch: Int,
+        executionCwd: String? = nil
     ) async -> BotStartedRun? {
         guard !Task.isCancelled, (deskStopEpoch[bot.id] ?? 0) == expectedEpoch else {
             return nil
@@ -13059,6 +13064,8 @@ public final class BotsViewModel: ObservableObject {
             // must start in the bot's home directory, not "/".
             let botHomeCwd = BotHome(appSupportDirectory: context.appSupportDirectory, bot: bot).root.path
             try? FileManager.default.createDirectory(at: URL(fileURLWithPath: botHomeCwd), withIntermediateDirectories: true)
+            // A host task the policy isolated runs in its own worktree of the caller's repository.
+            let runCwd = executionCwd ?? botHomeCwd
             let result = try await router.sendAgentMessage(
                 thread: prepared.thread.id,
                 text: Self.supervisedRunPrompt(
@@ -13088,7 +13095,7 @@ public final class BotsViewModel: ObservableObject {
                 providerInstanceId: routing.providerInstanceID,
                 attachments: attachments,
                 requestedRunID: prepared.runID,
-                executionCwdOverride: botHomeCwd
+                executionCwdOverride: runCwd
             )
             recordStartedRun(
                 bot: bot,

@@ -135,6 +135,18 @@ extension AppCommandRouter {
         return created ?? cwd
     }
 
+    /// A new `rc_bot_send` task started from a thread in a git repository gets its own worktree of that repository
+    /// when the policy is "run in a new worktree"; otherwise nil keeps the task in the Bot's home as before.
+    func isolatedHostTaskCwd(callerThread: AgentThreadID, callerRun: AgentRunID) async -> String? {
+        guard let ctx = context,
+              SettingsStore(db: ctx.db).load().localRunConflictPolicy == .autoWorktree,
+              let thread = try? ctx.threadRepo.get(id: callerThread),
+              let scope = try? ctx.botPeerHandoffAuthority.inheritedWorkspaceScope(thread: thread, runID: callerRun),
+              let callerCwd = try? effectiveAgentExecutionCwd(for: scope) else { return nil }
+        let isolated = await isolatedPeerCwd(callerCwd, runID: AgentRunID())
+        return isolated == callerCwd ? nil : isolated
+    }
+
     static func askLocalRunConflict(_ snapshot: ConcurrentWorkSnapshot) async -> LocalRunConflictChoice {
         if AppContext.isRunningUnitTests { return .runHere }
         let alert = NSAlert()

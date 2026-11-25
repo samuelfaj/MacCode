@@ -8771,6 +8771,47 @@ final class BotsWindowTests: XCTestCase {
         XCTAssertFalse(vm.composerText.contains("/sam more"))
     }
 
+    func test_hostTaskRunsInTheIsolatedWorktreeWhenOneIsGivenAndInBotHomeOtherwise() async throws {
+        // WHY: under the worktree policy an rc_bot_send task must start in its own checkout of the caller's repo
+        // instead of the Bot's home; without one the task keeps running in the Bot's home.
+        let context = try makeContext()
+        let router = AppCommandRouter(context: context)
+        context.router = router
+        let runner = ControlledBotHandoffRunner(provider: .distill)
+        context.coordinator.replaceProvider(.distill, runner: runner)
+        let models = [AgentModelDescriptor(id: "main-model", label: "Main", provider: .distill)]
+        let snapshot = AgentProviderSnapshotFactory.snapshot(
+            provider: .distill, models: models, binaryPath: "/usr/bin/true", authenticated: true, id: "distill",
+            capabilitiesOverride: AgentProviderCapabilities(supportsDistillMainEffortAuto: true)
+        )
+        router.providerSnapshotsOverrideForTesting = [snapshot]
+        router.rememberProviderSnapshotsForSend([snapshot])
+        let vm = BotsViewModel(context: context, router: router)
+        vm.replaceProvidersForTests([snapshot])
+        let bot = try vm.create(name: "Tasker", title: "Tasks", provider: .distill, model: "main-model")
+        let worktree = FileManager.default.temporaryDirectory
+            .appendingPathComponent("host-task-wt-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: worktree) }
+        let routing = BotDeskRouting(
+            provider: .distill, providerInstanceID: "distill", model: "main-model",
+            routingMode: .manual, runAsUser: .current()
+        )
+
+        _ = try vm.enqueueHostMessage(botID: bot.id, text: "isolated task", conversationID: nil, routing: routing,
+                                      isParallelTask: true, executionCwd: worktree.path)
+        let started = await waitUntil(timeout: 8) { runner.requests.count == 1 }
+        XCTAssertTrue(started, vm.errorMessage ?? "isolated task never started")
+        let isolated = try XCTUnwrap(runner.requests.first)
+        XCTAssertEqual(URL(fileURLWithPath: isolated.cwd).resolvingSymlinksInPath().path,
+                       worktree.resolvingSymlinksInPath().path, "the task runs in the worktree it was given")
+
+        _ = try vm.enqueueHostMessage(botID: bot.id, text: "plain task", conversationID: nil, routing: routing, isParallelTask: true)
+        let second = await waitUntil(timeout: 8) { runner.requests.count == 2 }
+        XCTAssertTrue(second, vm.errorMessage ?? "plain task never started")
+        XCTAssertTrue(runner.requests[1].cwd.contains("/bots/"), "without a worktree the task stays in the Bot's home: \(runner.requests[1].cwd)")
+    }
+
     func test_workspacePinnedDeskSendRunsLikeNormalBotSend() async throws {
         // WHY: a pinned conversation keeps its identity but must run through the
         // normal bot path; the old contextual-isolation refusal blocked every send.

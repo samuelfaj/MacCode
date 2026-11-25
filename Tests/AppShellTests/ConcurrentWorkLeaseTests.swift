@@ -135,6 +135,40 @@ final class ConcurrentWorkLeaseTests: XCTestCase {
     }
 
     @MainActor
+    func test_hostTasksStartInAWorktreeOfTheCallersRepoOnlyUnderTheWorktreePolicy() async throws {
+        // WHY: rc_bot_send tasks started from a thread in a repository must not share that checkout with the
+        // caller under "run in a new worktree"; every other policy keeps them in the Bot's home as before.
+        let appSupport = NSTemporaryDirectory() + "RC2LeaseHostTask-" + UUID().uuidString
+        defer { try? FileManager.default.removeItem(atPath: appSupport) }
+        let context = try AppContext(channel: .debug, appSupportOverride: appSupport)
+        let router = AppCommandRouter(context: context)
+        let repo = try makeRepo()
+        defer { try? FileManager.default.removeItem(atPath: repo) }
+        let workspace = try router.createWorkspace(name: "host-task", cwd: repo)
+        let caller = AgentThread(projectId: ProjectID(), workspaceId: workspace.id, title: "Caller", provider: .distill, model: "m", status: .running)
+        try context.threadRepo.upsert(caller)
+        let runID = AgentRunID()
+
+        let warned = await router.isolatedHostTaskCwd(callerThread: caller.id, callerRun: runID)
+        XCTAssertNil(warned)
+
+        var settings = SettingsStore(db: context.db).load()
+        settings.localRunConflictPolicy = .autoWorktree
+        SettingsStore(db: context.db).save(settings)
+        let isolatedPath = await router.isolatedHostTaskCwd(callerThread: caller.id, callerRun: runID)
+        let isolated = try XCTUnwrap(isolatedPath)
+        defer { try? FileManager.default.removeItem(atPath: isolated) }
+        let main = try XCTUnwrap(GitDiff.repoIdentity(in: repo)), linked = try XCTUnwrap(GitDiff.repoIdentity(in: isolated))
+        XCTAssertEqual(main.gitCommonDir, linked.gitCommonDir)
+        XCTAssertNotEqual(main.repoRoot, linked.repoRoot, "the task edits a checkout of its own")
+
+        let homeless = AgentThread(title: "No workspace", provider: .distill, model: "m", status: .running)
+        try context.threadRepo.upsert(homeless)
+        let none = await router.isolatedHostTaskCwd(callerThread: homeless.id, callerRun: AgentRunID())
+        XCTAssertNil(none, "a caller with no repository has nothing to isolate from")
+    }
+
+    @MainActor
     func test_autoWorktreePolicyMovesTheFirstMessageOfALocalThreadWhenAnotherRunIsEditing() async throws {
         let appSupport = NSTemporaryDirectory() + "RC2LeaseFirstSend-" + UUID().uuidString
         defer { try? FileManager.default.removeItem(atPath: appSupport) }

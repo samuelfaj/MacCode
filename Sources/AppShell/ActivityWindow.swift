@@ -36,6 +36,11 @@ struct ActivityWireItem: Codable, Identifiable, Equatable, Sendable {
     var bot_id: String?
     var conversation_id: String?
     var origin_label: String?
+    /// Main checkout of the run's repository and the branch it works on (a linked worktree reports its own branch).
+    var repo: String? = nil
+    var branch: String? = nil
+    /// Files a running run is editing now.
+    var editing_files: [String]? = nil
 
     var durationLabel: String? {
         guard let start = started_at.flatMap(ActivityViewModel.parseDate),
@@ -1439,7 +1444,7 @@ struct ActivityRootView: View {
                 Text(item.displayTitle).font(DS.Font.bodyStrong).foregroundColor(DS.Palette.text).lineLimit(1).help(item.displayTitle)
                 HStack(spacing: DS.Space.sm) {
                     DSPill(item.statusLabel, tone: ActivityStatusStyle.tone(item.state))
-                    let facts = ([item.occurredDate.map(ActivityTimeLabel.full)] + [item.workspace_name, item.provider, item.origin_label])
+                    let facts = ([item.occurredDate.map(ActivityTimeLabel.full)] + [item.workspace_name, item.provider, item.origin_label, item.branch])
                         .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
                     if !facts.isEmpty {
                         Text(facts).font(DS.Font.caption).foregroundColor(DS.Palette.textSecondary).lineLimit(1).truncationMode(.tail).help(facts)
@@ -1500,6 +1505,14 @@ struct ActivityRootView: View {
                             .padding(DS.Space.lg).frame(maxWidth: .infinity, alignment: .leading)
                             .background(DS.Palette.danger.opacity(0.10))
                             .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                    }
+                }
+                if let editing = item.editing_files, !editing.isEmpty {
+                    detailSection(L("Editing now")) {
+                        ForEach(editing, id: \.self) { path in
+                            Text(path).font(DS.Font.monoSmall).foregroundColor(DS.Palette.textSecondary)
+                                .lineLimit(1).truncationMode(.middle).help(path)
+                        }
                     }
                 }
                 if !item.changed_files.isEmpty {
@@ -1566,7 +1579,7 @@ struct ActivityRootView: View {
 
     @ViewBuilder
     private func detailFacts(_ item: ActivityWireItem) -> some View {
-        let facts = [(L("Workspace"), item.workspace_name), (L("Provider"), item.provider), (L("Origin"), item.origin_label)]
+        let facts = [(L("Workspace"), item.workspace_name), (L("Provider"), item.provider), (L("Origin"), item.origin_label), (L("Branch"), item.branch)]
             .compactMap { label, value in value.flatMap { $0.isEmpty ? nil : (label, $0) } }
         if !facts.isEmpty {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: DS.Space.xl, verticalSpacing: DS.Space.sm) {
@@ -1700,7 +1713,7 @@ private struct ActivityRow: View {
     private var showsActions: Bool { hovering && (item.isMarkable || clear != nil) }
     private var facts: String { factsLine(workspace: showsWorkspace) }
     private func factsLine(workspace: Bool) -> String {
-        [workspace ? item.workspace_name : nil, item.provider, item.origin_label].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        [workspace ? item.workspace_name : nil, item.provider, item.origin_label, item.branch].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     var body: some View {
