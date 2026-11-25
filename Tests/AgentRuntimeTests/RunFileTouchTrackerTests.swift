@@ -65,6 +65,25 @@ final class RunFileTouchTrackerTests: XCTestCase {
         XCTAssertNil(again, "completing frees the run")
     }
 
+    func test_recordedBatchIsReportedAfterItIsStoredWithRepoRelativePaths() async throws {
+        let (db, store) = try makeStore()
+        let run = try makeRun(db)
+        let seen = LockedBatches()
+        let tracker = RunFileTouchTracker(store: store) { _ in RunRepoIdentity(repoRoot: "/work/app", gitCommonDir: "/work/app/.git", branch: nil) }
+        tracker.onRecorded = { runId, threadId, identity, paths in
+            // The other run's notice depends on this run's touches already being readable.
+            seen.append((runId, threadId, identity.repoRoot, paths, (try? store.touches(runId: runId).map(\.path)) ?? []))
+        }
+        tracker.begin(runId: run.id, threadId: run.threadId, cwd: "/work/app/pkg")
+        tracker.record(runId: run.id, touches: [ProviderFileTouch(path: "/work/app/pkg/a.swift", kind: .edit), ProviderFileTouch(path: "/elsewhere/x", kind: .edit)])
+        _ = await tracker.complete(runId: run.id)
+        let batch = try XCTUnwrap(seen.values.first)
+        XCTAssertEqual(batch.0, run.id)
+        XCTAssertEqual(batch.2, "/work/app")
+        XCTAssertEqual(batch.3, ["pkg/a.swift"])
+        XCTAssertEqual(batch.4, ["pkg/a.swift"], "stored before reported")
+    }
+
     func test_runOutsideGitHasNoIdentityAndRecordsNothing() async throws {
         let (db, store) = try makeStore()
         let run = try makeRun(db)
@@ -92,4 +111,11 @@ private final class LockedCounter: @unchecked Sendable {
     private var count = 0
     func increment() { lock.lock(); count += 1; lock.unlock() }
     var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+}
+
+private final class LockedBatches: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [(AgentRunID, AgentThreadID, String, [String], [String])] = []
+    func append(_ item: (AgentRunID, AgentThreadID, String, [String], [String])) { lock.lock(); items.append(item); lock.unlock() }
+    var values: [(AgentRunID, AgentThreadID, String, [String], [String])] { lock.lock(); defer { lock.unlock() }; return items }
 }

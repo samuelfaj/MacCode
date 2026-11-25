@@ -195,6 +195,8 @@ public final class AppContext {
     public var state = LayoutState()
 
     public let coordinator: AgentRunCoordinator
+    /// Turn-start concurrent-work context and similar-work lookup shared with Bot delegation.
+    public private(set) var concurrentWork: ConcurrentWorkContext?
     /// Other live runs in the same repository and the files they are editing.
     public lazy var concurrentWorkIndex = ConcurrentWorkIndex(db: db) { [coordinator] in
         Set(coordinator.activeThreadIdsSnapshot().compactMap { coordinator.activeRunId(threadId: $0) })
@@ -815,7 +817,16 @@ public final class AppContext {
         // plan-final W0: durable terminal ledger write-before-UI (diagnostics dir).
         let diagnosticsDir = self.appSupportDirectory.appendingPathComponent("diagnostics", isDirectory: true)
         self.coordinator.terminalTransitionLedger = TerminalTransitionLedger(directory: diagnosticsDir)
-        self.coordinator.fileTouchTracker = RunFileTouchTracker(store: AgentRunFileTouchRepository(db: db))
+        let fileTouchTracker = RunFileTouchTracker(store: AgentRunFileTouchRepository(db: db))
+        let concurrentWork = ConcurrentWorkContext(db: db) { [coordinator] in
+            Set(coordinator.activeThreadIdsSnapshot().compactMap { coordinator.activeRunId(threadId: $0) })
+        }
+        fileTouchTracker.onRecorded = { [concurrentWork] runId, threadId, identity, paths in
+            concurrentWork.runEdited(runId: runId, threadId: threadId, identity: identity, paths: paths)
+        }
+        self.coordinator.fileTouchTracker = fileTouchTracker
+        self.coordinator.concurrentWorkContext = concurrentWork
+        self.concurrentWork = concurrentWork
         // A fresh Codex session (no resumable thread) is seeded with the prior
         // conversation; its receipts keep a restart from seeding twice.
         codex.contextSeedReceipts = self.runRepo.contextSeedReceipts()

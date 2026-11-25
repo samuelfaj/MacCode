@@ -1688,6 +1688,9 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
         consultationID: UUID? = nil,
         wait: Bool = true
     ) async throws -> JSONValue {
+        // Warning only: a similar request in this Bot's other conversations never stops the call. Read before admission so
+        // no suspension separates the admission check from the reservation.
+        let similarWork = await coordinator.concurrentWorkContext?.similarWork(forBotRequest: prompt, botID: peer.id) ?? []
         refreshStorageProjection()
         do {
             try validateAdmission(callerThread: originThread.id, callerRun: hostRunID, peerBotID: peer.id,
@@ -1732,7 +1735,10 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
             throw JSONRPCError(code: -32045, message: "The Bot activity could not be admitted.", data: data)
         }
         if wait { await milestone.value }
-        return try peerActivity(activityID.value, callerThread: originThread.id)
+        let activity = try peerActivity(activityID.value, callerThread: originThread.id)
+        guard let warning = ConcurrentWorkDirective.similarWarning(similarWork), case .object(var fields) = activity else { return activity }
+        fields["warnings"] = .array([.string(warning)])
+        return .object(fields)
     }
 
     private func awaitAgentAppDispatch(activityID: UUID) async {

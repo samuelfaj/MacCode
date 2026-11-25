@@ -14,6 +14,9 @@ public final class RunFileTouchTracker: @unchecked Sendable {
         var chain: Task<Void, Never>?
     }
 
+    /// Called on the tracker's background chain after a batch is stored, with repo-root-relative paths.
+    public var onRecorded: (@Sendable (_ runId: AgentRunID, _ threadId: AgentThreadID, _ identity: RunRepoIdentity, _ paths: [String]) -> Void)?
+
     private let store: AgentRunFileTouchRepository
     private let resolveIdentity: IdentityResolver
     private let lock = NSLock()
@@ -50,6 +53,7 @@ public final class RunFileTouchTracker: @unchecked Sendable {
         guard var state = runs[runId] else { return }
         let previous = state.chain
         let store = store
+        let onRecorded = onRecorded
         let (threadId, cwd, identity) = (state.threadId, state.cwd, state.identity)
         state.chain = Task.detached(priority: .utility) {
             await previous?.value
@@ -59,6 +63,7 @@ public final class RunFileTouchTracker: @unchecked Sendable {
                     .map { ProviderFileTouch(path: $0, kind: touch.kind) }
             }
             try? store.recordTouches(runId: runId, threadId: threadId, repoRoot: identity.repoRoot, touches: relative, at: date)
+            onRecorded?(runId, threadId, identity, relative.map(\.path))
         }
         runs[runId] = state
     }

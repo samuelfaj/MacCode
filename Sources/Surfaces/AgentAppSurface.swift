@@ -755,6 +755,7 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     /// Informational replay state is separate from statusMessage so a bounded
     /// history window cannot be presented as a provider/persistence error.
     @Published public private(set) var historyReplayNotice: String?
+    @Published private var similarWorkNotices: [AgentThreadID: String] = [:]
     public static let historyReplayNoticeText = L("Showing the recent Agent history window. Earlier transcript events remain outside the hot replay budget.")
 
     /// Never surface the hot-replay window as a user-visible banner.
@@ -8677,6 +8678,23 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         historyReplayNotice = nil
     }
 
+    /// Similar earlier work the host found when the selected thread's first run started; nil once dismissed.
+    public var selectedSimilarWorkNotice: String? {
+        selectedThreadId.flatMap { similarWorkNotices[$0] }
+    }
+
+    public func dismissSimilarWorkNotice() {
+        guard let id = selectedThreadId else { return }
+        similarWorkNotices[id] = nil
+    }
+
+    nonisolated static func similarWorkNoticeText(_ work: [SimilarWork]) -> String? {
+        let titles = work.prefix(ConcurrentWorkDirective.maxSimilar)
+            .map { "“\($0.threadTitle.split(whereSeparator: \.isWhitespace).joined(separator: " "))”" }
+        guard !titles.isEmpty else { return nil }
+        return L("Similar work already exists: %1$@. Check it before repeating it.", titles.joined(separator: ", "))
+    }
+
     public func dismissQueueStatusMessage() {
         if let selectedThreadId {
             queueStatusByThread.removeValue(forKey: selectedThreadId)
@@ -11298,6 +11316,14 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             var next = self.distillLive ?? DistillLiveStatus()
             next.apply(method: event.method, payloadJSON: event.payloadJSON)
             if next != self.distillLive { self.distillLive = next }
+        }
+    }
+
+    nonisolated public func runCoordinator(_ c: AgentRunCoordinator, didDetectSimilarWork work: [SimilarWork], threadId: AgentThreadID) {
+        guard let text = Self.similarWorkNoticeText(work) else { return }
+        Task { @MainActor in
+            guard !self.isDisposed else { return }
+            self.similarWorkNotices[threadId] = text
         }
     }
 
@@ -19182,7 +19208,8 @@ public struct AgentAppView: View {
             historyReplayNotice: vm.historyReplayNotice,
             statusMessage: Self.visibleStatusMessage(vm.statusMessage),
             providerSnapshotStatus: vm.providerThreadSnapshotStatusMessage,
-            standaloneQueueStatus: queueStandalone
+            standaloneQueueStatus: queueStandalone,
+            similarWork: vm.selectedSimilarWorkNotice
         )
         let collapsed = AgentSystemStripPresentation.collapse(candidates)
         if !collapsed.visible.isEmpty {
@@ -19294,6 +19321,8 @@ public struct AgentAppView: View {
             vm.dismissProviderThreadSnapshotStatusMessage()
         case "agent.queue.status":
             vm.dismissQueueStatusMessage()
+        case "agent.similar.work":
+            vm.dismissSimilarWorkNotice()
         default:
             break
         }

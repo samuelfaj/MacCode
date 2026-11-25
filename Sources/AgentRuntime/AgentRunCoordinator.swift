@@ -291,10 +291,14 @@ public protocol AgentRunObserver: AnyObject {
     /// A provider update for a thread with no open turn: Distill subagents keep
     /// reporting after the turn that started them ended. Not part of any run.
     func runCoordinator(_ c: AgentRunCoordinator, didReceiveOutOfTurn event: ProviderRuntimeEvent, threadId: AgentThreadID)
+    /// A run is starting on a thread whose request reads like live or recently finished work elsewhere.
+    /// Advice only: the run starts regardless.
+    func runCoordinator(_ c: AgentRunCoordinator, didDetectSimilarWork work: [SimilarWork], threadId: AgentThreadID)
 }
 
 public extension AgentRunObserver {
     func runCoordinator(_ c: AgentRunCoordinator, didReceiveOutOfTurn event: ProviderRuntimeEvent, threadId: AgentThreadID) {}
+    func runCoordinator(_ c: AgentRunCoordinator, didDetectSimilarWork work: [SimilarWork], threadId: AgentThreadID) {}
 }
 
 public struct AgentThreadForkResult: Sendable, Equatable {
@@ -791,6 +795,9 @@ public final class AgentRunCoordinator: @unchecked Sendable {
     /// Records the files each run edits and its repo identity. Without it, file-touch events
     /// are still dropped from the stream and checkpoints keep the whole-tree change list.
     public var fileTouchTracker: RunFileTouchTracker?
+
+    /// Adds the `<concurrent_work>` block to every turn and detects similar earlier work. Without it, turns carry neither.
+    public var concurrentWorkContext: ConcurrentWorkContext?
 
     public init(
         runRepo: AgentRunRepository,
@@ -1545,6 +1552,17 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                 store: botSecretStore
             )
         }
+        // Advice about other runs in this repository rides the same per-turn context every adapter forwards.
+        var concurrentContext: ConcurrentWorkContext.TurnContext?
+        if let concurrentWorkContext, attachPromptId == nil {
+            let context = await concurrentWorkContext.turnContext(
+                threadId: request.threadId, runId: request.runId, cwd: request.cwd, request: preservedUserContent
+            )
+            effectiveEnvironment[BotPeerDelegation.turnContextEnvironmentKey] = ConcurrentWorkContext.appending(
+                context.block, to: effectiveEnvironment[BotPeerDelegation.turnContextEnvironmentKey]
+            )
+            concurrentContext = context
+        }
         let effectiveReasoningEffort = Self.normalizedProviderReasoningEffort(
             provider: request.provider,
             model: request.model,
@@ -1710,6 +1728,14 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         agentRunLog.info("run.started thread=\(effectiveRequest.threadId.value.uuidString, privacy: .public) run=\(effectiveRequest.runId.value.uuidString, privacy: .public) provider=\(effectiveRequest.provider.rawValue, privacy: .public) model=\(effectiveRequest.model, privacy: .public)")
 
         fileTouchTracker?.begin(runId: runId, threadId: effectiveRequest.threadId, cwd: effectiveRequest.cwd)
+        if let concurrentContext {
+            concurrentWorkContext?.commit(concurrentContext, threadId: effectiveRequest.threadId)
+            if !concurrentContext.similar.isEmpty {
+                for observer in observersSnapshot() {
+                    observer.runCoordinator(self, didDetectSimilarWork: concurrentContext.similar, threadId: effectiveRequest.threadId)
+                }
+            }
+        }
         let coordinator = self
         let handle: AgentRunHandle
         do {
