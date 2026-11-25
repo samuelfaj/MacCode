@@ -53,6 +53,8 @@ public struct AppSettingsKeys {
         "botsAutonomyEnabled",
         "botsChannelsEnabled",
         "distillHighParallelism",
+        "concurrentLeaseMode",
+        "localRunConflictPolicy",
     ]
 }
 
@@ -955,6 +957,16 @@ public final class SettingsViewModel: ObservableObject {
         settingsStore.update { $0.distillHighParallelism = on }
     }
 
+    public func setConcurrentLeaseMode(_ mode: FileLeaseMode) {
+        appSettings.concurrentLeaseMode = mode
+        settingsStore.update { $0.concurrentLeaseMode = mode }
+    }
+
+    public func setLocalRunConflictPolicy(_ policy: LocalRunConflictPolicy) {
+        appSettings.localRunConflictPolicy = policy
+        settingsStore.update { $0.localRunConflictPolicy = policy }
+    }
+
     /// Latest host file-access probe results (Settings privacy section).
     @Published public var hostFileAccessProbeResults: [HostFileAccessProbeResult] = []
     /// Code signature identity for the running process (TCC durability).
@@ -1757,6 +1769,7 @@ public struct SettingsView: View {
                     }
                 )
                 distillHighParallelismSection
+                ConcurrentWorkSettingsSection(vm: vm)
             }
             .background(routeAnchor(.accounts))
             .accessibilityElement(children: .contain)

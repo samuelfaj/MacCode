@@ -455,6 +455,38 @@ final class RemoteCodeHostCatalogDispatcherTests: XCTestCase {
         XCTAssertEqual(router.authorizationMutations, [false, false, false])
     }
 
+    func test_leaseCheckReachesTheRouterWithTheEditedPathsAndStaysUnixOnly() async throws {
+        // WHY: Distill's pre-edit hook asks MacCode over the app socket. The router (not the generic
+        // dispatcher gate) resolves which run speaks, because a resident session keeps its first turn's ids.
+        let router = HostCatalogReceiptRouter()
+        let dispatcher = JSONRPCDispatcher(router: router)
+        let threadID = UUID().uuidString.lowercased()
+        let runID = UUID().uuidString.lowercased()
+        let response = await dispatcher.dispatchUnixSocket(JSONRPCRequest(
+            jsonrpc: "2.0", id: .number(1), method: "bot.peer.lease_check",
+            params: [
+                "thread_id": .string(threadID), "run_id": .string(runID),
+                BotPeerDelegation.capabilityRPCParameterKey: .string(router.activeCapability),
+                "paths": .array([.string("/repo/a.swift"), .string("/repo/b.swift")]),
+                "cwd": .string("/repo"),
+            ]
+        ))
+        XCTAssertNil(response.error)
+        XCTAssertEqual(response.result?.objectValue?["verdict"]?.stringValue, "warn")
+        XCTAssertEqual(router.leaseCheckPaths, ["/repo/a.swift", "/repo/b.swift"])
+        XCTAssertEqual(router.leaseCheckCwd, "/repo")
+        XCTAssertTrue(router.authorizationMutations.isEmpty, "the router decides authentication for this method")
+
+        let invalid = await dispatcher.dispatchUnixSocket(JSONRPCRequest(
+            jsonrpc: "2.0", id: .number(2), method: "bot.peer.lease_check",
+            params: ["thread_id": .string(threadID), "run_id": .string(runID)]
+        ))
+        XCTAssertEqual(invalid.error?.code, -32602, "a check without paths is malformed")
+
+        let local = await dispatcher.dispatch(JSONRPCRequest(jsonrpc: "2.0", id: .number(3), method: "bot.peer.lease_check", params: [:]))
+        XCTAssertEqual(local.error?.code, -32601, "the check is not reachable from HTTP or paired clients")
+    }
+
     func test_peerMutationsUsePrivateDurableReceiptsWithoutRedispatch() async throws {
         // WHY: bot.peer.* is a supervised Unix capability, not a public HTTP
         // mutation. A lost response must be recoverable from the exact durable
@@ -791,6 +823,14 @@ private final class HostCatalogReceiptRouter: FakeRouter, CommandReceiptStateRou
 
     /// The real host checks the activity belongs to the caller; this fake owns every receipt it issued.
     override func validateBotPeerReceipt(callerThread: AgentThreadID, result: JSONValue) throws {}
+
+    var leaseCheckPaths: [String] = []
+    var leaseCheckCwd: String?
+    override func checkEditLease(callerThread: AgentThreadID, callerRun: AgentRunID, paths: [String], cwd: String?, delegationCapability: String?) async throws -> JSONValue {
+        leaseCheckPaths = paths
+        leaseCheckCwd = cwd
+        return .object(["verdict": .string("warn"), "message": .string("busy")])
+    }
 
     override func dispatchPairedBotRemote(method: String, params: [String: JSONValue]) async throws -> JSONValue {
         pairedBotCalls.append((method, params))

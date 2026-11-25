@@ -48,6 +48,9 @@ let current = {
 };
 const pendingPermissions = new Map();
 const pendingUserInputs = new Map();
+// Pre-edit lease checks wait for the host's verdict; no answer in time lets the edit through.
+const pendingLeaseChecks = new Map();
+const LEASE_CHECK_TIMEOUT_MS = 8000;
 // AskUserQuestion arrives through canUseTool (even in bypassPermissions). We hold
 // the canUseTool resolver here, surface the questions as a user_input_request, and
 // resolve with { behavior: 'allow', updatedInput: { answers } } once answered.
@@ -245,6 +248,9 @@ function ensureQuery() {
       // the later whole assistant message, so partial delivery does not duplicate it.
       includePartialMessages: true,
       includeHookEvents: true,
+      hooks: {
+        PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [leaseCheckHook] }],
+      },
       // Match CLI `--forward-subagent-text` so nested Agent/Task prose is
       // emitted with parent_tool_use_id. ClaudeParser isolates that text from
       // the parent assembled body.
@@ -415,7 +421,38 @@ function e2eUserInputMcpServers() {
 
 // Resolve every in-flight callback promise (deny / cancel) so an interrupt or
 // close cannot leave the SDK async generator awaiting a host answer forever.
+function leaseHookOutput(verdict) {
+  const message = verdict && typeof verdict.message === 'string' ? verdict.message : '';
+  if (!message) return {};
+  if (verdict.verdict === 'deny') {
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: message } };
+  }
+  if (verdict.verdict === 'warn') {
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: message } };
+  }
+  return {};
+}
+
+// Runs before Edit/Write/MultiEdit/NotebookEdit in every permission mode, unlike canUseTool.
+async function leaseCheckHook(input, toolUseID) {
+  const requestId = toolUseID || `lease-${randomUUID()}`;
+  emit({ type: 'lease_check_request', request_id: requestId, tool_name: input.tool_name, tool_input: input.tool_input });
+  const verdict = await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingLeaseChecks.delete(requestId);
+      resolve(null);
+    }, LEASE_CHECK_TIMEOUT_MS);
+    pendingLeaseChecks.set(requestId, (answer) => {
+      clearTimeout(timer);
+      resolve(answer);
+    });
+  });
+  return leaseHookOutput(verdict);
+}
+
 function drainPendingCallbacks() {
+  for (const [, settle] of pendingLeaseChecks) settle(null);
+  pendingLeaseChecks.clear();
   for (const [id, ask] of pendingAskUserQuestions) {
     ask.resolve({ behavior: 'deny', message: 'cancelled', interrupt: true, toolUseID: id });
   }
@@ -654,6 +691,12 @@ for await (const line of rl) {
     current.permissionMode = sdkPermissionMode(command.permission_mode, command.interaction_mode);
     if (activeQuery?.setPermissionMode) await activeQuery.setPermissionMode(current.permissionMode);
     emit({ type: 'system', subtype: 'rc_permission_set', permissionMode: current.permissionMode, session_id: command.session_id });
+  } else if (command.type === 'lease_check_response') {
+    const settle = pendingLeaseChecks.get(command.request_id);
+    if (settle) {
+      pendingLeaseChecks.delete(command.request_id);
+      settle({ verdict: command.verdict, message: command.message });
+    }
   } else if (command.type === 'permission_response') {
     const pending = pendingPermissions.get(command.request_id);
     if (pending) {

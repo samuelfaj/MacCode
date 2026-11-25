@@ -53,6 +53,8 @@ final class AppSettingsFieldCoverageTests: XCTestCase {
             "botsAutonomyEnabled",
             "botsChannelsEnabled",
             "distillHighParallelism",
+            "concurrentLeaseMode",
+            "localRunConflictPolicy",
         ]
         let actual = Set(AppSettingsKeys.userTunableKeys)
         XCTAssertEqual(

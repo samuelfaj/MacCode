@@ -805,6 +805,14 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
     /// composer context strip ("N files changed +A −B").
     @Published public var gitBranch: String?
     @Published public var gitSummary: GitSummary?
+    /// Other live runs editing files in this agent's checkout; empty when none or outside git.
+    @Published public private(set) var concurrentWorkAll: ConcurrentWorkSnapshot = .empty
+    /// The same, without the selected thread's own run (a thread never "also edits" with itself).
+    public var concurrentWork: ConcurrentWorkSnapshot {
+        var snapshot = concurrentWorkAll
+        snapshot.runs.removeAll { $0.threadID == selectedThreadId }
+        return snapshot
+    }
     /// Wired by AppCommandRouter — "Review here" opens a Git/Diff surface.
     public var onReviewRequested: (() -> Void)?
     /// A3: fired when a run starts/ends so the tab + workspace chrome can
@@ -1285,6 +1293,30 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
             // Unchanged values still fire objectWillChange and rebuild the view.
             if self.gitBranch != header.branch { self.gitBranch = header.branch }
             if self.gitSummary != summary { self.gitSummary = summary }
+            self.refreshConcurrentWork()
+        }
+    }
+
+    private var concurrentWorkTask: Task<Void, Never>?
+    private var concurrentWorkObserver: NSObjectProtocol?
+
+    /// Reads who else is editing this checkout off the main actor and publishes only the newest answer for the
+    /// thread that asked.
+    public func refreshConcurrentWork() {
+        guard embedding == nil, !isDisposed, let provider = ConcurrentWorkFeed.shared.provider else { return }
+        if concurrentWorkObserver == nil {
+            concurrentWorkObserver = NotificationCenter.default.addObserver(
+                forName: .concurrentWorkDidChange, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshConcurrentWork() }
+            }
+        }
+        let directory = worktreePath ?? cwd
+        concurrentWorkTask?.cancel()
+        concurrentWorkTask = Task { [weak self] in
+            let snapshot = await Task.detached(priority: .utility) { provider(directory, nil) }.value
+            guard !Task.isCancelled, let self, !self.isDisposed else { return }
+            if self.concurrentWorkAll != snapshot { self.concurrentWorkAll = snapshot }
         }
     }
 
@@ -1657,6 +1689,10 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
         stopScheduledLivePoll()
         pendingGitRefresh?.cancel()
         pendingGitRefresh = nil
+        concurrentWorkTask?.cancel()
+        concurrentWorkTask = nil
+        if let concurrentWorkObserver { NotificationCenter.default.removeObserver(concurrentWorkObserver) }
+        concurrentWorkObserver = nil
         pendingThreadReloadTask?.cancel()
         pendingThreadReloadTask = nil
         timelineUpdateTickTask?.cancel()
@@ -13370,6 +13406,7 @@ public struct AgentAppView: View {
     @State private var showSourceOptions = false
     /// Subagents activity popover (provider-neutral Active/Done list).
     @State private var showSubagentActivity = false
+    @State private var showConcurrentWork = false
     @State private var openSubagentID: UUID?
     // UX-MAC_AGENT-013: inline custom-model entry replaces the blocking NSAlert.
     @State private var showCustomModelField = false
@@ -16210,6 +16247,10 @@ public struct AgentAppView: View {
     @ViewBuilder
     private var headerStatusControls: some View {
         botScreenControls
+        if !vm.concurrentWork.runs.isEmpty {
+            ConcurrentWorkNotice(snapshot: vm.concurrentWork, now: vm.currentTime(), isPresented: $showConcurrentWork)
+                .layoutPriority(-1)
+        }
         // Unified working phase strip (replaces separate awaiting/shell/status pills).
         workingPhaseStrip
         // Provider-neutral Subagents activity for the selected thread only
@@ -19173,6 +19214,13 @@ public struct AgentAppView: View {
                     .font(DS.Font.caption.monospacedDigit()).foregroundColor(DS.Palette.success)
                 Text(L("−%1$@", s.totalDeletions))
                     .font(DS.Font.caption.monospacedDigit()).foregroundColor(DS.Palette.danger)
+                let inUse = s.files.filter { !vm.concurrentWork.holders(of: $0.path).isEmpty }.count
+                if inUse > 0 {
+                    DSPill(inUse == 1 ? L("%1$@ file in use by another run", inUse) : L("%1$@ files in use by another run", inUse), tone: .warning)
+                        .lineLimit(1)
+                        .layoutPriority(-1)
+                        .accessibilityIdentifier("agent.changedFiles.inUse")
+                }
                 Spacer(minLength: 0)
                 Button { vm.onReviewRequested?() } label: {
                     Text(L("Review here"))
@@ -19192,7 +19240,11 @@ public struct AgentAppView: View {
     // hover tooltip; caps the list so a large change set stays readable.
     private func changedFilesBreakdown(_ s: GitSummary) -> String {
         let maxRows = 20
-        var rows = s.files.prefix(maxRows).map { "\($0.path)  +\($0.additions) −\($0.deletions)" }
+        var rows = s.files.prefix(maxRows).map { file -> String in
+            let row = "\(file.path)  +\(file.additions) −\(file.deletions)"
+            guard let holder = vm.concurrentWork.holders(of: file.path).first else { return row }
+            return row + "  ⚠ " + L("in use by %1$@", vm.concurrentWork.label(for: holder))
+        }
         if s.files.count > maxRows {
             rows.append(L("… %1$@ more", s.files.count - maxRows))
         }

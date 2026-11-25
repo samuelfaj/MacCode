@@ -275,6 +275,7 @@ public enum AgentHostEnvironmentMerge {
             || key == BotPeerDelegation.capabilityEnvironmentKey
             || key == BotPeerDelegation.turnContextEnvironmentKey
             || key == highParallelismEnvironmentKey
+            || key == FileLeaseHooks.environmentKey
     }
 }
 
@@ -798,6 +799,8 @@ public final class AgentRunCoordinator: @unchecked Sendable {
 
     /// Adds the `<concurrent_work>` block to every turn and detects similar earlier work. Without it, turns carry neither.
     public var concurrentWorkContext: ConcurrentWorkContext?
+    /// Holds a lease on each file a run edits so concurrent runs notice each other. Without it nothing is leased.
+    public var fileLeaseService: FileLeaseService?
 
     public init(
         runRepo: AgentRunRepository,
@@ -1729,6 +1732,7 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         agentRunLog.info("run.started thread=\(effectiveRequest.threadId.value.uuidString, privacy: .public) run=\(effectiveRequest.runId.value.uuidString, privacy: .public) provider=\(effectiveRequest.provider.rawValue, privacy: .public) model=\(effectiveRequest.model, privacy: .public)")
 
         fileTouchTracker?.begin(runId: runId, threadId: effectiveRequest.threadId, cwd: effectiveRequest.cwd)
+        fileLeaseService?.begin(runId: runId, threadId: effectiveRequest.threadId, cwd: effectiveRequest.cwd)
         let coordinator = self
         let handle: AgentRunHandle
         do {
@@ -6108,7 +6112,12 @@ public final class AgentRunCoordinator: @unchecked Sendable {
             // File-touch envelopes are host bookkeeping: never persisted or shown.
             if case .providerRuntime(let runtime) = rawEvent, let touches = ProviderFileTouchParser.touches(in: runtime) {
                 fileTouchTracker?.record(runId: runId, touches: touches)
+                if runtime.provider == .codex { recordLeases(runId: runId, touches: touches) }
                 return
+            }
+            // Distill refuses a write over a file that changed since the session read it; the user hears about it too.
+            if case .itemDelta(_, _, let output?, _) = rawEvent, let message = StaleWriteRefusal.message(in: output) {
+                fileLeaseService?.reportStaleWrite(runId: runId, path: StaleWriteRefusal.path(in: message), message: message)
             }
             guard let ev = sanitizeFinalAssistantEvent(rawEvent, runId: runId) else { return }
             persistProviderNativeSubagentLifecycle(
@@ -6820,6 +6829,7 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                 )
             }
             onRunFinished?(threadId, runId, status)
+            fileLeaseService?.end(runId: runId)
             let touchResult = fileTouchTracker.map { tracker in
                 Task { await tracker.complete(runId: runId) }
             }
@@ -7632,8 +7642,17 @@ public final class AgentRunCoordinator: @unchecked Sendable {
 
     /// Frees the run's touch state when the run never reaches a terminal event.
     private func discardFileTouches(runId: AgentRunID) {
+        fileLeaseService?.end(runId: runId)
         guard let tracker = fileTouchTracker else { return }
         Task { _ = await tracker.complete(runId: runId) }
+    }
+
+    /// Codex edits after its own sandbox approval, so MacCode learns about conflicts here, after the edit.
+    /// Distill and Claude ask before editing through their pre-edit hooks; their edit events must not lease again.
+    private func recordLeases(runId: AgentRunID, touches: [ProviderFileTouch]) {
+        guard let service = fileLeaseService, !touches.isEmpty else { return }
+        let paths = touches.map(\.path)
+        Task.detached(priority: .utility) { _ = await service.checkEdit(runId: runId, paths: paths, cwd: nil, enforce: false) }
     }
 
     /// Changed files of a run: git's list narrowed to the files the run's own tool calls edited.

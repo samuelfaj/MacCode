@@ -1,5 +1,6 @@
 import XCTest
 @testable import AppShell
+import RemoteCodeTreaty
 import SocketServer
 
 @MainActor
@@ -13,6 +14,25 @@ final class ActivityWindowModelTests: XCTestCase {
             attention_acknowledged_at: nil, needs_action: needsAction ?? (kind == "request"), blocking: false,
             final_message_id: nil, checkpoint_id: nil, changed_files: [], error: nil
         )
+    }
+
+    func testWorktreeBranchAndLiveFilesSurviveTheHostWireIntoTheRow() throws {
+        // WHY: Activity must tell parallel runs apart by checkout. The host emits repo, branch and editing_files
+        // for each run; if this row type drops them, the worktree run looks identical to the shared-checkout run.
+        let host = AgentActivityItem(
+            id: "agent:run-1", kind: .agent, runID: UUID(), state: .running, title: "Fix login",
+            occurredAt: Date(), repo: "/work/app", branch: "rc-agent/ab12cd34", editingFiles: ["Sources/Login.swift", "Sources/Auth.swift"]
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let wire = try JSONDecoder().decode(ActivityWireItem.self, from: encoder.encode(host))
+        XCTAssertEqual(wire.branch, "rc-agent/ab12cd34")
+        XCTAssertEqual(wire.repo, "/work/app")
+        XCTAssertEqual(wire.editing_files, ["Sources/Login.swift", "Sources/Auth.swift"])
+
+        let legacy = try JSONDecoder().decode(ActivityWireItem.self, from: Data(#"{"id":"x","kind":"agent","state":"completed","title":"t","occurred_at":"2026-10-12T11:59:00Z","needs_action":false,"blocking":false,"changed_files":[]}"#.utf8))
+        XCTAssertNil(legacy.branch, "a host without the new fields keeps working")
+        XCTAssertNil(legacy.editing_files)
     }
 
     private func json<T: Encodable>(_ value: T) -> JSONValue {

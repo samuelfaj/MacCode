@@ -197,6 +197,10 @@ public final class AppContext {
     public let coordinator: AgentRunCoordinator
     /// Turn-start concurrent-work context and similar-work lookup shared with Bot delegation.
     public private(set) var concurrentWork: ConcurrentWorkContext?
+    /// File leases that keep concurrent runs off each other's files. Set once in `init`.
+    var fileLeaseService: FileLeaseService?
+    /// Test seam: the service binary the Distill pre-edit hook runs; nil resolves the installed one.
+    var leaseHooksServiceExecutable: String?
     /// Other live runs in the same repository and the files they are editing.
     public lazy var concurrentWorkIndex = ConcurrentWorkIndex(db: db) { [coordinator] in
         Set(coordinator.activeThreadIdsSnapshot().compactMap { coordinator.activeRunId(threadId: $0) })
@@ -835,6 +839,7 @@ public final class AppContext {
         let guestRunResolver = makeBotGuestRunResolver(hostsGuestRuns: performLaunchRunReconciliation)
         botGuestRunResolver = guestRunResolver
         distill.setGuestLaunchResolver(guestRunResolver)
+        installConcurrentWork(codex: codex, claude: claude)
         let loopStore = self.distillLoopStore
         distill.onLoopsChanged = { threadId, loops in
             Task { @MainActor in loopStore.update(thread: threadId, loops: loops) }

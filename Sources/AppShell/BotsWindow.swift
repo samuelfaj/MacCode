@@ -639,6 +639,8 @@ private struct BotPeerRunPlan {
     let providerSnapshots: [AgentProviderSnapshot]
     let executionCwd: String?
     var nestedRunContext: AgentNestedRunContext? = nil
+    /// An asynchronous peer edits the caller's repository in a checkout of its own when the host policy says so.
+    var isolatesEdits = false
 
     func receipt(userText: String) -> ContextAssemblyReceipt {
         BotBrainCompiler.assemble(
@@ -1416,7 +1418,8 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
         consultationID: UUID? = nil,
         continuationConversationID: BotConversationID? = nil,
         continuationPeerThreadID: AgentThreadID? = nil,
-        nestedRunContext: AgentNestedRunContext? = nil
+        nestedRunContext: AgentNestedRunContext? = nil,
+        isolatesEdits: Bool = false
     ) -> Task<Void, Never>? {
         do {
             if let pin = try botStore.conversationContextPin(linkedTo: originThread.id) {
@@ -1629,8 +1632,10 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
             let browserStore = BotBrowserStore(appSupportDirectory: appSupportDirectory)
             let browser = try? browserStore.loadTarget(botID: peer.id)
             let executionCwd: String?
+            var inheritedScope = false
             if let scope = try inheritedWorkspaceScope(thread: originThread, runID: hostRunID) {
                 executionCwd = try router.effectiveAgentExecutionCwd(for: scope)
+                inheritedScope = true
             } else {
                 try FileManager.default.createDirectory(at: home.root, withIntermediateDirectories: true)
                 executionCwd = home.root.path
@@ -1653,7 +1658,8 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
                 attachments: [],
                 providerSnapshots: providerSnapshots,
                 executionCwd: executionCwd,
-                nestedRunContext: nestedRunContext
+                nestedRunContext: nestedRunContext,
+                isolatesEdits: isolatesEdits && inheritedScope
             )
             submit(
                 BotPeerExecutionPlan(
@@ -1727,7 +1733,8 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
             consultationID: consultationID, continuationConversationID: continuation?.peerConversationID,
             continuationPeerThreadID: continuation?.peerThreadID,
             nestedRunContext: AgentNestedRunContext(parentRunID: hostRunID, parentThreadID: originThread.id,
-                nodeID: "bot.\(peer.handle).\(activityID.value.uuidString)", parentCapability: delegationCapability)
+                nodeID: "bot.\(peer.handle).\(activityID.value.uuidString)", parentCapability: delegationCapability),
+            isolatesEdits: !wait
         ) else {
             let data = (try? peerActivity(activityID.value, callerThread: originThread.id))
                 ?? .object(["activity_id": .string(activityID.value.uuidString.lowercased()),
@@ -2430,7 +2437,9 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
                             requestedRunID: runID,
                             orchestrationRoutingSnapshot: peerOrchestrationRoutingSnapshot(plan),
                             nestedRunContext: plan.nestedRunContext,
-                            executionCwdOverride: plan.executionCwd,
+                            executionCwdOverride: plan.isolatesEdits
+                                ? await router.isolatedPeerCwd(plan.executionCwd, runID: runID)
+                                : plan.executionCwd,
                             allowProviderCatalogListingDuringPreflight: false
                         )
                         race.resolve(.success(result))
@@ -7360,7 +7369,8 @@ public final class BotsViewModel: ObservableObject {
         routing explicitRouting: BotDeskRouting? = nil,
         adoptAsDeskRoute: Bool = false,
         isParallelTask: Bool = false,
-        origin: HostSendOrigin = .host
+        origin: HostSendOrigin = .host,
+        executionCwd: String? = nil
     ) throws -> JSONValue {
         guard let bot = try botStore.get(id: botID), bot.deletedAt == nil else {
             throw BotStoreError.notFound
@@ -7447,7 +7457,8 @@ public final class BotsViewModel: ObservableObject {
             conversation: conversation,
             userText: message,
             attachments: attachments,
-            routingOverride: routing
+            routingOverride: routing,
+            executionCwd: executionCwd
         ) else {
             throw BotStoreError.invalidRow(L("Bot runtime is unavailable"))
         }
@@ -12809,7 +12820,8 @@ public final class BotsViewModel: ObservableObject {
         userText: String,
         attachments: [AgentAttachment],
         routingOverride: BotDeskRouting? = nil,
-        queuedRecord: BotQueuedFollowUpRecord? = nil
+        queuedRecord: BotQueuedFollowUpRecord? = nil,
+        executionCwd: String? = nil
     ) throws -> BotStartedRun? {
         // Dest first. Send used to listMemory/listSkillBindings after the
         // bubble painted. Both Desk and host-catalog sends snapshot the same
@@ -12910,7 +12922,8 @@ public final class BotsViewModel: ObservableObject {
                     skills: brain.skills,
                     routines: brain.routines,
                     router: router,
-                    expectedEpoch: epoch
+                    expectedEpoch: epoch,
+                    executionCwd: executionCwd
                 )
                 signposter.endInterval("bot_send_start", startInterval)
                 if let started {
@@ -12986,7 +12999,8 @@ public final class BotsViewModel: ObservableObject {
         skills: [BotSkillBinding],
         routines: [BotRoutine] = [],
         router: AppCommandRouter,
-        expectedEpoch: Int
+        expectedEpoch: Int,
+        executionCwd: String? = nil
     ) async -> BotStartedRun? {
         guard !Task.isCancelled, (deskStopEpoch[bot.id] ?? 0) == expectedEpoch else {
             return nil
@@ -13056,6 +13070,8 @@ public final class BotsViewModel: ObservableObject {
             // must start in the bot's home directory, not "/".
             let botHomeCwd = BotHome(appSupportDirectory: context.appSupportDirectory, bot: bot).root.path
             try? FileManager.default.createDirectory(at: URL(fileURLWithPath: botHomeCwd), withIntermediateDirectories: true)
+            // A host task the policy isolated runs in its own worktree of the caller's repository.
+            let runCwd = executionCwd ?? botHomeCwd
             let result = try await router.sendAgentMessage(
                 thread: prepared.thread.id,
                 text: Self.supervisedRunPrompt(
@@ -13085,7 +13101,7 @@ public final class BotsViewModel: ObservableObject {
                 providerInstanceId: routing.providerInstanceID,
                 attachments: attachments,
                 requestedRunID: prepared.runID,
-                executionCwdOverride: botHomeCwd
+                executionCwdOverride: runCwd
             )
             recordStartedRun(
                 bot: bot,
