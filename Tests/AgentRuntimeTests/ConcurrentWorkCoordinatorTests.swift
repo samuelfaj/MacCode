@@ -14,14 +14,14 @@ final class ConcurrentWorkCoordinatorTests: XCTestCase {
         let runner: CapturingRunner
     }
 
-    private func makeHarness(withContext: Bool = true) throws -> Harness {
+    private func makeHarness(withContext: Bool = true, provider: AgentProvider = .codex) throws -> Harness {
         let db = try Bootstrap(channel: .debug, appSupportOverride: NSTemporaryDirectory() + "cw-coord-" + UUID().uuidString).run().1
-        let runner = CapturingRunner()
+        let runner = CapturingRunner(provider: provider)
         let threadRepo = AgentThreadRepository(db: db)
         let runRepo = AgentRunRepository(db: db)
         let coordinator = AgentRunCoordinator(
             runRepo: runRepo, messageRepo: AgentMessageRepository(db: db), threadRepo: threadRepo,
-            checkpointRepo: AgentTurnCheckpointRepository(db: db), providers: [.codex: runner]
+            checkpointRepo: AgentTurnCheckpointRepository(db: db), providers: [provider: runner]
         )
         if withContext {
             let identity = RunRepoIdentity(repoRoot: "/work/app", gitCommonDir: "/work/app/.git", branch: "main")
@@ -82,6 +82,32 @@ final class ConcurrentWorkCoordinatorTests: XCTestCase {
         XCTAssertTrue(context.contains("Check it first; do not redo it"), context)
     }
 
+    func test_aGuestRunNeverSeesMacRunsOrTheToolsTheBlockNames() async throws {
+        let h = try makeHarness(provider: .distill)
+        try seedOtherRun(h, title: "Refactor auth", request: "Split the auth module")
+        let thread = AgentThread(title: "Guest", provider: .distill, model: "m")
+        try h.threadRepo.upsert(thread)
+        let update = try h.db.prepare("UPDATE agent_threads SET execution_target = 'vm', guest_runtime = 'distill' WHERE id = ?;")
+        try update.bind(1, thread.id.value.uuidString)
+        _ = try update.step()
+        do {
+            _ = try await h.coordinator.startRun(AgentRunRequest(threadId: thread.id, provider: .distill, model: "m", cwd: "/work/app", prompt: "Add a settings screen"))
+        } catch {
+            // The guest launch itself is not under test; the environment is captured before it runs.
+        }
+        XCTAssertNil(h.runner.lastEnvironment[BotPeerDelegation.turnContextEnvironmentKey], "a VM-isolated Bot must not learn about Mac activity")
+    }
+
+    func test_aStartThatFailsDeliversNothingAndRaisesNoHint() async throws {
+        let h = try makeHarness()
+        h.runner.failStart = true
+        try seedOtherRun(h, title: "Fix login redirect bug", request: "Fix the login redirect bug in the auth service")
+        let observer = SimilarWorkObserver()
+        h.coordinator.addObserver(observer)
+        do { _ = try await start(h, prompt: "Please fix the login redirect bug in the auth service"); XCTFail("start should fail") } catch {}
+        XCTAssertTrue(observer.detected.isEmpty, "no run started, so there is nothing to warn about")
+    }
+
     func test_unrelatedRequestRaisesNoSimilarWorkWarning() async throws {
         let h = try makeHarness()
         try seedOtherRun(h, title: "Fix login redirect bug", request: "Fix the login redirect bug in the auth service")
@@ -105,7 +131,9 @@ private final class SimilarWorkObserver: AgentRunObserver, @unchecked Sendable {
 }
 
 private final class CapturingRunner: AgentProviderRunner, @unchecked Sendable {
-    let provider: AgentProvider = .codex
+    let provider: AgentProvider
+    var failStart = false
+    init(provider: AgentProvider) { self.provider = provider }
     private let lock = NSLock()
     private var _environment: [String: String] = [:]
     private var _runId: AgentRunID?
@@ -116,6 +144,7 @@ private final class CapturingRunner: AgentProviderRunner, @unchecked Sendable {
 
     func startRun(_ request: AgentRunRequest, onEvent: @escaping @Sendable (AgentRunEvent) -> Void) async throws -> AgentRunHandle {
         lock.withLock { _environment = request.environment; _runId = request.runId }
+        if failStart { throw AgentProviderAdapterError.unsupported("start refused") }
         Task.detached {
             try? await Task.sleep(nanoseconds: 50_000_000)
             onEvent(.finished(.completed, finalMessage: "done", providerThreadId: "provider-thread"))

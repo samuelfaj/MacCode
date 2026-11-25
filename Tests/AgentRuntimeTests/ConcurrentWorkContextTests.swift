@@ -123,6 +123,18 @@ final class ConcurrentWorkContextTests: XCTestCase {
         XCTAssertEqual(later.similar, [], "the check runs at the start of a thread, not on every follow-up")
     }
 
+    func test_botWarningSkipsTheCallersOwnConversation() async throws {
+        let f = try makeFixture()
+        let store = BotStore(db: f.db)
+        let bot = try store.create(name: "Worker", title: "", description: "")
+        let caller = try liveRun(f, title: "Fix login redirect bug", request: "Fix the login redirect bug in the auth service")
+        let earlier = try liveRun(f, title: "Fix login redirect bug", request: "Fix the login redirect bug in the auth service")
+        try store.upsertConversation(BotConversation(botID: bot.id, title: "a", linkedAgentThreadID: caller.threadId))
+        try store.upsertConversation(BotConversation(botID: bot.id, title: "b", linkedAgentThreadID: earlier.threadId))
+        let found = await f.context.similarWork(forBotRequest: "Please fix the login redirect bug in the auth service", botID: bot.id, excludingThread: caller.threadId)
+        XCTAssertEqual(found.map(\.threadID), [earlier.threadId], "the Bot's own current conversation is the source of the request, not a duplicate of it")
+    }
+
     func test_appendingKeepsExistingTurnContextFirst() {
         XCTAssertEqual(ConcurrentWorkContext.appending("B", to: "A"), "A\n\nB")
         XCTAssertEqual(ConcurrentWorkContext.appending("B", to: nil), "B")

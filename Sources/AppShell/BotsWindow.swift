@@ -1690,7 +1690,7 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
     ) async throws -> JSONValue {
         // Warning only: a similar request in this Bot's other conversations never stops the call. Read before admission so
         // no suspension separates the admission check from the reservation.
-        let similarWork = await coordinator.concurrentWorkContext?.similarWork(forBotRequest: prompt, botID: peer.id) ?? []
+        let similarWork = await coordinator.concurrentWorkContext?.similarWork(forBotRequest: prompt, botID: peer.id, excludingThread: originThread.id) ?? []
         refreshStorageProjection()
         do {
             try validateAdmission(callerThread: originThread.id, callerRun: hostRunID, peerBotID: peer.id,

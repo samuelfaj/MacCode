@@ -1553,8 +1553,9 @@ public final class AgentRunCoordinator: @unchecked Sendable {
             )
         }
         // Advice about other runs in this repository rides the same per-turn context every adapter forwards.
+        // A guest run is isolated from the Mac: it neither sees Mac runs nor has the tools the block names.
         var concurrentContext: ConcurrentWorkContext.TurnContext?
-        if let concurrentWorkContext, attachPromptId == nil {
+        if let concurrentWorkContext, attachPromptId == nil, guestPlacement?.runsInGuest != true {
             let context = await concurrentWorkContext.turnContext(
                 threadId: request.threadId, runId: request.runId, cwd: request.cwd, request: preservedUserContent
             )
@@ -1728,14 +1729,6 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         agentRunLog.info("run.started thread=\(effectiveRequest.threadId.value.uuidString, privacy: .public) run=\(effectiveRequest.runId.value.uuidString, privacy: .public) provider=\(effectiveRequest.provider.rawValue, privacy: .public) model=\(effectiveRequest.model, privacy: .public)")
 
         fileTouchTracker?.begin(runId: runId, threadId: effectiveRequest.threadId, cwd: effectiveRequest.cwd)
-        if let concurrentContext {
-            concurrentWorkContext?.commit(concurrentContext, threadId: effectiveRequest.threadId)
-            if !concurrentContext.similar.isEmpty {
-                for observer in observersSnapshot() {
-                    observer.runCoordinator(self, didDetectSimilarWork: concurrentContext.similar, threadId: effectiveRequest.threadId)
-                }
-            }
-        }
         let coordinator = self
         let handle: AgentRunHandle
         do {
@@ -1752,6 +1745,15 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                 threadKey: effectiveRequest.threadId.value.uuidString
             )
             pendingProviderStart.record(handle: handle)
+            // Delivered only now: a start that failed leaves its notices queued and shows no hint.
+            if let concurrentContext {
+                concurrentWorkContext?.commit(concurrentContext, threadId: effectiveRequest.threadId)
+                if !concurrentContext.similar.isEmpty {
+                    for observer in observersSnapshot() {
+                        observer.runCoordinator(self, didDetectSimilarWork: concurrentContext.similar, threadId: effectiveRequest.threadId)
+                    }
+                }
+            }
             lock.lock()
             // An adopted wake turn keeps the live process's original scope.
             if effectiveRequest.attachToProviderPromptId == nil {

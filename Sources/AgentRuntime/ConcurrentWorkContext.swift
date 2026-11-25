@@ -88,11 +88,12 @@ public final class ConcurrentWorkContext: @unchecked Sendable {
     }
 
     /// Similar work for a request in other conversations of `botID`, for the Bot delegation warning.
-    public func similarWork(forBotRequest request: String, botID: BotID) async -> [SimilarWork] {
+    /// `callerThread` is the conversation sending the request; it is never its own duplicate.
+    public func similarWork(forBotRequest request: String, botID: BotID, excludingThread callerThread: AgentThreadID) async -> [SimilarWork] {
         let request = String(request.prefix(Self.maxRequestLength))
         return await Task.detached(priority: .userInitiated) { [self] in
             (try? similarIndex.find(
-                request: request, excludingThread: nil, repoCommonDir: nil, workspaceID: nil,
+                request: request, excludingThread: callerThread, repoCommonDir: nil, workspaceID: nil,
                 botID: botID.value.uuidString, now: now()
             )) ?? []
         }.value

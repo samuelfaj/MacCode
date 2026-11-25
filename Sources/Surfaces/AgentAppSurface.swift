@@ -8690,7 +8690,10 @@ public final class AgentAppViewModel: ObservableObject, AgentRunObserver {
 
     nonisolated static func similarWorkNoticeText(_ work: [SimilarWork]) -> String? {
         let titles = work.prefix(ConcurrentWorkDirective.maxSimilar)
-            .map { "“\($0.threadTitle.split(whereSeparator: \.isWhitespace).joined(separator: " "))”" }
+            .map { work -> String in
+                let title = work.threadTitle.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+                return "“" + (title.count > 60 ? String(title.prefix(60)) + "…" : title) + "”"
+            }
         guard !titles.isEmpty else { return nil }
         return L("Similar work already exists: %1$@. Check it before repeating it.", titles.joined(separator: ", "))
     }

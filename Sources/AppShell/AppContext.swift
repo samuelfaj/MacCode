@@ -818,8 +818,9 @@ public final class AppContext {
         let diagnosticsDir = self.appSupportDirectory.appendingPathComponent("diagnostics", isDirectory: true)
         self.coordinator.terminalTransitionLedger = TerminalTransitionLedger(directory: diagnosticsDir)
         let fileTouchTracker = RunFileTouchTracker(store: AgentRunFileTouchRepository(db: db))
-        let concurrentWork = ConcurrentWorkContext(db: db) { [coordinator] in
-            Set(coordinator.activeThreadIdsSnapshot().compactMap { coordinator.activeRunId(threadId: $0) })
+        let concurrentWork = ConcurrentWorkContext(db: db) { [weak coordinator] in
+            guard let coordinator else { return [] }
+            return Set(coordinator.activeThreadIdsSnapshot().compactMap { coordinator.activeRunId(threadId: $0) })
         }
         fileTouchTracker.onRecorded = { [concurrentWork] runId, threadId, identity, paths in
             concurrentWork.runEdited(runId: runId, threadId: threadId, identity: identity, paths: paths)
