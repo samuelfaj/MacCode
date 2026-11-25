@@ -92,6 +92,12 @@ public struct AppSettings: Codable, Sendable, Equatable {
     /// start its own subagents. Off keeps the configured default depth.
     public var distillHighParallelism: Bool
 
+    /// A pre-edit file lease held by another run: `warn` (default) lets the edit through and tells the agent,
+    /// `block` refuses it. Stale-write refusal in Distill always applies.
+    public var concurrentLeaseMode: FileLeaseMode
+    /// A new `.local` run in a checkout another run is editing: `warn` (default), `autoWorktree` or `ask`.
+    public var localRunConflictPolicy: LocalRunConflictPolicy
+
     public var botControlPlaneFlags: BotControlPlaneFlags {
         BotControlPlaneFlags(
             botsControlPlaneEnabled: botsControlPlaneEnabled,
@@ -142,7 +148,9 @@ public struct AppSettings: Codable, Sendable, Equatable {
                 botsDesktopVMEnabled: Bool = false,
                 botsDesktopRemoteEnabled: Bool = false,
                 botsChannelsEnabled: Bool = false,
-                distillHighParallelism: Bool = false) {
+                distillHighParallelism: Bool = false,
+                concurrentLeaseMode: FileLeaseMode = .warn,
+                localRunConflictPolicy: LocalRunConflictPolicy = .warn) {
         self.diffWordWrap = diffWordWrap
         self.diffIgnoreWhitespace = diffIgnoreWhitespace
         self.sidebarSort = sidebarSort
@@ -174,6 +182,8 @@ public struct AppSettings: Codable, Sendable, Equatable {
         self.botsDesktopRemoteEnabled = botsDesktopRemoteEnabled
         self.botsChannelsEnabled = botsChannelsEnabled
         self.distillHighParallelism = distillHighParallelism
+        self.concurrentLeaseMode = concurrentLeaseMode
+        self.localRunConflictPolicy = localRunConflictPolicy
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -208,6 +218,8 @@ public struct AppSettings: Codable, Sendable, Equatable {
         case botsDesktopRemoteEnabled
         case botsChannelsEnabled
         case distillHighParallelism
+        case concurrentLeaseMode
+        case localRunConflictPolicy
     }
 
     public init(from decoder: Decoder) throws {
@@ -246,6 +258,9 @@ public struct AppSettings: Codable, Sendable, Equatable {
         botsDesktopRemoteEnabled = try c.decodeIfPresent(Bool.self, forKey: .botsDesktopRemoteEnabled) ?? false
         botsChannelsEnabled = try c.decodeIfPresent(Bool.self, forKey: .botsChannelsEnabled) ?? false
         distillHighParallelism = try c.decodeIfPresent(Bool.self, forKey: .distillHighParallelism) ?? false
+        // An unknown value degrades to the safe default (warn), never to a stricter mode.
+        concurrentLeaseMode = (try? c.decodeIfPresent(FileLeaseMode.self, forKey: .concurrentLeaseMode)) ?? .warn
+        localRunConflictPolicy = (try? c.decodeIfPresent(LocalRunConflictPolicy.self, forKey: .localRunConflictPolicy)) ?? .warn
     }
 }
 

@@ -639,6 +639,8 @@ private struct BotPeerRunPlan {
     let providerSnapshots: [AgentProviderSnapshot]
     let executionCwd: String?
     var nestedRunContext: AgentNestedRunContext? = nil
+    /// An asynchronous peer edits the caller's repository in a checkout of its own when the host policy says so.
+    var isolatesEdits = false
 
     func receipt(userText: String) -> ContextAssemblyReceipt {
         BotBrainCompiler.assemble(
@@ -1416,7 +1418,8 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
         consultationID: UUID? = nil,
         continuationConversationID: BotConversationID? = nil,
         continuationPeerThreadID: AgentThreadID? = nil,
-        nestedRunContext: AgentNestedRunContext? = nil
+        nestedRunContext: AgentNestedRunContext? = nil,
+        isolatesEdits: Bool = false
     ) -> Task<Void, Never>? {
         do {
             if let pin = try botStore.conversationContextPin(linkedTo: originThread.id) {
@@ -1629,8 +1632,10 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
             let browserStore = BotBrowserStore(appSupportDirectory: appSupportDirectory)
             let browser = try? browserStore.loadTarget(botID: peer.id)
             let executionCwd: String?
+            var inheritedScope = false
             if let scope = try inheritedWorkspaceScope(thread: originThread, runID: hostRunID) {
                 executionCwd = try router.effectiveAgentExecutionCwd(for: scope)
+                inheritedScope = true
             } else {
                 try FileManager.default.createDirectory(at: home.root, withIntermediateDirectories: true)
                 executionCwd = home.root.path
@@ -1653,7 +1658,8 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
                 attachments: [],
                 providerSnapshots: providerSnapshots,
                 executionCwd: executionCwd,
-                nestedRunContext: nestedRunContext
+                nestedRunContext: nestedRunContext,
+                isolatesEdits: isolatesEdits && inheritedScope
             )
             submit(
                 BotPeerExecutionPlan(
@@ -1724,7 +1730,8 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
             consultationID: consultationID, continuationConversationID: continuation?.peerConversationID,
             continuationPeerThreadID: continuation?.peerThreadID,
             nestedRunContext: AgentNestedRunContext(parentRunID: hostRunID, parentThreadID: originThread.id,
-                nodeID: "bot.\(peer.handle).\(activityID.value.uuidString)", parentCapability: delegationCapability)
+                nodeID: "bot.\(peer.handle).\(activityID.value.uuidString)", parentCapability: delegationCapability),
+            isolatesEdits: !wait
         ) else {
             let data = (try? peerActivity(activityID.value, callerThread: originThread.id))
                 ?? .object(["activity_id": .string(activityID.value.uuidString.lowercased()),
@@ -2424,7 +2431,9 @@ final class BotPeerHandoffAuthority: AgentRunObserver {
                             requestedRunID: runID,
                             orchestrationRoutingSnapshot: peerOrchestrationRoutingSnapshot(plan),
                             nestedRunContext: plan.nestedRunContext,
-                            executionCwdOverride: plan.executionCwd,
+                            executionCwdOverride: plan.isolatesEdits
+                                ? await router.isolatedPeerCwd(plan.executionCwd, runID: runID)
+                                : plan.executionCwd,
                             allowProviderCatalogListingDuringPreflight: false
                         )
                         race.resolve(.success(result))

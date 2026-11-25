@@ -236,6 +236,8 @@ public protocol CommandRouting: AnyObject {
     func askBotPeer(callerThread: AgentThreadID, callerRun: AgentRunID, handle: String, prompt: String, replyMode: BotPeerDelegation.ReplyMode, consultationID: UUID?, delegationCapability: String?) async throws -> JSONValue
     func askBotPeer(callerThread: AgentThreadID, callerRun: AgentRunID, handle: String, prompt: String, replyMode: BotPeerDelegation.ReplyMode, consultationID: UUID?, wait: Bool, delegationCapability: String?) async throws -> JSONValue
     func observeBotPeer(callerThread: AgentThreadID, callerRun: AgentRunID, activityID: UUID, wait: Bool, cancel: Bool, delegationCapability: String?) async throws -> JSONValue
+    /// Pre-edit file lease check for the calling run: `{verdict: allow|warn|deny, message?}`.
+    func checkEditLease(callerThread: AgentThreadID, callerRun: AgentRunID, paths: [String], cwd: String?, delegationCapability: String?) async throws -> JSONValue
     func validateBotPeerReceipt(callerThread: AgentThreadID, result: JSONValue) throws
     func invokeDelegatedBotSelfConfig(callerThread: AgentThreadID, callerRun: AgentRunID, toolName: String, arguments: [String: JSONValue], delegationCapability: String?) throws -> JSONValue
     func authenticateManagedHostCall(threadID: AgentThreadID, runID: AgentRunID, delegationCapability: String?, mutation: Bool, method: String) throws
@@ -580,6 +582,10 @@ public extension CommandRouting {
 
     func observeBotPeer(callerThread: AgentThreadID, callerRun: AgentRunID, activityID: UUID, wait: Bool, cancel: Bool, delegationCapability: String?) async throws -> JSONValue {
         throw JSONRPCError.notSupported("Bot activity observation")
+    }
+
+    func checkEditLease(callerThread: AgentThreadID, callerRun: AgentRunID, paths: [String], cwd: String?, delegationCapability: String?) async throws -> JSONValue {
+        throw JSONRPCError.notSupported("File lease check")
     }
 
     func validateBotPeerReceipt(callerThread: AgentThreadID, result: JSONValue) throws {
@@ -984,7 +990,7 @@ public final class JSONRPCDispatcher {
     private nonisolated static let managedProviderSocketMethods =
         RemoteCodeHostCatalog.rpcMethods.union([
             "bot.peer.list", "bot.peer.ask", "bot.peer.self_config", "bot.peer.status", "bot.peer.cancel",
-            "bot.peer.receipt.status",
+            "bot.peer.receipt.status", "bot.peer.lease_check",
         ])
     nonisolated static let managedPeerReceiptMethods: Set<String> = [
         "bot.peer.ask", "bot.peer.self_config", "bot.peer.cancel",
@@ -1906,6 +1912,7 @@ public final class JSONRPCDispatcher {
             || req.method == "bot.peer.status"
             || req.method == "bot.peer.cancel"
             || req.method == "bot.peer.self_config"
+            || req.method == "bot.peer.lease_check"
             || isPeerReceiptStatus
         let isHost = RemoteCodeHostCatalog.rpcMethods.contains(req.method)
         guard isPeer || isHost else {
@@ -1925,7 +1932,11 @@ public final class JSONRPCDispatcher {
             mutation = isHost && RemoteCodeHostCatalog.rpcMutationMethods.contains(req.method)
         }
         do {
-            try authenticateManagedHostParams(params, mutation: mutation, method: req.method)
+            // A resident provider process keeps its first turn's run id and capability, so the pre-edit check
+            // authenticates inside the router, which can resolve the thread's live run.
+            if req.method != "bot.peer.lease_check" {
+                try authenticateManagedHostParams(params, mutation: mutation, method: req.method)
+            }
         } catch let error as JSONRPCError {
             return .init(id: req.id, error: error)
         } catch {
@@ -3764,6 +3775,16 @@ public final class JSONRPCDispatcher {
                 return .init(id: id, result: encode(s))
             case "token_saver.digest.get":
                 return .init(id: id, result: router.tokenSaverDigest() ?? .object([:]))
+            case "bot.peer.lease_check":
+                guard let threadID = params["thread_id"]?.stringValue.flatMap(UUID.init).map(AgentThreadID.init),
+                      let runID = params["run_id"]?.stringValue.flatMap(UUID.init).map(AgentRunID.init),
+                      let paths = params["paths"]?.arrayValue?.compactMap(\.stringValue) else {
+                    throw JSONRPCError.invalidParams
+                }
+                return .init(id: id, result: try await router.checkEditLease(
+                    callerThread: threadID, callerRun: runID, paths: paths,
+                    cwd: params["cwd"]?.stringValue,
+                    delegationCapability: params[BotPeerDelegation.capabilityRPCParameterKey]?.stringValue))
             case "bot.peer.list":
                 guard let threadID = params["thread_id"]?.stringValue.flatMap(UUID.init).map(AgentThreadID.init),
                       let runID = params["run_id"]?.stringValue.flatMap(UUID.init).map(AgentRunID.init) else {

@@ -256,6 +256,8 @@ final class SettingsPaletteGapTests: XCTestCase {
             "botsAutonomyEnabled",
             "botsChannelsEnabled",
             "distillHighParallelism",
+            "concurrentLeaseMode",
+            "localRunConflictPolicy",
         ]
         XCTAssertEqual(
             Set(AppSettingsKeys.userTunableKeys), expected,
