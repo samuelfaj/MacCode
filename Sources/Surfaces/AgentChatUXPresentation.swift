@@ -73,7 +73,8 @@ public enum AgentSystemStripPresentation {
         historyReplayNotice: String?,
         statusMessage: String?,
         providerSnapshotStatus: String?,
-        standaloneQueueStatus: String?
+        standaloneQueueStatus: String?,
+        similarWork: String? = nil
     ) -> [AgentSystemStripItem] {
         var out: [AgentSystemStripItem] = []
         if let message = normalized(historyReplayNotice) {
@@ -113,6 +114,15 @@ public enum AgentSystemStripPresentation {
                 message: message,
                 offersCopy: true,
                 offersRetry: true
+            ))
+        }
+        if let message = normalized(similarWork) {
+            out.append(AgentSystemStripItem(
+                id: "agent.similar.work",
+                severity: .info,
+                message: message,
+                offersCopy: false,
+                offersRetry: false
             ))
         }
         return out

@@ -537,6 +537,8 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     private static let minimizedPaneVisibilityThreshold = 0.08
 
     public weak var context: AppContext?
+    /// How a new local run is shared with a run already editing the project (the `ask` policy). Tests replace it.
+    var localRunConflictAsker: @MainActor (ConcurrentWorkSnapshot) async -> LocalRunConflictChoice = { await AppCommandRouter.askLocalRunConflict($0) }
 
     /// Accounts & Auto lives in Settings; the Agent App's empty state links there.
     var openAccountsSettings: (() -> Void)? {
@@ -4216,12 +4218,16 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
                 title: String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(72)),
                 inheriting: callerThread).conversation.id
         }
+        let isolatedCwd = conversationID == nil && destination == nil
+            ? await isolatedHostTaskCwd(callerThread: callerThread, callerRun: callerRun)
+            : nil
         let result = try botsViewModel.enqueueHostMessage(
             botID: botID,
             text: text,
             conversationID: destination,
             routing: routing,
-            isParallelTask: isBotCaller && conversationID == nil
+            isParallelTask: isBotCaller && conversationID == nil,
+            executionCwd: isolatedCwd
         )
         guard isBotCaller, let object = result.objectValue,
               let child = object["thread_id"]?.stringValue.flatMap(UUID.init),
@@ -6960,6 +6966,7 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
         if let executionCwdOverride {
             cwd = GrokACPClient.resolvedSessionCwd(executionCwdOverride)
         } else {
+            try await applyLocalRunConflictPolicy(to: &t, alreadyStarted: alreadyStarted)
             cwd = try await prepareAgentExecutionCwd(thread: &t)
         }
         // Provider-instance host environment for the Source provider. Same-host
@@ -9153,6 +9160,10 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
            SettingsStore(db: context.db).load().distillHighParallelism {
             env[AgentHostEnvironmentMerge.highParallelismEnvironmentKey] =
                 AgentHostEnvironmentMerge.highParallelismDepth
+        }
+        // Distill asks MacCode before each edit through a host-owned PreToolUse hook.
+        if provider == .distill, let hooksFile = context?.leaseHooksFileURL() {
+            env[FileLeaseHooks.environmentKey] = hooksFile.path
         }
         if let context, let threadId {
             let telemetryEnv = context.subagentTelemetryEnvironment(

@@ -1,3 +1,4 @@
+import CoreModel
 import Foundation
 import Darwin
 
@@ -282,6 +283,22 @@ public enum GitDiff {
         if ignoreWhitespace { args.append("-w") }
         if let path { args.append("--"); args.append(path) }
         return decoratedStdout(run(args, cwd: cwd))
+    }
+
+    /// Checkout root, shared git common dir and branch of `cwd`. Every worktree of one repository
+    /// reports the same `gitCommonDir`. Nil outside a git checkout or when a probe times out.
+    public static func repoIdentity(in cwd: String) -> RunRepoIdentity? {
+        let paths = run(["rev-parse", "--show-toplevel", "--git-common-dir"], cwd: cwd)
+        guard !paths.timedOut, paths.exit == 0 else { return nil }
+        let lines = paths.stdout.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        guard lines.count >= 2 else { return nil }
+        let root = URL(fileURLWithPath: lines[0]).resolvingSymlinksInPath().path
+        // A relative common dir is relative to `cwd`.
+        let common = (lines[1].hasPrefix("/") ? URL(fileURLWithPath: lines[1]) : URL(fileURLWithPath: lines[1], relativeTo: URL(fileURLWithPath: cwd)))
+            .standardizedFileURL.resolvingSymlinksInPath().path
+        let head = run(["rev-parse", "--abbrev-ref", "HEAD"], cwd: cwd)
+        let branch = head.timedOut || head.exit != 0 ? nil : head.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return RunRepoIdentity(repoRoot: root, gitCommonDir: common, branch: branch?.isEmpty == false ? branch : nil)
     }
 
     /// Runs `git diff HEAD --no-color -- <paths>` in bounded batches and returns a

@@ -174,7 +174,7 @@ public enum RemoteCodeHostCatalog: Sendable {
         case botSkillView:
             return "Read skills/<slug>/SKILL.md for a Bot this authenticated run created or consulted, or the calling Bot. Returns body and digest so the exact contents can be proven."
         case activityList:
-            return "Read canonical MacCode Activity with filters and pagination. For interrupted conversations use section=needs_you, outcome=interrupted. Returns activity items, counts and next_cursor. Set include_context=true only when you also need workspaces, threads, Bots, schedules or exact notification options."
+            return "Read canonical MacCode Activity with filters and pagination. For interrupted conversations use section=needs_you, outcome=interrupted. Returns activity items, counts and next_cursor. Each run item carries repo, branch, objective (thread title or first request) and editing_files (files the run is editing now, running runs only). Set same_repo=true to list only runs in the same repository (all its worktrees) as the calling run, including the caller itself; use it before editing shared files. Set include_context=true only when you also need workspaces, threads, Bots, schedules or exact notification options."
         case hostHelp:
             return "Discover MacCode controls without guessing. Use topic for a workflow, query to search methods/topics, or method for its host validation requirements and related workflows. No arguments lists all controls. Read-only; no operation_id."
         case hostBatch:
@@ -291,6 +291,7 @@ public enum RemoteCodeHostCatalog: Sendable {
                 "since": ["type": "string", "description": "ISO 8601 timestamp."],
                 "cursor": ["type": "string"],
                 "limit": ["type": "integer", "minimum": 1, "maximum": 500],
+                "same_repo": ["type": "boolean", "default": false, "description": "True keeps only runs in the same git repository (every worktree) as the calling run."],
                 "include_context": ["type": "boolean", "default": false],
             ], required: [])
         case hostHelp:

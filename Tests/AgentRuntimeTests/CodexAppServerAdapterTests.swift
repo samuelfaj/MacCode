@@ -3451,6 +3451,133 @@ final class CodexAppServerAdapterTests: ProviderProcessTestCase {
                       "some Codex app-server Plan Mode builds emit the plan as final assistant text; the Agent App still needs a first-class proposed-plan card")
     }
 
+    func test_adapterReportsFilesTouchedByFileChangeItemsOnly() async throws {
+        let client = MockCodexAppServerClient(autoComplete: false)
+        let adapter = CodexAppServerAdapter { _, notificationHandler, _ in
+            client.notificationHandler = notificationHandler
+            return client
+        }
+        let sink = EventSink()
+        _ = try await adapter.sendTurn(AgentRunRequest(
+            threadId: AgentThreadID(),
+            provider: .codex,
+            model: "gpt-5.5",
+            cwd: "/tmp/remotecode-app-server-adapter",
+            prompt: "edit"
+        )) { event in
+            Task { await sink.record(event) }
+        }
+        client.notificationHandler?("item/completed", [
+            "threadId": "codex-thread-1",
+            "turnId": "turn-touch-1",
+            "item": ["id": "cmd-1", "type": "commandExecution", "command": "cat a.swift", "status": "completed"]
+        ])
+        client.notificationHandler?("item/completed", [
+            "threadId": "codex-thread-1",
+            "turnId": "turn-touch-1",
+            "item": [
+                "id": "patch-1", "type": "fileChange", "status": "completed",
+                "changes": [
+                    ["path": "/tmp/remotecode-app-server-adapter/a.swift", "kind": ["type": "update", "move_path": NSNull()], "diff": "@@"],
+                    ["path": "/tmp/remotecode-app-server-adapter/b.swift", "kind": ["type": "add"], "diff": "x"]
+                ]
+            ]
+        ])
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let touches = await sink.snapshot().compactMap { event -> [ProviderFileTouch]? in
+            if case .providerRuntime(let runtime) = event { return ProviderFileTouchParser.touches(in: runtime) }
+            return nil
+        }
+        XCTAssertEqual(touches, [[
+            ProviderFileTouch(path: "/tmp/remotecode-app-server-adapter/a.swift", kind: .edit),
+            ProviderFileTouch(path: "/tmp/remotecode-app-server-adapter/b.swift", kind: .write)
+        ]], "only the fileChange item reports touches; the shell read reports none")
+    }
+
+    private final class StubPreEditChecker: PreEditChecking, @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: [[String]] = []
+        let verdict: PreEditVerdict
+        init(_ verdict: PreEditVerdict) { self.verdict = verdict }
+        var calls: [[String]] { lock.withLock { seen } }
+        func checkEdit(threadId: AgentThreadID, paths: [String], cwd: String?, enforce: Bool) async -> PreEditVerdict {
+            lock.withLock { seen.append(paths) }
+            return verdict
+        }
+    }
+
+    func test_fileChangeApprovalIsDeclinedWhenAnotherRunHoldsTheFileAndNeverReachesTheUser() async throws {
+        // WHY: Codex asks before it edits when a sandbox approval is required; that is the only point where
+        // MacCode can stop a conflicting edit. The user must not be asked to approve a patch that is refused.
+        let client = MockCodexAppServerClient(autoComplete: false)
+        let adapter = CodexAppServerAdapter { _, notificationHandler, serverRequestHandler in
+            client.notificationHandler = notificationHandler
+            client.serverRequestHandler = serverRequestHandler
+            return client
+        }
+        let checker = StubPreEditChecker(.deny("busy"))
+        adapter.preEditChecker = checker
+        let sink = EventSink()
+        _ = try await adapter.sendTurn(AgentRunRequest(
+            threadId: AgentThreadID(), provider: .codex, model: "gpt-5.5",
+            cwd: "/tmp/remotecode-app-server-adapter", prompt: "edit"
+        )) { event in Task { await sink.record(event) } }
+        client.notificationHandler?("item/started", [
+            "threadId": "codex-thread-1", "turnId": "turn-app-server-1",
+            "item": ["id": "patch-1", "type": "fileChange", "status": "inProgress",
+                     "changes": [["path": "/tmp/remotecode-app-server-adapter/a.swift", "kind": ["type": "update"], "diff": "@@"]]]
+        ])
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        let raw = try await client.serverRequestHandler?("rpc-lease-1", "item/fileChange/requestApproval", [
+            "threadId": "codex-thread-1", "turnId": "turn-app-server-1", "itemId": "patch-1"
+        ])
+        XCTAssertEqual((raw as? [String: Any])?["decision"] as? String, "decline")
+        XCTAssertEqual(checker.calls, [["/tmp/remotecode-app-server-adapter/a.swift"]])
+        let opened = await sink.snapshot().contains { if case .requestOpened = $0 { return true } else { return false } }
+        XCTAssertFalse(opened, "a refused edit opens no approval card")
+
+        let legacy = try await client.serverRequestHandler?("rpc-lease-2", "applyPatchApproval", [
+            "threadId": "codex-thread-1", "callId": "c1",
+            "fileChanges": ["/tmp/remotecode-app-server-adapter/b.swift": ["type": "update"]]
+        ])
+        let denied = try XCTUnwrap((legacy as? [String: Any])?["decision"] as? [String: Any])
+        XCTAssertNotNil(denied["denied"], "the legacy dialect answers with a ReviewDecision denial")
+        XCTAssertEqual(checker.calls.last, ["/tmp/remotecode-app-server-adapter/b.swift"])
+    }
+
+    func test_fileChangeApprovalStillAsksTheUserWhenTheCheckAllowsOrWarns() async throws {
+        let client = MockCodexAppServerClient(autoComplete: false)
+        let adapter = CodexAppServerAdapter { _, notificationHandler, serverRequestHandler in
+            client.notificationHandler = notificationHandler
+            client.serverRequestHandler = serverRequestHandler
+            return client
+        }
+        adapter.preEditChecker = StubPreEditChecker(.warn("careful"))
+        let threadId = AgentThreadID()
+        let sink = EventSink()
+        _ = try await adapter.sendTurn(AgentRunRequest(
+            threadId: threadId, provider: .codex, model: "gpt-5.5",
+            cwd: "/tmp/remotecode-app-server-adapter", prompt: "edit"
+        )) { event in Task { await sink.record(event) } }
+        client.notificationHandler?("item/started", [
+            "threadId": "codex-thread-1", "turnId": "turn-app-server-1",
+            "item": ["id": "patch-2", "type": "fileChange", "status": "inProgress",
+                     "changes": [["path": "/tmp/remotecode-app-server-adapter/a.swift", "kind": ["type": "update"], "diff": "@@"]]]
+        ])
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let responseTask = Task {
+            try await client.serverRequestHandler?("rpc-lease-3", "item/fileChange/requestApproval", [
+                "threadId": "codex-thread-1", "turnId": "turn-app-server-1", "itemId": "patch-2"
+            ])
+        }
+        let request = try await waitForApproval(in: sink)
+        try await adapter.respondToRequest(threadId: threadId, requestId: request.id, response: .approve)
+        let raw = try await responseTask.value
+        let response = try XCTUnwrap(raw as? [String: Any])
+        XCTAssertEqual(response["decision"] as? String, "accept", "a warning never decides for the user")
+    }
+
     func test_adapterStartsStreamingAssistantItemOnlyOnceAcrossDeltas() async throws {
         let client = MockCodexAppServerClient(autoComplete: false)
         let adapter = CodexAppServerAdapter { _, notificationHandler, _ in

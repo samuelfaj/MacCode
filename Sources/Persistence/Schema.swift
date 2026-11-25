@@ -83,7 +83,9 @@ public enum Schema {
     /// v103 adds scheduled_tasks.max_concurrent_runs (per-task active-run limit).
     static let scheduledTaskConcurrencySchemaVersion = 103
     static let hiddenParallelTasksSchemaVersion = 104
-    public static let currentVersion: Int = hiddenParallelTasksSchemaVersion
+    /// v105 adds per-run repo identity and the files each run edited (concurrent-work awareness).
+    static let agentRunFileTouchesSchemaVersion = 105
+    public static let currentVersion: Int = agentRunFileTouchesSchemaVersion
 
     /// SQL body for the named checkpoint-list migration (relocatable by version).
     public static let checkpointListMigrationSQL: String = """
@@ -2001,6 +2003,28 @@ public enum Schema {
         SchemaStep(hiddenParallelTasksSchemaVersion, """
         CREATE INDEX idx_hidden_task_threads ON bot_conversations(linked_agent_thread_id COLLATE NOCASE)
         WHERE hidden = 1 AND group_id IS NULL AND linked_agent_thread_id IS NOT NULL;
+        """),
+        SchemaStep(agentRunFileTouchesSchemaVersion, """
+        CREATE TABLE IF NOT EXISTS agent_run_repo_identity (
+            run_id TEXT PRIMARY KEY NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+            thread_id TEXT NOT NULL,
+            repo_root TEXT NOT NULL,
+            git_common_dir TEXT NOT NULL,
+            branch TEXT,
+            resolved_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_repo_identity_common ON agent_run_repo_identity(git_common_dir);
+        CREATE TABLE IF NOT EXISTS agent_run_file_touches (
+            run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+            thread_id TEXT NOT NULL,
+            repo_root TEXT NOT NULL,
+            path TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            first_at TEXT NOT NULL,
+            last_at TEXT NOT NULL,
+            PRIMARY KEY (run_id, path, kind)
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_file_touches_thread ON agent_run_file_touches(thread_id);
         """),
     ]
 

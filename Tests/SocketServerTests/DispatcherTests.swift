@@ -81,6 +81,10 @@ class FakeRouter: CommandRouting, TerminalCommandRouting {
         throw JSONRPCError.notSupported("Bot receipt authorization")
     }
 
+    func checkEditLease(callerThread: AgentThreadID, callerRun: AgentRunID, paths: [String], cwd: String?, delegationCapability: String?) async throws -> JSONValue {
+        throw JSONRPCError.notSupported("File lease check")
+    }
+
     func askBotPeer(
         callerThread: AgentThreadID,
         callerRun: AgentRunID,

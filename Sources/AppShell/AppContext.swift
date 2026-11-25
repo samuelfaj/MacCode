@@ -195,6 +195,16 @@ public final class AppContext {
     public var state = LayoutState()
 
     public let coordinator: AgentRunCoordinator
+    /// Turn-start concurrent-work context and similar-work lookup shared with Bot delegation.
+    public private(set) var concurrentWork: ConcurrentWorkContext?
+    /// File leases that keep concurrent runs off each other's files. Set once in `init`.
+    var fileLeaseService: FileLeaseService?
+    /// Test seam: the service binary the Distill pre-edit hook runs; nil resolves the installed one.
+    var leaseHooksServiceExecutable: String?
+    /// Other live runs in the same repository and the files they are editing.
+    public lazy var concurrentWorkIndex = ConcurrentWorkIndex(db: db) { [coordinator] in
+        Set(coordinator.activeThreadIdsSnapshot().compactMap { coordinator.activeRunId(threadId: $0) })
+    }
     /// Set by the app host before anything builds `botPeerHandoffAuthority`
     /// when the event log is wired later; the host then calls
     /// `publishRestoredThreadChrome()` once it is.
@@ -811,6 +821,17 @@ public final class AppContext {
         // plan-final W0: durable terminal ledger write-before-UI (diagnostics dir).
         let diagnosticsDir = self.appSupportDirectory.appendingPathComponent("diagnostics", isDirectory: true)
         self.coordinator.terminalTransitionLedger = TerminalTransitionLedger(directory: diagnosticsDir)
+        let fileTouchTracker = RunFileTouchTracker(store: AgentRunFileTouchRepository(db: db))
+        let concurrentWork = ConcurrentWorkContext(db: db) { [weak coordinator] in
+            guard let coordinator else { return [] }
+            return Set(coordinator.activeThreadIdsSnapshot().compactMap { coordinator.activeRunId(threadId: $0) })
+        }
+        fileTouchTracker.onRecorded = { [concurrentWork] runId, threadId, identity, paths in
+            concurrentWork.runEdited(runId: runId, threadId: threadId, identity: identity, paths: paths)
+        }
+        self.coordinator.fileTouchTracker = fileTouchTracker
+        self.coordinator.concurrentWorkContext = concurrentWork
+        self.concurrentWork = concurrentWork
         // A fresh Codex session (no resumable thread) is seeded with the prior
         // conversation; its receipts keep a restart from seeding twice.
         codex.contextSeedReceipts = self.runRepo.contextSeedReceipts()
@@ -818,6 +839,7 @@ public final class AppContext {
         let guestRunResolver = makeBotGuestRunResolver(hostsGuestRuns: performLaunchRunReconciliation)
         botGuestRunResolver = guestRunResolver
         distill.setGuestLaunchResolver(guestRunResolver)
+        installConcurrentWork(codex: codex, claude: claude)
         let loopStore = self.distillLoopStore
         distill.onLoopsChanged = { threadId, loops in
             Task { @MainActor in loopStore.update(thread: threadId, loops: loops) }

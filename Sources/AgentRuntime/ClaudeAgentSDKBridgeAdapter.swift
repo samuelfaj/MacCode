@@ -1798,7 +1798,49 @@ public final class ClaudeAgentSDKBridgeAdapter: AgentProviderAdapter, @unchecked
         return request.providerThreadId ?? rollbackProviderThreadIds[request.threadId]
     }
 
+    /// Asked before an edit tool runs. Nil leaves Claude's own edits unchecked.
+    public var preEditChecker: PreEditChecking?
+
+    /// A bridge pre-edit check never reaches the transcript: the host answers it and the edit goes on or stops.
+    private func answerLeaseCheck(_ line: String, session: Session) -> Bool {
+        guard Self.isLeaseCheckRequest(line) else { return false }
+        let checker = preEditChecker
+        let threadId = session.threadId
+        Task { [weak self, weak session] in
+            guard let payload = await Self.leaseCheckResponse(forLine: line, threadId: threadId, checker: checker),
+                  let self, let session else { return }
+            try? self.write(payload, to: session)
+        }
+        return true
+    }
+
+    static func isLeaseCheckRequest(_ line: String) -> Bool {
+        line.contains("lease_check_request") && jsonObject(from: line)?["type"] as? String == "lease_check_request"
+    }
+
+    /// The `lease_check_response` for a bridge request line; the edit is allowed when nothing can be checked.
+    static func leaseCheckResponse(forLine line: String, threadId: AgentThreadID, checker: PreEditChecking?) async -> [String: Any]? {
+        guard let object = jsonObject(from: line), object["type"] as? String == "lease_check_request",
+              let requestId = object["request_id"] as? String else { return nil }
+        let touches = ProviderFileTouchParser.claude(
+            toolName: object["tool_name"] as? String,
+            input: object["tool_input"] as? [String: Any]
+        )
+        var verdict = PreEditVerdict.allow
+        if let checker, !touches.isEmpty {
+            verdict = await checker.checkEdit(threadId: threadId, paths: touches.map(\.path), cwd: nil, enforce: true)
+        }
+        var payload: [String: Any] = ["type": "lease_check_response", "request_id": requestId]
+        switch verdict {
+        case .allow: payload["verdict"] = "allow"
+        case .warn(let text): payload["verdict"] = "warn"; payload["message"] = text
+        case .deny(let text): payload["verdict"] = "deny"; payload["message"] = text
+        }
+        return payload
+    }
+
     private func handleLine(_ line: String, session: Session) {
+        if answerLeaseCheck(line, session: session) { return }
         let interpretation = Self.interpretSDKLine(line, parser: session.parser)
         let bridgeUserInputRequest = interpretation.userInputRequest
         if interpretation.isSDKError { session.sawError = true }

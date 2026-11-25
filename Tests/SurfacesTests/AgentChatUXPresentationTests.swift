@@ -32,6 +32,43 @@ final class AgentChatUXPresentationTests: XCTestCase {
         XCTAssertTrue(items[1].offersRetry)
     }
 
+    func test_systemStrip_similarWorkIsADismissibleInfoRowBelowErrors() {
+        let items = AgentSystemStripPresentation.items(
+            historyReplayNotice: nil, statusMessage: "Run failed", providerSnapshotStatus: nil,
+            standaloneQueueStatus: nil, similarWork: "Similar work already exists: “Fix login”."
+        )
+        let similar = items.first { $0.id == "agent.similar.work" }
+        XCTAssertEqual(similar?.severity, .info)
+        XCTAssertEqual(similar?.offersDismiss, true)
+        XCTAssertEqual(AgentSystemStripPresentation.collapse(items, maxVisible: 1).visible.map(\.id), ["agent.status.message"], "a similar-work hint never pushes out an error")
+        XCTAssertFalse(AgentSystemStripPresentation.items(historyReplayNotice: nil, statusMessage: nil, providerSnapshotStatus: nil, standaloneQueueStatus: nil).contains { $0.id == "agent.similar.work" })
+    }
+
+    func test_similarWorkNoticeNamesUpToThreeThreadsAndIsEmptyWithoutAny() {
+        func work(_ title: String) -> SimilarWork {
+            SimilarWork(threadID: AgentThreadID(), threadTitle: title, isRunning: true, finishedAt: nil, files: [], resultSummary: nil, score: 1)
+        }
+        let saved = AppLocalization.setting
+        defer { AppLocalization.setting = saved }
+        AppLocalization.setting = "en"
+        XCTAssertNil(AgentAppViewModel.similarWorkNoticeText([]))
+        let text = AgentAppViewModel.similarWorkNoticeText([work("A"), work("B  \n b"), work("C"), work("D")])
+        XCTAssertEqual(text, "Similar work already exists: “A”, “B b”, “C”. Check it before repeating it.")
+    }
+
+    func test_similarWorkNoticeRendersTranslatedInEveryLanguage() {
+        let saved = AppLocalization.setting
+        defer { AppLocalization.setting = saved }
+        let work = [SimilarWork(threadID: AgentThreadID(), threadTitle: "Fix login", isRunning: true, finishedAt: nil, files: [], resultSummary: nil, score: 1)]
+        for language in AppLanguage.allCases where language != .en {
+            AppLocalization.setting = language.rawValue
+            let text = AgentAppViewModel.similarWorkNoticeText(work) ?? ""
+            XCTAssertTrue(text.contains("“Fix login”"), "\(language.rawValue): \(text)")
+            XCTAssertFalse(text.contains("Similar work"), "\(language.rawValue) fell back to English: \(text)")
+            XCTAssertFalse(text.contains("%1$@"), text)
+        }
+    }
+
     // MARK: Working strip
 
     func test_workingPhase_prefersAwaitingOverTools() {

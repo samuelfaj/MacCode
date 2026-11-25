@@ -243,6 +243,13 @@ public final class ClaudeParser {
                         turnId: currentTurnId ?? "",
                         now: now
                     ))
+                    // content_block_start seeds "{}" and the deltas append the real object after it.
+                    out.append(contentsOf: fileTouchEvents(
+                        toolId: itemId,
+                        name: indexToToolName[index],
+                        input: parseToolInput(indexToToolInputJSON[index].map { $0.hasPrefix("{}{") ? String($0.dropFirst(2)) : $0 }),
+                        now: now
+                    ))
                 }
                 indexToItemId.removeValue(forKey: index)
                 indexToType.removeValue(forKey: index)
@@ -340,6 +347,7 @@ public final class ClaudeParser {
                     out.append(.itemStarted(item: AssistantItem(id: itemId, turnId: turnId, type: .tool, state: .streaming, summary: name, body: input ?? "", startedAtMs: now)))
                     out.append(.itemCompleted(itemId: itemId, finalState: .completed))
                     out.append(contentsOf: structuredEvents)
+                    out.append(contentsOf: fileTouchEvents(toolId: itemId, name: name, input: block["input"] as? [String: Any], now: now))
                 case "tool_result":
                     let payload = block["content"]
                     let s = (payload as? String) ?? ((try? JSONSerialization.data(withJSONObject: payload ?? [:])).flatMap { String(data: $0, encoding: .utf8) }) ?? ""
@@ -1093,6 +1101,15 @@ public final class ClaudeParser {
             return []
         }
         return []
+    }
+
+    private func fileTouchEvents(toolId: String, name: String?, input: [String: Any]?, now: Int64) -> [AssistantEvent] {
+        ProviderFileTouchParser.runtimeEvent(
+            provider: .claude,
+            touches: ProviderFileTouchParser.claude(toolName: name, input: input),
+            itemId: toolId,
+            receivedAtMs: now
+        ).map { [$0] } ?? []
     }
 
     private static func isExitPlanMode(_ name: String?) -> Bool {

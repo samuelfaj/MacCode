@@ -275,6 +275,7 @@ public enum AgentHostEnvironmentMerge {
             || key == BotPeerDelegation.capabilityEnvironmentKey
             || key == BotPeerDelegation.turnContextEnvironmentKey
             || key == highParallelismEnvironmentKey
+            || key == FileLeaseHooks.environmentKey
     }
 }
 
@@ -291,10 +292,14 @@ public protocol AgentRunObserver: AnyObject {
     /// A provider update for a thread with no open turn: Distill subagents keep
     /// reporting after the turn that started them ended. Not part of any run.
     func runCoordinator(_ c: AgentRunCoordinator, didReceiveOutOfTurn event: ProviderRuntimeEvent, threadId: AgentThreadID)
+    /// A run is starting on a thread whose request reads like live or recently finished work elsewhere.
+    /// Advice only: the run starts regardless.
+    func runCoordinator(_ c: AgentRunCoordinator, didDetectSimilarWork work: [SimilarWork], threadId: AgentThreadID)
 }
 
 public extension AgentRunObserver {
     func runCoordinator(_ c: AgentRunCoordinator, didReceiveOutOfTurn event: ProviderRuntimeEvent, threadId: AgentThreadID) {}
+    func runCoordinator(_ c: AgentRunCoordinator, didDetectSimilarWork work: [SimilarWork], threadId: AgentThreadID) {}
 }
 
 public struct AgentThreadForkResult: Sendable, Equatable {
@@ -787,6 +792,15 @@ public final class AgentRunCoordinator: @unchecked Sendable {
 
     /// Optional durable terminal-transition ledger (write-before-UI). Forensic only.
     public var terminalTransitionLedger: TerminalTransitionLedger?
+
+    /// Records the files each run edits and its repo identity. Without it, file-touch events
+    /// are still dropped from the stream and checkpoints keep the whole-tree change list.
+    public var fileTouchTracker: RunFileTouchTracker?
+
+    /// Adds the `<concurrent_work>` block to every turn and detects similar earlier work. Without it, turns carry neither.
+    public var concurrentWorkContext: ConcurrentWorkContext?
+    /// Holds a lease on each file a run edits so concurrent runs notice each other. Without it nothing is leased.
+    public var fileLeaseService: FileLeaseService?
 
     public init(
         runRepo: AgentRunRepository,
@@ -1541,6 +1555,18 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                 store: botSecretStore
             )
         }
+        // Advice about other runs in this repository rides the same per-turn context every adapter forwards.
+        // A guest run is isolated from the Mac: it neither sees Mac runs nor has the tools the block names.
+        var concurrentContext: ConcurrentWorkContext.TurnContext?
+        if let concurrentWorkContext, attachPromptId == nil, guestPlacement?.runsInGuest != true {
+            let context = await concurrentWorkContext.turnContext(
+                threadId: request.threadId, runId: request.runId, cwd: request.cwd, request: preservedUserContent
+            )
+            effectiveEnvironment[BotPeerDelegation.turnContextEnvironmentKey] = ConcurrentWorkContext.appending(
+                context.block, to: effectiveEnvironment[BotPeerDelegation.turnContextEnvironmentKey]
+            )
+            concurrentContext = context
+        }
         let effectiveReasoningEffort = Self.normalizedProviderReasoningEffort(
             provider: request.provider,
             model: request.model,
@@ -1705,6 +1731,8 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         }
         agentRunLog.info("run.started thread=\(effectiveRequest.threadId.value.uuidString, privacy: .public) run=\(effectiveRequest.runId.value.uuidString, privacy: .public) provider=\(effectiveRequest.provider.rawValue, privacy: .public) model=\(effectiveRequest.model, privacy: .public)")
 
+        fileTouchTracker?.begin(runId: runId, threadId: effectiveRequest.threadId, cwd: effectiveRequest.cwd)
+        fileLeaseService?.begin(runId: runId, threadId: effectiveRequest.threadId, cwd: effectiveRequest.cwd)
         let coordinator = self
         let handle: AgentRunHandle
         do {
@@ -1721,6 +1749,15 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                 threadKey: effectiveRequest.threadId.value.uuidString
             )
             pendingProviderStart.record(handle: handle)
+            // Delivered only now: a start that failed leaves its notices queued and shows no hint.
+            if let concurrentContext {
+                concurrentWorkContext?.commit(concurrentContext, threadId: effectiveRequest.threadId)
+                if !concurrentContext.similar.isEmpty {
+                    for observer in observersSnapshot() {
+                        observer.runCoordinator(self, didDetectSimilarWork: concurrentContext.similar, threadId: effectiveRequest.threadId)
+                    }
+                }
+            }
             lock.lock()
             // An adopted wake turn keeps the live process's original scope.
             if effectiveRequest.attachToProviderPromptId == nil {
@@ -1728,6 +1765,7 @@ public final class AgentRunCoordinator: @unchecked Sendable {
             }
             lock.unlock()
         } catch {
+            discardFileTouches(runId: runId)
             lock.lock()
             let gen = preparationStates[effectiveRequest.threadId]?.generation ?? 0
             // claimSpawn already advanced to running; terminalize that generation.
@@ -1770,6 +1808,7 @@ public final class AgentRunCoordinator: @unchecked Sendable {
             )
         } catch {
             handle.cancel()
+            discardFileTouches(runId: runId)
             markStartFailure(
                 error,
                 request: effectiveRequest,
@@ -6070,6 +6109,16 @@ public final class AgentRunCoordinator: @unchecked Sendable {
             // The adapter already counted the chunk as turn activity; storing it
             // would evict real tool items from the replay window.
             if case .providerRuntime(let runtime) = rawEvent, runtime.isToolCallArgumentChunk { return }
+            // File-touch envelopes are host bookkeeping: never persisted or shown.
+            if case .providerRuntime(let runtime) = rawEvent, let touches = ProviderFileTouchParser.touches(in: runtime) {
+                fileTouchTracker?.record(runId: runId, touches: touches)
+                if runtime.provider == .codex { recordLeases(runId: runId, touches: touches) }
+                return
+            }
+            // Distill refuses a write over a file that changed since the session read it; the user hears about it too.
+            if case .itemDelta(_, _, let output?, _) = rawEvent, let message = StaleWriteRefusal.message(in: output) {
+                fileLeaseService?.reportStaleWrite(runId: runId, path: StaleWriteRefusal.path(in: message), message: message)
+            }
             guard let ev = sanitizeFinalAssistantEvent(rawEvent, runId: runId) else { return }
             persistProviderNativeSubagentLifecycle(
                 from: ev,
@@ -6780,11 +6829,16 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                 )
             }
             onRunFinished?(threadId, runId, status)
+            fileLeaseService?.end(runId: runId)
+            let touchResult = fileTouchTracker.map { tracker in
+                Task { await tracker.complete(runId: runId) }
+            }
             if let minimalCheckpoint {
                 Task { [weak self] in
                     await self?.enrichCheckpoint(
                         minimalCheckpoint,
-                        cwd: runMetadata?.cwd
+                        cwd: runMetadata?.cwd,
+                        touchResult: touchResult
                     )
                 }
             }
@@ -7493,9 +7547,11 @@ public final class AgentRunCoordinator: @unchecked Sendable {
 
     private func enrichCheckpoint(
         _ identity: AgentTurnCheckpointSummary,
-        cwd: String?
+        cwd: String?,
+        touchResult: Task<RunTouchResult?, Never>? = nil
     ) async {
         guard let checkpointRepo else { return }
+        let touched = await touchResult?.value
 #if DEBUG
         if let barrier = checkpointEnrichmentBarrierForTesting {
             await barrier(identity.runId)
@@ -7505,7 +7561,8 @@ public final class AgentRunCoordinator: @unchecked Sendable {
         if let cwd, !cwd.isEmpty {
             let gitSummary = GitDiff.summary(in: cwd)
             if let gitSummary, gitSummary.isGitRepo {
-                let files = gitSummary.files.map {
+                let (changed, narrowed) = Self.checkpointChanges(gitSummary.files, cwd: cwd, touched: touched)
+                let files = changed.map {
                     AgentTurnCheckpointFile(
                         path: $0.path,
                         kind: $0.status.rawValue,
@@ -7522,7 +7579,8 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                     status: .ready,
                     files: files,
                     fileSnapshots: captureFileSnapshots(files: files, cwd: cwd),
-                    diffPatch: GitDiff.diff(in: cwd, path: nil),
+                    // A narrowed list must not ship the whole tree's patch; readers rebuild it from fileDiffs.
+                    diffPatch: narrowed ? nil : GitDiff.diff(in: cwd, path: nil),
                     fileDiffs: captureFileDiffs(files: files, cwd: cwd),
                     assistantMessageId: identity.assistantMessageId,
                     completedAt: identity.completedAt
@@ -7580,6 +7638,34 @@ public final class AgentRunCoordinator: @unchecked Sendable {
                 threadId: identity.threadId
             )
         }
+    }
+
+    /// Frees the run's touch state when the run never reaches a terminal event.
+    private func discardFileTouches(runId: AgentRunID) {
+        fileLeaseService?.end(runId: runId)
+        guard let tracker = fileTouchTracker else { return }
+        Task { _ = await tracker.complete(runId: runId) }
+    }
+
+    /// Codex edits after its own sandbox approval, so MacCode learns about conflicts here, after the edit.
+    /// Distill and Claude ask before editing through their pre-edit hooks; their edit events must not lease again.
+    private func recordLeases(runId: AgentRunID, touches: [ProviderFileTouch]) {
+        guard let service = fileLeaseService, !touches.isEmpty else { return }
+        let paths = touches.map(\.path)
+        Task.detached(priority: .utility) { _ = await service.checkEdit(runId: runId, paths: paths, cwd: nil, enforce: false) }
+    }
+
+    /// Changed files of a run: git's list narrowed to the files the run's own tool calls edited.
+    /// A run with no touch events (provider without edit tools, or edits through a shell) keeps the whole tree.
+    static func checkpointChanges(
+        _ changes: [GitFileEntry],
+        cwd: String,
+        touched: RunTouchResult?
+    ) -> (files: [GitFileEntry], narrowed: Bool) {
+        guard let touched, !touched.touchedPaths.isEmpty else { return (changes, false) }
+        let prefix = RunFileTouchPaths.cwdPrefix(cwd: cwd, repoRoot: touched.identity.repoRoot)
+        let narrowed = RunFileTouchPaths.narrow(changes, path: \.path, touched: touched.touchedPaths, cwdPrefix: prefix)
+        return (narrowed, true)
     }
 
     private func captureFileSnapshots(files: [AgentTurnCheckpointFile], cwd: String) -> [AgentTurnCheckpointFileSnapshot] {

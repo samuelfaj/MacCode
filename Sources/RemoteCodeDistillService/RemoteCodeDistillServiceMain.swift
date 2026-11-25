@@ -40,6 +40,14 @@ struct RemoteCodeDistillServiceMain {
             )
             Darwin.exit(code)
         }
+        if rawArgs.dropFirst().first == LeaseHookCommand.cliArgument {
+            // Distill PreToolUse hook: always exits 0 so a MacCode outage never blocks an edit.
+            let input = isatty(STDIN_FILENO) == 0 ? FileHandle.standardInput.readDataToEndOfFile() : Data()
+            if let output = LeaseHookCommand.runFromProcess(stdin: input, environment: ProcessInfo.processInfo.environment) {
+                print(output)
+            }
+            Darwin.exit(0)
+        }
         if programName == "rc-computer-use-mcp"
             || rawArgs.dropFirst().first == ComputerUseHostQueue.cliArgument {
             await runComputerUseMCP()

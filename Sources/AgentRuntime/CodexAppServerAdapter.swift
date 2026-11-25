@@ -227,6 +227,10 @@ public final class CodexAppServerAdapter: AgentProviderAdapter, @unchecked Senda
     /// still release (and unblock follow-up sends).
     private let pendingFinishInactivityTimeout: TimeInterval
     public var contextSeedReceipts: ConversationContextSeedReceiptRepository?
+    /// Asked before a file change is approved. Nil leaves approvals as they were.
+    public var preEditChecker: PreEditChecking?
+    /// Files of in-flight fileChange items by "thread|item": the v2 approval request carries only the item id.
+    private var fileChangePaths: [String: [String]] = [:]
     private var appliedContextSeeds: Set<String> = []
 
     // Model-list cache (guarded by `lock`).
@@ -1294,6 +1298,14 @@ public final class CodexAppServerAdapter: AgentProviderAdapter, @unchecked Senda
         threadId: AgentThreadID,
         kind: AssistantRequestKind
     ) async throws -> Any? {
+        if kind == .fileChange || kind == .applyPatch, let checker = preEditChecker {
+            let paths = fileChangeApprovalPaths(payload: payload, threadId: threadId)
+            if !paths.isEmpty,
+               case .deny = await checker.checkEdit(threadId: threadId, paths: paths, cwd: nil, enforce: true) {
+                emit([runtimeEvent(method: method, payload: payload)], threadId: threadId)
+                return ["decision": Self.leaseDeniedDecision(for: kind)]
+            }
+        }
         let isPermissionsRequest = method == "item/permissions/requestApproval"
             || method == "item.permissions.requestApproval"
         let requestedPermissions = payload["permissions"] as? [String: Any]
@@ -1554,6 +1566,8 @@ public final class CodexAppServerAdapter: AgentProviderAdapter, @unchecked Senda
                 trackDetachedShellSpawn(in: item, threadId: threadId)
                 scheduleTurnReconciliation(threadId: threadId, turnId: turnId)
             }
+            appendFileTouches(from: item, itemId: itemId, now: now, to: &events)
+            rememberFileChangePaths(item, itemId: itemId, threadId: threadId)
         case "item/autoApprovalReview/started", "item.autoApprovalReview.started", "item/autoApprovalReview/completed", "item.autoApprovalReview.completed":
             let review = payload["review"] as? [String: Any] ?? payload["autoApprovalReview"] as? [String: Any] ?? payload
             let turnId = string(payload, "turnId") ?? string(payload, "turn_id") ?? activeTurnId(threadId: threadId) ?? ""
@@ -1633,6 +1647,8 @@ public final class CodexAppServerAdapter: AgentProviderAdapter, @unchecked Senda
                     summary: summary
                 ))
             }
+            appendFileTouches(from: item, itemId: itemId, now: now, to: &events)
+            forgetFileChangePaths(itemId: itemId, threadId: threadId)
             events.append(.itemCompleted(itemId: itemId, finalState: Self.itemState(for: string(item, "status"))))
             // Codex can complete a final_answer item without ever emitting
             // turn/completed. Arm a single thread/read reconcile loop so the run
@@ -2574,6 +2590,39 @@ public final class CodexAppServerAdapter: AgentProviderAdapter, @unchecked Senda
         }
     }
 
+    private func rememberFileChangePaths(_ item: [String: Any], itemId: String, threadId: AgentThreadID) {
+        let paths = ProviderFileTouchParser.codex(item: item).map(\.path)
+        guard !paths.isEmpty else { return }
+        lock.lock(); defer { lock.unlock() }
+        fileChangePaths["\(threadId.value.uuidString)|\(itemId)"] = paths
+    }
+
+    private func forgetFileChangePaths(itemId: String, threadId: AgentThreadID) {
+        lock.lock(); defer { lock.unlock() }
+        fileChangePaths.removeValue(forKey: "\(threadId.value.uuidString)|\(itemId)")
+    }
+
+    /// Paths a file-change approval asks about: legacy `applyPatchApproval` lists them, v2 refers to an item.
+    private func fileChangeApprovalPaths(payload: [String: Any], threadId: AgentThreadID) -> [String] {
+        if let changes = payload["fileChanges"] as? [String: Any] ?? payload["file_changes"] as? [String: Any] {
+            return changes.keys.sorted()
+        }
+        guard let itemId = string(payload, "itemId") ?? string(payload, "item_id") else { return [] }
+        lock.lock(); defer { lock.unlock() }
+        return fileChangePaths["\(threadId.value.uuidString)|\(itemId)"] ?? []
+    }
+
+    private func appendFileTouches(from item: [String: Any], itemId: String, now: Int64, to events: inout [AssistantEvent]) {
+        if let event = ProviderFileTouchParser.runtimeEvent(
+            provider: .codex,
+            touches: ProviderFileTouchParser.codex(item: item),
+            itemId: itemId,
+            receivedAtMs: now
+        ) {
+            events.append(event)
+        }
+    }
+
     /// Observes command_execution items for shell-detached work. Uses the same
     /// command key fallbacks already used for approval/detail (`command`,
     /// `commandLine`, `cmd`).
@@ -3072,6 +3121,13 @@ public final class CodexAppServerAdapter: AgentProviderAdapter, @unchecked Senda
         case .cancel:
             return "abort"
         }
+    }
+
+    /// A file-change approval refused because another run holds the file, in the method's own dialect.
+    private static func leaseDeniedDecision(for kind: AssistantRequestKind) -> Any {
+        usesReviewDecisionDialect(kind)
+            ? reviewDecision(.decline("Another run is editing this file."))
+            : "decline"
     }
 
     /// Full-access session auto-approve uses the same dialect as interactive decisions.
