@@ -5974,28 +5974,38 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
     }
 
     public func configureAgentThreadRouting(thread: AgentThreadID, provider: AgentProvider?, model: String?, permissionMode: AgentPermissionMode?, reasoningEffort: AgentReasoningEffort?, serviceTier: AgentServiceTier?, modelSelection: AgentModelSelection?, providerInstanceId: String?, runAsUser: AgentRunAsUser?, routing: AgentRoutingRequest?) async throws -> AgentThread {
-        guard let ctx = context else { throw LayoutError.workspaceNotFound }
+        // Every refusal before the first write is a definite rejection: the
+        // remote request ledger then returns the real error and frees the id.
+        // Left unmarked, a refusal (stale routing revision, Auto with no
+        // eligible provider) was recorded as an unknown outcome, and the phone
+        // could only say "recovering" while the model never changed.
+        guard let ctx = context else { throw DefiniteMutationRejection(LayoutError.workspaceNotFound) }
         // Routing chrome only. A leftover 26-column `get` before configure
         // and another `get` after CAS hitch Auto toggle / iOS routing RPC.
         let storedRouting = try ctx.threadRepo.routingConfiguration(of: thread)
         guard let routing else {
             guard storedRouting == nil else {
-                throw AgentRoutingRevisionError.conflict(
+                throw DefiniteMutationRejection(AgentRoutingRevisionError.conflict(
                     expected: 0,
                     actual: storedRouting?.revision ?? 0
-                )
+                ))
             }
-            return try configureAgentThread(thread: thread, provider: provider, model: model, permissionMode: permissionMode, reasoningEffort: reasoningEffort, serviceTier: serviceTier, modelSelection: modelSelection, providerInstanceId: providerInstanceId, runAsUser: runAsUser)
+            do {
+                return try configureAgentThread(thread: thread, provider: provider, model: model, permissionMode: permissionMode, reasoningEffort: reasoningEffort, serviceTier: serviceTier, modelSelection: modelSelection, providerInstanceId: providerInstanceId, runAsUser: runAsUser)
+            } catch let refusal as JSONRPCError {
+                // The provider, instance and run-as-user locks refuse before any write.
+                throw DefiniteMutationRejection(refusal)
+            }
         }
         guard let manualSelection = routing.manualSelection else {
-            throw JSONRPCError.invalidParams
+            throw DefiniteMutationRejection(JSONRPCError.invalidParams)
         }
         let currentEffective: AgentRoutingConfiguration
         if let storedRouting {
             currentEffective = storedRouting
         } else {
             guard let picker = try ctx.threadRepo.threadWithoutRouting(of: thread) else {
-                throw LayoutError.workspaceNotFound
+                throw DefiniteMutationRejection(LayoutError.workspaceNotFound)
             }
             currentEffective = picker.effectiveRoutingConfiguration
         }
@@ -6003,23 +6013,36 @@ public final class AppCommandRouter: CommandRouting, TerminalCommandRouting, Lay
             provider: manualSelection.provider,
             requested: providerInstanceId ?? currentEffective.manualProviderInstanceId
         )
-        let resolvedRouting = try await resolveAgentRouting(
-            routing,
-            current: currentEffective,
-            manualSelection: manualSelection,
-            manualProviderInstanceId: manualInstance
-        )
-        var updated = try configureAgentThread(
-            thread: thread,
-            provider: manualSelection.provider,
-            model: manualSelection.effectiveModel,
-            permissionMode: permissionMode,
-            reasoningEffort: manualSelection.reasoningEffort,
-            serviceTier: manualSelection.serviceTier,
-            modelSelection: manualSelection,
-            providerInstanceId: manualInstance,
-            runAsUser: runAsUser
-        )
+        let resolvedRouting: AgentRoutingConfiguration
+        do {
+            resolvedRouting = try await resolveAgentRouting(
+                routing,
+                current: currentEffective,
+                manualSelection: manualSelection,
+                manualProviderInstanceId: manualInstance
+            )
+        } catch {
+            throw DefiniteMutationRejection(error)
+        }
+        var updated: AgentThread
+        do {
+            updated = try configureAgentThread(
+                thread: thread,
+                provider: manualSelection.provider,
+                model: manualSelection.effectiveModel,
+                permissionMode: permissionMode,
+                reasoningEffort: manualSelection.reasoningEffort,
+                serviceTier: manualSelection.serviceTier,
+                modelSelection: manualSelection,
+                providerInstanceId: manualInstance,
+                runAsUser: runAsUser
+            )
+        } catch let refusal as JSONRPCError {
+            // Provider, instance and run-as-user locks refuse before any write:
+            // a started thread asked to change provider is a refusal, not an
+            // unknown outcome.
+            throw DefiniteMutationRejection(refusal)
+        }
         try ctx.threadRepo.setRoutingConfiguration(
             resolvedRouting,
             threadId: thread,

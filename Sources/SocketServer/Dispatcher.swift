@@ -4128,8 +4128,14 @@ public final class JSONRPCDispatcher {
                 EventBus.shared.publish(kind: .agentThreadCreated, payload: threadPayload(t))
                 return .init(id: id, result: encodeThread(t))
             case "agent.thread.configure":
-                guard let tid = params["thread_id"]?.stringValue.flatMap(UUID.init).map(AgentThreadID.init) else { throw JSONRPCError.invalidParams }
-                let modelSelection = try modelSelection(from: params)
+                // Reading the request touches nothing, so a malformed one is a
+                // definite rejection. Left unmarked, the request ledger recorded
+                // it as an unknown outcome and the phone could not tell why its
+                // model never changed.
+                guard let tid = params["thread_id"]?.stringValue.flatMap(UUID.init).map(AgentThreadID.init) else {
+                    throw DefiniteMutationRejection(JSONRPCError.invalidParams)
+                }
+                let modelSelection = try Self.definiteBeforeEffect { try self.modelSelection(from: params) }
                 let provider = modelSelection?.provider ?? params["provider"]?.stringValue.flatMap(AgentProvider.init)
                 let model = modelSelection?.effectiveModel ?? params["model"]?.stringValue
                 let permission = params["permission_mode"]?.stringValue.flatMap(AgentPermissionMode.init)
@@ -4137,7 +4143,7 @@ public final class JSONRPCDispatcher {
                 let serviceTier = modelSelection?.serviceTier ?? params["service_tier"]?.stringValue.flatMap(AgentServiceTier.init)
                 let providerInstanceId = params["provider_instance_id"]?.stringValue ?? params["providerInstanceId"]?.stringValue
                 let runAsUser = decodeRunAsUser(from: params["run_as_user"] ?? params["runAsUser"])
-                let routing = try routingRequest(from: params, requireManualSelection: true)
+                let routing = try Self.definiteBeforeEffect { try self.routingRequest(from: params, requireManualSelection: true) }
                 var t = try await router.configureAgentThreadRouting(thread: tid, provider: provider, model: model, permissionMode: permission, reasoningEffort: reasoning, serviceTier: serviceTier, modelSelection: modelSelection, providerInstanceId: providerInstanceId, runAsUser: runAsUser, routing: routing)
                 if params["worker_model"] != nil { t = try router.setAgentWorkerModel(thread: tid, model: workerModel(from: params)) }
                 var payload: [String: JSONValue] = [
@@ -6142,6 +6148,12 @@ public final class JSONRPCDispatcher {
     }
 
     static let maxRequestedThreadIDs = 64
+
+    /// Runs request parsing that happens before any write. A refusal there is a
+    /// definite rejection: the ledger returns the real error and frees the id.
+    static func definiteBeforeEffect<T>(_ body: () throws -> T) throws -> T {
+        do { return try body() } catch let refusal as JSONRPCError { throw DefiniteMutationRejection(refusal) }
+    }
 
     /// `thread_ids` of `agent.thread.list`: nil when absent, the named rows
     /// otherwise. A malformed filter is refused instead of read as "all".

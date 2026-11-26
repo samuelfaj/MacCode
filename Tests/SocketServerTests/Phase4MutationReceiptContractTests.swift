@@ -1874,6 +1874,41 @@ final class Phase4MutationReceiptContractTests: XCTestCase {
         XCTAssertEqual(router.sendAgentMessageCallCount, 1)
     }
 
+    /// WHY: a phone that changes a thread's model sends a routing request. When
+    /// the request is malformed the Mac refuses it before touching the thread,
+    /// but the request ledger recorded every such refusal as an unknown outcome:
+    /// the phone could only say it could not confirm, never why the model did
+    /// not change, and the same request id stayed fenced. The real error must
+    /// reach the client and the id must stay free.
+    func test_malformedThreadConfigureReturnsInvalidParamsNotUnknownOutcome() async throws {
+        let router = Phase4ReceiptFakeRouter()
+        let thread = AgentThread(workspaceId: nil, title: "phase4-configure", provider: .codex, model: "gpt-5.5")
+        router.threadStore = [thread]
+        let live = try await Phase4LiveServer.start(router: router, bootEpoch: 2_022)
+        defer { live.stop() }
+        var params = live.mutationParams(requestId: "configure-malformed", threadId: thread.id, text: "unused")
+        params.removeValue(forKey: "text")
+        // A routing mode with no expected revision cannot be read as a request.
+        params["routing_mode"] = "manual"
+
+        let first = try await live.rpc(method: "agent.thread.configure", params: params)
+        let retry = try await live.rpc(method: "agent.thread.configure", params: params)
+        let status = try await live.rpc(method: "command.receipt.status", params: statusParams(
+            live: live,
+            method: "agent.thread.configure",
+            requestId: "configure-malformed"
+        ))
+
+        XCTAssertEqual(errorCode(first), JSONRPCError.invalidParams.code)
+        XCTAssertEqual(errorCode(retry), JSONRPCError.invalidParams.code, "the id is not fenced as unknown")
+        try assertStatusResult(
+            status,
+            status: "absent",
+            method: "agent.thread.configure",
+            requestId: "configure-malformed"
+        )
+    }
+
     /// WHY: C35. A plan-notes save that loses the CAS against a Mac edit is
     /// rejected before saving. iOS only opens its conflict UI on -32009; the
     /// remote ledger used to replace it with -32095 so the UI never fired.
